@@ -1,3 +1,5 @@
+import {saveSessionCountEvidence} from './sessionCountImport.service.js';
+import {codeOf,isMentalHealthCode,isNonStandaloneVisitCode} from './clientFiscalSessions.service.js';
 import crypto from 'node:crypto';
 import pool from '../config/database.js';
 import { enrichExistingClientsFromBillingRows } from './billingClientProfileEnrichment.service.js';
@@ -40,8 +42,11 @@ export async function enrichPayrollBillingImport({ agencyId, payrollImportId, ro
     await db.beginTransaction();
     const profiles = await enrichExistingClientsFromBillingRows({ agencyId, payrollImportId, rows: inputs, actorId, dryRun: false, db });
     const matches = profiles.rows.map(row => ({ ...row, matchStatus: row.matchStatus === 'already_processed' && row.clientId ? 'matched' : row.matchStatus }));
+    const matchByOrdinal=new Map(matches.map(row=>[Number(row.sourceRowNumber),row]));
+    const countRows=sources.filter(({source})=>!source.excludedFromSessionCount).map(({row,source})=>({clientId:matchByOrdinal.get(Number(source.sourceRowNumber))?.matchStatus==='matched'?matchByOrdinal.get(Number(source.sourceRowNumber)).clientId:null,providerUserId:Number(row.userId)||null,serviceDate:(row.serviceDate instanceof Date?row.serviceDate.toISOString():String(row.serviceDate||'')).slice(0,10),serviceCode:codeOf(row.serviceCode)})).filter(row=>row.clientId&&row.providerUserId&&isMentalHealthCode(row.serviceCode)&&!isNonStandaloneVisitCode(row.serviceCode)&&/^\d{4}-\d{2}-\d{2}$/.test(row.serviceDate));
+    const countResult=actorId?await saveSessionCountEvidence({agencyId,sourceKey:crypto.createHash('sha256').update(JSON.stringify({payrollImportId,rows:inputs.map(r=>r.rowFingerprint)})).digest('hex'),sourceKind:'payroll_billing',actorUserId:actorId,rows:countRows,summary:{matchedRows:countRows.length}},db):{importId:null};
     const schools = await resolveSchoolClientRowEvidence({ agencyId, payrollImportId, rows: inputs, matches, actorId, db });
-    const summary = { status: 'completed', ...profiles.counts, schoolRows: schools.verifiedSchoolRows, excludedRows: schools.excludedRows, schoolReviewRows: schools.reviewRows, importedAt: new Date().toISOString() };
+    const summary = { status: 'completed', ...profiles.counts, sessionCountImportId:countResult.importId, sessionCountRows:countRows.length, schoolRows: schools.verifiedSchoolRows, excludedRows: schools.excludedRows, schoolReviewRows: schools.reviewRows, importedAt: new Date().toISOString() };
     await db.execute('UPDATE payroll_imports SET client_profile_summary_json=? WHERE id=? AND agency_id=?', [JSON.stringify(summary), payrollImportId, agencyId]);
     await db.commit();
     return summary;

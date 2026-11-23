@@ -39,7 +39,7 @@
     <div v-else-if="error" class="pcp-error">{{ error }}</div>
     <div v-else-if="loading" class="pcp-muted">Loading compliance digest…</div>
     <div v-else-if="!filteredProviders.length" class="pcp-muted">
-      No outstanding late notes or session-limit items for this view.
+      No outstanding late notes or session review items for this view.
     </div>
 
     <div v-else class="pcp-list">
@@ -113,7 +113,7 @@
           v-if="showSessionLimits && (p.sessionLimits || []).length"
           class="pcp-section"
         >
-          <h4 class="pcp-section-title">Session limits</h4>
+          <h4 class="pcp-section-title">Session review</h4>
           <label
             v-for="item in p.sessionLimits"
             :key="item.id"
@@ -127,7 +127,8 @@
             />
             <span>
               <strong>{{ item.clientLabel }}</strong>
-              — {{ item.total }} services (threshold {{ item.threshold }})
+              — {{ item.total }} visits (review at {{ item.threshold }})
+              <small v-if="item.unavailable"> · Partial count</small><small v-if="item.reportReview"> · Report evidence needs reconciliation</small>
               <span v-if="item.muted" class="pcp-pill">muted</span>
             </span>
           </label>
@@ -190,7 +191,7 @@ const preview = ref(null);
 const filterOptions = [
   { value: 'all', label: 'All compliance' },
   { value: 'late_notes', label: 'Late notes' },
-  { value: 'session_limits', label: 'Session limits' }
+  { value: 'session_limits', label: 'Session review' }
 ];
 
 const showLateNotes = computed(() => filterMode.value === 'all' || filterMode.value === 'late_notes');

@@ -1,0 +1,44 @@
+name: Client portal and canonical session counts
+on:
+  push:
+    branches: [main]
+    paths: ['backend/src/services/*FiscalSessions*','backend/src/services/*CountImport*','backend/src/services/payroll*','backend/src/controllers/psychotherapyCompliance*','backend/src/controllers/billingReports*','backend/src/controllers/payroll*','backend/src/services/clientChartTypes*','backend/src/services/__tests__/sessionCountImport*','backend/src/services/__tests__/clientFiscalSessions*','backend/vitest.session-counts.config.js','frontend/src/components/clients/*Portal*','frontend/src/components/clients/__tests__/*Portal*','frontend/src/components/admin/SessionCountImport*','frontend/src/components/admin/__tests__/SessionCountImport*','.github/workflows/client-portals-session-counts.yml']
+  pull_request:
+    paths: ['backend/src/services/*FiscalSessions*','backend/src/services/*CountImport*','backend/src/services/payroll*','backend/src/controllers/psychotherapyCompliance*','backend/src/controllers/billingReports*','backend/src/controllers/payroll*','backend/src/services/clientChartTypes*','backend/src/services/__tests__/sessionCountImport*','backend/src/services/__tests__/clientFiscalSessions*','backend/vitest.session-counts.config.js','frontend/src/components/clients/*Portal*','frontend/src/components/clients/__tests__/*Portal*','frontend/src/components/admin/SessionCountImport*','frontend/src/components/admin/__tests__/SessionCountImport*','.github/workflows/client-portals-session-counts.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: session-count-test
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -psession-count-test"
+          --health-interval=10s --health-timeout=5s --health-retries=10
+    env:
+      TZ: America/Denver
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+      SCHEDULING_TEST_MYSQL_PORT: '3306'
+      SESSION_COUNT_TEST_MYSQL_PASSWORD: session-count-test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --ignore-scripts --prefix frontend
+      - run: npm ci --ignore-scripts --prefix backend
+      - run: frontend/node_modules/.bin/vitest run --config backend/vitest.session-counts.config.js
+      - working-directory: frontend
+        run: >-
+          node node_modules/vitest/vitest.mjs run
+          src/components/clients/__tests__/ClientAdultPortalInvite.test.js
+          src/components/clients/__tests__/ClientPortalInviteDialog.test.js
+          src/components/clients/__tests__/ClientPortalAccessEditor.test.js
+          src/components/clients/__tests__/ClientPortalOverview.test.js
+          src/components/admin/__tests__/SessionCountImport.test.js

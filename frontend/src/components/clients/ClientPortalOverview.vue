@@ -15,7 +15,8 @@
     </div>
     <div v-show="!assigningDocuments"  class="account-overview">
     <ClientPersonalPortalInvite v-if="canViewAs && personalLoginAvailable" :client-id="Number(client.id)" :agency-id="Number(agency.id)" @updated="refreshAccounts" />
-    <ClientPortalAccessEditor :start-self-review="portalSetup?.state==='confirm_ownership'" v-if="canViewAs"  :client-id="client.id" :agency-id="agency.id" :show-self-preparation="!personalLoginAvailable && (!portalSetup || portalSetup.state==='confirm_ownership')" @saved="refreshAccounts" />
+    <ClientAdultPortalInvite v-if="canViewAs && !personalLoginAvailable" :client-id="Number(client.id)" :agency-id="Number(agency.id)" @updated="refreshAccounts" @edit-contact="$emit('edit-contact')" />
+    <ClientPortalAccessEditor v-if="canViewAs"  :client-id="client.id" :agency-id="agency.id" :show-self-preparation="false" @saved="refreshAccounts" />
     <p v-if="error" role="alert">{{error}}</p><p v-if="loading" role="status">Loading portal overview…</p>
     <p v-if="canViewAs && !loading && !error && !accounts.length">No portal accounts are linked. Portal availability alone does not give anyone access.</p>
     <template v-if="canViewAs"><div class="portal-metrics"><article><strong>{{accounts.length}}</strong><span>Linked portal accounts</span></article><article><strong>{{available.length}}</strong><span>Relationships with access</span></article><article><strong>{{date(latestActivity)}}</strong><span>Last recorded activity in this practice</span></article></div>
@@ -34,6 +35,7 @@ import api from '../../services/api';
 import PortalAccountPreview from '../../auricwell/PortalAccountPreview.vue';
 import ClientUpdateModal from '../admin/ClientUpdateModal.vue';
 import ClientPersonalPortalInvite from './ClientPersonalPortalInvite.vue';
+import ClientAdultPortalInvite from './ClientAdultPortalInvite.vue';
 import ClientPortalAccessEditor from './ClientPortalAccessEditor.vue';
 import { guardianAccountPath } from '../../utils/guardianDirectory.js';
 import { toPlainEnglish } from '../../utils/auditActionRegistry';

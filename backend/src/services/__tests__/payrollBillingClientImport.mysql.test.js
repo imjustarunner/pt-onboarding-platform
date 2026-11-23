@@ -47,9 +47,10 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('payroll billing profil
    for(const statement of splitSqlStatements(sql))await pool.query(statement);
   }
  });
+ beforeAll(async()=>{const sql=await readFile(new URL('../../../../database/migrations/1873_client_session_count_evidence.sql',import.meta.url),'utf8');for(const ddl of splitSqlStatements(sql))await pool.query(ddl);});
  beforeEach(async()=>{
   await pool.query('DROP TRIGGER IF EXISTS synthetic_school_evidence_failure');
-  for(const table of ['payroll_school_client_evidence','billing_client_profile_observations','payroll_import_rows','payroll_imports','payroll_periods','client_billing_identities','client_provider_assignments','client_organization_assignments','agency_service_locations','organization_affiliations','clients','users','agencies'])await pool.query(`DELETE FROM ${table}`);
+  for(const table of ['client_session_count_evidence','client_session_count_imports','payroll_school_client_evidence','billing_client_profile_observations','payroll_import_rows','payroll_imports','payroll_periods','client_billing_identities','client_provider_assignments','client_organization_assignments','agency_service_locations','organization_affiliations','clients','users','agencies'])await pool.query(`DELETE FROM ${table}`);
   await pool.query("INSERT INTO agencies VALUES (2,'Synthetic Agency','agency'),(6,'Foreign Agency','agency'),(100,'Synthetic School','school')");
   await pool.query("INSERT INTO users VALUES (55,'Synthetic','Provider'),(99,'Synthetic','Administrator')");
   await pool.query("INSERT INTO clients(id,agency_id,organization_id,client_type,status,full_name,date_of_birth) VALUES (10,2,100,'school','ACTIVE','Alex Rivera','2010-04-09'),(11,2,2,'clinical','ACTIVE','Maya Chen','2012-01-02'),(20,6,100,'school','ACTIVE','Dana Foreign','2009-05-06')");

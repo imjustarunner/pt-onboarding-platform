@@ -2,9 +2,14 @@
   <div class="invite-backdrop">
     <section class="invite-dialog" role="dialog" aria-modal="true" aria-labelledby="portal-invite-title">
       <h2 id="portal-invite-title">Invite clients to their portal</h2>
+      <nav v-if="singleClient" class="invite-modes" aria-label="Choose portal recipient"><button type="button" :aria-pressed="mode==='self'" :disabled="sending || ownBusy" @click="mode='self'">Client’s own portal</button><button type="button" :aria-pressed="mode==='linked'" :disabled="sending || ownBusy" @click="mode='linked'">Guardian or linked account</button></nav>
+      <template v-if="singleClient && mode==='self'">
+        <ClientPersonalPortalInvite v-if="personalLoginAvailable" :client-id="Number(clientIds[0])" :agency-id="Number(agencyId)" />
+        <ClientAdultPortalInvite v-else :client-id="Number(clientIds[0])" :agency-id="Number(agencyId)" @busy="ownBusy=$event" @edit-contact="$emit('edit-contact')" />
+      </template>
+      <template v-else>
       <p>{{ clientIds.length }} selected clients. Each authorized account receives one invitation per portal, including accounts shared by siblings.</p>
       <p>Select the specific account(s) you intend to invite. Invitations ask recipients to set up their account and complete notification preferences. Text enrollment remains their choice.</p>
-      <ClientPersonalPortalInvite v-if="personalLoginAvailable && clientIds.length === 1 && agencyId" :client-id="Number(clientIds[0])" :agency-id="Number(agencyId)" @updated="load" />
       <h3 v-if="personalLoginAvailable">Linked guardian and client accounts</h3>
       <p v-if="loading" role="status">Checking recipients…</p>
       <p v-if="error" role="alert">{{ error }}</p>
@@ -25,10 +30,11 @@
       </details>
       <p v-if="sentCount" role="status">{{ sentCount }} invitations sent.</p>
       <p v-if="finished">Delivery results are shown above. For an uncertain delivery, check email history before sending another invitation.</p>
+      </template>
       <footer>
-        <button type="button" class="btn btn-secondary" :disabled="sending" @click="$emit('close')">Close</button>
-        <button v-if="needsRefresh || error" type="button" class="btn btn-secondary" :disabled="sending || loading" @click="load">Refresh preview</button>
-        <button type="button" class="btn btn-primary" :disabled="loading || sending || !pending.length" @click="send">
+        <button type="button" class="btn btn-secondary" :disabled="sending || ownBusy" @click="$emit('close')">Close</button>
+        <button v-if="mode==='linked' && (needsRefresh || error)" type="button" class="btn btn-secondary" :disabled="sending || loading" @click="load">Refresh preview</button>
+        <button v-if="mode==='linked'" type="button" class="btn btn-primary" :disabled="loading || sending || !pending.length" @click="send">
           {{ sending ? 'Sending invitations…' : `Send ${pending.length} invitations` }}
         </button>
       </footer>
@@ -36,11 +42,15 @@
   </div>
 </template>
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
 import ClientPersonalPortalInvite from './ClientPersonalPortalInvite.vue';
+import ClientAdultPortalInvite from './ClientAdultPortalInvite.vue';
 const props = defineProps({ recipientGuardianId:{type:Number,default:null}, agencyId: { type: Number, default: null }, personalLoginAvailable: { type: Boolean, default: false }, clientIds: { type: Array, required: true } });
-defineEmits(['close']);
+defineEmits(['close','edit-contact']);
+const singleClient=computed(()=>props.clientIds.length===1 && !!props.agencyId && !props.recipientGuardianId);
+const ownBusy=ref(false);
+const mode=ref(singleClient.value?'self':'linked');
 const loading = ref(false), sending = ref(false), error = ref(''), recipients = ref([]), skipped = ref([]), selected = ref([]), results = ref({}), finished = ref(false), needsRefresh = ref(false);
 const staleKeys = new Set();
 const pending = computed(() => recipients.value.filter(r => selected.value.includes(r.key) && !results.value[r.key]));
@@ -77,8 +87,8 @@ async function send() {
   }
   sending.value = false; finished.value = true;
 }
-onMounted(load);
+watch(mode,value=>{if(value==='linked')load();},{immediate:true});
 </script>
 <style scoped>
-.invite-backdrop{position:fixed;inset:0;background:#10213b99;z-index:2000;display:grid;place-items:center;padding:20px}.invite-dialog{background:white;color:#233653;border-radius:14px;padding:24px;width:min(720px,100%);max-height:90vh;overflow:auto}.invite-dialog h2{margin-top:0}.invite-dialog p{line-height:1.6}.invite-recipients{list-style:none;padding:0}.invite-recipients li{padding:12px 0;border-bottom:1px solid #dce4ee}.invite-recipients small,.invite-recipients li>span{display:block;margin:6px 0 0 24px}.invite-dialog footer{display:flex;justify-content:flex-end;gap:12px;margin-top:20px}
+.invite-backdrop{position:fixed;inset:0;background:#10213b99;z-index:2000;display:grid;place-items:center;padding:20px}.invite-dialog{background:white;color:#233653;border-radius:14px;padding:24px;width:min(720px,100%);max-height:90vh;overflow:auto}.invite-dialog h2{margin-top:0}.invite-dialog p{line-height:1.6}.invite-recipients{list-style:none;padding:0}.invite-recipients li{padding:12px 0;border-bottom:1px solid #dce4ee}.invite-recipients small,.invite-recipients li>span{display:block;margin:6px 0 0 24px}.invite-modes{display:flex;gap:12px;margin-bottom:12px}.invite-modes button{padding:10px;font:inherit}.invite-modes [aria-pressed=true]{background:#e4f1eb;border-color:#67947e}.invite-dialog footer{display:flex;justify-content:flex-end;gap:12px;margin-top:20px}
 </style>

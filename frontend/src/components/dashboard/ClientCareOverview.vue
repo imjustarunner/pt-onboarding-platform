@@ -17,6 +17,7 @@
       <strong>{{ fiscal.unavailable ? 'Partial count: ' : '' }}{{ fiscal.total }} {{ fiscal.total===1?'session':'sessions' }}</strong>
       <p>Completed visits identified in this agency, including H0004. Billing units do not multiply visits. Other agencies and unrecorded visits may be missing.</p>
       <p v-if="fiscal.imported">{{ fiscal.imported }} imported encounter{{ fiscal.imported===1?'':'s' }} included. Unlinked imports may contain duplicate service lines; verify against the source.</p>
+      <p v-if="fiscal.reportReview">{{ fiscal.reportAdded }} additional report-only visits included. {{ fiscal.reportReview }} reported service rows need encounter reconciliation; overlapping files do not add the same daily count again.</p>
       <p v-if="fiscal.unknownCodeRows">{{ fiscal.unknownCodeRows }} record{{ fiscal.unknownCodeRows===1?'':'s' }} with an unrecognized service code need review and are excluded.</p>
       <p>Outpatient psychotherapy identified: {{ fiscal.psychotherapyTotal || 0 }} session{{ fiscal.psychotherapyTotal===1?'':'s' }}<span v-if="fiscal.psychotherapyCountIncomplete">, plus earlier visits not classified by code</span>. Crisis sessions are excluded from this policy count.</p>
       <p v-if="fiscal.psychotherapyReviewSuggested" class="care-reminder">Before another psychotherapy visit, check the member’s payer requirements for services beyond 24 sessions this fiscal year. Continued medically necessary care can be authorized.</p>

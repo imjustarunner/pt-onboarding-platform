@@ -15,7 +15,7 @@
         :guardian-id="Number(account.guardian_user_id)" @disconnected="onDisconnected" />
       </template>
     </article>
-    <p v-if="!loading && !accounts.length">Add the selected client or guardian account under Account → Guardians. Other contacts do not receive accounts automatically.</p>
+    <p v-if="!loading && !accounts.length">No linked accounts yet. Prepare the client’s own account to invite them. Add a guardian separately under Account → Guardians.</p>
     <button v-if="showSelfPreparation && !selfIdentity && !accounts.some(account=>account.relationship_type==='self')" type="button" :disabled="busy" @click="loadClientIdentity">Prepare client’s own portal account</button>
     <form v-if="selfIdentity" @submit.prevent="prepareSelf"><p><strong>{{selfIdentity.full_name}}</strong> · {{selfIdentity.email}}</p><label class="self-confirm"><input v-model="selfConfirmed" type="checkbox" required /> I verified that this is the client’s own email and that the client should receive their own portal access. This email does not belong to a guardian.</label><button :disabled="busy || !selfConfirmed">Prepare client account without sending email</button></form>
   </section>
@@ -63,7 +63,7 @@ async function onDisconnected() { await load(); notice.value = 'Guardian disconn
 watch(()=>[props.clientId,props.agencyId,props.refreshKey,props.startSelfReview],async()=>{
   const pending=load(), own=generation;
   await pending;
-  if(own===generation && !error.value && props.startSelfReview && !accounts.value.some(row=>row.relationship_type==='self')) await loadClientIdentity();
+  if(own===generation && !error.value && props.showSelfPreparation && props.startSelfReview && !accounts.value.some(row=>row.relationship_type==='self')) await loadClientIdentity();
 },{immediate:true});onBeforeUnmount(()=>{generation++;});
 </script>
 <style scoped>.portal-access-editor{padding:16px;border:1px solid #d5e1ed;border-radius:10px;margin:16px 0}.portal-access-editor article{padding:14px 0;border-top:1px solid #d5e1ed}.portal-access-editor small{display:block;margin-top:5px}.portal-access-editor label{display:grid;gap:6px;margin:12px 0}.portal-access-editor select,.portal-access-editor input{padding:10px;max-width:100%;font:inherit;border:1px solid #b6c9dc;border-radius:6px}.portal-access-editor button{padding:10px 15px;font:inherit}.portal-access-editor [role=alert]{color:#a12727}</style>

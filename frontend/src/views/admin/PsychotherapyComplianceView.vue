@@ -2,11 +2,10 @@
   <div class="container">
     <div class="page-header">
       <div>
-        <h1 style="margin: 0;">Psychotherapy Compliance</h1>
+        <h1 style="margin: 0;">Mental-health Session Review</h1>
         <RouterLink :to="{ name: 'NarrivaComplianceReports' }">Narriva Compliance Reports →</RouterLink>
         <div class="subhead">
-          Upload billing reports to track psychotherapy CPT totals (FY Jul 1–Jun 30) and notify at 20 / 24 / 30 / 40 services.
-          Billing report imports also feed these totals automatically.
+          The same July 1–June 30 visit totals shown on charts and in payroll compliance, across providers in this agency. Review markers at 20 / 24 / 30 / 40 are reminders, not universal coverage limits.
         </div>
       </div>
     </div>
@@ -14,35 +13,7 @@
     <div v-if="!agencyId" class="hint">Select an organization first.</div>
 
     <div v-else class="grid">
-      <div class="panel">
-        <div class="panel-title">Upload billing report</div>
-        <div class="row">
-          <label class="field">
-            <span class="label">Fiscal year</span>
-            <select class="select" v-model="fiscalYearStart">
-              <option v-for="fy in fiscalYearOptions" :key="fy.startYmd" :value="fy.startYmd">
-                {{ fy.label }}
-              </option>
-            </select>
-          </label>
-          <label class="field">
-            <span class="label">File</span>
-            <input class="input" type="file" accept=".csv,.xlsx,.xls" @change="onFileChange" />
-          </label>
-          <button class="btn btn-primary" type="button" :disabled="uploading || !file" @click="upload">
-            {{ uploading ? 'Uploading…' : 'Upload' }}
-          </button>
-          <button class="btn btn-secondary" type="button" :disabled="loading" @click="loadSummary">
-            Refresh summary
-          </button>
-        </div>
-
-        <div v-if="uploadResult" class="result">
-          <div class="muted-small">Upload result</div>
-          <pre class="pre">{{ uploadResult }}</pre>
-        </div>
-        <div v-if="uploadError" class="error">{{ uploadError }}</div>
-      </div>
+      <SessionCountImport :agency-id="agencyId" @imported="loadSummary" />
 
       <div class="panel">
         <div class="panel-title">Client lookup (for matching)</div>
@@ -75,7 +46,7 @@
       </div>
 
       <div class="panel">
-        <div class="panel-title">Matched school clients</div>
+        <div class="panel-title">Matched clients</div>
         <div v-if="loading" class="muted">Loading…</div>
         <div v-else-if="error" class="error">{{ error }}</div>
         <table v-else class="table">
@@ -95,7 +66,7 @@
               <td class="muted-small">{{ r.patient_initials_normalized || '—' }}</td>
               <td>{{ r.provider_name || (r.provider_user_id ? `User #${r.provider_user_id}` : '—') }}</td>
               <td class="codes">{{ formatCodes(r.per_code) }}</td>
-              <td><strong>{{ r.total }}</strong></td>
+              <td><strong>{{ r.total }}</strong><small v-if="r.unavailable"> · Partial count</small><small v-if="r.report_review"> · Report evidence needs review</small><small> · Psychotherapy: {{ r.psychotherapy_total || 0 }}<span v-if="r.psychotherapy_count_incomplete"> + earlier unclassified visits</span></small></td>
               <td>
                 <span class="status" :class="{ alert: r.surpassed_24 || (r.threshold && r.threshold >= 20) }">
                   {{ r.threshold ? `At ${r.threshold}+` : (r.surpassed_24 ? 'Over 24' : 'OK') }}
@@ -131,12 +102,8 @@
               <td class="muted-small">{{ r.patient_initials_normalized || '—' }}</td>
               <td>{{ r.provider_name || (r.provider_user_id ? `User #${r.provider_user_id}` : '—') }}</td>
               <td class="codes">{{ formatCodes(r.per_code) }}</td>
-              <td><strong>{{ r.total }}</strong></td>
-              <td>
-                <span class="status" :class="{ alert: r.surpassed_24 || (r.threshold && r.threshold >= 20) }">
-                  {{ r.threshold ? `At ${r.threshold}+` : (r.surpassed_24 ? 'Over 24' : 'OK') }}
-                </span>
-              </td>
+              <td><strong>{{ r.total }}</strong> source rows</td>
+              <td><span class="status">Needs client match · excluded from totals</span></td>
               <td class="match-cell">
                 <input
                   v-model="matchClientIdByHash[r.client_key_hash]"
@@ -169,6 +136,7 @@
 </template>
 
 <script setup>
+import SessionCountImport from '../../components/admin/SessionCountImport.vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';

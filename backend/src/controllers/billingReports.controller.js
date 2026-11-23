@@ -1,7 +1,8 @@
 import multer from 'multer';
 import pool from '../config/database.js';
 import clinicalPool from '../config/clinicalDatabase.js';
-import { requirePayrollAccess } from './payroll.controller.js';
+import {previewSessionCountImport,applySessionCountImport,sessionCountSourceKey} from '../services/sessionCountImport.service.js';
+import { requirePayrollAccess,parsePayrollFile } from './payroll.controller.js';
 import {
   ingestBillingReport,
   revertBillingReportUpload,
@@ -466,3 +467,18 @@ export const runBillingAutoTerminate = async (req, res, next) => {
     next(e);
   }
 };
+
+// Historical catch-up uses the payroll parser but writes count evidence only.
+export const uploadSessionCounts = [upload.single('file'), async(req,res,next)=>{
+  try{
+    const agencyId=await requirePayrollAccess(req,res,req.body?.agencyId);if(!agencyId)return;
+    if(!req.file)return res.status(400).json({error:{message:'Select the payroll-format CSV or Excel billing report.'}});
+    let providerMap={};try{providerMap=JSON.parse(req.body.providerMap||'{}');}catch{return res.status(400).json({error:{message:'Invalid provider selection.'}});}
+    if(!providerMap||typeof providerMap!=='object'||Array.isArray(providerMap))return res.status(400).json({error:{message:'Invalid provider selection.'}});
+    const rows=parsePayrollFile(req.file.buffer,req.file.originalname,{includeUnmatchedProviders:true})?.rows||[];
+    const input={agencyId,rows,providerMap,sourceKey:sessionCountSourceKey(req.file.buffer),actorUserId:req.user.id,expectedSnapshot:req.body.snapshot};
+    const result=req.body.action==='apply'?await applySessionCountImport(input):await previewSessionCountImport(input);
+    res.json(result);
+  }catch(error){next(error);}
+}];
+export async function listSessionCountImports(req,res,next){try{const agencyId=await requirePayrollAccess(req,res,req.query.agencyId);if(!agencyId)return;const [imports]=await pool.execute('SELECT id,source_kind,summary_json,actor_user_id,created_at FROM client_session_count_imports WHERE agency_id=? ORDER BY id DESC LIMIT 100',[agencyId]);res.json({imports});}catch(error){next(error);}}

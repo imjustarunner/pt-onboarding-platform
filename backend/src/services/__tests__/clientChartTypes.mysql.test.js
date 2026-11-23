@@ -2,7 +2,7 @@ import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest';
 import mysql from 'mysql2/promise';
 import {attachGuardianSchoolAffiliations} from '../guardianSchoolAffiliations.service.js';
 import {readFileSync} from 'node:fs';
-import {classifyClient,readChartTypes,requireTypeAccess,saveChartTypes} from '../clientChartTypes.service.js';
+import {classifyClient,personalContactReviewReason,readChartTypes,requireTypeAccess,saveChartTypes} from '../clientChartTypes.service.js';
 import {putClientContactEmail} from '../../controllers/clientContactEmail.controller.js';
 import {browseHubPeople, resolveHubPerson} from '../messagesHub.service.js';
 import {resolveEmailClientFiling,linkConversationClients,listClientEmailThreads} from '../clientConversationRecord.service.js';
@@ -29,15 +29,16 @@ it('derives Dependent from an authorized relationship or a current minor without
   expect(types({links:[{relationship_type:'guardian',permissions_json:{relationshipRevoked:true}}]})).toEqual([]);
   expect(types({links:[{relationship_type:'guardian',permissions_json:{learningOnly:true,serviceAgencyIds:[9]}}]})).toEqual([]);
 });
-const socketPath=process.env.HUB_SCOPE_MYSQL_SOCKET;
+const socketPath=process.env.HUB_SCOPE_MYSQL_SOCKET,port=Number(process.env.SCHEDULING_TEST_MYSQL_PORT||0);
+const connection={...(socketPath?{socketPath}:{host:'127.0.0.1',port}),user:'root',password:process.env.SESSION_COUNT_TEST_MYSQL_PASSWORD||''};
 const database=`client_chart_types_test_${process.pid}`;
 const admin={id:1,role:'admin'};
-describe.skipIf(!socketPath)('chart services and client email on isolated MySQL',()=>{
+describe.skipIf(!socketPath&&!port)('chart services and client email on isolated MySQL',()=>{
   let server;
   beforeAll(async()=>{
-    server=await mysql.createConnection({socketPath,user:'root'});
+    server=await mysql.createConnection(connection);
     await server.query(`CREATE DATABASE ${database}`);
-    state.db=mysql.createPool({socketPath,user:'root',database,connectionLimit:3});
+    state.db=mysql.createPool({...connection,database,connectionLimit:3});
     const DDL=[
       'CREATE TABLE clients(id INT PRIMARY KEY,agency_id INT,organization_id INT,provider_id INT,full_name VARCHAR(80),initials VARCHAR(12),client_type VARCHAR(24),email VARCHAR(255),date_of_birth DATE,status VARCHAR(20),client_status_id INT,contact_phone VARCHAR(32),identifier_code VARCHAR(24),session_sms_opt_in INT,guardian_portal_enabled INT,compliance_archived_at DATETIME)',
       'CREATE TABLE agencies(id INT PRIMARY KEY,name VARCHAR(80),organization_type VARCHAR(24),is_active INT,is_archived INT,logo_path TEXT,logo_url TEXT,slug VARCHAR(80),feature_flags JSON)',
@@ -77,6 +78,18 @@ describe.skipIf(!socketPath)('chart services and client email on isolated MySQL'
   afterAll(async()=>{
     await state.db?.end();
     if(server){await server.query(`DROP DATABASE IF EXISTS ${database}`);await server.end();}
+  });
+  it('handles mixed production email collations while preserving shared-address and existing-login review',async()=>{
+    await state.db.query('ALTER TABLE clients MODIFY email VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci');
+    for(const field of ['email','username','personal_email'])await state.db.query(`ALTER TABLE users MODIFY ${field} VARCHAR(80) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
+    await state.db.query("INSERT INTO clients(id,agency_id,email) VALUES(901,2,' Unique@Synthetic.example '),(902,2,'other@synthetic.example')");
+    expect(await personalContactReviewReason(901,state.db)).toBeNull();
+    await state.db.query("UPDATE clients SET email='unique@synthetic.example' WHERE id=902");
+    expect(await personalContactReviewReason(901,state.db)).toBe('shared_email');
+    await state.db.query('DELETE FROM clients WHERE id=902');
+    await state.db.query("INSERT INTO users(id,role,username) VALUES(903,'provider','unique@synthetic.example')");
+    expect(await personalContactReviewReason(901,state.db)).toBe('review_identity');
+    await state.db.query('DELETE FROM users WHERE id=903');await state.db.query('DELETE FROM clients WHERE id=901');
   });
   it('inventories school and organization mappings before any type selections exist',async()=>{
     await state.db.query("UPDATE agencies SET slug='counseling-and-psychotherapy-2' WHERE id=4");

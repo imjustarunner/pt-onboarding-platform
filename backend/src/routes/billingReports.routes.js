@@ -1,7 +1,7 @@
 import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
 import {
-  uploadBillingReport,
+  uploadBillingReport,uploadSessionCounts,listSessionCountImports,
   listBillingReportUploads,
   getBillingReportUpload,
   getBillingSessionTotals,
@@ -20,6 +20,8 @@ const router = express.Router();
 
 router.use(authenticate);
 
+router.post('/session-counts', ...uploadSessionCounts);
+router.get('/session-counts', listSessionCountImports);
 router.post('/uploads', ...uploadBillingReport);
 router.get('/uploads', listBillingReportUploads);
 router.get('/uploads/:id', getBillingReportUpload);

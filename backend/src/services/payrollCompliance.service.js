@@ -1,6 +1,7 @@
+import {loadAgencyFiscalSessions} from './clientFiscalSessions.service.js';
 import complianceDelivery from './payrollComplianceDelivery.service.js';
 /**
- * Payroll Compliance digest: late notes + psychotherapy session limits.
+ * Payroll Compliance digest: late notes + canonical mental-health visit review.
  * Used by the payroll wizard Compliance step.
  */
 import pool from '../config/database.js';
@@ -75,39 +76,9 @@ function lateNoteLineLabel(row) {
   return `${date} - Outstanding note`;
 }
 
-function thresholdMessage({ threshold, total, clientLabel, perCode }) {
-  const breakdown = Object.entries(perCode || {})
-    .sort(([a], [b]) => String(a).localeCompare(String(b)))
-    .map(([code, count]) => `${code} (${count})`)
-    .join(' ');
-  const label = clientLabel || 'Client';
-  const base = `${label}${breakdown ? ` ${breakdown}` : ''} total (${total})`;
-  if (threshold === 20) {
-    return (
-      `${base}\n\n` +
-      'This client is 4 psychotherapy services away from 24. Please plan to re-evaluate medical necessity for ongoing treatment as defined in Colorado Code of Regulations (CCR) ' +
-      '10 CCR 2505-10 8.076.1.8 and 10 CCR 2505-10 8.280.4.E. (for children) due to senate bill 22-156.'
-    );
-  }
-  if (threshold === 24) {
-    return (
-      `${base}\n\n` +
-      'This client has reached 24 psychotherapy services. Please ensure you re-evaluate or have re-evaluated medical necessity for treatment for ongoing services as defined in Colorado Code of Regulations (CCR) ' +
-      '10 CCR 2505-10 8.076.1.8 and 10 CCR 2505-10 8.280.4.E. (for children) due to senate bill 22-156.'
-    );
-  }
-  if (threshold === 30) {
-    return (
-      `${base}\n\n` +
-      'URGENT: This client has reached 30 psychotherapy services. Ongoing services without documented clinical medical necessity require immediate attention under Colorado Code of Regulations (CCR) ' +
-      '10 CCR 2505-10 8.076.1.8 and 10 CCR 2505-10 8.280.4.E. (for children) due to senate bill 22-156.'
-    );
-  }
-  return (
-    `${base}\n\n` +
-    'CRITICAL: This client has reached 40 psychotherapy services. Clinical medical necessity for ongoing treatment must be addressed immediately under Colorado Code of Regulations (CCR) ' +
-    '10 CCR 2505-10 8.076.1.8 and 10 CCR 2505-10 8.280.4.E. (for children) due to senate bill 22-156.'
-  );
+function thresholdMessage({total,clientLabel,perCode}) {
+  const breakdown=Object.entries(perCode||{}).map(([code,count])=>`${code} (${count})`).join(' ');
+  return `${clientLabel||'Client'}: ${total} mental-health visits since July 1 across providers in this agency. ${breakdown}\n\nReview ongoing medical necessity and the member’s payer authorization requirements. This is a visit review reminder, not a universal coverage limit. Report-only visits and incomplete source data require reconciliation.`;
 }
 
 /** Healthcare tenants (mental_health; legacy alias healthcare) that use billing/payroll. */
@@ -285,81 +256,15 @@ export async function listCurrentComplianceRows(payrollPeriodId) {
   }));
 }
 
-async function listSessionLimitItems({ agencyId, mutedClientIds = new Set() }) {
-  const fyStart = computeFiscalYearStartJulYmd(new Date());
-  const startYear = Number(fyStart.slice(0, 4));
-  const fyEnd = `${startYear + 1}-06-30`;
-  const effectiveStart = fyStart < PSYCHOTHERAPY_MIN_SERVICE_YMD ? PSYCHOTHERAPY_MIN_SERVICE_YMD : fyStart;
-
-  const codeList = [...PSYCHOTHERAPY_CODES];
-  const ph = codeList.map(() => '?').join(',');
-  const [rows] = await pool.execute(
-    `SELECT
-       be.provider_user_id,
-       be.client_id,
-       c.full_name AS client_name,
-       c.initials AS client_initials,
-       be.service_code,
-       COUNT(*) AS code_count
-     FROM billing_encounters be
-     LEFT JOIN clients c ON c.id = be.client_id
-     WHERE be.agency_id = ?
-       AND be.provider_user_id IS NOT NULL
-       AND be.service_date >= ?
-       AND be.service_date <= ?
-       AND UPPER(TRIM(be.service_code)) IN (${ph})
-     GROUP BY be.provider_user_id, be.client_id, c.full_name, c.initials, be.service_code`,
-    [Number(agencyId), effectiveStart, fyEnd, ...codeList]
-  );
-
-  const byKey = new Map();
-  for (const r of rows || []) {
-    const providerUserId = Number(r.provider_user_id || 0);
-    const clientId = Number(r.client_id || 0);
-    if (!providerUserId || !clientId) continue;
-    const k = `${providerUserId}|${clientId}`;
-    if (!byKey.has(k)) {
-      byKey.set(k, {
-        providerUserId,
-        clientId,
-        clientLabel: String(r.client_initials || r.client_name || `Client #${clientId}`).trim(),
-        fiscalYearStart: fyStart,
-        perCode: {},
-        total: 0,
-        muted: mutedClientIds.has(clientId)
-      });
-    }
-    const rec = byKey.get(k);
-    const code = String(r.service_code || '').trim().toUpperCase();
-    const n = Number(r.code_count || 0);
-    rec.perCode[code] = (rec.perCode[code] || 0) + n;
-    rec.total += n;
-  }
-
-  const items = [];
-  for (const rec of byKey.values()) {
-    let highest = null;
-    for (const t of SESSION_LIMIT_THRESHOLDS) {
-      if (rec.total >= t) highest = t;
-    }
-    if (!highest) continue;
-    items.push({
-      id: `sl:${rec.providerUserId}:${rec.clientId}:${highest}`,
-      providerUserId: rec.providerUserId,
-      clientId: rec.clientId,
-      clientLabel: rec.clientLabel,
-      fiscalYearStart: rec.fiscalYearStart,
-      total: rec.total,
-      threshold: highest,
-      perCode: rec.perCode,
-      muted: !!rec.muted,
-      message: thresholdMessage({
-        threshold: highest,
-        total: rec.total,
-        clientLabel: rec.clientLabel,
-        perCode: rec.perCode
-      })
-    });
+export async function listSessionLimitItems({agencyId,mutedClientIds=new Set()}) {
+  const totals=await loadAgencyFiscalSessions({agencyId});
+  const [clients]=await pool.execute('SELECT id,initials,full_name FROM clients WHERE agency_id=?',[agencyId]);
+  const labels=new Map(clients.map(c=>[Number(c.id),String(c.initials||c.full_name||`Client #${c.id}`)]));
+  const [assignments]=await pool.execute('SELECT cpa.client_id,cpa.provider_user_id FROM client_provider_assignments cpa JOIN clients c ON c.id=cpa.client_id WHERE c.agency_id=? AND cpa.is_active=1',[agencyId]);
+  const assigned=new Map();for(const row of assignments){const id=Number(row.client_id);if(!assigned.has(id))assigned.set(id,new Set());assigned.get(id).add(Number(row.provider_user_id));}
+  const items=[];
+  for(const [clientId,count] of totals){const threshold=SESSION_LIMIT_THRESHOLDS.filter(t=>count.total>=t).at(-1);if(!threshold)continue;
+    for(const providerUserId of new Set([...count.providerIds,...assigned.get(clientId)||[]])){const rec={id:`sl:${providerUserId}:${clientId}:${threshold}`,providerUserId,clientId,clientLabel:labels.get(clientId)||`Client #${clientId}`,fiscalYearStart:count.period.start,total:count.total,threshold,perCode:count.perCode,psychotherapyTotal:count.psychotherapyTotal,unavailable:count.unavailable,reportReview:count.reportReview,muted:mutedClientIds.has(clientId)};items.push({...rec,message:thresholdMessage(rec)});}
   }
   return items;
 }
@@ -669,7 +574,7 @@ export function buildComplianceEmailBody({
   }
   if (sessionLines.length) {
     if (parts.length) parts.push('---', '');
-    parts.push('Psychotherapy session limits:', '', ...sessionLines);
+    parts.push('Mental-health visit review:', '', ...sessionLines);
   }
   parts.push('Compliance Team');
 
@@ -683,7 +588,7 @@ export function buildComplianceEmailBody({
 
   const subjectBits = [];
   if (lateLines.length) subjectBits.push('Late notes');
-  if (sessionLines.length) subjectBits.push('Session limits');
+  if (sessionLines.length) subjectBits.push('Session review');
   const subject = `Compliance: ${subjectBits.join(' & ') || 'Update'} — ${provider.name || 'Provider'}`;
 
   return { subject, text, html, hasContent: true };
@@ -844,14 +749,7 @@ export async function notifyPsychotherapyThresholdsFromEncounters({ agencyId }) 
         {
           type: 'psychotherapy_threshold_exceeded',
           severity,
-          title:
-            t === 20
-              ? 'Approaching psychotherapy session limit'
-              : t === 24
-                ? 'Psychotherapy threshold reached (24)'
-                : t === 30
-                  ? 'Psychotherapy threshold escalated (30)'
-                  : 'Psychotherapy threshold critical (40)',
+          title: `Mental-health visit review (${t}+)`,
           message: msg,
           userId: item.providerUserId,
           agencyId: Number(agencyId),
@@ -869,7 +767,7 @@ export async function notifyPsychotherapyThresholdsFromEncounters({ agencyId }) 
           {
             type: 'psychotherapy_threshold_exceeded',
             severity,
-            title: `Supervisee: psychotherapy threshold ${t}`,
+            title: `Supervisee: mental-health visit review ${t}+`,
             message: msg,
             userId: s.id,
             agencyId: Number(agencyId),

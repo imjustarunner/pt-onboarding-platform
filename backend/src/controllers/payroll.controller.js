@@ -2506,7 +2506,7 @@ export function parsePayrollRows(records, opts = {}) {
     if (!providerName && !serviceCode) return null;
     // Some exports include intermittent footer/summary rows where one key field is blank.
     // Prefer skipping those instead of failing the entire import.
-    if (!providerName || !serviceCode) return null;
+    if ((!providerName && !opts.includeUnmatchedProviders) || !serviceCode) return null;
 
     // Sanitize units: default empty/0 to 1.0 (counts the row).
     let unitCount = Number(String(unitsRaw).replace(/[^0-9.\\-]/g, '')) || 0;
@@ -2530,7 +2530,7 @@ export function parsePayrollRows(records, opts = {}) {
     const mod4 = normalized['modifier code 4'] || normalized['modifier 4'] || '';
 
     return {
-      ...billingImportMetadata({ sourceRowNumber: rowNumberBase + idx, placeOfService: String(pos || normalized['place of service'] || normalized['place of service code'] || '').trim(), profileFields, additionalProfileRows: profileSourceRows }),
+      ...billingImportMetadata({ excludedFromSessionCount: /cancel|no[ _-]?show|missed|refund|void|reversal|payment|adjustment/i.test(String(normalized['appointment status'] || normalized['session status'] || normalized['encounter status'] || normalized['status'] || normalized['type'] || '')) || Number(String(unitsRaw).replace(/[^0-9.\-]/g,''))<0, sourceRowNumber: rowNumberBase + idx, placeOfService: String(pos || normalized['place of service'] || normalized['place of service code'] || '').trim(), profileFields, additionalProfileRows: profileSourceRows }),
       providerName: String(providerName).trim(),
       patientFirstName: firstNameCol ? String(firstNameCol).trim() : '',
       serviceCode: String(serviceCode).trim(),
@@ -2731,7 +2731,7 @@ function buildRowKeyAggregateIndex({ agencyId, parsedRows }) {
   return byKey;
 }
 
-export function parsePayrollFile(buffer, originalName) {
+export function parsePayrollFile(buffer, originalName, options = {}) {
   const empty = { rows: [], missedAppointmentsPaidInFull: [] };
   const name = String(originalName || '').toLowerCase();
   if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
@@ -2782,12 +2782,12 @@ export function parsePayrollFile(buffer, originalName) {
         }
         records.push(obj);
       }
-      return parsePayrollRows(records, { rowNumberBase: bestIdx + 2 });
+      return parsePayrollRows(records, { ...options, rowNumberBase: bestIdx + 2 });
     }
 
     // Fallback: treat the first row as headers (default XLSX behavior).
     const records = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
-    return parsePayrollRows(records, { rowNumberBase: 2 });
+    return parsePayrollRows(records, { ...options, rowNumberBase: 2 });
   }
 
   // CSV: some exports include title rows above the real header. Parse as arrays first,
@@ -2884,7 +2884,7 @@ export function parsePayrollFile(buffer, originalName) {
         }
         records.push(obj);
       }
-      return parsePayrollRows(records, { rowNumberBase: bestIdx + 2 });
+      return parsePayrollRows(records, { ...options, rowNumberBase: bestIdx + 2 });
     }
   }
 
@@ -2897,7 +2897,7 @@ export function parsePayrollFile(buffer, originalName) {
     relax_quotes: true,
     relax_column_count: true
   });
-  return parsePayrollRows(records, { rowNumberBase: 2 });
+  return parsePayrollRows(records, { ...options, rowNumberBase: 2 });
 }
 
 function normalizeHeaderKey(key) {

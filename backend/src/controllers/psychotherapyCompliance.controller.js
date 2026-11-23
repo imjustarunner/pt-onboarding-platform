@@ -1,3 +1,5 @@
+import {loadAgencyFiscalSessions,clinicalToday,fiscalPeriod} from '../services/clientFiscalSessions.service.js';
+import {notifyPsychotherapyThresholdsFromEncounters} from '../services/payrollCompliance.service.js';
 import multer from 'multer';
 import { parse } from 'csv-parse/sync';
 import XLSX from 'xlsx';
@@ -318,128 +320,7 @@ async function bulkUpsertRows(rows) {
   return affected;
 }
 
-async function notifyThresholdsForAgencyFiscalYears({ agencyId, fiscalYearStarts }) {
-  const fyList = Array.from(new Set((fiscalYearStarts || []).map((x) => String(x || '').slice(0, 10)).filter(Boolean)));
-  if (fyList.length === 0) return { attempted: 0, created: 0 };
-
-  // Aggregate counts per provider/client/fy and per code.
-  const placeholdersFy = fyList.map(() => '?').join(',');
-  const [rows] = await pool.execute(
-    `SELECT
-       provider_user_id,
-       client_key_hash,
-       client_abbrev,
-       fiscal_year_start,
-       service_code,
-       COUNT(*) AS code_count
-     FROM agency_psychotherapy_report_rows
-     WHERE agency_id = ?
-       AND provider_user_id IS NOT NULL
-       AND fiscal_year_start IN (${placeholdersFy})
-     GROUP BY provider_user_id, client_key_hash, client_abbrev, fiscal_year_start, service_code`,
-    [Number(agencyId), ...fyList]
-  );
-
-  const byKey = new Map(); // key -> { providerUserId, clientKeyHash, clientAbbrev, fiscalYearStart, perCode: Map, total }
-  for (const r of rows || []) {
-    const providerUserId = Number(r.provider_user_id || 0);
-    const clientKeyHash = String(r.client_key_hash || '').trim();
-    const clientAbbrev = String(r.client_abbrev || '').trim() || 'Client';
-    const fiscalYearStart = String(r.fiscal_year_start || '').slice(0, 10);
-    const code = String(r.service_code || '').trim().toUpperCase();
-    const count = Number(r.code_count || 0);
-    if (!providerUserId || !clientKeyHash || !fiscalYearStart || !code) continue;
-
-    const k = `${providerUserId}|${fiscalYearStart}|${clientKeyHash}`;
-    if (!byKey.has(k)) {
-      byKey.set(k, {
-        providerUserId,
-        clientKeyHash,
-        clientAbbrev,
-        fiscalYearStart,
-        perCode: new Map(),
-        total: 0
-      });
-    }
-    const rec = byKey.get(k);
-    rec.perCode.set(code, (rec.perCode.get(code) || 0) + count);
-    rec.total += count;
-  }
-
-  let attempted = 0;
-  let created = 0;
-
-  const sortedCodes = (m) =>
-    Array.from(m.entries())
-      .sort(([a], [b]) => String(a).localeCompare(String(b)))
-      .map(([code, count]) => ({ code, count }));
-
-  for (const rec of byKey.values()) {
-    for (const threshold of [20, 24, 30, 40]) {
-      if (rec.total < threshold) continue;
-      attempted += 1;
-
-      // Dedupe per provider + client + fiscal year + threshold.
-      const triggerKey =
-        `psychotherapy_threshold_${threshold}|fy:${rec.fiscalYearStart}|client:${rec.clientKeyHash}`;
-      const ok = await NotificationEvent.tryCreate({
-        agencyId: Number(agencyId),
-        triggerKey,
-        providerUserId: rec.providerUserId,
-        recipientUserId: rec.providerUserId
-      });
-      if (!ok) continue;
-
-      const parts = [];
-      for (const { code, count } of sortedCodes(rec.perCode)) {
-        if (!PSYCHOTHERAPY_CODES.has(String(code))) continue;
-        parts.push(`${code} (${count})`);
-      }
-      const breakdown = parts.join(' ');
-      let msg =
-        `${rec.clientAbbrev} ${breakdown} total (${rec.total})\n\n`;
-      if (threshold === 20) {
-        msg +=
-          'This client is 4 psychotherapy services away from 24. Please plan to re-evaluate medical necessity for ongoing treatment as defined in Colorado Code of Regulations (CCR) ' +
-          '10 CCR 2505-10 8.076.1.8 and 10 CCR 2505-10 8.280.4.E. (for children) due to senate bill 22-156.';
-      } else if (threshold === 24) {
-        msg +=
-          'This client has reached 24 psychotherapy services. Please ensure you re-evaluate or have re-evaluated medical necessity for treatment for ongoing services as defined in Colorado Code of Regulations (CCR) ' +
-          '10 CCR 2505-10 8.076.1.8 and 10 CCR 2505-10 8.280.4.E. (for children) due to senate bill 22-156.';
-      } else if (threshold === 30) {
-        msg +=
-          'URGENT: This client has reached 30 psychotherapy services. Ongoing services without documented clinical medical necessity require immediate attention under Colorado Code of Regulations (CCR) ' +
-          '10 CCR 2505-10 8.076.1.8 and 10 CCR 2505-10 8.280.4.E. (for children) due to senate bill 22-156.';
-      } else {
-        msg +=
-          'CRITICAL: This client has reached 40 psychotherapy services. Clinical medical necessity for ongoing treatment must be addressed immediately under Colorado Code of Regulations (CCR) ' +
-          '10 CCR 2505-10 8.076.1.8 and 10 CCR 2505-10 8.280.4.E. (for children) due to senate bill 22-156.';
-      }
-
-      await createNotificationAndDispatch(
-        {
-          type: 'psychotherapy_threshold_exceeded',
-          severity: threshold >= 40 ? 'critical' : threshold >= 30 ? 'error' : threshold >= 24 ? 'warning' : 'info',
-          title:
-            threshold === 20
-              ? 'Approaching psychotherapy session limit'
-              : `Psychotherapy threshold ${threshold}`,
-          message: msg,
-          userId: rec.providerUserId,
-          agencyId: Number(agencyId),
-          relatedEntityType: 'client',
-          relatedEntityId: null,
-          actorSource: 'System'
-        },
-        { context: { isUrgent: threshold >= 30 } }
-      );
-
-      created += 1;
-    }
-  }
-
-  return { attempted, created };
-}
+async function notifyThresholdsForAgencyFiscalYears({agencyId}) {return notifyPsychotherapyThresholdsFromEncounters({agencyId});}
 
 export const uploadPsychotherapyComplianceReport = [
   upload.single('file'),
@@ -745,11 +626,11 @@ export const getPsychotherapyComplianceSummary = async (req, res, next) => {
 
     const fyRaw = String(req.query?.fiscalYearStart || '').trim();
     const now = new Date();
-    const defaultFy = computeFiscalYearStartYmd(now);
+    const defaultFy = fiscalPeriod().start;
     const fiscalYearStart = (fyRaw && /^\d{4}-\d{2}-\d{2}$/.test(fyRaw)) ? fyRaw : defaultFy;
 
     const role = String(req.user?.role || '').toLowerCase();
-    const isProvider = role === 'provider';
+    const isProvider = !['admin','support','super_admin','payroll'].includes(role);
     const providerUserIdParam = req.query?.providerUserId ? parseInt(String(req.query.providerUserId), 10) : null;
     const providerUserId = isProvider ? Number(req.user?.id) : (providerUserIdParam || null);
 
@@ -827,9 +708,11 @@ export const getPsychotherapyComplianceSummary = async (req, res, next) => {
       }
       rec.threshold = threshold;
       rec.surpassed_24 = rec.total >= 24;
-      if (rec.client_id) matched.push(rec);
-      else unmatched.push(rec);
+      if (!rec.client_id) unmatched.push({...rec,threshold:null,surpassed_24:false});
     }
+
+    const canonical=await canonicalSummary({agencyId,fiscalYearStart,providerUserId});
+    matched.push(...canonical);
 
     // Best-effort: attach provider display names (for admin/staff compliance views).
     try {
@@ -929,56 +812,11 @@ export const getSuperviseeClients24Plus = async (req, res, next) => {
 
     const fyRaw = String(req.query?.fiscalYearStart || '').trim();
     const now = new Date();
-    const defaultFy = computeFiscalYearStartYmd(now);
+    const defaultFy = fiscalPeriod().start;
     const fiscalYearStart = (fyRaw && /^\d{4}-\d{2}-\d{2}$/.test(fyRaw)) ? fyRaw : defaultFy;
 
-    const params = [Number(agencyId), String(fiscalYearStart).slice(0, 10), Number(superviseeId)];
-    const [rows] = await pool.execute(
-      `SELECT
-         r.client_id,
-         r.client_key_hash,
-         r.client_abbrev,
-         r.provider_user_id,
-         r.fiscal_year_start,
-         r.service_code,
-         COUNT(*) AS code_count
-       FROM agency_psychotherapy_report_rows r
-       WHERE r.agency_id = ?
-         AND r.fiscal_year_start = ?
-         AND r.provider_user_id = ?
-       GROUP BY
-         r.client_id,
-         r.client_key_hash,
-         r.client_abbrev,
-         r.provider_user_id,
-         r.fiscal_year_start,
-         r.service_code
-       ORDER BY r.client_id ASC, r.client_key_hash ASC, r.service_code ASC`,
-      params
-    );
-
-    const makeKey = (r) => {
-      const clientId = r.client_id === null ? null : Number(r.client_id);
-      const clientKeyHash = String(r.client_key_hash || '');
-      const providerId = r.provider_user_id === null ? null : Number(r.provider_user_id);
-      const fy = String(r.fiscal_year_start || '').slice(0, 10);
-      const scope = clientId ? `client:${clientId}` : `hash:${clientKeyHash}`;
-      return `${scope}|provider:${providerId || 'none'}|fy:${fy}`;
-    };
-    const grouped = new Map();
-    for (const r of rows || []) {
-      const k = makeKey(r);
-      if (!grouped.has(k)) {
-        grouped.set(k, { client_abbrev: String(r.client_abbrev || '').trim() || 'Client', total: 0 });
-      }
-      const rec = grouped.get(k);
-      rec.total += Number(r.code_count || 0);
-    }
-    const clientAbbrevs = [];
-    for (const rec of grouped.values()) {
-      if (rec.total >= 25) clientAbbrevs.push(rec.client_abbrev);
-    }
-    clientAbbrevs.sort((a, b) => String(a).localeCompare(String(b)));
+    const counts=await canonicalSummary({agencyId,fiscalYearStart,providerUserId:superviseeId});
+    const clientAbbrevs=[...new Set(counts.filter(row=>row.total>=24).map(row=>row.client_abbrev))].sort();
 
     res.json({
       agency_id: Number(agencyId),
@@ -990,3 +828,14 @@ export const getSuperviseeClients24Plus = async (req, res, next) => {
     next(e);
   }
 };
+
+async function canonicalSummary({agencyId,fiscalYearStart,providerUserId=null}) {
+  if(!/^\d{4}-07-01$/.test(String(fiscalYearStart)))throw Object.assign(new Error('Select a fiscal year beginning July 1.'),{status:400});
+  const end=`${Number(fiscalYearStart.slice(0,4))+1}-06-30`,today=clinicalToday()<end?clinicalToday():end;
+  const [clients]=await pool.execute('SELECT id,initials FROM clients WHERE agency_id=?',[agencyId]);
+  const labels=new Map(clients.map(c=>[Number(c.id),c.initials||`Client #${c.id}`]));
+  const [assignments]=await pool.execute('SELECT cpa.client_id,cpa.provider_user_id FROM client_provider_assignments cpa JOIN clients c ON c.id=cpa.client_id WHERE c.agency_id=? AND cpa.is_active=1',[agencyId]);
+  const assigned=new Set(assignments.filter(r=>Number(r.provider_user_id)===Number(providerUserId)).map(r=>Number(r.client_id)));
+  const totals=await loadAgencyFiscalSessions({agencyId,period:{start:fiscalYearStart,end,today}});
+  return [...totals].filter(([id,count])=>!providerUserId||assigned.has(id)||count.providerIds.includes(Number(providerUserId))).map(([id,count])=>({client_id:id,client_key_hash:`canonical:${id}`,client_abbrev:labels.get(id)||`Client #${id}`,patient_initials_normalized:labels.get(id)||null,provider_user_id:providerUserId|| (count.providerIds.length===1?count.providerIds[0]:null),provider_name:count.providerIds.length>1&&!providerUserId?'Across providers':null,fiscal_year_start:fiscalYearStart,per_code:count.perCode,total:count.total,psychotherapy_total:count.psychotherapyTotal,psychotherapy_count_incomplete:count.psychotherapyCountIncomplete,report_review:count.reportReview,unavailable:count.unavailable,surpassed_24:count.total>=24,threshold:[20,24,30,40].filter(t=>count.total>=t).at(-1)||null}));
+}

@@ -31,3 +31,21 @@ it('uses the encounter timezone at the July 1 boundary and keeps policy sessions
  const total=summarizeFiscalSessions({period,sessions:[session(1,{service_code:'90837'}),session(2,{service_code:'H0004'}),session(3,{service_code:'90839'}),session(4,{scheduled_start_at:'2026-07-01T02:00:00Z',source_timezone:'America/Denver'})]});
  expect(total.total).toBe(3);expect(total.psychotherapyTotal).toBe(1);
 });
+
+it('reconciles overlapping billing files with platform encounters and retains separate same-day visits',()=>{
+ const observations=[{provider_user_id:9,service_date:'2026-08-01',service_code:'H0004',reported_sessions:3},{provider_user_id:9,service_date:'2026-08-01',service_code:'H0004',reported_sessions:3}];
+ const result=summarizeFiscalSessions({period,sessions:[session(1,{provider_user_id:9,units:8})],observations});
+ expect(result).toMatchObject({total:3,recorded:1,reportAdded:2,reportReview:3,perCode:{H0004:3},providerIds:[9]});
+});
+it('combines providers but never counts report visits twice through a verified historical cutoff',()=>{
+ const result=summarizeFiscalSessions({period,baseline:{session_count:22,psychotherapy_count:20,through_date:'2026-08-31'},observations:[{provider_user_id:9,service_date:'2026-08-01',service_code:'H0004',reported_sessions:20},{provider_user_id:10,service_date:'2026-09-02',service_code:'H0004',reported_sessions:2}]});
+ expect(result).toMatchObject({total:24,psychotherapyTotal:20,reportAdded:2,reviewSuggested:true});
+});
+it('does not allocate a single unclassified appointment to two different reported visits',()=>{
+ const result=summarizeFiscalSessions({period,appointments:[{id:1,provider_user_id:9,start_at:'2026-08-01'}],observations:[{provider_user_id:9,service_date:'2026-08-01',service_code:'H0004',reported_sessions:1},{provider_user_id:9,service_date:'2026-08-01',service_code:'90837',reported_sessions:1}]});
+ expect(result.total).toBe(2);expect(result.reportReview).toBe(2);
+});
+it('counts a completed psychotherapy visit paired with E/M once, including psychotherapy add-on codes',()=>{
+ const result=summarizeFiscalSessions({period,sessions:[session(1,{service_code:'90833',billing_encounter_id:20})],encounters:[{id:20,clinical_session_id:1,service_code:'90833',service_date:'2026-08-01'},{id:21,clinical_session_id:1,service_code:'99213',service_date:'2026-08-01'}]});
+ expect(result.total).toBe(1);expect(result.psychotherapyTotal).toBe(1);
+});

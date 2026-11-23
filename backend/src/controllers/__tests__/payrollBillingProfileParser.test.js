@@ -18,3 +18,8 @@ it('uses the same source capture for XLSX preambles and retains skipped-row ordi
  expect(getBillingImportMetadata(parsed.rows[0]).additionalProfileRows).toHaveLength(2);
  expect(getBillingImportMetadata(parsed.rows[0]).additionalProfileRows[0].sourceRowNumber).toBe(3);
 });
+it('retains missing-provider service rows for count-only review while leaving normal payroll parsing unchanged',()=>{
+ const file=Buffer.from([headers.join(','),row.join(','),['07/02/2026','','Alex','Rivera','04/09/1990','','','11','Office','H0004','3','Finalized','Appointment'].join(',')].join('\n'));
+ expect(parsePayrollFile(file,'report.csv').rows).toHaveLength(1);
+ const parsed=parsePayrollFile(file,'report.csv',{includeUnmatchedProviders:true});expect(parsed.rows).toHaveLength(2);expect(parsed.rows[1].providerName).toBe('');
+});

@@ -1,5 +1,6 @@
 <template>
   <div>
+    <SessionCountImport :agency-id="agencyId" />
     <div class="card" style="margin-bottom: 12px;">
       <h2 class="card-title">Billing Report Import</h2>
       <div class="hint">
@@ -130,6 +131,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
+import SessionCountImport from '../../components/admin/SessionCountImport.vue';
 
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();

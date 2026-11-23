@@ -89,8 +89,8 @@ export function classifyClient({client, agencyId, services, organizations, links
 // An email match cannot identify the owner of an existing login or shared family address.
 export async function personalContactReviewReason(clientId, db = pool) {
   const [[row]] = await db.execute(`SELECT
-    EXISTS(SELECT 1 FROM clients other WHERE other.id<>c.id AND other.email=TRIM(c.email)) AS shared_email,
-    EXISTS(SELECT 1 FROM users u WHERE u.email=TRIM(c.email) OR u.username=TRIM(c.email) OR u.personal_email=TRIM(c.email))
+    EXISTS(SELECT 1 FROM clients other WHERE other.id<>c.id AND CONVERT(TRIM(other.email) USING utf8mb4) COLLATE utf8mb4_unicode_ci=CONVERT(TRIM(c.email) USING utf8mb4) COLLATE utf8mb4_unicode_ci) AS shared_email,
+    EXISTS(SELECT 1 FROM users u WHERE CONVERT(TRIM(u.email) USING utf8mb4) COLLATE utf8mb4_unicode_ci=CONVERT(TRIM(c.email) USING utf8mb4) COLLATE utf8mb4_unicode_ci OR CONVERT(TRIM(u.username) USING utf8mb4) COLLATE utf8mb4_unicode_ci=CONVERT(TRIM(c.email) USING utf8mb4) COLLATE utf8mb4_unicode_ci OR CONVERT(TRIM(u.personal_email) USING utf8mb4) COLLATE utf8mb4_unicode_ci=CONVERT(TRIM(c.email) USING utf8mb4) COLLATE utf8mb4_unicode_ci)
     OR EXISTS(SELECT 1 FROM client_guardians cg WHERE cg.client_id=c.id AND cg.relationship_type='self') AS identity_match
     FROM clients c WHERE c.id=? AND NULLIF(TRIM(c.email),'') IS NOT NULL`,[clientId]);
   if (Number(row?.shared_email)) return 'shared_email';

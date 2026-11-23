@@ -1938,7 +1938,7 @@
           </div>
         </div>
 
-        <ClientPortalInviteDialog v-if="showPortalInvites && canManageGuardians" :key="client.id" :client-ids="[Number(client.id)]" :agency-id="Number(selectedAgencyId || client.agency_id)" :personal-login-available="clientIsMinor" @close="showPortalInvites = false" />
+        <ClientPortalInviteDialog v-if="showPortalInvites && canManageGuardians" :key="client.id" :client-ids="[Number(client.id)]" :agency-id="Number(selectedAgencyId || client.agency_id)" :personal-login-available="clientIsMinor" @edit-contact="showPortalInvites=false;goChartSub('demographics')" @close="showPortalInvites = false" />
 
         <!-- Assignments Tab (backoffice only) -->
         <section v-if="showPanel('assignments') && reviewAssignmentDraft" class="detail-section"><button type="button" class="cdp-text-link" @click="closeAssignmentDraft">Back to account assignments</button><ClientUpdateAssignments ref="savedAssignmentPanel" :key="`saved-assignments-${client.id}`" :client-id="client.id" :agency-id="client.agency_id" @updated="loadPendingAssignmentDraft" /></section>

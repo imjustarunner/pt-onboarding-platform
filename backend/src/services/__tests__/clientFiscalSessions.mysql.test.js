@@ -18,13 +18,17 @@ describe.skipIf(!socketPath)('fiscal visit totals and append-only history on MyS
    'INSERT INTO clinical_work_archives VALUES(1,NOW(),NULL)',
    "INSERT INTO clinical_work_archive_resources VALUES(1,'clinical_session',3)",
    'INSERT INTO agencies VALUES(2),(3)','INSERT INTO clients VALUES(12)','INSERT INTO users VALUES(9)'])await db.query(sql);
+  for(const table of ['clinical_sessions','billing_encounters','appointments'])await db.query(`ALTER TABLE ${table} ADD provider_user_id INT`);
+  await db.query('CREATE TABLE agency_psychotherapy_report_rows(client_id INT,agency_id INT,provider_user_id INT,service_date DATE,service_code VARCHAR(32))');
+  const countMigration=readFileSync(new URL('../../../../database/migrations/1873_client_session_count_evidence.sql',import.meta.url),'utf8');
+  for(const ddl of countMigration.split(';').filter(s=>s.trim()))await db.query(ddl);
   const migration=readFileSync(new URL('../../../../database/migrations/1866_client_fiscal_session_history.sql',import.meta.url),'utf8');
   // The migration comment contains a semicolon; execute the complete single DDL statement.
   await db.query(migration);
   store={getConnection:async()=>({execute:(...args)=>db.execute(...args),beginTransaction:()=>db.beginTransaction(),commit:()=>db.commit(),rollback:()=>db.rollback(),release:()=>{}})};
   const day=fiscalPeriod().start+' 16:00:00';
   await db.execute("INSERT INTO clinical_sessions(id,agency_id,client_id,appointment_id,office_event_id,billing_encounter_id,scheduled_start_at,service_code,encounter_status,units) VALUES(1,2,12,10,NULL,20,?,'H0004','completed',3),(2,2,12,NULL,NULL,NULL,?,'H0004','completed',2),(3,2,12,NULL,NULL,NULL,?,'H0004','completed',2),(4,3,12,NULL,NULL,NULL,?,'H0004','completed',9),(5,2,12,NULL,NULL,NULL,?,'H0004','no_show',1)",[day,day,day,day,day]);
-  await db.execute("INSERT INTO billing_encounters VALUES(20,2,12,1,?,'H0004'),(21,2,12,NULL,?,'90837'),(22,2,12,NULL,?,'90840')",[day,day,day]);
+  await db.execute("INSERT INTO billing_encounters(id,agency_id,client_id,clinical_session_id,service_date,service_code) VALUES(20,2,12,1,?,'H0004'),(21,2,12,NULL,?,'90837'),(22,2,12,NULL,?,'90840')",[day,day,day]);
   await db.execute("INSERT INTO appointments(id,agency_id,start_at,clinical_session_id,office_event_id,status,business_type) VALUES(10,2,?,1,NULL,'completed','clinical'),(11,2,?,NULL,NULL,'completed','learning'),(12,2,?,NULL,NULL,'completed','clinical')",[day,day,day]);
   await db.query("INSERT INTO appointment_participants VALUES(10,12,'client'),(11,12,'client'),(12,12,'client')");
  });

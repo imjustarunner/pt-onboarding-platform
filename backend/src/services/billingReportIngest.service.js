@@ -1,3 +1,4 @@
+import {loadAgencyFiscalSessions,clinicalToday} from './clientFiscalSessions.service.js';
 import crypto from 'crypto';
 import { parse } from 'csv-parse/sync';
 import XLSX from 'xlsx';
@@ -1161,53 +1162,14 @@ export async function autoTerminateInactiveBillingClients({ agencyId, actingUser
   return { terminated };
 }
 
-export async function getSessionTotalsByClient({ agencyId, fiscalYearStart, providerUserId = null }) {
-  let fyStart = String(fiscalYearStart || '').slice(0, 10);
-  if (!fyStart) return {};
-  // Coerce legacy Aug 1 FY starts to July 1 so caseload pills match psychotherapy compliance.
-  if (/^\d{4}-08-01$/.test(fyStart)) {
-    fyStart = `${fyStart.slice(0, 4)}-07-01`;
-  }
-  if (!/^\d{4}-07-01$/.test(fyStart)) {
-    fyStart = computeFiscalYearStartJulYmd(fyStart);
-  }
-  const startYear = Number(fyStart.slice(0, 4));
-  const fyEnd = `${startYear + 1}-06-30`;
-  const effectiveStart = fyStart < '2025-07-01' ? '2025-07-01' : fyStart;
-
-  const codeList = [...PSYCHOTHERAPY_CPT_CODES];
-  const ph = codeList.map(() => '?').join(',');
-
-  const where = [
-    'be.agency_id = ?',
-    'be.service_date >= ?',
-    'be.service_date <= ?',
-    `UPPER(TRIM(be.service_code)) IN (${ph})`
-  ];
-  const params = [Number(agencyId), effectiveStart, fyEnd, ...codeList];
-  if (providerUserId) {
-    where.push('be.provider_user_id = ?');
-    params.push(Number(providerUserId));
-  }
-
-  const [rows] = await pool.execute(
-    `SELECT be.client_id, be.service_code, COUNT(*) AS code_count
-     FROM billing_encounters be
-     WHERE ${where.join(' AND ')}
-     GROUP BY be.client_id, be.service_code`,
-    params
-  );
-
-  const map = {};
-  for (const r of rows || []) {
-    const cid = String(r.client_id);
-    if (!map[cid]) map[cid] = { total: 0, per_code: {} };
-    const code = String(r.service_code || 'UNKNOWN').toUpperCase();
-    const n = Number(r.code_count || 0);
-    map[cid].per_code[code] = (map[cid].per_code[code] || 0) + n;
-    map[cid].total += n;
-  }
-  return map;
+export async function getSessionTotalsByClient({agencyId,fiscalYearStart,providerUserId=null}) {
+  let start=String(fiscalYearStart||'').slice(0,10);if(!start)return {};
+  if(/^\d{4}-08-01$/.test(start))start=`${start.slice(0,4)}-07-01`;
+  if(!/^\d{4}-07-01$/.test(start))start=computeFiscalYearStartJulYmd(start);
+  const end=`${Number(start.slice(0,4))+1}-06-30`,today=clinicalToday()<end?clinicalToday():end;
+  const totals=await loadAgencyFiscalSessions({agencyId,period:{start,end,today}});
+  let assigned=new Set();if(providerUserId){const [rows]=await pool.execute('SELECT cpa.client_id FROM client_provider_assignments cpa JOIN clients c ON c.id=cpa.client_id WHERE c.agency_id=? AND cpa.provider_user_id=? AND cpa.is_active=1',[agencyId,providerUserId]);assigned=new Set(rows.map(r=>Number(r.client_id)));}
+  return Object.fromEntries([...totals].filter(([id,count])=>!providerUserId||count.providerIds.includes(Number(providerUserId))||assigned.has(id)).map(([id,count])=>[id,{total:count.total,per_code:count.perCode,psychotherapyTotal:count.psychotherapyTotal,unavailable:count.unavailable,reportReview:count.reportReview}]));
 }
 
 function isSchoolPosCode(raw) {
