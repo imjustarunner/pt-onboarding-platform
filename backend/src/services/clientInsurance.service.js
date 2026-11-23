@@ -17,11 +17,15 @@ export function mergePatientDefaults(patient = {}, demographics = {}) {
 }
 POLICY_TEXT_FIELDS.push('copay', 'lastEligibilityCheck', 'subscriberPhone', 'sourcePayerId');
 POLICY_TEXT_FIELDS.push('programType');
-POLICY_TEXT_FIELDS.push('planName','planNumber','groupName','payerPhone','payerAddressLine1','payerCity','payerState','payerPostalCode','reportedPolicyNumber');
+const ELIGIBILITY_OPTIONAL_FIELDS=new Set(['planName','planNumber','groupName','payerPhone','payerAddressLine1','payerCity','payerState','payerPostalCode','reportedPolicyNumber']);
+POLICY_TEXT_FIELDS.push(...ELIGIBILITY_OPTIONAL_FIELDS);
 export function normalizePolicy(value = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw billingError(400, 'Insurance policy must be an object');
   const out = {};
   for (const key of POLICY_TEXT_FIELDS) {
+    // Preserve legacy policy fingerprints on unchanged saves. Existing explicit
+    // blanks also stay intact; adding the new UI must not buy another inquiry.
+    if(ELIGIBILITY_OPTIONAL_FIELDS.has(key)&&!Object.hasOwn(value,key))continue;
     const field = value[key];
     if (field != null && !['string','number'].includes(typeof field)) throw billingError(400, 'Insurance fields must contain text');
     out[key] = String(field ?? '').trim();

@@ -3,6 +3,15 @@ vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()},onTableWrite:
 vi.mock('../../config/clinicalDatabase.js',()=>({default:{execute:vi.fn()}}));
 import {eligibilityPolicyDetails,eligibilityPolicyFields,otherInsuranceBenefit} from '../../utils/eligibilityPolicyDetails.js';
 import {preserveEligibilityFieldSources,normalizePolicy} from '../clientInsurance.service.js';
+import {coverageInsuranceFingerprint} from '../../utils/paperInsuranceReviewGate.js';
+it('preserves legacy and explicitly blank optional field shapes so unchanged saves do not change coverage fingerprints',()=>{
+ const legacy=normalizePolicy({insurerName:'Payer',payerId:'TEST',memberId:'MEMBER'});
+ for(const field of ['planName','planNumber','groupName','payerPhone','payerAddressLine1','payerCity','payerState','payerPostalCode','reportedPolicyNumber'])expect(legacy).not.toHaveProperty(field);
+ const initial={primary:legacy,patient:{firstName:'Test',lastName:'Person',dateOfBirth:'2000-01-01'}};
+ expect(coverageInsuranceFingerprint({...initial,primary:normalizePolicy(legacy)})).toBe(coverageInsuranceFingerprint(initial));
+ const explicit={...legacy,planName:''};expect(normalizePolicy(explicit)).toEqual(explicit);
+ expect(coverageInsuranceFingerprint({...initial,primary:normalizePolicy(explicit)})).toBe(coverageInsuranceFingerprint({...initial,primary:explicit}));
+});
 it('keeps financial benefits separate by network, family level, period and service, including zero values',()=>{
  const rows=[{benefit_coverage_code:'C',benefit_code:'MH',benefit_level_code:'IND',inplan_network:'Y',benefit_period_code:'23',benefit_amount:'1000'},
  {benefit_coverage_code:'C',benefit_code:'MH',benefit_level_code:'FAM',inplan_network:'N',benefit_period_code:'29',benefit_amount:'0'},
