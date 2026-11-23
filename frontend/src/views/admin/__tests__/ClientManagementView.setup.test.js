@@ -110,7 +110,12 @@ it('refreshes a pinned side panel when a directory reload returns a changed prov
 it('keeps row actions in one readable menu and removes completed records setup',async()=>{
  const wrapper=await assignmentDirectory({recordsImport:{status:'complete'}});try{
  expect(wrapper.find('.actions-cell > button').exists()).toBe(false);const menu=wrapper.get('details.cm-row-actions');expect(menu.findAll('button').some(button=>button.text()==='Bring up to date')).toBe(false);expect(menu.text()).toContain('Follow-up task');expect(menu.text()).toContain('Demo: off — turn on');
- const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);await menu.findAll('button').find(button=>button.text()==='Archive client').trigger('click');expect(confirm).toHaveBeenCalledWith(expect.stringContaining('active client lists'));expect(confirm.mock.calls[0][0]).not.toContain('school');confirm.mockRestore();
+ const statusCalls=apiMock.put.mock.calls.length;
+ await menu.findAll('button').find(button=>button.text()==='Mark inactive / final follow-up').trigger('click');
+ const dialog=wrapper.findComponent({name:'ClientTerminationDialog'});expect(dialog.exists()).toBe(true);
+ expect(dialog.props('agencyId')).toBe(2);expect(dialog.props('clientId')).toBeGreaterThan(0);
+ expect(apiMock.put.mock.calls.length).toBe(statusCalls);
+ dialog.vm.$emit('close');await flushPromises();expect(wrapper.findComponent({name:'ClientTerminationDialog'}).exists()).toBe(false);
  }finally{wrapper.unmount();}
 });
 it('keeps a pending records import available inside the row menu',async()=>{
