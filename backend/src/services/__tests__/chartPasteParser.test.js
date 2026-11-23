@@ -55,6 +55,15 @@ it('retains every contact field, separate phone numbers, and multiline comments'
 it('supports a copied tabular contact list', () => {
   expect(parseChartContacts('Name\tCompany\tWork Phone\tMobile Phone\nAlex Example\tClinic\t555-111-2222\t555-111-3333')[0]).toMatchObject({ fullName:'Alex Example', company:'Clinic', workPhone:'555-111-2222', mobilePhone:'555-111-3333' });
 });
+it.each(['Edit\n', ''])('keeps separate-line parent cards intact with control %j', control => {
+  const contacts = parseChartContacts(`Contacts\n+ New Contact\n${control}Jordan Example\nMobile Phone\n(303) 555-0101\nEmail\nfather@example.test\nRelationship\nFather\nAppt Reminders\nNo Reminders\n${control}Taylor Example\nMobile Phone\n(720) 555-0102\nEmail\nmother@example.test\nRelationship\nMother\nAppt Reminders\nText (SMS) and Email`);
+  expect(contacts).toHaveLength(2);
+  expect(contacts[0]).toMatchObject({fullName:'Jordan Example', mobilePhone:'(303) 555-0101', email:'father@example.test', relationshipType:'Father'});
+  expect(contacts[1]).toMatchObject({fullName:'Taylor Example', mobilePhone:'(720) 555-0102', email:'mother@example.test', relationshipType:'Mother'});
+});
+it('rejects conflicting fields when a missing name prevents separating two contacts', () => {
+  expect(() => parseChartContacts('Edit\nJordan Example\nEmail\nfather@example.test\nRelationship\nFather\nEmail\nmother@example.test\nRelationship\nMother')).toThrow('Contact cards could not be separated');
+});
 it('removes source controls while preserving comments verbatim', () => {
   expect(parsePatientComments('Patient Comments\nsvgEdit\nOffice Client\nDocs on new\nReach out after payment')).toBe('Office Client\nDocs on new\nReach out after payment');
   expect(parseBillingComments('Billing Comments\n$300 deductible, insurance email sent on -HI')).toBe('$300 deductible, insurance email sent on -HI');

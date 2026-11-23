@@ -17,6 +17,36 @@ beforeEach(() => {
 });
 afterEach(() => { wrapper?.unmount(); vi.unstubAllGlobals(); });
 
+it('saves the provider selected for a new service when completing records import',async()=>{
+ post.mockResolvedValue({data:{services:[{id:1,service_kind:'counseling',label:'Counseling',is_active:1,provider_user_id:1433,provider_name:'Avery QA'}]}});
+ wrapper=mount(ClientServiceEnrollments,{props:{clientId:2434,agencyId:450}});await flushPromises();
+ await wrapper.findComponent(ProviderSearchSelect).vm.$emit('update:modelValue',1433);await flushPromises();
+ expect(await wrapper.vm.savePendingAssignments()).toBe(true);
+ expect(post).toHaveBeenCalledExactlyOnceWith('/clients/2434/service-enrollments',expect.objectContaining({agencyId:450,serviceKind:'counseling',providerUserId:1433}));
+ expect(wrapper.text()).toContain('Avery QA');expect(wrapper.vm.hasWorkingDraft()).toBe(false);
+});
+it('retains a selected provider after a failed completion save and permits retry',async()=>{
+ post.mockRejectedValueOnce({response:{data:{error:{message:'Assignment unavailable'}}}}).mockResolvedValueOnce({data:{services:[]}});
+ wrapper=mount(ClientServiceEnrollments,{props:{clientId:2434,agencyId:450}});await flushPromises();
+ wrapper.findComponent(ProviderSearchSelect).vm.$emit('update:modelValue',1433);await flushPromises();
+ expect(await wrapper.vm.savePendingAssignments()).toBe(false);expect(wrapper.text()).toContain('Assignment unavailable');
+ expect(wrapper.vm.workingDraft().newService.providerUserId).toBe(1433);expect(await wrapper.vm.savePendingAssignments()).toBe(true);
+});
+it('saves an edited existing service assignment through the same completion path',async()=>{
+ const original=get.getMockImplementation();get.mockImplementation(async(url,...args)=>url.endsWith('/service-enrollments')?{data:{services:[{id:15,service_kind:'counseling',label:'Counseling',is_active:1,provider_user_id:null}],availableServiceKinds:['counseling']}}:original(url,...args));
+ post.mockResolvedValue({data:{services:[{id:15,service_kind:'counseling',label:'Counseling',is_active:1,provider_user_id:1433}]}});
+ wrapper=mount(ClientServiceEnrollments,{props:{clientId:2434,agencyId:450,startAssigning:true}});await flushPromises();
+ wrapper.findAllComponents(ProviderSearchSelect)[0].vm.$emit('update:modelValue',1433);await flushPromises();
+ expect(await wrapper.vm.savePendingAssignments()).toBe(true);
+ expect(post).toHaveBeenCalledExactlyOnceWith('/clients/2434/service-enrollments',expect.objectContaining({agencyId:450,serviceId:15,providerUserId:1433}));
+});
+it('leaves an unchosen provider and an unconfirmed closure pending without saving either',async()=>{
+ get.mockResolvedValue({data:{services:[{id:15,service_kind:'counseling',label:'Counseling',is_active:1,provider_user_id:null}],availableServiceKinds:['counseling']}});
+ wrapper=mount(ClientServiceEnrollments,{props:{clientId:2434,agencyId:450,startAssigning:true}});await flushPromises();
+ await wrapper.findAll('button').find(button=>button.text()==='Change status').trigger('click');
+ expect(await wrapper.vm.savePendingAssignments()).toBe(true);expect(post).not.toHaveBeenCalled();expect(patch).not.toHaveBeenCalled();expect(wrapper.vm.hasWorkingDraft()).toBe(true);
+});
+
 it('uses the authorized limited provider projection for Support instead of an admin user directory', async () => {
   wrapper = mount(ClientServiceEnrollments, { props: { clientId: 2434, agencyId: 450 } });
   await flushPromises();

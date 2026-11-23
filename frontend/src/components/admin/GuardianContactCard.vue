@@ -41,7 +41,7 @@ import { useAuthStore } from '../../store/auth';
 import { openEmailComposer } from '../../utils/emailComposerWindow';
 import { guardianAccountPath } from '../../utils/guardianDirectory.js';
 import DisconnectGuardianButton from '../clients/DisconnectGuardianButton.vue';
-const props=defineProps({guardianId:{type:Number,required:true},clientId:Number,showAccountLink:Boolean});
+const props=defineProps({guardianId:{type:Number,required:true},clientId:Number,showAccountLink:Boolean,refreshKey:{type:[String,Number],default:''}});
 defineEmits(['disconnected']);
 const auth = useAuthStore();
 const canManage = computed(() => ['admin', 'support', 'super_admin'].includes(auth.user?.role));
@@ -62,7 +62,7 @@ const agencies=computed(()=>{
 });
 const selectedFor=agency=>agency.clients.filter(c=>selectedIds.value.includes(c.id)).map(c=>c.id);
 function compose(agency){openEmailComposer(router,{mode:'new',agencyId:agency.id,to:contact.value.guardian.email,clientIds:selectedFor(agency).join(',')});}
-watch(()=>[props.guardianId,props.clientId],async()=>{
+watch(()=>[props.guardianId,props.clientId,props.refreshKey],async()=>{
   const current=++generation;loading.value=true;error.value='';contact.value=null;selectedIds.value=[];voicemails.value=[];voicemail.value=null;voicemailError.value='';
   try{const {data}=await api.get(`/communications/guardian-contacts/${props.guardianId}`);if(current!==generation)return;contact.value=data;selectedIds.value=data.clients.some(c=>c.id===props.clientId)?[props.clientId]:[];
     try { const recordings=await api.get(`/communications/guardian-contacts/${props.guardianId}/voicemails`);if(current===generation)voicemails.value=recordings.data?.conversations||[]; }

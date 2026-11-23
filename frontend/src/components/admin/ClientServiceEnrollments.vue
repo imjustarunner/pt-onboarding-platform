@@ -136,30 +136,31 @@ function addProvider(service) {
   selectedProviderId.value = '';
 }
 async function persist(input) {
-  if (busy.value || !canAddService.value) return;
+  if (busy.value || !canAddService.value) return false;
   const run = sequence;
   busy.value = true; error.value = '';
   try {
     const { data } = await api.post(`/clients/${props.clientId}/service-enrollments`, { ...input, agencyId: Number(props.agencyId) });
-    if (run !== sequence) return;
+    if (run !== sequence) return false;
     services.value = data.services || []; editingServiceId.value = null; editingSourceId.value = null; draft.value = newDraft(newServiceKinds.value[0] || 'counseling');
     emit('updated', { services: services.value });
-  } catch (e) { if (run === sequence) error.value = e.response?.data?.error?.message || 'Service could not be saved.'; }
+    return true;
+  } catch (e) { if (run === sequence) error.value = e.response?.data?.error?.message || 'Service could not be saved.'; return false; }
   finally { if (run === sequence) busy.value = false; }
 }
 function assign(service) {
-  if (!choicesFor(service.service_kind).some(provider => Number(provider.id) === Number(selectedProviderId.value))) return;
+  if (!choicesFor(service.service_kind).some(provider => Number(provider.id) === Number(selectedProviderId.value))) { error.value = 'Choose a provider who offers this service.'; return false; }
   return persist({ serviceId: editingSourceId.value || service.id, serviceKind: service.service_kind, label: service.label, organizationId: editingOrganizationId.value, providerUserId: Number(selectedProviderId.value), ...(addingProvider.value ? { addProvider: true } : {}) });
 }
 function save() {
   if (draft.value.serviceKind === 'counseling' && hasCounseling.value) {
     edit(activeServices.value.find(service => service.service_kind === 'counseling'));
-    return;
+    return false;
   }
-  if (!availableServiceKinds.value.includes(draft.value.serviceKind)) return;
+  if (!availableServiceKinds.value.includes(draft.value.serviceKind)) { error.value = 'Choose a service offered by this agency.'; return false; }
   if (draft.value.providerUserId && !choicesFor(draft.value.serviceKind).some(provider => Number(provider.id) === Number(draft.value.providerUserId))) {
     error.value = 'Choose a provider who offers this service.';
-    return;
+    return false;
   }
   const labels = {tutoring:'Tutoring',coaching:'Coaching',consultation:'Consultation'};
   return persist({ ...draft.value, label: draft.value.serviceKind === 'counseling' ? 'Counseling' : draft.value.label.trim() || labels[draft.value.serviceKind] });
@@ -191,8 +192,27 @@ watch(()=>props.initialAssignment,(current,previous)=>{
 },{deep:true});
 watch(()=>JSON.stringify(workingDraft()),()=>emit('draft-change'),{flush:'post'});
 const hasWorkingDraft=()=>editingServiceId.value!==null||!!statusEdit.value||hasServiceDraft.value;
+async function savePendingAssignments() {
+  if (busy.value || loading.value || providersLoading.value) return false;
+  if (editingServiceId.value !== null) {
+    // Opening an unassigned service without choosing a provider can stay pending.
+    if (!Number(selectedProviderId.value)) return !hasServiceDraft.value;
+    const service = activeServices.value.find(row => Number(row.id) === Number(editingServiceId.value));
+    if (!service) return false;
+    const currentProvider = service.providers?.find(row => Number(row.service_id) === Number(editingSourceId.value)) || service;
+    if (!addingProvider.value && Number(currentProvider.provider_user_id) === Number(selectedProviderId.value)) {
+      editingServiceId.value = null; editingSourceId.value = null;
+    } else {
+      const pendingNewService = hasServiceDraft.value ? { ...draft.value } : null;
+      if (await assign(service) !== true) return false;
+      if (pendingNewService) draft.value = pendingNewService;
+    }
+  }
+  // Service closures require their own explicit confirmation and remain drafts.
+  return hasServiceDraft.value ? await save() === true : true;
+}
 async function refresh(){const pending=hasWorkingDraft()?workingDraft():null;await load();if(!pending)return;if(pending.newService&&activeServices.value.some(service=>service.service_kind===pending.newService.serviceKind&&Number(service.provider_user_id)===Number(pending.newService.providerUserId)))delete pending.newService;restoreWorkingDraft(pending);}
-defineExpose({prepareLeave,workingDraft,restoreWorkingDraft,hasWorkingDraft,refresh});
+defineExpose({prepareLeave,workingDraft,restoreWorkingDraft,hasWorkingDraft,savePendingAssignments,refresh});
 watch(() => [props.clientId, props.agencyId], load, { immediate: true });
 onBeforeUnmount(() => { ++sequence;emit('busy',false); });
 </script>

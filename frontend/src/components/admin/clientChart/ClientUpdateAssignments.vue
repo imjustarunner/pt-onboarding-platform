@@ -28,7 +28,7 @@
   </section>
 </template>
 <script setup>
-import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import {useChartImportDrafts} from '../../../composables/useChartImportDrafts.js';
 import api from '../../../services/api';
 import { useAuthStore } from '../../../store/auth';
@@ -63,6 +63,7 @@ watch(()=>loaded.value&&!busy.value&&!dirty.value&&!error.value&&!servicesError.
 const rows=response=>Array.isArray(response?.data)?response.data:[];
 const request=()=>({skipGlobalLoading:true,headers:{'X-Agency-Id':String(props.agencyId)}});
 let generation=0,providerRequest=0,manualDefaults=false,autoSuggested=false,attemptedProviderId=0;
+let providerSuggestion;
 function rowsFor(type){return scopedAffiliations.value.filter(row=>row.organization_type===type&&(type!=='program'||meaningfulProgram(row.organization_name||row.name,type)));}
 function availableFor(type){return catalog.value.filter(row=>row.organization_type===type&&!affiliations.value.some(current=>Number(current.organization_id)===Number(row.id))&&(type!=='program'||meaningfulProgram(row.name,type)));}
 function touched(){manualDefaults=true;autoSuggested=false;providerRequest++;error.value='';hint.value='';}
@@ -71,6 +72,7 @@ function changeOffice(){touched();const office=offices.value.find(row=>String(ro
 function changePlaceOfService(){touched();if(canReadBilling.value)matchLocation();}
 function resetDefaults(){providerRequest++;Object.assign(draft,saved.value);manualDefaults=false;autoSuggested=false;error.value='';hint.value='Changes reset.';}
 async function load(){
+ providerSuggestion=undefined;
  const own=++generation;providerRequest++;client.value=null;loaded.value=false;loading.value=true;saving.value=false;suggesting.value=false;servicesError.value='';workingDraftNotice.value='';hydratingWorkingDraft=true;pendingServiceDraft=null;servicesLoaded=false;attemptedProviderId=0;error.value='';hint.value='';services.value=[];manualDefaults=false;autoSuggested=false;Object.assign(draft,blank());saved.value=blank();for(const key of Object.keys(additions)){additions[key]='';makePrimary[key]=false;}
  try{
   const [c,m,a,o,f,l,working]=await Promise.all([api.get(`/clients/${props.clientId}`,request()),api.get(`/clients/${props.clientId}/agency-affiliations`,request()),api.get(`/clients/${props.clientId}/affiliations`,request()),api.get(`/agencies/${props.agencyId}/affiliated-organizations`,request()),api.get('/offices',request()),canReadBilling.value?api.get('/medical-billing/service-locations',{...request(),params:{agencyId:Number(props.agencyId)}}):Promise.resolve({data:[]}),assignmentDrafts.load(props.clientId,props.agencyId)]);
@@ -85,7 +87,8 @@ async function load(){
   if(!isSchool.value&&!draft.officeId&&providerId.value)await suggestProvider(false);
  }catch(e){if(own===generation)error.value=e.response?.data?.error?.message||e.message||'Assignments could not be loaded.';}finally{if(own===generation){loading.value=false;hydratingWorkingDraft=false;if(loaded.value&&!isSchool.value&&!draft.officeId&&providerId.value&&providerId.value!==attemptedProviderId)void suggestProvider(false);}}
 }
-async function suggestProvider(replace=false){
+function suggestProvider(replace=false){providerSuggestion=loadProviderDefaults(replace);return providerSuggestion;}
+async function loadProviderDefaults(replace=false){
  if(!providerId.value||isSchool.value)return;const own=generation,run=++providerRequest,provider=providerId.value;attemptedProviderId=provider;suggesting.value=true;
  try{const response=await api.get(`/users/${provider}/office-assignments`,request());if(own!==generation||run!==providerRequest||provider!==providerId.value)return;
   const next=providerOfficeDefaults({assigned:response.data?.assigned||[],offices:offices.value,locations:locations.value,agencyId:props.agencyId});
@@ -122,8 +125,17 @@ async function saveWorkingDraft(){
  return true;
 }
 function prepareLeave(){if(busy.value||!loaded.value||error.value||servicesError.value)return false;if(servicesPanel.value?.prepareLeave?.()===false)return false;if(dirty.value){error.value='Save or reset scheduling defaults before moving to another client.';section.value?.scrollIntoView?.({block:'center'});return false;}return true;}
+async function savePendingAssignments(){
+ const own=generation;
+ if(busy.value)return false;
+ if(await servicesPanel.value?.savePendingAssignments?.()===false){error.value='The provider assignment could not be saved. Review Services & providers above and retry.';section.value?.scrollIntoView?.({block:'center'});return false;}
+ // A saved provider may trigger a fresh office suggestion before draft saving.
+ await nextTick();await providerSuggestion;
+ if(own!==generation)return false;
+ error.value='';return true;
+}
 async function refresh(){const own=generation;const {data}=await api.get(`/clients/${props.clientId}`,request());if(own!==generation)return;client.value=data.client||data;await servicesPanel.value?.refresh?.();}
-defineExpose({prepareLeave,saveWorkingDraft,reload:load,refresh,hasPendingDraft:()=>!!workingDraftText()});
+defineExpose({prepareLeave,saveWorkingDraft,savePendingAssignments,reload:load,refresh,hasPendingDraft:()=>!!workingDraftText()});
 watch(()=>[props.clientId,props.agencyId],load,{immediate:true});
 onBeforeUnmount(()=>{assignmentDrafts.detach();generation++;providerRequest++;emit('busy',false);});
 </script>

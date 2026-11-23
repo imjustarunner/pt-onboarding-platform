@@ -259,7 +259,7 @@
             <StaffBusinessCardsButton :user-id="userId" :agency-id="profileOverviewAgencyId" />
           </section>
           <h2 v-if="isViewingGuardian || isSscMemberProfileMode">Account Information</h2>
-          <GuardianContactCard v-if="isViewingGuardian" :guardian-id="Number(userId)" />
+          <GuardianContactCard v-if="isViewingGuardian" :guardian-id="Number(userId)" :refresh-key="guardianContactRefreshKey" />
 
           <GuardianFinancialWorkspace v-if="isViewingGuardian" :guardian="user" :data="guardianFinancialData" :loading="guardianFinancialLoading" :error="guardianFinancialError" :can-edit="canEditUser" summary-only @refresh="loadGuardianFinancial(true)" @manage="selectTab('billing_insurance')" />
 
@@ -2686,6 +2686,7 @@ const backLinkLabel = computed(() => (route.query?.returnTo ? '← Back' : '← 
 const loading = ref(true);
 const error = ref('');
 const user = ref(null);
+const guardianContactRefreshKey = computed(() => JSON.stringify([user.value?.first_name,user.value?.last_name,user.value?.email,user.value?.personal_email,user.value?.phone_number,user.value?.personal_phone,user.value?.work_phone]));
 /** Target user's agencies (declared early for SSC club id resolution on member profiles). */
 const userAgencies = ref([]);
 const LEGACY_AFFILIATION_TAB_IDS = ['school_affiliation', 'program_affiliation', 'learning_affiliation'];

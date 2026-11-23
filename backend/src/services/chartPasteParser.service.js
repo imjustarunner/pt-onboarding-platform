@@ -42,11 +42,17 @@ export function parseChartContacts(input) {
   let text = clean(String(input || '').replace(/^\s*#{1,6}\s+([^\n]+)$/gm,'\n@@CONTACT@@\n$1'))
     .replace(/^.*?\bwas\s+added\s+as\s+a\s+(?:Patient\s+)?Contact[.!]?\s*/gmi,'')
     .replace(/svg\s*(?:Edit)/gi, '\n@@CONTACT@@\n')
+    .replace(/^\s*Edit\s*$/gmi, '\n@@CONTACT@@\n')
     .replace(/^\s*(?:Contacts|Additional\s+Contacts|\+?\s*New\s*Contact|Save New Patient Contact|Cancel|Convert to Practice Contact|svg|Edit)\s*$/gmi, '');
   // Some browser copies omit the edit icon/headings. A name immediately before
   // a phone/email label still starts a new card, rather than the previous ROI.
-  text = text.replace(/^([^\n@]+)\n(?=(?:Mobile Phone|Home Phone|Work Phone|Email)[:\t(\w])/gm, (line, name) =>
-    /\d|^(?:Mobile Phone|Home Phone|Work Phone|Email|Address|Relationship|Contact Type|Appt Reminders|Time Zone|ROI Signed)/i.test(name) || name.trim().split(/\s+/).length < 2 ? line : `@@CONTACT@@\n${name}\n`);
+  text = text.replace(/^([^\n@]+)\n(?=(?:Mobile Phone|Home Phone|Work Phone|Email(?: Address)?)(?:[:\t(\w]|\s*$))/gm, (line, name, offset) => {
+    if (/\d|^(?:Mobile Phone|Home Phone|Work Phone|Email|Address|Relationship|Contact Type|Appt Reminders|Time Zone|ROI Signed)/i.test(name) || name.trim().split(/\s+/).length < 2) return line;
+    const previousField = labeledTokens(text.slice(0, offset), CONTACT_PASTE_FIELDS, { compact: true }).at(-1)?.key;
+    // Multiline address and comment values can also precede a phone label.
+    if (previousField && !['appointmentReminders', 'roiSigned', 'relationshipType'].includes(previousField)) return line;
+    return `@@CONTACT@@\n${name}\n`;
+  });
   // A TSV table has one contact per row, including separately named phone fields.
   const lines = text.split('\n').map(line => line.trim()).filter(Boolean);
   const headers = (lines[0] || '').split('\t').map(label => Object.entries(CONTACT_PASTE_FIELDS).find(([key]) => key.toLowerCase() === label.toLowerCase())?.[1]);
@@ -60,6 +66,7 @@ export function parseChartContacts(input) {
       for (const { key, value } of labeledTokens(block.trim(), CONTACT_PASTE_FIELDS, { compact: true })) {
         if (!value) continue;
         if (key === 'fullName' && Object.keys(current).length) { contacts.push(current); current = {}; }
+        if (key && current[key] && current[key] !== value) throw Object.assign(new Error('Contact cards could not be separated. Copy each contact with its name and field labels.'), { status: 400 });
         if (key) current[key] = value;
         else if (!current.fullName) current.fullName = value.split('\n').map(line=>line.trim()).filter(line=>line&&!/^(?:Contacts|Additional Contacts|\+?\s*New\s*Contact|svg|Edit)$/i.test(line)).join(' ');
       }

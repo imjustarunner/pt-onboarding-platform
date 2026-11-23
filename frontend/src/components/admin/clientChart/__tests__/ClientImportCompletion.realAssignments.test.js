@@ -9,6 +9,7 @@ vi.mock('../../../../store/auth',()=>({useAuthStore:()=>({user:{id:10,role:'supp
 import Panel from '../ClientEhrBringUpToDatePanel.vue';
 import Assignments from '../ClientUpdateAssignments.vue';
 import CreateModal from '../ClientRecordsCreateModal.vue';
+import ProviderSearchSelect from '../../../clients/ProviderSearchSelect.vue';
 let savedAssignment,access;
 beforeEach(()=>{
  vi.clearAllMocks();setActivePinia(createPinia());savedAssignment=null;access=0;Element.prototype.scrollIntoView=vi.fn();
@@ -49,6 +50,33 @@ it('completes the real import while provider defaults are unsaved, preserving th
 it('lets staff save and leave with restored assignment choices instead of forcing them to commit every pending action',async()=>{
  const w=render();await flushPromises();expect(await w.vm.prepareLeave()).toBe(true);expect(savedAssignment).toContain('21');w.unmount();
  const reopened=render();await flushPromises();expect(reopened.text()).toContain('Saved assignment draft restored');expect(reopened.findComponent(Assignments).get('[aria-label="Default office"]').element.value).toBe('21');reopened.unmount();
+});
+it('saves the selected provider before completing import and keeps a failed assignment available for retry',async()=>{
+ const original=m.get.getMockImplementation();
+ m.get.mockImplementation(async(url,...args)=>{
+  if(url.endsWith('/service-enrollments'))return {data:{services:[{id:1,label:'Counseling',service_kind:'counseling',provider_user_id:null,is_active:1}],availableServiceKinds:['counseling']}};
+  if(url==='/office-clients/providers')return {data:{providers:[{id:25,name:'New Provider',agencyIds:[2],assignmentServicesByAgency:{2:['counseling']}}]}};
+  return original(url,...args);
+ });
+ let fail=true;
+ m.post.mockImplementation(async(url)=>{
+  if(url.endsWith('/service-enrollments')){
+   if(fail)throw {response:{data:{error:{message:'Unable to assign provider'}}}};
+   return {data:{services:[{id:1,label:'Counseling',service_kind:'counseling',provider_user_id:25,provider_name:'New Provider',is_active:1}]}};
+  }
+  return {data:{progress:{status:'complete'}}};
+ });
+ const w=render();await flushPromises();
+ await w.findAll('button').find(b=>b.text()==='Assign provider').trigger('click');
+ w.findAllComponents(ProviderSearchSelect)[0].vm.$emit('update:modelValue',25);await flushPromises();
+ await w.findAll('button').find(b=>b.text()==='Mark done').trigger('click');await w.get('.ehr-completion-review input[type=checkbox]').setValue(true);
+ await w.findAll('button').find(b=>b.text()==='Complete records import').trigger('click');await flushPromises();
+ expect(w.text()).toContain('Unable to assign provider');expect(m.post.mock.calls.some(([url])=>url.endsWith('/chart-import/complete'))).toBe(false);expect(w.emitted('done')).toBeUndefined();
+ fail=false;
+ await w.findAll('button').find(b=>b.text()==='Complete records import').trigger('click');await flushPromises();
+ const calls=m.post.mock.calls.map(([url])=>url);expect(calls.indexOf('/clients/12/service-enrollments')).toBeLessThan(calls.indexOf('/clients/12/chart-import/complete'));
+ expect(w.emitted('done')).toHaveLength(1);expect(w.text()).toContain('New Provider');
+ expect(JSON.parse(savedAssignment).services).toBeNull();w.unmount();
 });
 it('keeps real portal access and preview controls usable while source text and office defaults are pending',async()=>{
  const w=render();await flushPromises();await w.get('textarea[data-section=contacts]').setValue('Not yet imported contacts');

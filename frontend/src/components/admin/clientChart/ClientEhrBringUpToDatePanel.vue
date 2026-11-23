@@ -98,7 +98,7 @@
       </template>
       <div v-if="creationFlow && !historicalImport" class="ehr-finish"><p v-if="creationPendingReasons.length">Remaining setup actions (records import can finish separately):</p><ul v-if="creationPendingReasons.length" aria-label="Remaining import steps"><li v-for="reason in creationPendingReasons" :key="reason">{{ reason }}</li></ul><button type="button" class="ehr-btn-primary" :disabled="busy" @click="completeCreation">Finish client import</button></div>
       <section v-if="completionReview" class="ehr-completion-review" aria-label="Review records import completion">
-        <h4>Review before marking done</h4><p v-if="completionPreparing" role="status">Saving record and assignment drafts…</p>
+        <h4>Review before marking done</h4><p v-if="completionPreparing" role="status">Saving provider assignments and record drafts…</p>
         <p v-if="error" class="ehr-error" role="alert">{{ error }}</p>
         <template v-if="unimportedSections.length"><p>These paste boxes contain information that has not been imported:</p><ul><li v-for="key in unimportedSections" :key="key">{{ sectionLabel(key) }}</li></ul><button type="button" class="ehr-btn-primary" :disabled="busy" @click="importAll()">Import remaining pasted sections</button><p>Resolve any import errors before finishing.</p></template>
         <template v-if="blankSections.length"><p>These paste boxes are blank. Existing information on the chart is preserved:</p><ul><li v-for="key in blankSections" :key="key">{{ sectionLabel(key) }}</li></ul><label class="ehr-label"><span><input v-model="keepBlankConfirmed" type="checkbox" :disabled="busy" /> Keep these boxes blank and finish with the information imported.</span></label></template>
@@ -526,6 +526,8 @@ async function finishReviewedImport() {
   if(unimportedSections.value.length || busy.value || blankSections.value.length&&!keepBlankConfirmed.value)return;
   const own=scopeGeneration;completionPreparing.value=true;error.value='';
   try{
+    if(showAssignments.value && await assignmentsPanel.value?.savePendingAssignments?.()===false){error.value='The provider assignment could not be saved. Review Assignments below before completing the import.';return;}
+    if(own!==scopeGeneration)return;
     if(await prepareLeave({confirmPending:false,fromCompletion:true})===false)return;
     if(own!==scopeGeneration)return;
     progressBusy.value=true;

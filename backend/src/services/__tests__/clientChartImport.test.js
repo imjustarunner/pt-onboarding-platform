@@ -77,6 +77,14 @@ it('prepares an additional account only when that contact was explicitly selecte
  await importSupplementaryChartSection(scope,'contacts','svgEdit\nSecond Parent\nEmailsecond@example.test\nRelationshipMother',10,{guardianContactNames:['Second Parent']});
  expect(m.prepareGuardian).toHaveBeenCalledWith(expect.objectContaining({profile:expect.objectContaining({email:'second@example.test'})}));
 });
+it('prepares the matching second parent using that card’s own name, contact details and relationship',async()=>{
+ m.client.mockResolvedValue({id:12,agency_id:2,demographics_phi_enc:encryptDemographicsPayload({sourceContact:{email:'mother@example.test',contactPhone:'720-555-0102'}})});
+ m.upsert.mockImplementation(async value=>({affiliation:{id:value.fullName==='Jordan Example'?50:51,agencyContactId:value.fullName==='Jordan Example'?60:61}}));
+ const result=await importSupplementaryChartSection(scope,'contacts','Contacts\n+ New Contact\nEdit\nJordan Example\nMobile Phone\n303-555-0101\nEmail\nfather@example.test\nRelationship\nFather\nAppt Reminders\nNo Reminders\nEdit\nTaylor Example\nMobile Phone\n720-555-0102\nEmail\nmother@example.test\nRelationship\nMother\nAppt Reminders\nNo Reminders',10,{preparePrimaryGuardian:true});
+ expect(m.prepareGuardian).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({profile:expect.objectContaining({fullName:'Taylor Example',firstName:'Taylor',lastName:'Example',email:'mother@example.test',phone:'720-555-0102',relationship:'Mother'})}));
+ expect(m.upsert.mock.calls.map(([c])=>[c.fullName,c.relationshipType])).toEqual([['Jordan Example','Father'],['Taylor Example','Mother']]);
+ expect(result[0].portalAccount).toBeUndefined();expect(result[1].portalAccount).toMatchObject({prepared:true,invitationSent:false});
+});
 
 it('matches the guardian card to encrypted source demographics after patient phone and email were separated',async()=>{
  m.client.mockResolvedValue({id:12,agency_id:2,email:null,contact_phone:null,demographics_phi_enc:JSON.stringify(encryptDemographicsPayload({sourceContact:{email:'parent@example.test',contactPhone:'720-555-0102'}}))});

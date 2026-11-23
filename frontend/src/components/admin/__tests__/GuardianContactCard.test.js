@@ -21,6 +21,14 @@ it('does not allow sending without a selected client from the guardian account',
  const w=mount(Card,{props:{guardianId:30},global:{stubs:{RouterLink:true}}});await flushPromises();
  expect(w.find('button').attributes('disabled')).toBeDefined();w.unmount();
 });
+it('refreshes Account Information after the same guardian is edited in Portal',async()=>{
+ let name='Previous Example';
+ api.get.mockImplementation(async url=>({data:url.endsWith('/voicemails')?{conversations:[]}:{guardian:{id:30,name,email:'parent@example.test'},clients:[]}}));
+ const w=mount(Card,{props:{guardianId:30,refreshKey:'previous'},global:{stubs:{RouterLink:true}}});await flushPromises();
+ expect(w.text()).toContain('Previous Example');name='Correct Example';
+ await w.setProps({refreshKey:'correct'});await flushPromises();
+ expect(w.text()).toContain('Correct Example');expect(w.text()).not.toContain('Previous Example');w.unmount();
+});
 it('opens a linked voicemail and shows its transcript without sending email',async()=>{
  api.get.mockImplementation(async url=>({data:url.endsWith('/voicemails')?{conversations:[{id:12,subject:'Voicemail from parent',last_message_at:'2026-10-27'}]}:url.includes('/conversations/')?{conversation:{id:12,subject:'Voicemail from parent'},messages:[{id:1,from:{email:'help@grasshopper.com'},body_text:'Transcription: Please call me back.'}]}:{guardian:{id:30,name:'Parent',email:'parent@example.test'},clients:[{id:1,name:'Child',agencyId:2,agencyName:'ITSCO'}]}}));
  const w=mount(Card,{props:{guardianId:30},global:{stubs:{RouterLink:true}}});await flushPromises();
