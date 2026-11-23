@@ -51,7 +51,12 @@ INSERT INTO client_service_enrollments VALUES
 (28,9,2,10,'counseling',1,'active',30,'Counseling');
 '''
 db.executescript(schema)
-db.executescript('ALTER TABLE agencies ADD is_active INTEGER DEFAULT 1; ALTER TABLE agencies ADD is_archived INTEGER DEFAULT 0;')
+db.executescript('''
+ALTER TABLE agencies ADD is_active INTEGER DEFAULT 1;
+ALTER TABLE agencies ADD is_archived INTEGER DEFAULT 0;
+ALTER TABLE clients ADD default_service_location_id INTEGER;
+ALTER TABLE client_agency_assignments ADD default_service_location_id INTEGER;
+''')
 for i in range(1,10):db.execute("INSERT INTO clients(id,agency_id,provider_id,organization_id,initials,status,client_type) VALUES(?,?,?,?,?,'ACTIVE','clinical')",(i,3 if i in (5,6) else 2,8 if i==1 else None,30,'F'+str(i)))
 db.executescript(request.get('seed',''))
 print(json.dumps([dict(r) for r in db.execute(request['sql'],request['params'])]))
@@ -111,6 +116,20 @@ it('includes the counseling service assignment in the actual appointment client 
  const req={params:{id:'8'},query:{agencyId:'2'},user:{id:8,role:'provider'}};const res={json:vi.fn(),status:vi.fn().mockReturnThis()},next=vi.fn();
  await listUserVirtualSessionClients(req,res,next);expect(next).not.toHaveBeenCalled();expect(ids(res.json.mock.calls[0][0].clients)).toEqual([1,2,6]);
 });
+
+it('uses the selected agency’s saved booking location for a linked chart',async()=>{
+ extraSeed = `UPDATE clients SET default_service_location_id=101 WHERE id=1;
+   UPDATE clients SET default_service_location_id=303 WHERE id=6;
+   UPDATE client_agency_assignments SET default_service_location_id=206 WHERE client_id=6 AND agency_id=2;`;
+ const req={params:{id:'8'},query:{agencyId:'2'},user:{id:8,role:'provider'}};
+ const res={json:vi.fn(),status:vi.fn().mockReturnThis()},next=vi.fn();
+ await listUserVirtualSessionClients(req,res,next);
+ expect(next).not.toHaveBeenCalled();
+ const clients=res.json.mock.calls[0][0].clients;
+ expect(clients.find(client=>client.id===1).defaultServiceLocationId).toBe(101);
+ expect(clients.find(client=>client.id===6).defaultServiceLocationId).toBe(206);
+});
+
 
 it('shows the service provider in paginated client directory records even when the legacy provider is empty',async()=>{
  const page=await Client.findAll({agency_ids:[2],directoryProviderAgencyId:2,directoryPage:{page:1,perPage:50,sort:'provider_name',order:'asc'}});

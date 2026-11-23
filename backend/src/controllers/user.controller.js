@@ -7937,7 +7937,8 @@ export const listUserVirtualSessionClients = async (req, res, next) => {
     const [clientRows] = await pool.execute(
       `SELECT DISTINCT c.id, c.full_name, c.initials, c.identifier_code, c.client_type,
          cs.status_key AS client_status_key, cs.label AS client_status_label,
-         COALESCE(membership.default_service_location_id, IF(c.agency_id = ?, c.default_service_location_id, NULL)) AS booking_service_location_id
+         COALESCE(membership.default_service_location_id,
+           CASE WHEN c.agency_id = ? THEN c.default_service_location_id END) AS booking_service_location_id
        FROM clients c
        LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
        LEFT JOIN client_agency_assignments membership ON membership.client_id = c.id AND membership.agency_id = ? AND membership.is_active = TRUE
