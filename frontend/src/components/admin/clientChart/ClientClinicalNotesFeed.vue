@@ -71,7 +71,7 @@
         </ul>
       </div>
 
-      <ClientIntakeNotePanel v-else-if="workspace.mode==='intake'" :key="workspace.intakeDraftId" :client-id="clientId" :initial-draft-id="workspace.intakeDraftId" @removed="closeWorkspace" />
+      <ClientIntakeNotePanel v-else-if="workspace.mode==='intake'" :key="workspace.intakeDraftId" :client-id="clientId" :initial-draft-id="workspace.intakeDraftId" @removed="closeWorkspace" @review-updated="$emit('review-updated')" />
       <ClientChartCompletedNote
         v-else-if="workspace.mode === 'view'"
         :note-id="workspace.clinicalNoteId"
@@ -188,7 +188,7 @@ const props = defineProps({
   organizationSlug: { type: String, default: '' }
 });
 
-const emit = defineEmits(['navigate']);
+const emit = defineEmits(['navigate','review-updated']);
 const router = useRouter();
 
 const loading = ref(false);

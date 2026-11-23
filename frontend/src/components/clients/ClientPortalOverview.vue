@@ -16,7 +16,7 @@
     <div v-show="!assigningDocuments"  class="account-overview">
     <ClientPersonalPortalInvite v-if="canViewAs && personalLoginAvailable" :client-id="Number(client.id)" :agency-id="Number(agency.id)" @updated="refreshAccounts" />
     <ClientAdultPortalInvite v-if="canViewAs && !personalLoginAvailable" :client-id="Number(client.id)" :agency-id="Number(agency.id)" @updated="refreshAccounts" @edit-contact="$emit('edit-contact')" />
-    <ClientPortalAccessEditor v-if="canViewAs"  :client-id="client.id" :agency-id="agency.id" :show-self-preparation="false" @saved="refreshAccounts" />
+    <ClientPortalAccessEditor v-if="canViewAs && dependent" :client-id="client.id" :agency-id="agency.id" :show-self-preparation="false" @saved="refreshAccounts" />
     <p v-if="error" role="alert">{{error}}</p><p v-if="loading" role="status">Loading portal overview…</p>
     <p v-if="canViewAs && !loading && !error && !accounts.length">No portal accounts are linked. Portal availability alone does not give anyone access.</p>
     <template v-if="canViewAs"><div class="portal-metrics"><article><strong>{{accounts.length}}</strong><span>Linked portal accounts</span></article><article><strong>{{available.length}}</strong><span>Relationships with access</span></article><article><strong>{{date(latestActivity)}}</strong><span>Last recorded activity in this practice</span></article></div>
@@ -64,7 +64,7 @@ const setupStatuses={
   review_identity:'Review the existing login or portal relationship before preparing another account.',
   review_status:'Review the client’s current status before preparing a login.'
 };
-const props=defineProps({portalSetup:Object,canEditContact:Boolean,personalLoginAvailable:{type:Boolean,default:false},showActions:{type:Boolean,default:true},client:{type:Object,required:true},agency:{type:Object,required:true},actor:{type:Object,required:true}});
+const props=defineProps({dependent:{type:Boolean,default:true},portalSetup:Object,canEditContact:Boolean,personalLoginAvailable:{type:Boolean,default:false},showActions:{type:Boolean,default:true},client:{type:Object,required:true},agency:{type:Object,required:true},actor:{type:Object,required:true}});
 const emit=defineEmits(['account-updated','edit-contact','share-documents','share-assessments','manage-access']);
 const assigningDocuments=ref(false),assignmentWorkspace=ref(null);
 const canAssignDocuments=computed(()=>['admin','support','super_admin','provider','provider_plus','intern','intern_plus','supervisor','facilitator','qbha'].includes(props.actor.role));
@@ -83,7 +83,7 @@ const latestActivity=computed(()=>accounts.value.map(a=>a.lastActivity).filter(B
 const date=value=>value?new Date(value).toLocaleString('en-US',{timeZone:props.actor.timezone||'America/Denver'}):'None recorded';
 const endpoint=()=>`/portal-admin/clients/${props.client.id}/accounts`;
 function refreshAccounts(){emit('account-updated');return load();}
-async function load(){const run=++generation;assigningDocuments.value=false;++activityGeneration;accounts.value=[];previewIds.value=[];activity.value=null;error.value='';loading.value=false;if(!canViewAs.value)return;loading.value=true;try{const{data}=await api.get(endpoint(),{params:{agencyId:props.agency.id}});if(run===generation)accounts.value=data.accounts;}catch(e){if(run===generation)error.value=e.response?.data?.error?.message||'Portal overview could not be loaded.';}finally{if(run===generation)loading.value=false;}}
+async function load(){const run=++generation;assigningDocuments.value=false;++activityGeneration;accounts.value=[];previewIds.value=[];activity.value=null;error.value='';loading.value=false;if(!canViewAs.value)return;loading.value=true;try{const{data}=await api.get(endpoint(),{params:{agencyId:props.agency.id}});if(run===generation)accounts.value=props.dependent ? data.accounts : data.accounts.filter(account=>account.relationshipType==='self' || account.role==='client');}catch(e){if(run===generation)error.value=e.response?.data?.error?.message||'Portal overview could not be loaded.';}finally{if(run===generation)loading.value=false;}}
 async function loadActivity(account){const run=++activityGeneration;activity.value=null;error.value='';try{const{data}=await api.get(`${endpoint()}/${account.id}/activity`,{params:{agencyId:props.agency.id}});if(run===activityGeneration)activity.value=data;}catch(e){if(run===activityGeneration)error.value=e.response?.data?.error?.message||'Activity could not be loaded.';}}
 watch(()=>[props.client.id,props.agency.id,props.actor.role],load,{immediate:true});onBeforeUnmount(()=>{++generation;++activityGeneration;});
 </script>

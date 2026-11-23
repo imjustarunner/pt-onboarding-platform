@@ -2,7 +2,7 @@
   <div class="invite-backdrop">
     <section class="invite-dialog" role="dialog" aria-modal="true" aria-labelledby="portal-invite-title">
       <h2 id="portal-invite-title">Invite clients to their portal</h2>
-      <nav v-if="singleClient" class="invite-modes" aria-label="Choose portal recipient"><button type="button" :aria-pressed="mode==='self'" :disabled="sending || ownBusy" @click="mode='self'">Client’s own portal</button><button type="button" :aria-pressed="mode==='linked'" :disabled="sending || ownBusy" @click="mode='linked'">Guardian or linked account</button></nav>
+      <nav v-if="singleClient && allowLinkedAccounts" class="invite-modes" aria-label="Choose portal recipient"><button type="button" :aria-pressed="mode==='self'" :disabled="sending || ownBusy" @click="mode='self'">Client’s own portal</button><button type="button" :aria-pressed="mode==='linked'" :disabled="sending || ownBusy" @click="mode='linked'">Guardian or linked account</button></nav>
       <template v-if="singleClient && mode==='self'">
         <ClientPersonalPortalInvite v-if="personalLoginAvailable" :client-id="Number(clientIds[0])" :agency-id="Number(agencyId)" />
         <ClientAdultPortalInvite v-else :client-id="Number(clientIds[0])" :agency-id="Number(agencyId)" @busy="ownBusy=$event" @edit-contact="$emit('edit-contact')" />
@@ -46,7 +46,7 @@ import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
 import ClientPersonalPortalInvite from './ClientPersonalPortalInvite.vue';
 import ClientAdultPortalInvite from './ClientAdultPortalInvite.vue';
-const props = defineProps({ recipientGuardianId:{type:Number,default:null}, agencyId: { type: Number, default: null }, personalLoginAvailable: { type: Boolean, default: false }, clientIds: { type: Array, required: true } });
+const props = defineProps({ allowLinkedAccounts:{type:Boolean,default:true},recipientGuardianId:{type:Number,default:null}, agencyId: { type: Number, default: null }, personalLoginAvailable: { type: Boolean, default: false }, clientIds: { type: Array, required: true } });
 defineEmits(['close','edit-contact']);
 const singleClient=computed(()=>props.clientIds.length===1 && !!props.agencyId && !props.recipientGuardianId);
 const ownBusy=ref(false);

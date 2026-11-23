@@ -29,12 +29,12 @@ export async function getFamilyBillingSummary(userId, agencyId) {
     const medicaid=hasMedicaidCoverage(insurance)||(linkAllowsBilling(c)&&hasMedicaidCoverage({primary:{insurerName:c.primary_insurer_name}}));
     const [[paymentRequest]]=linkAllowsBilling(c)?await pool.execute(`SELECT r.id FROM client_payment_setup_requests r
       JOIN client_payment_setup_deliveries d ON d.request_id=r.id AND d.recipient_user_id=? AND d.recipient_kind='family'
-      WHERE r.agency_id=? AND r.client_id=? ORDER BY r.id DESC LIMIT 1`,[userId,agencyId,c.id]):[[]];
-    items.push({ clientId: c.id, clientName: c.full_name || c.initials, clientType:c.client_type, insuranceApplicable:!['learning','tutoring'].includes(String(c.client_type).toLowerCase()), insuranceOnFile: linkAllowsInsurance(c) ? !!c.insurance_on_file : null, canManageInsurance: linkAllowsInsurance(c), responsiblePayers: payers.filter(p=>c.independence_status!=='active'||c.relationship_type==='self'||Number(p.guardian_user_id)===Number(userId)).map(p => ({ name: [p.first_name, p.last_name].filter(Boolean).join(' ') || 'Responsible payer' })), canAcceptResponsibility: linkAllowsBilling(c), canManageBilling: !!own,
+      WHERE r.agency_id=? AND r.client_id=? AND r.notice_kind='payment_setup' ORDER BY r.id DESC LIMIT 1`,[userId,agencyId,c.id]):[[]];
+    items.push({ clientId: c.id, clientName: c.full_name || c.initials, clientType:c.client_type, insuranceApplicable:!['learning','tutoring'].includes(String(c.client_type).toLowerCase()), insuranceOnFile: linkAllowsInsurance(c) ? !!c.insurance_on_file : null, canManageInsurance: linkAllowsInsurance(c), responsiblePayers: payers.filter(p=>c.independence_status!=='active'||c.relationship_type==='self'||Number(p.guardian_user_id)===Number(userId)).map(p => ({ name: [p.first_name, p.last_name].filter(Boolean).join(' ') || 'Responsible payer' })), canAcceptResponsibility: linkAllowsBilling(c), canManageBilling: !!own, canSaveCard: linkAllowsBilling(c),
       medicaid,paymentSetupRequested:!medicaid&&!!paymentRequest&&!own?.payment_card_id,
       ...(own ? { paymentCardId: own.payment_card_id, recurringEnabled: !!own.consent_id, recurringLimitCents: own.recurring_limit_cents, paymentOnFileRequired: !medicaid&&!own.payment_card_id } : {}) });
   }
-  const canManage = items.some(c => c.canManageBilling);
+  const canManage = items.some(c => c.canSaveCard);
   const cards = canManage ? (await GuardianPaymentCard.findActiveByGuardian(userId, agencyId)).map(paymentCardSummary) : [];
   const profiles = items.some(c => c.canManageInsurance) ? await GuardianInsuranceProfile.findByGuardian(userId, agencyId) : [];
   const visibleProfiles = [];
@@ -69,6 +69,11 @@ export async function assignCard({ userId, agencyId, clientId, cardId, recurring
   try {
     await db.beginTransaction();
     await requireResponsiblePayer(userId, clientId, agencyId, db);
+    const insurance = await readClientInsurance(clientId, agencyId, db);
+    const [[client]] = await db.execute('SELECT primary_insurer_name FROM clients WHERE id=?', [clientId]);
+    if (hasMedicaidCoverage(insurance) || hasMedicaidCoverage({primary:{insurerName:client?.primary_insurer_name}})) {
+      throw billingError(409, 'A saved card cannot be assigned to charges for Medicaid-covered care.');
+    }
     const [clients] = await db.execute('SELECT id FROM clients WHERE id = ? FOR UPDATE', [clientId]);
     if (!clients.length) throw billingError(404, 'Client not found');
     const cards = await GuardianPaymentCard.findActiveByGuardian(userId, agencyId, db);

@@ -1,4 +1,4 @@
-import { personalContactReviewReason } from '../services/clientChartTypes.service.js';
+import { preparePersonalPortal } from '../services/personalPortalPreparation.service.js';
 import { ageOn } from '../services/guardianClinicalAccess.service.js';
 import {resolveClientRecordAccess} from '../services/clientRecordAccess.service.js';
 import { guardianAccountStatuses } from '../services/guardianAccountStatus.service.js';
@@ -86,10 +86,18 @@ export const upsertClientGuardian = async (req, res, next) => {
     if (!firstName || !lastName) return res.status(400).json({ error: { message: 'First and last name are required' } });
     if (relationshipType === 'self' && (req.body.clientOwnContactConfirmed !== true || !normalizeEmail(client.email) || normalizeEmail(client.email) !== email)) return res.status(400).json({ error: { message: 'Save and explicitly confirm the client’s own email in Demographics before preparing their portal account. A guardian’s email must not be used as the client’s email.' } });
     if (relationshipType === 'self') {
-      const issue = await personalContactReviewReason(clientId);
-      if (issue) return res.status(409).json({error:{message:issue === 'shared_email'
-        ? 'This email is shared with another client chart. Confirm a separate client address in Demographics.'
-        : 'An existing portal relationship or identity needs review. Check the client’s current login before preparing another.'}});
+      try {
+        const { account, recovered } = await preparePersonalPortal({ client, email, firstName, lastName,
+          actorUserId: req.user.id, permissions: permissionsJson, enableAccess: accessEnabled,
+          recoverPending: req.body.recoverPendingPersonalAccount === true });
+        await logAuditEvent(req, { actionType: recovered ? 'personal_portal_preparation_recovered' : 'personal_portal_prepared',
+          agencyId: Number(client.agency_id), metadata: { clientId, accountId: account.id } });
+        return res.status(recovered ? 200 : 201).json({ ok: true, createdGuardianUser: !recovered, setupEmailSent: false,
+          guardianUser: { id: account.id, email: account.email, first_name: account.first_name, last_name: account.last_name, role: account.role, status: account.status } });
+      } catch (error) {
+        if (error.status === 409) return res.status(409).json({ error: { message: error.message, code: error.code } });
+        throw error;
+      }
     }
     if (relationshipType !== 'self' && accessEnabled && req.body.relationshipVerified !== true) {
       return res.status(400).json({ error: { message: 'Verify this person’s identity and relationship to the selected client before enabling access.' } });
@@ -107,11 +115,6 @@ export const upsertClientGuardian = async (req, res, next) => {
           }
         });
       }
-      if (relationshipType === 'self') {
-        const prior = await ClientGuardian.getLink({ clientId, guardianUserId: guardian.id });
-        if (!prior) return res.status(409).json({error:{message:'This address has an existing login. Review its ownership before linking it to this chart.'}});
-        if (prior && prior.relationship_type !== 'self') return res.status(409).json({ error: { message: 'This email belongs to an existing guardian relationship for this client. Use the client’s separate email; guardian access cannot be converted into the client’s identity.' } });
-      }
     } else {
       guardian = await User.create({
         email,
@@ -119,8 +122,8 @@ export const upsertClientGuardian = async (req, res, next) => {
         firstName,
         lastName,
         personalEmail: email,
-        role: relationshipType === 'self' ? 'client' : 'client_guardian',
-        phoneNumber: relationshipType === 'self' ? client.phone || null : String(req.body.phone || req.body.phoneNumber || '').trim() || null,
+        role: 'client_guardian',
+        phoneNumber: String(req.body.phone || req.body.phoneNumber || '').trim() || null,
         status: 'PENDING_SETUP'
       });
       created = true;

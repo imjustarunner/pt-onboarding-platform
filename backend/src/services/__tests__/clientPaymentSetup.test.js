@@ -2,7 +2,7 @@ import {beforeEach,it,expect,vi} from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{}}));
 vi.mock('../clientInsurance.service.js',()=>({readClientInsurance:vi.fn()}));
 vi.mock('../../models/GuardianPaymentCard.model.js',()=>({decodePaymentCard:row=>row}));
-vi.mock('../clientPortalContext.service.js',async importOriginal=>{const actual=await importOriginal();return {...actual,clientPortalAppUrl:vi.fn(actual.clientPortalAppUrl)};});
+vi.mock('../clientPortalContext.service.js',async importOriginal=>{const actual=await importOriginal();return {...actual,clientPortalAppUrl:vi.fn(actual.clientPortalAppUrl),resolveClientPortalContext:async client=>({portal:{...client,id:client.agency_id,clinical_portal:client.client_type==='clinical'}})};});
 import {clientPortalAppUrl} from '../clientPortalContext.service.js';
 import {readClientInsurance} from '../clientInsurance.service.js';
 import {clientPaymentSetup,paymentSetupEmail} from '../clientPaymentSetup.service.js';

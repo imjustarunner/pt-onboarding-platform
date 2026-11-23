@@ -16,6 +16,31 @@ const router=express.Router();
 router.use((req,res,next)=>{res.set({'Cache-Control':'no-store','Referrer-Policy':'strict-origin','X-Robots-Tag':'noindex, nofollow','X-Frame-Options':'DENY','Content-Security-Policy':"default-src 'none'; img-src https:; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"});next();});
 const document=(html,script='')=>/^<!doctype html>/i.test(html)?html.replace('</body>',`${script}</body>`):`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Appointment response</title></head><body style="margin:0">${html}${script}</body></html>`;
 function errorResponse(res,error){return res.status(error.status||500).type('html').send(document(`<main style="font:16px Arial;padding:28px;max-width:600px;margin:auto"><h1>Appointment response</h1><p>${e(error.status?error.message:'We could not save your response. Please contact your care team.')}</p></main>`));}
+const setupDocument = content => document(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Set up AuricWell</title></head><body><main style="max-width:32rem;margin:10vh auto;padding:1.25rem;font:16px/1.5 Arial,sans-serif"><h1>Set up your AuricWell portal</h1>${content}</main></body></html>`);
+
+async function showPortalSetup(req, res, problem = '') {
+  try {
+    const { readClinicalPortalSetup } = await import('../services/clinicalPortalSetupEmail.service.js');
+    const { dependent } = await readClinicalPortalSetup(req.params.token);
+    const form = `<form method="post"><label for="birth-date">${dependent ? 'Your dependent’s date of birth' : 'Your date of birth'}</label><p><input id="birth-date" name="birthDate" type="date" required></p><button type="submit">Continue to password setup</button></form>`;
+    return res.status(problem ? 400 : 200).type('html').send(setupDocument(`${problem ? `<p role="alert">${e(problem)}</p>` : ''}${form}`));
+  } catch {
+    return res.status(410).type('html').send(setupDocument('<p>This setup link is unavailable. Contact your care team for a new invitation.</p>'));
+  }
+}
+router.get('/portal-setup/:token', (req, res) => showPortalSetup(req, res));
+router.post('/portal-setup/:token', async (req, res) => {
+  if (req.get('origin') !== 'https://auricwell.com') return res.sendStatus(403);
+  try {
+    const { completeClinicalPortalSetup } = await import('../services/clinicalPortalSetupEmail.service.js');
+    const location = await completeClinicalPortalSetup(req.params.token, req.body?.birthDate);
+    return res.redirect(303, location);
+  } catch (error) {
+    if (error.status === 400) return showPortalSetup(req, res, error.message);
+    return res.status(410).type('html').send(setupDocument('<p>This setup link is unavailable. Contact your care team for a new invitation.</p>'));
+  }
+});
+
 router.get('/:token',async(req,res)=>{
   try {
     const {row,appt,setting,context}=await appointmentEmailActionContext(req.params.token);

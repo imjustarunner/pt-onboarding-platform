@@ -54,3 +54,36 @@ it('fails closed when enrollment attempts to restore a relationship marked incor
   await expect(ClientGuardian.upsertLink({ ...input, expectedLink: undefined })).rejects.toHaveProperty('status', 409);
   expect(db.execute.mock.calls.some(([sql]) => sql.includes('INSERT INTO client_guardians'))).toBe(false);
 });
+
+it.skipIf(!process.env.BILLING_TEST_MYSQL_SOCKET)('checks the same client email across existing collations and leaves final commit to the account transaction', async () => {
+  const { default: mysql } = await import('mysql2/promise');
+  const { randomUUID } = await import('node:crypto');
+  const socketPath = process.env.BILLING_TEST_MYSQL_SOCKET;
+  expect(socketPath).toMatch(/^\/private\/tmp\/pt-billing-workflow-mysql-/);
+  const connection = await mysql.createConnection({ socketPath, user: 'root' });
+  const database = `portal_link_${randomUUID().replaceAll('-', '')}`;
+  try {
+    await connection.query(`CREATE DATABASE ${database}`);
+    await connection.changeUser({ database });
+    const tables = [
+      'CREATE TABLE clients (id INT PRIMARY KEY,email VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci)',
+      'CREATE TABLE users (id INT PRIMARY KEY,email VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci)',
+      'CREATE TABLE client_portal_independence (client_id INT,user_id INT,status VARCHAR(20))',
+      'CREATE TABLE client_guardians (client_id INT,guardian_user_id INT,relationship_type VARCHAR(20),relationship_title VARCHAR(20),access_enabled TINYINT,permissions_json JSON,created_by_user_id INT, PRIMARY KEY(client_id,guardian_user_id))'
+    ];
+    for (const statement of tables) await connection.query(statement);
+    await connection.query("INSERT INTO clients VALUES (4,'  Portal@example.test ')");
+    await connection.query("INSERT INTO users VALUES (8,'portal@example.test')");
+    await connection.beginTransaction();
+    const linked = { ...input, relationshipType:'self', expectedLink:null, expectedSelfEmail:'portal@example.test', transaction:connection };
+    await expect(ClientGuardian.upsertLink(linked)).resolves.toBe(true);
+    expect((await connection.execute('SELECT guardian_user_id FROM client_guardians'))[0]).toMatchObject([{ guardian_user_id: 8 }]);
+    await connection.rollback();
+    expect((await connection.execute('SELECT guardian_user_id FROM client_guardians'))[0]).toEqual([]);
+    await connection.query("INSERT INTO clients VALUES (5,'portal@example.test')");
+    await expect(ClientGuardian.upsertLink(linked)).rejects.toHaveProperty('status', 409);
+  } finally {
+    await connection.query(`DROP DATABASE IF EXISTS ${database}`);
+    await connection.end();
+  }
+});

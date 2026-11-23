@@ -29,7 +29,8 @@ it('requires section reviews and appointment selection, then submits a review bo
 });
 it('clears review after diagnosis changes return a new content fingerprint',async()=>{
  mountPanel();await flushPromises();for(const button of wrapper.findAll('.cin-section__toggle'))await button.trigger('click');for(const input of wrapper.findAll('input[type="checkbox"]'))await input.setValue(true);await wrapper.find('select').setValue('77');
- mocks.post.mockResolvedValue({data:{draft:{...draft,sourceReview:{...draft.sourceReview,fingerprint:'changed'}}}});await wrapper.findAll('button').find(button=>button.text()==='Diagnosis confirmed').trigger('click');await flushPromises();
+ mocks.post.mockResolvedValue({data:{draft:{...draft,sourceReview:{...draft.sourceReview,fingerprint:'changed'}}}});await wrapper.findAll('button').find(button=>button.text()==='Confirm diagnosis').trigger('click');await flushPromises();
+ expect(wrapper.emitted('review-updated')).toHaveLength(1);
  expect(wrapper.findAll('input[type="checkbox"]').every(input=>!input.element.checked)).toBe(true);expect(wrapper.findAll('button').find(button=>button.text()==='Finalize intake only').attributes('disabled')).toBeDefined();
 });
 

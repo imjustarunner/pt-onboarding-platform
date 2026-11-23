@@ -31,6 +31,12 @@ const defaults = {
   participants: async id => (await import('../models/Appointment.model.js')).default.listParticipants(id),
   tenant: async id => (await import('./sessionNotification.service.js')).getTenantSettings(id),
   joinEmail: async input => (await import('./appointmentJoinEmail.service.js')).appointmentJoinEmail(input),
+  portalAccess: async ({appointment, clientId, to}) => {
+    const { clientEmailContext } = await import('./clientPortalEmail.service.js');
+    const { clinicalEmailPortalLink } = await import('./clinicalPortalSetupEmail.service.js');
+    return clinicalEmailPortalLink({ context: await clientEmailContext({ agencyId: appointment.agencyId, clientId }), to });
+  },
+  officeResponse: async input => (await import('./appointmentEmailActions.service.js')).scheduledOfficeAppointmentLinks(input),
   tutoringResponse: async input => (await import('./tutoringBookingResponse.service.js')).tutoringBookingResponseEmail(input),
   reviewedRecipientAllowed: async (...args) => (await import('./cancellationRecipients.service.js')).cancellationRecipients.permitted(...args),
   operational: async (...args) => (await import('./dayCancellationEmail.service.js')).reviewedDayCancellationContext(...args),
@@ -306,8 +312,11 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
           }
           if(channel==='email'&&!providerCopy&&recipient&&entries.every(entry=>!entry.cancellation)){
             let addedJoin=false;const recipientEntries=[];
+            const portalLink=await d.portalAccess({appointment:entries[0].appointment,clientId:seed.client_id,to:recipient}).catch(()=>null);
+            const deliveryPortalUrl=portalLink?.url||portalUrl;
             for(const entry of entries){
-              const response=await d.tutoringResponse({appointment:entry.appointment,clientId:seed.client_id,to:recipient});
+              const input={appointment:entry.appointment,clientId:seed.client_id,to:recipient};
+              const response=await d.tutoringResponse(input)||await d.officeResponse(input).catch(()=>null);
               const join=await d.joinEmail({appointment:entry.appointment,clientId:seed.client_id,to:recipient});
               if(response?.links){
                 const links=appointmentEmailLinks(entry.appointment,response.links,join,+d.now());
@@ -317,9 +326,9 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
               }else recipientEntries.push({...entry,actionText:[response?.text,join?.text].filter(Boolean).join('\n\n'),actionHtml:(response?.html||'')+(join?.html||'')});
               if(response||join)addedJoin=true;
             }
-            recipientMessage=buildScheduleNoticeMessage(recipientEntries,recipientEntries.at(-1)?.portalUrl||portalUrl,{recipientUserId:target?.userId||null});
+            recipientMessage=buildScheduleNoticeMessage(recipientEntries,recipientEntries.at(-1)?.portalUrl||deliveryPortalUrl,{recipientUserId:target?.userId||null,portalLink});
             body=recipientMessage.text;
-            if(addedJoin)await db.execute('UPDATE appointment_schedule_notice_deliveries SET message_json=? WHERE id=?',[d.encrypt(JSON.stringify(recipientMessage)),delivery.insertId]);
+            if(addedJoin||portalLink)await db.execute('UPDATE appointment_schedule_notice_deliveries SET message_json=? WHERE id=?',[d.encrypt(JSON.stringify(recipientMessage)),delivery.insertId]);
           }
           communication = await d.communication({agencyId:seed.agency_id,clientId:seed.client_id,userId:consent.guardianUserId || null,
             templateType:individualEmail?'session_cancellation':'session_change',channel,subject:recipientMessage.subject,body,recipientAddress:recipient,generatedByUserId:seed.created_by_user_id,

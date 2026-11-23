@@ -106,7 +106,7 @@ class ClientGuardian {
     return map;
   }
 
-  static async upsertLink({ clientId, guardianUserId, relationshipType, relationshipTitle, accessEnabled, permissionsJson, createdByUserId, expectedLink, expectedSelfEmail = null, metadataOnly = false }) {
+  static async upsertLink({ clientId, guardianUserId, relationshipType, relationshipTitle, accessEnabled, permissionsJson, createdByUserId, expectedLink, expectedSelfEmail = null, metadataOnly = false, transaction = null }) {
     const cid = Number(clientId);
     const uid = Number(guardianUserId);
     if (!cid || !uid) throw new Error('clientId and guardianUserId are required');
@@ -117,14 +117,14 @@ class ClientGuardian {
     const pj = permissionsJson ? JSON.stringify(permissionsJson) : null;
     const createdBy = createdByUserId ? Number(createdByUserId) : null;
 
-    const db = await pool.getConnection();
+    const db = transaction || await pool.getConnection();
     try {
-      await db.beginTransaction();
+      if (!transaction) await db.beginTransaction();
       await db.execute('SELECT id FROM clients WHERE id = ? FOR UPDATE', [cid]);
       if (expectedSelfEmail && relType === 'self') {
-        const [[match]] = await db.execute(`SELECT c.id FROM clients c JOIN users u ON u.id=? AND u.email=TRIM(c.email)
-          WHERE c.id=? AND TRIM(c.email)=?
-            AND NOT EXISTS (SELECT 1 FROM clients other WHERE other.id<>c.id AND other.email=TRIM(c.email))
+        const [[match]] = await db.execute(`SELECT c.id FROM clients c JOIN users u ON u.id=? AND CONVERT(TRIM(u.email) USING utf8mb4) COLLATE utf8mb4_unicode_ci=CONVERT(TRIM(c.email) USING utf8mb4) COLLATE utf8mb4_unicode_ci
+          WHERE c.id=? AND CONVERT(TRIM(c.email) USING utf8mb4) COLLATE utf8mb4_unicode_ci=CONVERT(? USING utf8mb4) COLLATE utf8mb4_unicode_ci
+            AND NOT EXISTS (SELECT 1 FROM clients other WHERE other.id<>c.id AND CONVERT(TRIM(other.email) USING utf8mb4) COLLATE utf8mb4_unicode_ci=CONVERT(TRIM(c.email) USING utf8mb4) COLLATE utf8mb4_unicode_ci)
             AND NOT EXISTS (SELECT 1 FROM client_guardians g WHERE g.client_id=c.id AND g.guardian_user_id<>u.id AND g.relationship_type='self')
           FOR UPDATE`,[uid,cid,expectedSelfEmail]);
         if (!match) throw Object.assign(new Error('The client address or portal relationship changed. Review the current chart before continuing.'),{status:409});
@@ -137,7 +137,7 @@ class ClientGuardian {
         // Keep the existing row and every permission flag, including revocation.
         if (!current) throw Object.assign(new Error('Guardian link not found.'), { status: 404 });
         await db.execute('UPDATE client_guardians SET relationship_title = ? WHERE client_id = ? AND guardian_user_id = ?', [title, cid, uid]);
-        await db.commit();
+        if (!transaction) await db.commit();
         return true;
       }
 
@@ -183,9 +183,9 @@ class ClientGuardian {
         [cid, uid, title, enabled, pj, createdBy]
       );
     }
-    await db.commit();
+    if (!transaction) await db.commit();
     return true;
-    } catch (e) { await db.rollback(); throw e; } finally { db.release(); }
+    } catch (e) { if (!transaction) await db.rollback(); throw e; } finally { if (!transaction) db.release(); }
   }
 
   static async restoreIncorrectLink({ clientId, guardianUserId, actorUserId, accessMode, reason }) {

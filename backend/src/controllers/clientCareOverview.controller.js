@@ -104,3 +104,30 @@ export async function clientOverviewEssentials(req, res, next) {
     next(error);
   }
 }
+
+export async function clientChartAppointments(req, res, next) {
+  try {
+    const agencyId = Number(req.query.agencyId);
+    const clientId = Number(req.params.id);
+    await requireOverviewAccess(req.user, clientId, agencyId);
+    if (req.user.role !== 'super_admin') {
+      const [[membership]] = await pool.execute('SELECT 1 FROM user_agencies WHERE user_id=? AND agency_id=? AND is_active=1', [req.user.id, agencyId]);
+      if (!membership) throw Object.assign(new Error('Agency access required.'), { status: 403 });
+    }
+    const date = new Date();
+    const page = Math.min(200, Math.max(0, Number.parseInt(req.query.historyPage, 10) || 0));
+    const select = `SELECT a.id, a.start_at, a.end_at, a.source_timezone, a.status, a.modality,
+      u.first_name, u.last_name FROM appointments a LEFT JOIN users u ON u.id=a.provider_user_id
+      WHERE a.agency_id=? AND EXISTS (
+        SELECT 1 FROM appointment_participants p WHERE p.appointment_id=a.id AND p.client_id=? AND p.role IN ('client','student')
+      )`;
+    const [[upcoming], [history]] = await Promise.all([
+      pool.execute(`${select} AND a.start_at>=? AND a.status IN ('scheduled','confirmed','client_confirmed','in_progress')
+        ORDER BY a.start_at, a.id LIMIT 12`, [agencyId, clientId, date]),
+      pool.execute(`${select} AND a.start_at<? AND a.status<>'voided' ORDER BY a.start_at DESC, a.id DESC LIMIT 13 OFFSET ${page * 12}`, [agencyId, clientId, date])
+    ]);
+    res.set('Cache-Control', 'private, no-store').json({ upcoming, history: history.slice(0,12), moreHistory: history.length > 12 });
+  } catch (error) {
+    next(error);
+  }
+}

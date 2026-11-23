@@ -454,7 +454,7 @@ class User {
     return rows;
   }
 
-  static async findById(id, { raw = false } = {}) {
+  static async findById(id, { raw = false, db = pool } = {}) {
     // Check which columns exist to avoid errors if migrations haven't been run
     // password_hash is required for login/password-policy and school-onboarding setPassword checks.
     let query = 'SELECT id, email, phone_number, role, status, completed_at, terminated_at, status_expires_at, is_active, is_archived, first_name, last_name, invitation_token, invitation_token_expires_at, password_hash, temporary_password_hash, temporary_password_expires_at, passwordless_token, passwordless_token_expires_at, created_at';
@@ -462,7 +462,7 @@ class User {
     // Try to include pending fields if they exist (will be added by migrations)
     try {
       const dbName = process.env.DB_NAME || 'onboarding_stage';
-      const [columns] = await pool.execute(
+      const [columns] = await db.execute(
         "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_completed_at', 'pending_auto_complete_at', 'pending_identity_verified', 'pending_access_locked', 'pending_completion_notified', 'work_email', 'personal_email', 'preferred_name', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'has_hiring_access', 'has_outreach_access', 'has_platform_gear_access', 'has_platform_support', 'has_medical_records_release_access', 'has_games_access', 'provider_accepting_new_clients', 'sees_clients', 'in_office_available', 'provider_school_info_blurb', 'psychology_today_url', 'personal_phone', 'work_phone', 'work_phone_extension', 'system_phone_number', 'home_street_address', 'home_address_line2', 'home_city', 'home_state', 'home_postal_code', 'medcancel_enabled', 'medcancel_rate_schedule', 'company_card_enabled', 'company_car_submit_access', 'company_car_manage_access', 'profile_photo_path', 'email_signature_path', 'email_signature_enabled', 'password_changed_at', 'title', 'department', 'work_location', 'service_focus', 'languages_spoken', 'credential', 'skill_builder_eligible', 'group_supervision_eligible', 'has_skill_builder_coordinator_access', 'skill_builder_confirm_required_next_login', 'is_hourly_worker', 'hourly_dual_rate_enabled', 'employee_id', 'sso_password_override', 'login_is_group_email', 'provider_start_date', 'work_role', 'employment_type', 'benefits_notes', 'benefits_eligibility_overrides_json', 'benefits_enrollment_json', 'is_demo', 'timezone', 'passwordless_token_purpose')",
         [dbName]
       );
@@ -539,14 +539,14 @@ class User {
     // passwordless_token is already in the base query above
     
     query += ` FROM users WHERE id = ? AND ${workplacePersonSql('users')}`;
-    const [rows] = await pool.execute(query, [id]);
+    const [rows] = await db.execute(query, [id]);
     const user = rows[0] || null;
     if (raw) return user;
     const { userInCurrentAgency } = await import('../utils/agencyAccessContext.js');
     return userInCurrentAgency(user);
   }
 
-  static async create(userData) {
+  static async create(userData, db = pool) {
     const { email, passwordHash, role, firstName, lastName, phoneNumber, status, personalEmail } = userData;
     // All new users should be pending by default (unless explicitly set otherwise).
     // IMPORTANT: DB enum values vary across deployments (legacy 'pending' vs new 'PENDING_SETUP' lifecycle).
@@ -594,7 +594,7 @@ class User {
     // Add personal_email if column exists and value provided
     if (personalEmail !== undefined && personalEmail !== null) {
       try {
-        const [columns] = await pool.execute(
+        const [columns] = await db.execute(
           "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'personal_email'"
         );
         if (columns.length > 0) {
@@ -610,7 +610,7 @@ class User {
     // Add username if column exists (set to personal_email initially)
     if (initialUsername) {
       try {
-        const [columns] = await pool.execute(
+        const [columns] = await db.execute(
           "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'username'"
         );
         if (columns.length > 0) {
@@ -626,7 +626,7 @@ class User {
     // Add has_supervisor_privileges if column exists and role is supervisor
     if (hasSupervisorPrivileges !== null) {
       try {
-        const [columns] = await pool.execute(
+        const [columns] = await db.execute(
           "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'has_supervisor_privileges'"
         );
         if (columns.length > 0) {
@@ -641,8 +641,8 @@ class User {
     
     query += `) VALUES (${placeholders.join(', ')})`;
     
-    const [result] = await pool.execute(query, values);
-    return this.findById(result.insertId);
+    const [result] = await db.execute(query, values);
+    return this.findById(result.insertId, { db, raw: db !== pool });
   }
 
   static async findAll(includeArchived = false) {
@@ -2306,11 +2306,12 @@ class User {
   }
 
   static async assignToAgency(userId, agencyId, options = {}) {
+    const db = options.transaction || pool;
     const dbName = process.env.DB_NAME || 'onboarding_stage';
     let hasClubRole = false;
     let hasIsActive = false;
     try {
-      const [uaCols] = await pool.execute(
+      const [uaCols] = await db.execute(
         "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'user_agencies' AND COLUMN_NAME IN ('club_role','is_active')",
         [dbName]
       );
@@ -2342,12 +2343,12 @@ class User {
       updates.push('is_active = VALUES(is_active)');
     }
 
-    await pool.execute(
+    await db.execute(
       `INSERT INTO user_agencies (${columns.join(', ')}) VALUES (${placeholders.join(', ')}) ON DUPLICATE KEY UPDATE ${updates.join(', ')}`,
       params
     );
     const { accessProfileSchemaReady, readAgencyAccess, refreshPlatformAccessEligibility } = await import('../services/agencyAccessProfiles.service.js');
-    if (await accessProfileSchemaReady()) {
+    if (!options.transaction && await accessProfileSchemaReady()) {
       if (Number(agencyId) === 1) await refreshPlatformAccessEligibility(userId);
       await readAgencyAccess(userId,agencyId);
     }

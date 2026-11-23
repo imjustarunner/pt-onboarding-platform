@@ -47,16 +47,22 @@ async function intakeConcerns(clientId) {
 }
 
 async function importedIntakeConcerns(clientId, agencyId) {
-  const [rows] = await pool.execute(`SELECT note_sections_json_enc, session_context_enc, suggested_dx_json, status, finalized_at, updated_at, created_at
+  const [rows] = await pool.execute(`SELECT note_sections_json_enc, session_context_enc, suggested_dx_json, confirmed_dx_json, diagnosis_action, status, finalized_at, updated_at, created_at
     FROM client_intake_note_drafts WHERE client_id = ? AND agency_id = ? AND status IN ('final', 'diagnosis_pending','draft','ready')
     ORDER BY COALESCE(finalized_at, updated_at, created_at) DESC`, [clientId, agencyId]);
   return rows.filter(row => row.status === 'final' ||
-    ['client_creation_record_import','client_records_import'].includes(parseSummaryJson(maybeDecryptNotePayload(row.session_context_enc)).source)).map(row => ({
-    importedDiagnoses: row.status==='final'?[]:summaryItems(parseSummaryJson(row.suggested_dx_json)?.diagnoses || parseSummaryJson(row.suggested_dx_json)?.primary),
-    source: row.status === 'final' ? 'Intake' : 'Intake (review pending)',
-    values: intakeNotePresentingProblems(parseSummaryJson(maybeDecryptNotePayload(row.note_sections_json_enc))),
-    recordedAt: row.finalized_at || row.updated_at || row.created_at
-  }));
+    ['client_creation_record_import','client_records_import'].includes(parseSummaryJson(maybeDecryptNotePayload(row.session_context_enc)).source)).map(row => {
+    const suggested = parseSummaryJson(row.suggested_dx_json);
+    const reviewed = row.status === 'final' || ['confirmed','updated'].includes(row.diagnosis_action);
+    const confirmed = parseSummaryJson(row.confirmed_dx_json || row.suggested_dx_json);
+    return {
+      reviewedDiagnosisCodes: reviewed ? summaryItems(confirmed.diagnoses || confirmed.primary || confirmed).map(item => item.split(' — ')[0]) : [],
+      importedDiagnoses: reviewed ? [] : summaryItems(suggested.diagnoses || suggested.primary || (suggested.code ? suggested : null)),
+      source: row.status === 'final' ? 'Intake' : 'Intake (review pending)',
+      values: intakeNotePresentingProblems(parseSummaryJson(maybeDecryptNotePayload(row.note_sections_json_enc))),
+      recordedAt: row.finalized_at || row.updated_at || row.created_at
+    };
+  });
 }
 
 /** A single current summary for the chart overview, exchange, and match email. */
@@ -77,7 +83,12 @@ export async function loadClientExchangeSummary({ client, agencyId = client.agen
   ]);
   const sourcePlan=plans.find(plan=>plan.status==='draft'&&String(plan.source_tool_id||'').startsWith('client_records_import:'));
   const importedPlan=sourcePlan?await readChartRecord({agencyId:Number(agencyId),clientId:Number(client.id)},`plan_source_${sourcePlan.id}`,0):null;
-  const importedDiagnoses=summaryItems([...intakeNotes.flatMap(row=>row.importedDiagnoses||[]),...(importedPlan?.value?.parsed?.diagnoses||[]).map(d=>({code:d.icd10Code||d.icd10_code||d.code,description:d.description}))]);
+  const reviewedCodes = new Set((intakeNotes[0]?.reviewedDiagnosisCodes || []).map(code => String(code).toUpperCase()));
+  const importedPlanDiagnoses = (importedPlan?.value?.parsed?.diagnoses || []).map(d => ({
+    code: d.icd10Code || d.icd10_code || d.code,
+    description: d.description
+  })).filter(item => !reviewedCodes.has(String(item.code).toUpperCase()));
+  const importedDiagnoses = summaryItems([...(intakeNotes[0]?.importedDiagnoses || []), ...importedPlanDiagnoses]);
   const billing = diagnoses.length ? [] : await listBillingDiagnosesForClient({ agencyId, clientId: client.id });
   const intake = parseSummaryJson(client.intake_preferences_json);
   const insuranceRecord=await readClientInsurance(client.id,agencyId);
@@ -100,6 +111,9 @@ export async function loadClientExchangeSummary({ client, agencyId = client.agen
   return {
     demographics: { ...(age == null ? (referral.age == null ? {} : { ageBand: String(referral.age) }) : { ageBand: String(age) }), ...((explicitRecordedSex(client.gender) || intakes.find(row => row.sex)?.sex) ? { gender: explicitRecordedSex(client.gender) || intakes.find(row => row.sex).sex } : {}) },
     importedDiagnoses,
+    intakeReviewStatus: intakeNotes[0]?.source === 'Intake (review pending)'
+      ? 'draft' : intakeNotes.some(note => note.source === 'Intake') || intakes.length ? 'complete' : 'missing',
+    treatmentPlanOnFile: plans.some(plan => plan.status === 'active'),
     diagnoses: summaryItems(diagnoses.length ? diagnoses : billing.length ? billing : referral.diagnoses),
     ...problem,
     preferences: {

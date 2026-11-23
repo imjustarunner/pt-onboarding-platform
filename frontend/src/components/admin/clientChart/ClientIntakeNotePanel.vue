@@ -126,7 +126,7 @@
             <div class="cin-panel__head">
               <h4>Diagnosis</h4>
               <span v-if="draft.status !== 'final' && !draft.diagnosisAction" class="cin-chip cin-chip--warn">Needs confirmation</span>
-              <span v-else-if="draft.confirmedDiagnosis" class="cin-chip cin-chip--ok">Confirmed</span>
+              <span v-else-if="draft.confirmedDiagnosis" class="cin-chip cin-chip--ok">Diagnosis decision saved</span>
             </div>
             <p v-if="diagnosisUnsupported" class="cin-dx-rationale">This code is not in the intake source. It remains on the saved draft and is not a confirmed diagnosis.</p>
             <p class="cin-dx-code mono">
@@ -151,7 +151,7 @@
                 No further information — remain as is
               </button>
               <button type="button" class="cdp-btn-primary" :disabled="busy" @click="confirmDx('confirmed')">
-                Diagnosis confirmed
+                {{ busyAction === 'dx' ? 'Saving…' : 'Confirm diagnosis' }}
               </button>
               <button type="button" class="cdp-btn-soft" :disabled="busy" @click="showDxEdit = !showDxEdit">
                 Change / update diagnosis
@@ -411,7 +411,7 @@ const props = defineProps({
   phiBanner: { type: Boolean, default: false },
   client: { type: Object, default: null }
 });
-const emit=defineEmits(['navigate','removed']);
+const emit=defineEmits(['navigate','removed','review-updated']);
 
 const router = useRouter();
 const agencyStore = useAgencyStore();
@@ -730,6 +730,7 @@ async function confirmDx(action) {
     draft.value = r.data?.draft || draft.value;
     showDxEdit.value = false;
     syncDxEditFromDraft();
+    emit('review-updated');
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to record diagnosis decision';
   } finally {
@@ -753,6 +754,7 @@ async function finalize() {
     });
     draft.value = r.data?.draft || draft.value;
     treatmentPlan.value = r.data?.treatmentPlan || null;
+    emit('review-updated');
     if (!isHistoricalView.value) {
       latestDraftId.value = draft.value?.id || latestDraftId.value;
     }

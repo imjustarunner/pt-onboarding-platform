@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js',()=>({onTableWrite:vi.fn(),default:{execute:vi.fn(),getConnection:vi.fn()}}));
 vi.mock('../../models/GuardianInsuranceProfile.model.js',()=>({default:{findByGuardian:vi.fn(),upsert:vi.fn()},decodeInsuranceProfile:row=>row}));
-vi.mock('../../models/GuardianPaymentCard.model.js',()=>({default:{findActiveByGuardian:vi.fn()},paymentCardSummary:value=>value}));
+vi.mock('../../models/GuardianPaymentCard.model.js',()=>({default:{findActiveByGuardian:vi.fn().mockResolvedValue([])},paymentCardSummary:value=>value}));
 vi.mock('../storage.service.js',()=>({default:{}}));
 vi.mock('../documentEncryption.service.js',()=>({default:{}}));
 vi.mock('../stripePayments.service.js',()=>({getStripePublishableKey:()=>null}));
@@ -45,7 +45,7 @@ describe('second guardian insurance readiness',()=>{
   Profiles.findByGuardian.mockResolvedValue([{id:22,client_id:101,primary:{insurerName:'Own coverage'}}]);
   const result=await getFamilyBillingSummary(20,1);
   expect(result.clients[0]).toMatchObject({insuranceOnFile:true,canManageInsurance:true,canManageBilling:false});
-  expect(result.profiles).toHaveLength(1);expect(result.cards).toEqual([]);expect(Cards.findActiveByGuardian).not.toHaveBeenCalled();
+  expect(result.profiles).toHaveLength(1);expect(result.cards).toEqual([]);expect(result.clients[0].canSaveCard).toBe(true);expect(Cards.findActiveByGuardian).toHaveBeenCalledWith(20,1);
   expect(Profiles.findByGuardian).toHaveBeenCalledWith(20,1);
  });
  it('does not expose a client or payer names through a no-view invitation link',async()=>{

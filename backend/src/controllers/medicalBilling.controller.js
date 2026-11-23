@@ -3269,7 +3269,7 @@ export const listMedicalServiceCodes = async (req, res, next) => {
     const agencyId = parseIntValue(req.query.agencyId);
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
     return res.json(await medicalServiceCatalogRead({user:req.user,agencyId,
-      includeInactive:String(req.query.includeInactive||'')==='1',readOnly:String(req.query.readOnly||'')==='1'}));
+      includeInactive:String(req.query.includeInactive||'')==='1',readOnly:String(req.query.readOnly||'')==='1',includeProBono:req.query.includeProBono==='1'}));
   } catch (e) {
     next(e);
   }

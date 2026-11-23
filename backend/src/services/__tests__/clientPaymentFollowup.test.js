@@ -19,6 +19,15 @@ it('reviews authorized recipients and from/reply identity, and rejects missing c
   expect(result.ready).toBe(true);expect(result.recipients.map(r=>r.kind)).toEqual(['family','provider']);expect(result.from).toBe('billing@example.com');
   deps.setup.mockResolvedValue({...context(),eligible:[{guardian_user_id:11,email:''}]});expect((await paymentFollowupPreview(1,2,deps)).ready).toBe(false);
 });
+it('allows a reviewed insurance-delay notice for Medicaid without requesting a card or sending a provider copy', async () => {
+  const deps = previewDeps({medicaid:true,secureCollectionAvailable:false});
+  deps.setup.mockResolvedValue({...context({medicaid:true,secureCollectionAvailable:false}),
+    portal:{slug:'demo',clinical_portal:true},eligible:[{guardian_user_id:11,access_enabled:1,relationship_type:'guardian',email:'payer@example.com'}]});
+  const preview = await paymentFollowupPreview(1,2,{...deps,noticeKind:'insurance_delay'});
+  expect(preview).toMatchObject({ready:true,noticeKind:'insurance_delay',recipients:[{userId:11,kind:'family'}]});
+  expect(preview.noticeMessage).toContain('verify insurance');
+  expect((await paymentFollowupPreview(1,2,{...deps,noticeKind:'payment_delay'})).ready).toBe(false);
+});
 it('does not interpret a redirect, queue or hold as delivery',()=>{
   expect(confirmedPaymentEmail({id:'sent'})).toBe(true);
   for(const flag of ['redirected','queued','blocked','skipped'])expect(confirmedPaymentEmail({id:'sent',[flag]:true})).toBe(false);
@@ -31,8 +40,10 @@ it.skipIf(!process.env.BILLING_TEST_MYSQL_SOCKET)('MySQL: replay, tenant isolati
   const admin=await mysql.createConnection({socketPath:socket,user:'root'}),schema=`payment_followup_${randomUUID().replaceAll('-','')}`;let db;
   try{
     await admin.query(`CREATE DATABASE ${schema}`);db=mysql.createPool({socketPath:socket,user:'root',database:schema,connectionLimit:4});
-    const migration=await readFile(new URL('../../../../database/migrations/1736_payment_setup_followups.sql',import.meta.url),'utf8');
-    for(const statement of migration.split(';').filter(s=>s.trim()))await db.query(statement);
+    for(const name of ['1736_payment_setup_followups.sql','1876_portal_setup_links_and_billing_notices.sql']){
+      const migration=await readFile(new URL(`../../../../database/migrations/${name}`,import.meta.url),'utf8');
+      for(const statement of migration.split(';').filter(s=>s.trim()))await db.query(statement);
+    }
     await db.query('CREATE TABLE family_billing_audit(agency_id INT,actor_user_id INT,client_id INT,action VARCHAR(100),object_id BIGINT)');
     const model=await paymentFollowupPreview(1,2,previewDeps());
     const send=vi.fn(async()=>({id:'synthetic-email',communicationId:100})),notify=vi.fn(async()=>({id:99})),preview=vi.fn(async()=>model),qr=vi.fn(async()=>Buffer.from('synthetic-qr'));

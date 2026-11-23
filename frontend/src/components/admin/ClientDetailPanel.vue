@@ -104,7 +104,7 @@
                   {{ primaryInsuranceLabel }}
                 </span>
               </div>
-              <ClientHeaderSummary v-if="!headerCollapsed" :key="`${client.id}:${activeChartAgencyId}`" :client="{...client,agency_id:activeChartAgencyId}" :provided-snapshot="overviewSnapshot" />
+              <ClientHeaderSummary v-if="!headerCollapsed" :key="`${client.id}:${activeChartAgencyId}`" :client="{...client,agency_id:activeChartAgencyId}" :provided-snapshot="overviewSnapshot" :dependent="showDependentFields" />
               <details
                 v-if="isBackofficeRole && (switchableAgencies.length > 1 || clientAgenciesNote)"
                 v-show="!headerCollapsed"
@@ -178,10 +178,10 @@
           <ClientServiceEnrollments :key="`${client.id}:${selectedAgencyId || client.agency_id}`" :client-id="client.id" :agency-id="selectedAgencyId || client.agency_id" :organizations="affiliationsForActiveAgency" start-assigning @loaded="onAgencyServicesLoaded(selectedAgencyId || client.agency_id, $event)" @updated="onAgencyServicesUpdated(selectedAgencyId || client.agency_id, $event)" />
         </section>
 
-        <section v-if="chartHub==='schedule' && canScheduleClient" class="detail-section"><ClientSchedulePanel :key="client.id" :client="client" /></section>
+        <section v-if="chartHub==='schedule' && canScheduleClient" class="detail-section"><ClientSchedulePanel :key="`${client.id}:${activeChartAgencyId}`" :client="{...client,agency_id:activeChartAgencyId}" /></section>
         <section v-if="chartHub==='bring-up-to-date' && showRecordsImportTab" class="detail-section">
           <p v-if="!canFinishChartSetup || !recordsImportSetup" role="status">Loading this client’s saved import…</p>
-          <ClientEhrBringUpToDatePanel v-else ref="recordsImportPanel" :key="`records-import-${client.id}`" embedded open :client-id="client.id" :agency-id="client.agency_id" :client-label="client.full_name || ''" :record-status="recordsImportSectionStatus" :only-sections="recordsImportSetup.recordsImportSelectedSections||null" @section-imported="onChartSetupUpdated" @done="onRecordsImportDone" />
+          <ClientEhrBringUpToDatePanel v-else ref="recordsImportPanel" :key="`records-import-${client.id}`" embedded open :client-id="client.id" :agency-id="client.agency_id" :client-label="client.full_name || ''" :record-status="recordsImportSectionStatus" :only-sections="recordsImportSetup.recordsImportSelectedSections||null" @section-imported="onChartSetupUpdated" :personal-account-only="!showDependentFields && !clientIsMinor" review-intake-link @review-intake="goChartSub('intake-note')" @done="onRecordsImportDone" />
         </section>
 
         <div
@@ -207,10 +207,10 @@
             :session-count-label="sessionCountLabel"
             :last-session-label="lastSessionLabel"
             :alerts="overviewAlertItems"
-            :guardian-name="overviewGuardianName" :linked-guardians="guardians" :guardian-loading="guardiansLoading" :guardian-error="guardiansError"
-            :contact-role="intakeContactLabel"
-            :contact-email="overviewGuardianAccount?.email || guardianIntakeEmail || (isSelfIntakeContact ? client.email : '')"
-            :contact-phone="(overviewGuardianAccount ? guardianPhone(overviewGuardianAccount) : '') || guardianIntakePhone || (isSelfIntakeContact ? client.phone : '')"
+            :guardian-name="showDependentFields ? overviewGuardianName : client.full_name" :linked-guardians="showDependentFields ? guardians : []" :guardian-loading="showDependentFields && guardiansLoading" :guardian-error="showDependentFields ? guardiansError : null"
+            :contact-role="showDependentFields ? intakeContactLabel : 'Client contact'"
+            :contact-email="showDependentFields ? overviewGuardianAccount?.email || guardianIntakeEmail : client.email"
+            :contact-phone="showDependentFields ? (overviewGuardianAccount ? guardianPhone(overviewGuardianAccount) : guardianIntakePhone) : client.contact_phone || client.phone"
             :organization-name="chartOrganizationLabel(client.organization_name, client.organization_type) || schoolNames.join(' · ')"
             @edit="startEditOverview(true)"
             @assign-provider="openProviderAssignment"
@@ -433,9 +433,9 @@
           </div>
 
           <div class="cdp-contacts-section">
-            <h3 class="cdp-section-title">Contacts &amp; relationships</h3>
+            <h3 class="cdp-section-title">{{ showDependentFields ? 'Contacts & relationships' : 'Care team' }}</h3>
             <div class="cdp-contacts-grid">
-              <article class="cdp-contact-card">
+              <article v-if="showDependentFields" class="cdp-contact-card">
                 <div class="cdp-contact-card__role">{{ intakeContactLabel }}</div>
                 <div class="cdp-contact-card__name">{{ overviewGuardianName || (guardiansLoading ? 'Loading contact…' : 'No contact on file') }}</div>
                 <div class="cdp-glance-meta">{{ overviewGuardianMeta || '—' }}</div>
@@ -984,7 +984,7 @@
                     <template v-else>{{ client.primary_client_language || '-' }}</template>
                   </div>
                 </div>
-                <div class="ov-row">
+                <div v-if="showDependentFields" class="ov-row">
                   <div class="ov-row-label">Guardian primary language</div>
                   <div class="ov-row-value">
                     <template v-if="editingOverview">
@@ -997,7 +997,7 @@
             </section>
 
             <!-- Guardian (latest intake) -->
-            <section v-if="canViewGuardians" class="ov-card ov-card--guardian">
+            <section v-if="showDependentFields && canViewGuardians" class="ov-card ov-card--guardian">
               <header class="ov-card-header">
                 <h3>{{ intakeContactLabel }} contact</h3>
                 <button
@@ -1041,7 +1041,7 @@
             </section>
 
             <!-- School ROI CTA (full width) -->
-            <section v-if="canManageSchoolRoi" class="ov-card ov-card--full ov-card--cta">
+            <section v-if="showSchoolGlance && canManageSchoolRoi" class="ov-card ov-card--full ov-card--cta">
               <header class="ov-card-header">
                 <h3>School ROI</h3>
               </header>
@@ -1362,6 +1362,7 @@
             :client-type="effectiveClientType"
             :organization-slug="organizationSlugForLinks"
             @navigate="goChartSub"
+            @review-updated="loadCareSummary"
           />
         </div>
 
@@ -1422,7 +1423,7 @@
         <!-- Demographics Tab -->
         <div v-if="showPanel('demographics')" class="detail-section chart-demographics">
           <ClientContactEmail ref="demographicsEmailEditor" :key="client.id" :client-id="Number(client.id)" :agency-id="Number(client.agency_id)" :email="client.email || ''" :editable="canEditClientEmail" @saved="onClientEmailSaved" />
-          <GuardianDemographicReview v-if="canEditAccount" :client-id="Number(client.id)" />
+          <GuardianDemographicReview v-if="showDependentFields && canEditAccount" :client-id="Number(client.id)" />
           <div class="tab-meta-bar">
             <div class="muted" style="font-size: 13px;">
               Core demographics from the client record
@@ -1632,10 +1633,10 @@
             <ClientDisclosurePanel :key="`portal-disclosure-${client.id}`" :client-id="client.id" :client="client" @view-artifact="openChartDocument" />
           </details>
         </section>
-        <ClientPortalOverview :portal-setup="chartTypes?.portalSetup" :can-edit-contact="canEditClientEmail" @edit-contact="goChartSub('demographics')" @account-updated="loadChartTypes" ref="portalOverviewRef"  :show-actions="false" v-if="chartHub==='portal' && canViewGuardians" :key="client.id" :client="client" :agency="{id:Number(selectedAgencyId||client.agency_id),name:primaryAgencyDisplayName}" :actor="authStore.user" @share-documents="goChartSub('documents')" @share-assessments="goChartSub('assessments')" @manage-access="goChartSub('guardians')" :personal-login-available="clientIsMinor" />
+        <ClientPortalOverview :portal-setup="chartTypes?.portalSetup" :can-edit-contact="canEditClientEmail" @edit-contact="goChartSub('demographics')" @account-updated="loadChartTypes" ref="portalOverviewRef"  :dependent="showDependentFields" :show-actions="false" v-if="chartHub==='portal' && canViewGuardians" :key="client.id" :client="client" :agency="{id:Number(selectedAgencyId||client.agency_id),name:primaryAgencyDisplayName}" :actor="authStore.user" @share-documents="goChartSub('documents')" @share-assessments="goChartSub('assessments')" @manage-access="showDependentFields ? goChartSub('guardians') : onHubChange('portal')" :personal-login-available="clientIsMinor" />
 
         <!-- Guardians Tab -->
-        <div v-if="showPanel('guardians')" class="detail-section">
+        <div v-if="showDependentFields && showPanel('guardians')" class="detail-section">
           <h3>{{ isSelfIntakeContact ? 'Client (self)' : 'Guardians' }}</h3>
           <DependentPortalSharing :client-id="Number(client.id)" :agency-id="Number(selectedAgencyId || client.agency_id)" />
           <div class="phi-warning" style="margin-bottom: 12px;">
@@ -1939,7 +1940,7 @@
           </div>
         </div>
 
-        <ClientPortalInviteDialog v-if="showPortalInvites && canManageGuardians" :key="client.id" :client-ids="[Number(client.id)]" :agency-id="Number(selectedAgencyId || client.agency_id)" :personal-login-available="clientIsMinor" @edit-contact="showPortalInvites=false;goChartSub('demographics')" @close="showPortalInvites = false" />
+        <ClientPortalInviteDialog v-if="showPortalInvites && canManageGuardians" :key="client.id" :client-ids="[Number(client.id)]" :agency-id="Number(selectedAgencyId || client.agency_id)" :personal-login-available="clientIsMinor" :allow-linked-accounts="showDependentFields" @edit-contact="showPortalInvites=false;goChartSub('demographics')" @close="showPortalInvites = false" />
 
         <!-- Assignments Tab (backoffice only) -->
         <section v-if="showPanel('assignments') && reviewAssignmentDraft" class="detail-section"><button type="button" class="cdp-text-link" @click="closeAssignmentDraft">Back to account assignments</button><ClientUpdateAssignments ref="savedAssignmentPanel" :key="`saved-assignments-${client.id}`" :client-id="client.id" :agency-id="client.agency_id" @updated="loadPendingAssignmentDraft" /></section>
@@ -2704,6 +2705,7 @@
             :client="client"
             :assigned-provider="Boolean(primaryProviderLabel && primaryProviderLabel !== 'Not assigned' && primaryProviderLabel !== '—')"
             :phi-banner="['admin', 'super_admin', 'support', 'staff'].includes(roleNorm)"
+            @review-updated="loadCareSummary"
             @navigate="goChartSub"
           />
           <div class="cdp-intake-note-actions" style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
@@ -3079,7 +3081,7 @@ const chartSubnav = computed(() => {
       isSchool: isSchoolClientType.value,
       canEditAccount: canEditAccount.value,
       canViewBilling: canViewClientBillingImport.value
-    });
+    }).filter(item => item.id !== 'guardians' || showDependentFields.value);
   }
   if (hub === 'lifecycle') {
     return lifecycleSubnav({ isSchool: isSchoolClientType.value });
@@ -4158,7 +4160,8 @@ const schoolNames = computed(() => chartTypes.value?.schools ?? [...new Set([
   ...(props.client?.organization_type === 'school' ? [props.client.organization_name] : []),
   ...affiliationsForTenant(activeChartAgencyId.value,'school').map(row => row.organization_name)
 ].filter(Boolean))]);
-const showSchoolGlance = computed(() => isSchoolClientType.value || isSchoolPortalContext.value || schoolNames.value.length > 0);
+const showDependentFields = computed(() => activeTypes.value.includes('dependent'));
+const showSchoolGlance = computed(() => chartTypes.value ? activeTypes.value.includes('school') : schoolNames.value.length > 0 || String(props.client.client_type).toLowerCase() === 'school');
 const communicationSchoolId = computed(() => {
   if (isSchoolPortalContext.value && schoolOrganizationId.value) return schoolOrganizationId.value;
   const schools = affiliationsForTenant(activeChartAgencyId.value,'school');
@@ -4266,10 +4269,13 @@ const careSummary = ref(null);
 const careSummaryLoading = ref(false);
 const careSummaryError = ref('');
 let careSummaryVersion = 0;
-watch([clientAgencyId, clientChartClientId, canViewMedicalRecord, chartHub, () => props.client?.updated_at], async ([agencyId, clientId, enabled, hub]) => {
+async function loadCareSummary() {
+  const agencyId = activeChartAgencyId.value;
+  const clientId = clientChartClientId.value;
+  const enabled = canViewMedicalRecord.value;
   const version = ++careSummaryVersion;
   careSummaryError.value = '';
-  if (!enabled || !agencyId || !clientId || !['overview', 'account'].includes(hub)) {
+  if (!enabled || !agencyId || !clientId) {
     careSummary.value = null;
     careSummaryLoading.value = false;
     return;
@@ -4283,7 +4289,13 @@ watch([clientAgencyId, clientChartClientId, canViewMedicalRecord, chartHub, () =
   } finally {
     if (version === careSummaryVersion) careSummaryLoading.value = false;
   }
-}, { immediate: true });
+}
+watch([activeChartAgencyId, clientChartClientId, canViewMedicalRecord, () => props.client?.updated_at], () => {
+  careSummary.value = null;
+  void loadCareSummary();
+});
+onMounted(loadCareSummary);
+
 
 
 const showPostToExchangeModal = ref(false);
@@ -4387,10 +4399,16 @@ const overviewAlertItems = computed(() => {
       tab: 'medical-record'
     });
   }
-  if (canViewMedicalRecord.value && isClinicalLikeClientType.value && !billingDiagnoses.value.length && !billingDiagnosesLoading.value) {
-    items.push({ id: 'no-dx', label: careSummary.value?.importedDiagnoses?.length ? 'Imported diagnoses await clinician confirmation' : 'No billing diagnoses on file', tone: 'info', tab: 'clinical' });
+  if (canViewMedicalRecord.value && showClinicalChartSurfaces.value && careSummary.value) {
+    const summary = careSummary.value;
+    if (summary.intakeReviewStatus !== 'complete') {
+      items.push({id:'intake-incomplete', label: summary.intakeReviewStatus === 'draft' ? 'Intake needs finalizing' : 'Intake missing',
+        tone:'warning', tab:'intake-note'});
+    }
+    if (!summary.treatmentPlanOnFile) items.push({id:'plan-incomplete',label:'Signed treatment plan needed',tone:'warning',tab:'treatment-plans'});
+    if (summary.importedDiagnoses?.length) items.push({id:'dx-review',label:'Review imported diagnoses',tone:'info',tab:summary.intakeReviewStatus==='draft'?'intake-note':'treatment-plans'});
   }
-  return items.slice(0, 6);
+  return items;
 });
 
 const canLaunchRecordUpdate=computed(()=>hasAgencyAccess.value&&['super_admin','admin','support','provider','provider_plus'].includes(roleNorm.value)&&!isClientArchived.value&&!isClientTerminated.value);
@@ -6654,6 +6672,7 @@ let chartContextSeq = 0;
 async function onChartSetupUpdated(updated) {
   const id = Number(props.client?.id || 0);
   if (!id) return;
+  void loadCareSummary();
   if (updated?.id) {
     emit('updated', { keepOpen: true, client: updated });
     return;
@@ -6868,7 +6887,7 @@ const demoSupplementalSections = computed(() => {
       id: 'guardian_intake',
       title: 'Guardian (intake)',
       subtitle: 'Reported by the guardian',
-      fields: guardianIntake.filter(include)
+      fields: showDependentFields.value ? guardianIntake.filter(include) : []
     }
   ];
 });
@@ -6933,12 +6952,12 @@ const clientDemoDisplayRows = computed(() => {
       value: String(c.primary_client_language || '').trim(),
       important: false
     },
-    {
+    ...(showDependentFields.value ? [{
       key: 'primary_parent_language',
       label: 'Guardian Primary Language',
       value: String(c.primary_parent_language || guardianIntakeProfile.value?.primaryLanguage || '').trim(),
       important: false
-    },
+    }] : []),
     {
       key: 'contact_phone',
       label: 'Phone',
@@ -6983,7 +7002,7 @@ const demoGroupedSections = computed(() => {
   return [
     { id: 'profile', title: 'Profile', subtitle: 'From the client record', fields: profileIdentity },
     { id: 'client_intake', title: 'Client (intake)', subtitle: 'From the latest submitted intake form', fields: clientIntake.filter(include) },
-    { id: 'guardian_intake', title: 'Guardian (intake)', subtitle: 'Reported by the guardian', fields: guardianIntake.filter(include) },
+    { id: 'guardian_intake', title: 'Guardian (intake)', subtitle: 'Reported by the guardian', fields: showDependentFields.value ? guardianIntake.filter(include) : [] },
     { id: 'address', title: 'Address & Contact', subtitle: 'Profile address and phone', fields: profileAddress },
   ];
 });
@@ -9931,6 +9950,9 @@ watch(
 
 .cdp-header .cdp-header-row>.cdp-title {font-size:21px}
 .cdp-header .cdp-header-actions {align-self:flex-start}
+.cdp-header .cdp-header-info {display:flex;flex-wrap:wrap;align-items:center;column-gap:20px}
+.cdp-header .cdp-header-row {flex-basis:100%}
+.cdp-header .cdp-admin-details {margin-top:4px}
 .cdp-header .cdp-identity-line>span {display:inline-flex;align-items:center;flex:0 0 auto}
 .cdp-header .cdp-header-row {align-items:center;gap:8px 12px}
 .cdp-header .cdp-tenant-line {display:flex;flex-wrap:wrap;gap:6px}

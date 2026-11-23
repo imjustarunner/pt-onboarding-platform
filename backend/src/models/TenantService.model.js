@@ -36,6 +36,12 @@ class TenantService {
     };
   }
 
+  static async listProBonoRates(agencyId, db = pool) {
+    const [rows] = await db.execute(`SELECT DISTINCT service_code AS code, name AS description
+      FROM tenant_services WHERE agency_id=? AND is_active=1 AND service_code='PRO-BONO SERVICE'`, [agencyId]);
+    return rows;
+  }
+
   static async listForAgency(agencyId, { includeInactive = false } = {}) {
     const aid = Number(agencyId || 0);
     if (!aid) return [];

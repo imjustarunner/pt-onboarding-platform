@@ -9,7 +9,7 @@ const PRIVATE_CROSS_USER_TYPES = new Set([
   'school_group_email_received',
   'school_closure_notice',
   'credentialing_reminder', 'credentialing_email',
-  'payment_setup_required',
+  'payment_setup_required', 'service_delay_notice',
   'chat_message',
   'treatment_goal_progress',
   'inbound_client_message',

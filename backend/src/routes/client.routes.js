@@ -23,7 +23,7 @@ import { getClientCareBillingSummary, getClientCareInsuranceLabels, getClientCov
 import { previewClientPaymentFollowup, requestClientPaymentFollowup } from '../controllers/clientPaymentFollowup.controller.js';
 import { getClientAccountSupport, getClientOperationalStatus } from '../controllers/clientAccountSupport.controller.js';
 import {caseloadSessionDates,clientQuickViewTasks} from '../controllers/clientQuickView.controller.js';
-import {clientCareOverview,clientOverviewEssentials,saveClientFiscalBaseline} from '../controllers/clientCareOverview.controller.js';
+import {clientCareOverview,clientOverviewEssentials,saveClientFiscalBaseline,clientChartAppointments} from '../controllers/clientCareOverview.controller.js';
 import {requireClinicalChart} from '../middleware/medicalBilling.middleware.js';
 import { excludeSupportClinicalContent } from '../middleware/supportContentAccess.middleware.js';
 import { getSupportClientInsurance, saveSupportClientInsurance } from '../controllers/clientInsurance.controller.js';
@@ -200,6 +200,7 @@ router.post('/demo/bulk', requireBackofficeAdmin, bulkPatchClientDemo);
 // New Client Onboarding queue (must be before /:id)
 router.post('/caseload-session-dates',requireActiveStatus,caseloadSessionDates);
 router.get('/:id/quick-view-tasks',requireActiveStatus,clientQuickViewTasks);
+router.get('/:id/chart-appointments',requireActiveStatus,clientChartAppointments);
 router.get('/:id/overview-essentials',requireActiveStatus,clientOverviewEssentials);
 router.get('/:id/care-overview',requireActiveStatus,requireClinicalChart,clientCareOverview);
 router.post('/:id/fiscal-session-total',requireActiveStatus,requireClinicalChart,saveClientFiscalBaseline);

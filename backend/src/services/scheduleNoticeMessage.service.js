@@ -13,7 +13,7 @@ export function scheduleNoticeDeadline({ now, startAt, firstQueuedAt = now, buff
     +firstQueuedAt + 30 * 60000, start - 60 * 60000)));
 }
 
-export function buildScheduleNoticeMessage(entries, portalUrl, { recipientUserId = null } = {}) {
+export function buildScheduleNoticeMessage(entries, portalUrl, { recipientUserId = null, portalLink = null } = {}) {
   const linkedReplacements = new Set(entries.map(e => Number(e.cancellation?.replacementAppointmentId)).filter(Boolean));
   const visibleEntries = entries.filter(e => !linkedReplacements.has(Number(e.appointment.id)));
   const sections = visibleEntries.map(({ appointment: a, payload, cancellation }) => {
@@ -61,6 +61,7 @@ export function buildScheduleNoticeMessage(entries, portalUrl, { recipientUserId
       text += ' Your provider will reach out if there are any changes to their schedule. Your other appointments remain scheduled.';
     }
     const entry=visibleEntries.find(entry=>entry.appointment===a);
+    if (entry?.actionHtml) text = text.replace(' Please review the current appointment details in your portal.', '');
     if(entry?.tutorName)text+=` Your tutor: ${entry.tutorName}.`;
     return { text:`${text}${entry?.actionText?'\n\n'+entry.actionText:''}`, html: `<p>${escapeNoticeHtml(text)}</p>${entry?.actionHtml||''}`, subject: replacement ? 'Your replacement appointment is reserved' : moved ? 'Your appointment has moved' : updated ? 'Your appointment details have been updated' : recurring ? 'Your next recurring appointment is scheduled' : 'Your appointment is scheduled' };
   });
@@ -72,10 +73,13 @@ export function buildScheduleNoticeMessage(entries, portalUrl, { recipientUserId
       html: `${section.html}<p><a href="${escapeNoticeHtml(url)}">${escapeNoticeHtml(label)}</a></p>` };
   });
   const footer = entries.every(e => e.payload.facts?.absenceSource) ? '' : 'Please reply to this email to reach our support team. Use the secure portal for appointment details.';
+  const portalLabel = portalLink?.label || (visibleEntries.some(entry=>entry.actionHtml) ? 'Open appointments' : sections.length === 1 ? 'Review my appointment' : 'Review my latest appointment');
+  const scheduleLabel=portalLink?.label || (visibleEntries.some(entry=>entry.actionText) ? 'Open appointments' : 'Review your current schedule');
+  const portalHref = portalLink?.url || visibleEntries.at(-1)?.portalUrl || portalUrl;
   return {
     subject: sections.length === 1 ? sections[0].subject : batchAppointmentNoticeKind(entries) === 'appointment_scheduled' ? 'Your appointments are scheduled' : 'Your appointment schedule has been updated',
-    text: `${linkedSections.map(s => s.text).join('\n\n')}\n\nReview your current schedule: ${portalUrl}\n\n${footer}`,
-    html: `${linkedSections.map(s => s.html).join('<hr>')}<p><a href="${escapeNoticeHtml(visibleEntries.at(-1)?.portalUrl||portalUrl)}">${sections.length === 1 ? 'Review my appointment' : 'Review my latest appointment'}</a></p>${footer ? `<p>${footer}</p>` : ''}`,
+    text: `${linkedSections.map(s => s.text).join('\n\n')}\n\n${scheduleLabel}: ${portalHref}\n\n${footer}`,
+    html: `${linkedSections.map(s => s.html).join('<hr>')}<p><a href="${escapeNoticeHtml(portalHref)}">${escapeNoticeHtml(portalLabel)}</a></p>${footer ? `<p>${footer}</p>` : ''}`,
     sms: sections.length === 1 && batchAppointmentNoticeKind(entries) === 'appointment_scheduled'
       ? `Your ${visibleEntries[0].payload.facts?.recurringBooking ? 'next recurring ' : ''}appointment is scheduled. Review the details in your secure portal: ${portalUrl}`
       : batchAppointmentNoticeKind(entries) === 'appointment_scheduled' ? `Your appointments are scheduled. Review the details in your secure portal: ${portalUrl}`

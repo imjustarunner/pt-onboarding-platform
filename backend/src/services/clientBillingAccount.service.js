@@ -1,3 +1,5 @@
+import {isProBonoServiceCode} from '../utils/clinicalFundingPolicy.js';
+import TenantService from '../models/TenantService.model.js';
 import pool from '../config/database.js';
 import { billingError, positiveId, requireBillingLink } from './familyBillingPolicy.service.js';
 import { requireClient, transaction } from './familyLedger/policy.js';
@@ -20,7 +22,9 @@ export async function clientBillingAccount(agencyId, clientId, db = pool) {
   const [[party]] = await db.execute('SELECT * FROM client_billing_responsibility_profiles WHERE agency_id=? AND client_id=?', [agencyId, clientId]);
   const [accounts] = await db.execute(`SELECT u.id,u.first_name,u.last_name,u.email,COALESCE(u.phone_number,u.personal_phone,u.work_phone) AS phone,cg.relationship_type,cg.relationship_title,cg.access_enabled FROM client_guardians cg JOIN users u ON u.id=cg.guardian_user_id WHERE cg.client_id=? AND u.role IN ('client','client_guardian') ORDER BY cg.relationship_type='self' DESC,cg.created_at,u.id`, [clientId]);
   const [rates] = await db.execute('SELECT service_code AS serviceCode,amount_cents AS amountCents,price_basis AS priceBasis,revision FROM client_patient_service_rates WHERE agency_id=? AND client_id=? ORDER BY service_code', [agencyId, clientId]);
-  return { responsibleParty: party ? { kind: party.party_kind, userId: party.responsible_user_id, contact: decryptFamilyBilling(party.contact_encrypted, context(agencyId, clientId)), revision: party.revision } : null,
+  const [services] = await db.execute('SELECT service_code AS code, description FROM agency_medical_service_codes WHERE agency_id=? AND is_active=1 ORDER BY service_code', [agencyId]);
+  const proBonoServices = await TenantService.listProBonoRates(agencyId, db);
+  return { services: [...services.filter(service => !isProBonoServiceCode(service.code)), ...proBonoServices], responsibleParty: party ? { kind: party.party_kind, userId: party.responsible_user_id, contact: decryptFamilyBilling(party.contact_encrypted, context(agencyId, clientId)), revision: party.revision } : null,
     needsResponsibleParty: !party, accounts: accounts.map(row => ({ id: row.id, name: [row.first_name, row.last_name].filter(Boolean).join(' '), email: row.email, phone: row.phone, relationship: row.relationship_type === 'self' ? 'Client (self)' : row.relationship_title || 'Guardian', accessEnabled: !!row.access_enabled })), rates };
 }
 
@@ -44,18 +48,27 @@ export async function saveResponsibleParty({ agencyId, clientId, party, revision
 }
 
 export async function saveClientServiceRate({ agencyId, clientId, code, amountCents, priceBasis, revision = 0, reason, actorUserId }) {
-  code = serviceCode(code);
-  serviceTotal(amountCents, priceBasis, 1);
+  const proBono = isProBonoServiceCode(code);
+  code = proBono ? String(code).trim().toUpperCase() : serviceCode(code);
+  if (proBono) {
+    if(Number(amountCents) !== 0 || priceBasis !== 'visit') throw billingError(400, 'Pro bono care uses a zero rate per visit.');
+  } else serviceTotal(amountCents, priceBasis, 1);
   if (!String(reason || '').trim()) throw billingError(400, 'Record the agreed client self-pay terms.');
   return transaction(async db => {
     await requireClient(agencyId, clientId, db);
     await db.execute('SELECT id FROM clients WHERE id=? AND agency_id=? FOR UPDATE', [clientId, agencyId]);
     const insurance = await readClientInsurance(clientId, agencyId, db);
-    if (hasMedicaidCoverage(insurance)) throw billingError(409, 'Medicaid-covered care cannot have a client self-pay override.');
+    const configured = proBono
+      ? (await TenantService.listProBonoRates(agencyId, db)).some(row => row.code === code)
+      : (await db.execute('SELECT id FROM agency_medical_service_codes WHERE agency_id=? AND service_code=? AND is_active=1', [agencyId, code]))[0].length > 0;
+    if (!configured) throw billingError(400, 'Select a service code offered by this practice.');
+    const [[client]] = await db.execute('SELECT primary_insurer_name FROM clients WHERE id=? AND agency_id=?', [clientId, agencyId]);
+    const medicaid = hasMedicaidCoverage(insurance) || hasMedicaidCoverage({primary:{insurerName:client?.primary_insurer_name}});
+    if (!proBono && medicaid) throw billingError(409, 'Medicaid-covered care cannot have a client self-pay override.');
     const [[previous]] = await db.execute('SELECT revision FROM client_patient_service_rates WHERE agency_id=? AND client_id=? AND service_code=? FOR UPDATE', [agencyId, clientId, code]);
     if (Number(previous?.revision || 0) !== Number(revision)) throw billingError(409, 'This client rate changed. Refresh before saving.');
     await db.execute('INSERT INTO client_patient_service_rates (agency_id,client_id,service_code,amount_cents,price_basis,revision,updated_by_user_id) VALUES (?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE amount_cents=VALUES(amount_cents),price_basis=VALUES(price_basis),revision=VALUES(revision),updated_by_user_id=VALUES(updated_by_user_id)', [agencyId, clientId, code, amountCents, priceBasis, Number(revision) + 1, actorUserId]);
-    if(!insurance?.primary?.insurerName&&!insurance?.secondary?.insurerName)await db.execute("INSERT INTO client_billing_readiness (agency_id,client_id,coverage_mode,setup_status,collection_policy,evidence_encrypted,updated_by_user_id) VALUES (?,?,'self_pay','incomplete','manual',?,?) ON DUPLICATE KEY UPDATE coverage_mode='self_pay',setup_status='incomplete',automatic_from=NULL,evidence_encrypted=VALUES(evidence_encrypted),updated_by_user_id=VALUES(updated_by_user_id)",[agencyId,clientId,encryptFamilyBilling({reason:'Explicit client self-pay service override recorded; review signed terms and payer responsibility before collection.'},`billing-readiness:${agencyId}:${clientId}`),actorUserId]);
+    if(!medicaid&&!insurance?.primary?.insurerName&&!insurance?.secondary?.insurerName)await db.execute("INSERT INTO client_billing_readiness (agency_id,client_id,coverage_mode,setup_status,collection_policy,evidence_encrypted,updated_by_user_id) VALUES (?,?,'self_pay','incomplete','manual',?,?) ON DUPLICATE KEY UPDATE coverage_mode='self_pay',setup_status='incomplete',automatic_from=NULL,collection_policy='manual',evidence_encrypted=VALUES(evidence_encrypted),updated_by_user_id=VALUES(updated_by_user_id)",[agencyId,clientId,encryptFamilyBilling({reason:'Explicit client self-pay service override recorded; review signed terms and payer responsibility before collection.'},`billing-readiness:${agencyId}:${clientId}`),actorUserId]);
     await db.execute('INSERT INTO client_billing_account_events (agency_id,client_id,actor_user_id,action,evidence_encrypted) VALUES (?,?,?,?,?)', [agencyId, clientId, actorUserId, 'client_self_pay_rate_saved', encryptFamilyBilling({ code, amountCents, priceBasis, revision: Number(revision) + 1, reason: String(reason).trim().slice(0, 2000) }, context(agencyId, clientId))]);
     return { serviceCode: code, amountCents, priceBasis, revision: Number(revision) + 1 };
   });

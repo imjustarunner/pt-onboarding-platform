@@ -70,7 +70,7 @@ const TYPES_BY_CATEGORY = {
   ],
   payroll_billing: [
     'claimmd_data_gap',
-    'payment_setup_required',
+    'payment_setup_required', 'service_delay_notice',
     'mileage_claim_approved', 'mileage_claim_rejected', 'mileage_claim_returned',
     'medcancel_claim_approved', 'medcancel_claim_rejected', 'medcancel_claim_returned',
     'payroll_unpaid_notes_2_periods_old', 'payroll_missing_notes_reminder',

@@ -4,7 +4,7 @@ import { readClientInsurance } from './clientInsurance.service.js';
 import { hasMedicaidCoverage } from '../utils/insurancePaymentPolicy.js';
 import { decodePaymentCard } from '../models/GuardianPaymentCard.model.js';
 import { linkAllowsBilling, billingError, auditBilling } from './familyBillingPolicy.service.js';
-import { clientPortalAppUrl } from './clientPortalContext.service.js';
+import { clientPortalAppUrl, resolveClientPortalContext } from './clientPortalContext.service.js';
 
 export async function clientPaymentSetup(agencyId,clientId,db=pool){
  const [[client]]=await db.execute('SELECT c.id,c.full_name,c.initials,c.agency_id,c.client_type,c.primary_insurer_name,c.date_of_birth,a.name AS agency_name,a.slug,a.portal_url,a.custom_domain,a.feature_flags FROM clients c JOIN agencies a ON a.id=c.agency_id WHERE c.id=? AND c.agency_id=?',[clientId,agencyId]);
@@ -16,8 +16,14 @@ export async function clientPaymentSetup(agencyId,clientId,db=pool){
   LEFT JOIN client_portal_independence i ON i.client_id=c.id
   LEFT JOIN client_support_grants g ON g.client_id=c.id AND g.agency_id=c.agency_id AND g.helper_user_id=cg.guardian_user_id AND g.revoked_at IS NULL
   LEFT JOIN client_billing_payers p ON p.agency_id=c.agency_id AND p.client_id=c.id AND p.guardian_user_id=cg.guardian_user_id AND p.status='active'
-  WHERE c.id=? AND c.agency_id=? AND u.is_active=1`,[clientId,agencyId]);
- const eligible=links.filter(linkAllowsBilling),payers=eligible.filter(row=>row.payer_status==='active');
+  WHERE c.id=? AND c.agency_id=? AND u.is_active=1 AND COALESCE(u.is_archived,0)=0 AND u.terminated_at IS NULL
+    AND (u.status_expires_at IS NULL OR u.status_expires_at>UTC_TIMESTAMP())
+    AND NOT EXISTS(SELECT 1 FROM dependent_portal_access d WHERE d.user_id=u.id AND (d.client_id<>c.id OR d.revoked_at IS NOT NULL))`,[clientId,agencyId]);
+ const eligible=links.filter(row=>{
+  let permissions;
+  try{permissions=typeof row.permissions_json==='string'?JSON.parse(row.permissions_json):row.permissions_json||{};}catch{return false;}
+  return linkAllowsBilling(row)&&!permissions.noContact&&!permissions.relationshipRevoked&&!permissions.pendingGuardianVerification;
+ }),payers=eligible.filter(row=>row.payer_status==='active');
  const [[merchant]]=await db.execute('SELECT stripe_connect_account_id,stripe_connect_status FROM agency_billing_accounts WHERE agency_id=?',[agencyId]);
  let cardOnFile=false;
  for(const payer of payers){
@@ -28,9 +34,9 @@ export async function clientPaymentSetup(agencyId,clientId,db=pool){
  }
  const coverageRecorded=!!(insurance?.primary?.insurerName||client.primary_insurer_name);
  const needed=coverageRecorded&&!medicaid&&!cardOnFile;
- const portal={id:Number(agencyId),slug:client.slug,portal_url:client.portal_url,custom_domain:client.custom_domain,feature_flags:client.feature_flags,clinical_portal:['school','clinical','mental_health'].includes(client.client_type)};
+ const {portal}=await resolveClientPortalContext(client,{agencyId});
  const url=needed?clientPortalAppUrl(portal,`guardian?panel=payment_methods&clientId=${Number(clientId)}`):null;
- return {client,insurance,eligible,payers,summary:{medicaid,cardOnFile,paymentMethodNeeded:needed,secureCollectionAvailable:merchant?.stripe_connect_status==='active'&&!!merchant.stripe_connect_account_id,responsibleParties:payers.map(row=>({name:[row.first_name,row.last_name].filter(Boolean).join(' ')})),paymentUrl:url}};
+ return {client,insurance,eligible,payers,portal,summary:{medicaid,cardOnFile,paymentMethodNeeded:needed,secureCollectionAvailable:merchant?.stripe_connect_status==='active'&&!!merchant.stripe_connect_account_id,responsibleParties:payers.map(row=>({name:[row.first_name,row.last_name].filter(Boolean).join(' ')})),paymentUrl:url}};
 }
 
 export function paymentSetupEmail({clientName,url,familyNotified=false,provider=false}){

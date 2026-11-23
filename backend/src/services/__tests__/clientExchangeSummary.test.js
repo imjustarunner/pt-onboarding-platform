@@ -79,3 +79,15 @@ it('shows new records-import concerns and suggested diagnoses without converting
  mocks.execute.mockImplementation(async sql=>[sql.includes('client_intake_note_drafts')?[{status:'draft',session_context_enc:JSON.stringify({source:'client_records_import'}),note_sections_json_enc:JSON.stringify([{key:'presentingProblem',body:'Imported concern'}]),suggested_dx_json:JSON.stringify({diagnoses:[{code:'R69',description:'Source concern'}]}),created_at:'2026-11-17'}]:[]]);
  const summary=await loadClientExchangeSummary({client:{id:3,agency_id:2}});expect(summary).toMatchObject({presentingProblems:['Imported concern'],diagnoses:[],importedDiagnoses:['R69 — Source concern']});
 });
+
+it('clears a duplicate imported diagnosis after intake confirmation while keeping intake and plan work visible', async () => {
+  mocks.execute.mockImplementation(async sql => [sql.includes('client_intake_note_drafts') ? [{
+    status:'ready',diagnosis_action:'confirmed',session_context_enc:JSON.stringify({source:'client_records_import'}),
+    suggested_dx_json:JSON.stringify({code:'R69',description:'Source concern'}),
+    confirmed_dx_json:JSON.stringify({code:'R69',description:'Source concern'})
+  }] : []]);
+  mocks.clinical.mockImplementation(async sql => [sql.includes('clinical_treatment_plans')
+    ? [{id:10,status:'draft',source_tool_id:'client_records_import:sample'}] : []]);
+  const summary = await loadClientExchangeSummary({client:{id:3,agency_id:2}});
+  expect(summary).toMatchObject({intakeReviewStatus:'draft',treatmentPlanOnFile:false,importedDiagnoses:[],diagnoses:[]});
+});

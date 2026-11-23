@@ -2,13 +2,13 @@
   <dl class="client-header-summary" aria-label="Client at a glance">
     <div><dt>Next session</dt><dd>{{ date(snapshot?.nextAt) }}</dd></div>
     <div><dt>Last completed</dt><dd>{{ date(snapshot?.lastCompletedAt) }}</dd></div>
-    <div><dt>Family messages</dt><dd>{{ !snapshot || snapshot.messagesUnavailable || snapshot.correspondenceUnavailable ? 'Not fully checked' : `${(snapshot.unreadFamilyMessages||0)+(snapshot.unreadCorrespondence||0)} unread` }}</dd></div>
+    <div><dt>{{ dependent ? 'Family messages' : 'Messages' }}</dt><dd>{{ !snapshot || snapshot.messagesUnavailable || snapshot.correspondenceUnavailable ? 'Not fully checked' : `${(snapshot.unreadFamilyMessages||0)+(snapshot.unreadCorrespondence||0)} unread` }}</dd></div>
   </dl>
 </template>
 <script setup>
 import {computed} from 'vue';
 import {useClientSessionSnapshots,sessionSnapshotKey,sessionDateLabel} from '../../composables/useClientSessionSnapshots.js';
-const props=defineProps({client:{type:Object,required:true},providedSnapshot:Object});
+const props=defineProps({client:{type:Object,required:true},providedSnapshot:Object,dependent:Boolean});
 const provided=computed(()=>Number(props.providedSnapshot?.agencyId)===Number(props.client.agency_id)?props.providedSnapshot:null);
 const clients=computed(()=>provided.value?[]:[props.client]);
 const {snapshots}=useClientSessionSnapshots(clients);

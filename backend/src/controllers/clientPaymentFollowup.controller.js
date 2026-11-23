@@ -11,11 +11,11 @@ async function scope(req){
 }
 export async function previewClientPaymentFollowup(req,res,next){try{
   const {agencyId,clientId}=await scope(req);
-  const preview=await paymentFollowupPreview(agencyId,clientId);
+  const preview=await paymentFollowupPreview(agencyId,clientId,{noticeKind:req.query.noticeKind});
   const {senderId,...publicPreview}=preview;
   res.set('Cache-Control','no-store').json(publicPreview);
 }catch(e){next(e);}}
 export async function requestClientPaymentFollowup(req,res,next){try{
   const context=await scope(req);
-  res.set('Cache-Control','no-store').json(await sendPaymentFollowup({...context,userId:req.user.id,requestKey:req.body.requestKey,reviewHash:req.body.reviewHash}));
+  res.set('Cache-Control','no-store').json(await sendPaymentFollowup({...context,userId:req.user.id,requestKey:req.body.requestKey,reviewHash:req.body.reviewHash,noticeKind:req.body.noticeKind}));
 }catch(e){next(e);}}

@@ -14,11 +14,11 @@
           <p v-if="!client.responsiblePayers.length" class="status">{{ ft("A payer has not been selected. This setup status does not mean you owe a balance.") }}</p>
           <p v-if="client.canAcceptResponsibility" class="status">{{ ft("Financial responsibility is a separate authorization for future verified charges. Reviewing it does not make a payment or turn on automatic payments.") }}</p>
           <p v-if="!learningOnly && client.insuranceOnFile && client.insuranceApplicable !== false">{{ ft("Coverage is recorded for this client. Review the policies you hold below; policies held by another guardian remain private.") }}</p>
-          <p v-if="!learningOnly && client.medicaid" class="status">{{ ft("Medicaid coverage: a payment method is not required.") }}</p>
+          <p v-if="!learningOnly && client.medicaid" class="status">{{ ft("You can save a card if you wish. We do not collect copays or charge you out of pocket for Medicaid-covered care.") }}</p>
           <p v-else-if="client.paymentSetupRequested" role="status">{{ ft("Billing requested payment setup. In order to prevent interruption of services, please add a payment method below. Contact Billing if you need help or wish to discuss an arrangement.") }}</p>
           <button v-if="!client.medicaid && section === 'authorization' && (client.canManageBilling || client.canAcceptResponsibility)" type="button" @click="openAuthorization(client,'responsibility')">{{ ft("Review and sign payment authorization") }}</button>
           <template v-else-if="client.canManageBilling && !client.medicaid">
-            <p v-if="!client.medicaid" class="status">{{ ft(client.paymentCardId ? 'Your payment method is assigned' : learningOnly ? 'Payment is handled separately under your agreed tutoring arrangement. Contact the office if you need help.' : 'Payment method required before paid services') }}</p>
+            <p v-if="!client.medicaid" class="status">{{ ft(client.paymentCardId ? 'Your payment method is assigned' : learningOnly ? 'Payment is handled separately under your agreed tutoring arrangement. Contact the office if you need help.' : 'Add a payment method for your agreed charges') }}</p>
             <label>{{ ft("Your card for this") }} {{ ft(learningOnly?'student':'client') }}<select v-model="cardSelections[client.clientId]"><option value="">{{ ft("Select a saved card") }}</option><option v-for="card in data.cards" :key="card.id" :value="card.id" :disabled="card.verificationRequired">{{ card.card_brand }} •••• {{ card.card_last4 }}{{ card.verificationRequired ? ' — add again to verify' : '' }}</option></select></label>
             <button class="btn btn-secondary" type="button" :disabled="busy || !cardSelections[client.clientId]" @click="assign(client)">{{ ft("Apply card to this") }} {{ ft(learningOnly?'student':'client') }}</button>
             <p v-if="client.recurringEnabled">{{ ft("Recurring authorization active, up to") }} {{ money(client.recurringLimitCents) }} {{ ft("per charge.") }}</p>
@@ -36,7 +36,7 @@
         <label class="check"><input v-model="accepted" type="checkbox" required /> {{ ft("I have read and agree to this authorization for this") }} {{ ft(learningOnly?'student':'client') }}.</label>
         <div class="actions"><button class="btn btn-primary" :disabled="busy || !accepted">{{ ft("Sign authorization") }}</button><button class="btn btn-secondary" type="button" :disabled="busy" @click="authorization = null">{{ ft("Cancel") }}</button></div>
       </form>
-      <template v-if="manageableClients.length || insurableClients.length">
+      <template v-if="paymentEligibleClients.length || insurableClients.length">
         <section v-if="paymentEligibleClients.length && section !== 'authorization'" class="billing-card wallet-section">
           <p v-if="data.paymentSimulator?.enabled" class="qa-payment-notice" role="status">{{ ft("QA payment simulation is enabled. These records do not move money or contact a bank.") }}</p>
           <div class="section-head"><h4>{{ ft("Your saved cards") }}</h4><button v-if="data.stripe.enabled||data.paymentSimulator?.enabled" class="btn btn-secondary" type="button" @click="showCard = !showCard">{{ ft(showCard ? 'Close card form' : data.paymentSimulator?.enabled?'Add a QA test card':'Add a card') }}</button></div>
@@ -94,7 +94,7 @@ const data = ref(null), loading = ref(false), error = ref(''), notice = ref(''),
 const scopedClients = computed(() => (data.value?.clients || []).filter(c => !props.clientId || Number(c.clientId) === Number(props.clientId)));
 const scopedProfiles = computed(() => (data.value?.profiles || []).filter(p => !props.clientId || p.clientIds?.some(id => Number(id) === Number(props.clientId))));
 const manageableClients = computed(() => scopedClients.value.filter(c => c.canManageBilling));
-const paymentEligibleClients=computed(()=>manageableClients.value.filter(c=>!c.medicaid));
+const paymentEligibleClients=computed(()=>scopedClients.value.filter(c=>c.canSaveCard));
 const insurableClients = computed(() => props.learningOnly ? [] : scopedClients.value.filter(c => c.insuranceApplicable !== false && (c.canManageInsurance ?? c.canManageBilling)));
 const expired = card => Number(card.card_exp_year) < new Date().getFullYear() || (Number(card.card_exp_year) === new Date().getFullYear() && Number(card.card_exp_month) < new Date().getMonth() + 1);
 const money = cents => new Intl.NumberFormat(undefined,{style:'currency',currency:'USD'}).format(Number(cents || 0)/100);

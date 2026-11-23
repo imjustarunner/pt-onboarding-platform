@@ -14348,7 +14348,7 @@ const sortQuickActionsSmart = (rows) => {
 
 const visibleQuickActions = computed(() => {
   const rows = Array.isArray(availableQuickActions.value) ? availableQuickActions.value : [];
-  let filtered = rows.filter((row) => row?.visible !== false && row?.id !== 'booked_record' && (!tutoringWorkspaceOnly.value || !String(row?.id).includes('supervision')));
+  let filtered = rows.filter((row) => (!props.bookingClientId || row.id === 'individual_session') && row?.visible !== false && row?.id !== 'booked_record' && (!tutoringWorkspaceOnly.value || !String(row?.id).includes('supervision')));
   if (props.hideOfficeAndCalendarIntegration) {
     filtered = filtered.filter((row) => row?.id && CLUB_SCHEDULING_ACTIONS.has(row.id));
   } else {
@@ -20658,7 +20658,7 @@ const openSlotActionModal = async ({
     Number(modalEndHour.value || 0),
     Number(modalHour.value || 0) + 1
   );
-  const normalizedInitialRequestType = String(initialRequestType || '').trim();
+  const normalizedInitialRequestType = String(props.bookingClientId ? 'individual_session' : initialRequestType || '').trim();
   requestType.value = normalizedInitialRequestType || '';
   requestTypeChosenByUser.value = Boolean(normalizedInitialRequestType);
   requestNotes.value = '';
@@ -20700,7 +20700,7 @@ const openSlotActionModal = async ({
   const modality = String(initialModality || '').trim().toUpperCase();
   if (modality === 'TELEHEALTH' || modality === 'IN_PERSON') {
     bookingModality.value = modality;
-  } else if (normalizedInitialRequestType === 'individual_session') {
+  } else if (!props.bookingClientId && normalizedInitialRequestType === 'individual_session') {
     bookingModality.value = 'TELEHEALTH';
   }
   resetBookingMetadataState();

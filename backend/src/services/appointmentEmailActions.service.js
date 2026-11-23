@@ -31,10 +31,17 @@ export async function createAppointmentEmailLink({appointment,clientId,to,contex
   if (!appointment?.id || !clientId || !to) throw fail('An appointment and its recipient are required.',400);
   const [[participant]] = await pool.execute('SELECT id FROM appointment_participants WHERE appointment_id=? AND client_id=?',[appointment.id,clientId]);
   if (!participant) throw fail('Appointment unavailable.',404);
-  const [[guardian]] = await pool.execute(`SELECT u.id FROM users u JOIN client_guardians cg ON cg.guardian_user_id=u.id
-    WHERE cg.client_id=? AND cg.access_enabled=1 AND LOWER(u.email)=LOWER(?) AND u.is_active=1 LIMIT 1`,[clientId,to]);
+  const [guardians] = await pool.execute(`SELECT u.id,u.email,cg.relationship_type,cg.permissions_json,c.date_of_birth FROM users u
+    JOIN client_guardians cg ON cg.guardian_user_id=u.id JOIN clients c ON c.id=cg.client_id
+    WHERE cg.client_id=? AND cg.access_enabled=1 AND LOWER(TRIM(u.email))=LOWER(TRIM(?)) AND u.is_active=1
+      AND COALESCE(u.is_archived,0)=0 AND u.terminated_at IS NULL
+      AND (u.status_expires_at IS NULL OR u.status_expires_at>UTC_TIMESTAMP())
+      AND c.guardian_portal_enabled=1 AND c.status NOT IN ('ARCHIVED','INACTIVE','TERMINATED')
+      AND NOT EXISTS (SELECT 1 FROM dependent_portal_access d WHERE d.client_id=cg.client_id AND d.user_id=u.id AND d.revoked_at IS NOT NULL)
+    LIMIT 2`,[clientId,to]);
   // Affiliated contacts receive an informational email, not authority to change a booking.
-  if (!guardian) return null;
+  const guardian = guardians.length === 1 ? guardians[0] : null;
+  if (!appointmentEmailAccessAllowed(guardian)) return null;
   const token=crypto.randomBytes(32).toString('hex'),start=date(appointment.startAt),end=date(appointment.endAt);
   const expires=new Date(Math.min(+end,Date.now()+30*86400000));
   if (!Number.isFinite(+expires) || +expires<=Date.now()) throw fail('This appointment has ended.');
@@ -45,20 +52,44 @@ export async function createAppointmentEmailLink({appointment,clientId,to,contex
   return appointmentResponseUrl(token,context);
 }
 
+function appointmentEmailAccessAllowed(access) {
+  if (!access) return false;
+  let permissions;
+  try { permissions = typeof access.permissions_json === 'string' ? JSON.parse(access.permissions_json) : access.permissions_json || {}; }
+  catch { return false; }
+  return permissions && typeof permissions === 'object' && !Array.isArray(permissions) &&
+    !(permissions.noView || permissions.billingOnly || permissions.canViewAppointments === false || permissions.noViewOtherGuardian ||
+      permissions.coGuardianInviteRestricted || permissions.relationshipRevoked || permissions.pendingGuardianVerification || permissions.noContact ||
+      (access.relationship_type !== 'self' && isDobAdultLocked(access.date_of_birth)));
+}
+
+export async function scheduledOfficeAppointmentLinks(input) {
+  const { appointment, clientId, to } = input;
+  if (!['scheduled','confirmed','client_confirmed'].includes(appointment.status) || +date(appointment.endAt) <= Date.now()) return null;
+  if (['learning','tutoring'].includes(String(appointment.businessType || appointment.business_type || '').toLowerCase())) return null;
+  const setting = await resolveAppointmentServiceSetting(appointment);
+  const actionUrl = await createAppointmentEmailLink(input);
+  if (!actionUrl) return null;
+  const allowed = appointmentEmailActions(setting.isSchool).filter(action => action !== 'confirm' || sessionRsvpState(appointment) !== 'confirmed');
+  return { links: allowed.map(action => ({
+    label: setting.isSchool ? 'Cancel school session' : actionLabels[action], url: `${actionUrl}?action=${action}`
+  })) };
+}
+
 export async function appointmentEmailActionContext(token,db=pool) {
   if (!/^[a-f0-9]{64}$/.test(String(token))) throw fail('This appointment link is invalid.',404);
   const [[row]]=await db.execute('SELECT * FROM appointment_email_actions WHERE token_hash=?',[hash(token)]);
   if(!row || +date(row.expires_at)<=Date.now()) throw fail('This appointment link has expired. Please contact your team.');
   if(row.product==='auricwell') return (await import('./auricwell/appointmentEmailResponse.js')).nativeResponseContext(row);
-  const [[access]]=await db.execute(`SELECT u.email,cg.permissions_json,c.date_of_birth FROM users u JOIN client_guardians cg ON cg.guardian_user_id=u.id
+  const [[access]]=await db.execute(`SELECT u.email,cg.relationship_type,cg.permissions_json,c.date_of_birth FROM users u JOIN client_guardians cg ON cg.guardian_user_id=u.id
     JOIN clients c ON c.id=cg.client_id WHERE u.id=? AND cg.client_id=? AND cg.access_enabled=1 AND u.is_active=1
-    AND COALESCE(u.is_archived,0)=0 AND c.agency_id=? AND c.guardian_portal_enabled=1
-    AND c.status NOT IN ('ARCHIVED','INACTIVE','TERMINATED')`,[row.guardian_user_id,row.client_id,row.agency_id]);
-  if(!access || emailHash(access.email)!==row.recipient_hash) throw fail('This link no longer has access. Please sign in or contact your team.',403);
-  let permissions;
-  try{permissions=typeof access.permissions_json==='string'?JSON.parse(access.permissions_json):access.permissions_json||{};}catch{throw fail('This link no longer has access. Please contact your team.',403);}
-  if(!permissions||typeof permissions!=='object'||Array.isArray(permissions))throw fail('This link no longer has access. Please contact your team.',403);
-  if(permissions.noView || permissions.billingOnly || permissions.canViewAppointments===false || permissions.noViewOtherGuardian || permissions.coGuardianInviteRestricted || isDobAdultLocked(access.date_of_birth)) throw fail('This link no longer has access. Please contact your team.',403);
+    AND COALESCE(u.is_archived,0)=0 AND u.terminated_at IS NULL
+    AND (u.status_expires_at IS NULL OR u.status_expires_at>UTC_TIMESTAMP())
+    AND c.agency_id=? AND c.guardian_portal_enabled=1 AND c.status NOT IN ('ARCHIVED','INACTIVE','TERMINATED')
+    AND NOT EXISTS (SELECT 1 FROM dependent_portal_access d WHERE d.client_id=cg.client_id AND d.user_id=u.id AND d.revoked_at IS NOT NULL)`,[row.guardian_user_id,row.client_id,row.agency_id]);
+  if (!appointmentEmailAccessAllowed(access) || emailHash(access.email) !== row.recipient_hash) {
+    throw fail('This link no longer has access. Please sign in or contact your team.',403);
+  }
   const appt=await Appointment.findById(row.appointment_id);
   if (!appt || Number(appt.agencyId)!==Number(row.agency_id) || +date(appt.startAt)!==+date(row.appointment_start) || +date(appt.endAt)!==+date(row.appointment_end)) throw fail('This appointment changed. Please use the latest reminder.');
   const [[participant]]=await db.execute('SELECT id FROM appointment_participants WHERE appointment_id=? AND client_id=?',[appt.id,row.client_id]);
@@ -120,7 +151,10 @@ export async function buildAppointmentEmail({appointment,clientId,to,kind='remin
   const actions=appointmentEmailActions(setting.isSchool).filter(action=>action!=='confirm'||ask);
   const links=actionUrl?actions.map(action=>({label:setting.isSchool?'Cancel school session':actionLabels[action],url:`${actionUrl}?action=${action}`})):setting.isSchool?[]:[{label:'Open your portal',url:context.url(`guardian?panel=appointments&clientId=${clientId}`)}];
   const join=setting.isSchool?null:await appointmentJoinEmail({appointment,clientId,to,context});
-  const displayedLinks=appointmentEmailLinks(appointment,links,join);
+  const portalLink = context.clinical && context.client
+    ? await import('./clinicalPortalSetupEmail.service.js').then(({clinicalEmailPortalLink})=>clinicalEmailPortalLink({context,to})).catch(()=>null)
+    : null;
+  const displayedLinks=appointmentEmailLinks(appointment,portalLink ? [...(actionUrl ? links : []), portalLink] : links,join);
   const footer=setting.isSchool?`${actionUrl?'If your dependent cannot attend, use the cancel button.':'This is an informational notice. Contact the guardian or care team about a cancellation.'} Please report school absences directly to the school as usual.`:actionUrl?`${ask?'Confirm directly from this email. ':''}${context.learning?'The email buttons submit your response directly.':'Cancellation and new-time requests open a review page.'} No sign-in is needed. Any cancellation policy will still apply.`:'Sign in to view your appointment or contact your team about a change.';
   return {context,subject,...(setting.isSchool?{templateType:SCHOOL_EMAIL_TEMPLATE,schoolSessionScopeKey:schoolOptOut?.scopeKey}:{}),text:`${intro}\n\n${displayedLinks.map(l=>`${l.label}:\n${l.url}`).join('\n\n')}${join?.detailsText?`\n\n${join.detailsText}`:''}\n\n${footer}${optOut.text}`,
     html:`<h2 style="font-size:22px">${setting.isSchool?'School session notice':'Your upcoming appointment'}</h2><p>${e(intro)}</p>${appointmentActionsHtml(displayedLinks)}${join?.detailsHtml||''}<p>${e(footer)}</p>${optOut.html}`};
