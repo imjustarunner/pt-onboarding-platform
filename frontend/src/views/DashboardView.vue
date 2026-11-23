@@ -694,14 +694,14 @@
               <template #header-actions>
                 <RouterLink v-if="!isClubContext" :to="virtualOfficePath" class="btn btn-secondary btn-sm">AuricWell Office</RouterLink>
                 <ScheduleCalendarMenu :agency-ids="personalCalendarAgencyIds" />
-                <button type="button" class="btn btn-secondary btn-sm" @click="openTasksHubFromSchedule">
-                  Tasks
+                <button v-if="scheduleViewMode !== 'self'" type="button" class="btn btn-secondary btn-sm" @click="openScheduleInNewWindow">
+                  New window ↗
                 </button>
                 <button v-if="scheduleViewMode !== 'self'" type="button" class="btn btn-secondary btn-sm" @click="toggleScheduleFullscreen">
                   {{ scheduleFullscreenActive ? 'Exit full screen' : 'Full screen' }}
                 </button>
-                <button type="button" class="btn btn-secondary btn-sm" @click="openScheduleInNewWindow">
-                  Open in new window
+                <button v-if="scheduleViewMode !== 'self'" type="button" class="btn btn-secondary btn-sm" @click="openTasksHubFromSchedule">
+                  Tasks
                 </button>
                 <button
                   v-if="SKILL_BUILDERS_AVAILABILITY_ENABLED && isSkillBuilderEligible"
@@ -944,9 +944,6 @@
               <div v-else-if="scheduleViewMode === 'schedule_list'" class="psl-panel-wrap">
                 <ProviderScheduleList :user-id="scheduleGridUserId" />
               </div>
-              <TeamAvailabilityCalendar v-else-if="useTeamAvailabilityView && currentAgencyId"
-                :user-id="scheduleGridUserId" :agency-id="Number(currentAgencyId)" :name="scheduleSubjectDisplayName"
-                :week-start-ymd="activeScheduleWeekStartYmd || null" @update:weekStartYmd="onScheduleWeekStartUpdate" />
               <ScheduleAvailabilityGrid
                 ref="scheduleGridRef"
                 v-else-if="authStore.user?.id && scheduleGridUserId && !(scheduleViewAsRequiresOrg && !currentAgencyId)"
@@ -954,6 +951,8 @@
                 :agency-id="scheduleGridAgencyProp"
                 :key="`${scheduleGridMode}:${scheduleGridUserId}`"
                 :team-calendar="scheduleViewContextIsOther"
+                :team-availability-only="useTeamAvailabilityView"
+                :show-schedule-shortcuts="scheduleViewMode === 'self'"
                 :mode="scheduleGridMode"
                 :week-start-ymd="activeScheduleWeekStartYmd || null"
                 :hide-office-and-calendar-integration="isClubContext"
@@ -970,6 +969,8 @@
                 @open-company-events-calendar="openCompanyEventsCalendar"
                 @change-schedule-user="onScheduleModalChangeUser"
                 @select-hub-view="onScheduleHubSelectView"
+                @open-schedule-window="openScheduleInNewWindow"
+                @open-tasks="openTasksHubFromSchedule"
               />
               </div>
             </ScheduleHubPanel>
@@ -1406,7 +1407,6 @@ import EmployeeSubmitWorkspace from '../components/dashboard/EmployeeSubmitWorks
 import PendingCompletionButton from '../components/PendingCompletionButton.vue';
 import BrandingLogo from '../components/BrandingLogo.vue';
 import ScheduleAvailabilityGrid from '../components/schedule/ScheduleAvailabilityGrid.vue';
-import TeamAvailabilityCalendar from '../components/schedule/TeamAvailabilityCalendar.vue';
 import { canBrowseTeamSchedules, directoryScheduleOptions } from '../utils/teamScheduleAccess.js';
 import { libraryQuickLinks, flattenExpandedRail } from '../utils/dashboardLibraryLinks.js';
 import CompanyEventsCalendarModal from '../components/schedule/CompanyEventsCalendarModal.vue';

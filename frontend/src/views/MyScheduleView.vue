@@ -49,9 +49,6 @@
           >
             Staff schedules
           </router-link>
-          <router-link class="btn btn-secondary btn-sm" :to="tasksTo" title="Open Tasks hub">
-            Tasks
-          </router-link>
           <router-link class="btn btn-secondary btn-sm" :to="dashboardTo" title="Return to your personal dashboard">
             My Dashboard
           </router-link>
@@ -60,11 +57,12 @@
         <OfficeSchedulingTransition v-if="isSuperadmin && showOfficeTransition" />
         <OfficeAssignmentUsageReviews />
         <ProviderCopayAttendance v-if="!learningOnly" />
-        <TeamAvailabilityCalendar v-if="teamUserId && !canManageTeamSchedule" :user-id="teamUserId" :agency-id="Number(agencyStore.currentAgency?.id) || null" :name="teamUserName" :week-start-ymd="weekStartYmd || null" @update:weekStartYmd="onWeekStartUpdate" />
-        <ScheduleAvailabilityGrid v-else :key="`${scheduleRevision}:${teamUserId || 0}`"
+        <ScheduleAvailabilityGrid :key="`${scheduleRevision}:${teamUserId || 0}`"
           :user-id="Number(teamUserId || authStore.user.id)"
           :agency-id="Number(agencyStore.currentAgency?.id) || null"
           :team-calendar="!!teamUserId"
+          :team-availability-only="!!teamUserId && !canManageTeamSchedule"
+          show-schedule-shortcuts
           :mode="teamUserId ? 'admin' : 'self'"
           :compact-page-chrome="true"
           :hub-views="scheduleHubViews"
@@ -77,6 +75,8 @@
           :show-company-events-calendar-button="true"
           @update:weekStartYmd="onWeekStartUpdate"
           @select-hub-view="onSelectHubView"
+          @open-tasks="router.push(tasksTo)"
+          @open-schedule-window="openScheduleWindow"
         />
       </ScheduleHubPanel>
     </div>
@@ -92,7 +92,6 @@ import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
 import ScheduleAvailabilityGrid from '../components/schedule/ScheduleAvailabilityGrid.vue';
 import TeamSchedulePicker from '../components/schedule/TeamSchedulePicker.vue';
-import TeamAvailabilityCalendar from '../components/schedule/TeamAvailabilityCalendar.vue';
 import DashboardLearningTips from '../components/dashboard/DashboardLearningTips.vue';
 import HowToVideoButton from '../components/HowToVideoButton.vue';
 import ScheduleHubPanel from '../components/dashboard/ScheduleHubPanel.vue';
@@ -174,6 +173,11 @@ const onSelectHubView = (viewId) => {
 };
 
 const weekStartYmd = ref(/^\d{4}-\d{2}-\d{2}$/.test(String(route.query.weekStart || '')) ? String(route.query.weekStart) : '');
+function openScheduleWindow() {
+  const url = new URL(window.location.href);
+  if (weekStartYmd.value) url.searchParams.set('weekStart', weekStartYmd.value);
+  window.open(url.toString(), '_blank', 'noopener,noreferrer,width=1200,height=850');
+}
 const onWeekStartUpdate = (ymd) => {
   const next = String(ymd || '').slice(0, 10);
   if (next) weekStartYmd.value = next;

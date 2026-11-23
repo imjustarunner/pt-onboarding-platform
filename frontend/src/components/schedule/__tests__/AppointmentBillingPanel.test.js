@@ -2,7 +2,7 @@ import {beforeEach,it,expect,vi} from 'vitest';
 import {mount,flushPromises} from '@vue/test-utils';
 import AppointmentBillingPanel from '../AppointmentBillingPanel.vue';
 import api from '../../../services/api';
-vi.mock('../../../services/api',()=>({default:{get:vi.fn()}}));
+vi.mock('../../../services/api',()=>({default:{get:vi.fn(),post:vi.fn()}}));
 const payload={financialAccess:true,primaryPolicy:{insurerName:'Synthetic insurance'},progress:[{claimId:1,status:'rejected',label:'Rejected',step:2,actions:['Confirm documented location.'],financial:{chargeCents:14000,currency:'USD'}}]};
 beforeEach(()=>{vi.clearAllMocks();api.get.mockResolvedValue({data:payload});});
 it('shows only insurer, responsible party and card status for a provider even if the server sends financial fields',async()=>{
@@ -17,6 +17,26 @@ it('shows a closed zero patient balance and retains prior cash for refund review
   api.get.mockResolvedValue({data:{...payload,progress:[{...payload.progress[0],payerSequence:1,financial:{...payload.progress[0].financial,patient:{responsibilityCents:0,paidCents:3000,balanceCents:0,refundReviewCents:3000,status:'paid',currency:'USD'}}}]}});
   const w=mount(AppointmentBillingPanel,{props:{agencyId:377,clinicalSessionId:3,canViewFinancials:true}});await flushPromises();
   const breakdown=w.find('[aria-label="Patient payment breakdown"]');expect(breakdown.text()).toContain('Remaining patient balance$0.00');expect(breakdown.text()).toContain('Refund review: $30.00');w.unmount();
+});
+it('records an external copay against the responsible share and refreshes the remaining balance',async()=>{
+  const progress = patient => [{...payload.progress[0],payerSequence:1,financial:{...payload.progress[0].financial,patient}}];
+  const patient={responsibilityCents:3000,paidCents:0,balanceCents:3000,status:'open',currency:'USD',
+    paymentShares:[{allocationId:41,payerUserId:21,payerName:'Synthetic payer',balanceCents:3000}]};
+  api.get.mockResolvedValueOnce({data:{...payload,progress:progress(patient)}});
+  api.get.mockResolvedValueOnce({data:{...payload,progress:progress({...patient,paymentShares:[],paidCents:3000,paidExternallyCents:3000,balanceCents:0,status:'paid'})}});
+  api.post.mockResolvedValue({data:{recorded:true}});
+  const w=mount(AppointmentBillingPanel,{props:{agencyId:377,clinicalSessionId:3,canViewFinancials:true}});
+  await flushPromises();
+  await w.get('input[type="date"]').setValue('2026-10-30');
+  await w.get('input[placeholder="Receipt or transaction reference"]').setValue('SYNTHETIC-RECEIPT');
+  await w.get('.external-payment').trigger('submit');
+  await flushPromises();
+  expect(api.post).toHaveBeenCalledExactlyOnceWith('/family-billing/staff/allocations/41/cash',expect.objectContaining({
+    agencyId:377,payerUserId:21,amountCents:3000,paymentMethod:'external',note:'SYNTHETIC-RECEIPT'
+  }),{skipGlobalLoading:true});
+  expect(w.text()).toContain('Paid externally$30.00');
+  expect(w.text()).toContain('Remaining patient balance$0.00');
+  w.unmount();
 });
 it('shows recorded charges to billing staff and clears old agency data before loading another scope',async()=>{
   const w=mount(AppointmentBillingPanel,{props:{agencyId:377,clinicalSessionId:3,canViewFinancials:true}});await flushPromises();expect(w.text()).toContain('$140.00');

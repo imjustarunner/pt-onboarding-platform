@@ -588,6 +588,7 @@ function anonymousTeamTimes(payload, timeZone) {
     const zone = row.timeZone || timeZone;
     add(wallMysqlToUtcMysql(`${date} ${row.startTime}`, zone), wallMysqlToUtcMysql(`${date} ${row.endTime}`, zone));
   }
+  for (const row of payload.googleBusy || []) add(row.startAt, row.endAt);
   return blocks;
 }
 

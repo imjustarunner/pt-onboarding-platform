@@ -144,7 +144,7 @@ async function receiptSnapshot(payment,receivable,allocation,snapshot,db,receive
   const [payers]=await db.execute('SELECT first_name,last_name FROM users WHERE id=?',[payment.payer_user_id]);
   const [clients]=await db.execute('SELECT full_name,initials,client_type FROM clients WHERE id=? AND agency_id=?',[receivable.client_id,payment.agency_id]);
   const responsibility=sourcePayload(receivable),type=responsibilityLabels[responsibility.responsibilityType]||'Service payment';
-  return {...(payment.processor===QA_PAYMENT_PROCESSOR?{simulated:true,processor:QA_PAYMENT_PROCESSOR}:{}),...(['learning','tutoring'].includes(String(clients[0]?.client_type).toLowerCase())?{learningService:true}:{}),...(responsibility.serviceTerm?{serviceCode:responsibility.serviceTerm.serviceCode,serviceUnits:responsibility.serviceTerm.units,unitAmountCents:responsibility.serviceTerm.amountCents,priceBasis:responsibility.serviceTerm.priceBasis}:{}),portalBrand:['mental_health','clinical'].includes(receivable.service_domain)?'AuricWell':`${agencies[0]?.name||'Organization'} Portal`,clientName:clients[0]?.full_name||clients[0]?.initials||null,receiptNumber:`R-${payment.agency_id}-${payment.id}`,agencyName:agencies[0]?.name||'Organization',payerName:[payers[0]?.first_name,payers[0]?.last_name].filter(Boolean).join(' '),service:['mental_health','clinical','unknown'].includes(receivable.service_domain)?'Services':`${receivable.service_domain} services`,serviceDate:receivable.service_date?dateOnly(receivable.service_date):null,balanceReference:receivable.id,responsibilityType:type,verificationBasis:responsibility.responsibilityType==='missed_session_fee'?'Missed-appointment fee under existing client agreement; no service claim':responsibility.verificationBasis==='era'?'Payer remittance':responsibility.responsibilityType==='copay'?'Verified visit copay, subject to payer determination':'Verified patient responsibility / agreed service terms',shareCents:Number(allocation.amount_cents),previouslyPaidCents:Number(allocation.paid_cents),remainingAtPaymentCents:allocationDue(allocation)-Number(payment.amount_cents),amountCents:Number(payment.amount_cents),currency:payment.currency,receivedAt:new Date(receivedAt).toISOString(),method:payment.processor==='CASH'?'Cash':payment.processor==='LEGACY'?'Previously recorded payment':`${snapshot.brand||'Card'} ending in ${snapshot.last4||'••••'}`};
+  return {...(payment.processor===QA_PAYMENT_PROCESSOR?{simulated:true,processor:QA_PAYMENT_PROCESSOR}:{}),...(['learning','tutoring'].includes(String(clients[0]?.client_type).toLowerCase())?{learningService:true}:{}),...(responsibility.serviceTerm?{serviceCode:responsibility.serviceTerm.serviceCode,serviceUnits:responsibility.serviceTerm.units,unitAmountCents:responsibility.serviceTerm.amountCents,priceBasis:responsibility.serviceTerm.priceBasis}:{}),portalBrand:['mental_health','clinical'].includes(receivable.service_domain)?'AuricWell':`${agencies[0]?.name||'Organization'} Portal`,clientName:clients[0]?.full_name||clients[0]?.initials||null,receiptNumber:`R-${payment.agency_id}-${payment.id}`,agencyName:agencies[0]?.name||'Organization',payerName:[payers[0]?.first_name,payers[0]?.last_name].filter(Boolean).join(' '),service:['mental_health','clinical','unknown'].includes(receivable.service_domain)?'Services':`${receivable.service_domain} services`,serviceDate:receivable.service_date?dateOnly(receivable.service_date):null,balanceReference:receivable.id,responsibilityType:type,verificationBasis:responsibility.responsibilityType==='missed_session_fee'?'Missed-appointment fee under existing client agreement; no service claim':responsibility.verificationBasis==='era'?'Payer remittance':responsibility.responsibilityType==='copay'?'Verified visit copay, subject to payer determination':'Verified patient responsibility / agreed service terms',shareCents:Number(allocation.amount_cents),previouslyPaidCents:Number(allocation.paid_cents),remainingAtPaymentCents:allocationDue(allocation)-Number(payment.amount_cents),amountCents:Number(payment.amount_cents),currency:payment.currency,receivedAt:new Date(receivedAt).toISOString(),method:payment.processor==='CASH'?(snapshot.paymentMethod === 'external' ? 'Paid externally' : 'Cash'):payment.processor==='LEGACY'?'Previously recorded payment':`${snapshot.brand||'Card'} ending in ${snapshot.last4||'••••'}`};
 }
 async function postCapture(payment,receivable,allocation,snapshot,db,receivedAt=new Date()) {
   if(payment.status==='succeeded')return;
@@ -202,23 +202,27 @@ export async function reconcileSavedPayment({agencyId,paymentId}) {
   if(intent.status!=='succeeded')return {paid:false,message:payment.processor===QA_PAYMENT_PROCESSOR?'The simulation is not successful yet. No money moves.':'Stripe has not confirmed a successful payment. No new charge was attempted.'};
   return finalizePayment(payment.id,agencyId,intent,snapshot.accountId);
 }
-export async function recordCash({agencyId,allocationId,payerUserId,amountCents,receivedAt,idempotencyKey,actorUserId,note}) {
+export async function recordCash({agencyId,allocationId,payerUserId,amountCents,receivedAt,idempotencyKey,actorUserId,note,paymentMethod='cash'}) {
+  if (!['cash','external'].includes(paymentMethod)) throw billingError(400,'Choose how the payment was received');
   const amount=cents(amountCents), requestKey=key(idempotencyKey), received=new Date(receivedAt||Date.now());
-  if(!Number.isFinite(received.getTime())||received.getTime()>Date.now()+60000||!String(note||'').trim())throw billingError(400,'Enter the received date and cash receipt/reference note');
+  if(!Number.isFinite(received.getTime())||received.getTime()>Date.now()+60000||!String(note||'').trim())throw billingError(400,'Enter the received date and a payment reference');
   return transaction(async db=>{
     const {receivable,allocation}=await lockAllocation(agencyId,allocationId,db);
     if(Number(allocation.payer_user_id)!==Number(payerUserId))throw billingError(409,'Record the payment against the selected responsible payer’s share');
     await requireResponsiblePayer(payerUserId,receivable.client_id,agencyId,db);
     const [existing]=await db.execute('SELECT * FROM family_ledger_payments WHERE agency_id=? AND idempotency_key=?',[agencyId,requestKey]);
     if(existing.length) {
-      if(existing[0].processor!=='CASH'||Number(existing[0].allocation_id)!==Number(allocationId)||Number(existing[0].amount_cents)!==amount)throw billingError(409,'Receipt reference belongs to another payment');
+      const previous = existing[0];
+      if(previous.processor!=='CASH'||Number(previous.allocation_id)!==Number(allocationId)||Number(previous.amount_cents)!==amount)throw billingError(409,'Receipt reference belongs to another payment');
+      const savedMethod = decryptFamilyBilling(previous.snapshot_encrypted,context(agencyId,allocationId))?.paymentMethod || 'cash';
+      if (savedMethod !== paymentMethod) throw billingError(409,'Receipt reference belongs to another payment method');
       return {paymentId:existing[0].id,alreadyRecorded:true};
     }
     await assertCollectible(receivable,db);
     const [pending]=await db.execute("SELECT id FROM family_ledger_payments WHERE allocation_id=? AND status IN ('pending','requires_action','unknown') LIMIT 1",[allocationId]);
-    if(pending.length)throw billingError(409,'Resolve the pending card payment before recording cash');
-    if(amount>allocationDue(allocation))throw billingError(409,'Cash exceeds the unpaid share');
-    const snapshot={note:String(note).slice(0,2000)};
+    if(pending.length)throw billingError(409,'Resolve the pending card payment before recording an offline payment');
+    if(amount>allocationDue(allocation))throw billingError(409,'Payment exceeds the unpaid share');
+    const snapshot={note:String(note).trim().slice(0,2000),paymentMethod};
     const [result]=await db.execute("INSERT INTO family_ledger_payments (agency_id,allocation_id,payer_user_id,processor,amount_cents,currency,idempotency_key,snapshot_encrypted,created_by_user_id) VALUES (?,?,?,'CASH',?,?,?,?,?)",[agencyId,allocationId,payerUserId,amount,receivable.currency,requestKey,encryptFamilyBilling(snapshot,context(agencyId,allocationId)),actorUserId]);
     const payment={id:result.insertId,agency_id:agencyId,allocation_id:allocationId,payer_user_id:payerUserId,processor:'CASH',amount_cents:amount,currency:receivable.currency,created_by_user_id:actorUserId,status:'pending'};
     await postCapture(payment,receivable,allocation,snapshot,db,received);

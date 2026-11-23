@@ -209,6 +209,26 @@ it('records a past virtual appointment quietly and closes its saved receipt', as
   expect(window.confirm).not.toHaveBeenCalled();
 });
 
+it('records a past in-person office visit at its service location without requesting a room', async () => {
+  const s = await schoolClientEditor();
+  s.modalDay = 'Monday';
+  await s.onEditorServiceLocationId(51);
+  await flushPromises();
+  expect(s.editorHistoricalBooking).toBe(true);
+  expect(s.editorShowOfficeRequestCta).toBe(false);
+  expect(s.requestSubmitBlockedReason).toBe('');
+  const saved = { ...appointment, serviceLocationId: 51, modality: 'IN_PERSON',
+    startAt: '2026-11-17 00:00:00', endAt: '2026-11-17 01:00:00', videoRoomMode: 'none' };
+  m.post.mockResolvedValueOnce({ data: { appointment: saved, appointments: [saved] } });
+  await s.submitRequest();
+  expect(s.modalError).toBe('');
+  expect(m.post).toHaveBeenCalledWith('/appointments', expect.objectContaining({
+    serviceLocationId: 51, modality: 'IN_PERSON', sendBookingNotice: false, notificationMode: 'off', videoRoomMode: 'none'
+  }), { skipGlobalLoading: true });
+  expect(m.post.mock.calls.some(([url]) => /office-schedule|office-slots|from-appointment/.test(url))).toBe(false);
+  expect(wrapper.get('[data-testid="virtual-session-booked"]').text()).toContain('Past session recorded');
+});
+
 it('preserves future series preferences when the first occurrence is in the past', async () => {
   const s = await editor();
   s.modalDay = 'Monday';

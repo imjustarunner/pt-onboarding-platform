@@ -2,7 +2,30 @@ import clinicalPool from '../config/clinicalDatabase.js';
 import pool from '../config/database.js';
 import { includesDemoBilling } from './billingTransactionFilters.js';
 
+const agingColumns = [
+  ['days_0_29_cents', '0–29 days', 'currency'],
+  ['days_30_59_cents', '30–59 days', 'currency'],
+  ['days_60_89_cents', '60–89 days', 'currency'],
+  ['days_90_plus_cents', '90+ days', 'currency'],
+  ['undated_cents', 'No date', 'currency'],
+  ['total_cents', 'Outstanding', 'currency']
+];
+
 const REPORT_CATALOG = [
+  {
+    type: 'insurance_aging',
+    label: 'Insurance Aging',
+    description: 'Outstanding insurance balances from imported billing reports, aged from the service date and grouped by the reported primary payer.',
+    filters: ['dateRange', 'payer', 'search'],
+    columns: [['payer_name', 'Payer on import', 'text'], ...agingColumns]
+  },
+  {
+    type: 'patient_aging',
+    label: 'Patient Responsibility Aging',
+    description: 'Open verified patient shares aged from the due date. Active plans age each installment separately. Held and disputed balances are excluded.',
+    filters: ['clientId', 'dateRange'],
+    columns: [['client_display', 'Client', 'text'], ['current_cents', 'Not yet due', 'currency'], ...agingColumns]
+  },
   {
     type: 'claims',
     label: 'Claims',
@@ -144,7 +167,9 @@ const CLINICAL_TABLES = [
   'clinical_diagnoses', 'clinical_treatment_plans', 'clinical_treatment_plan_goals',
   'clinical_treatment_plan_objectives', 'medical_fee_schedule_items'
 ];
-const MAIN_TABLES = ['agency_medical_service_codes', 'agency_service_locations', 'office_locations', 'clients'];
+const MAIN_TABLES = ['agency_medical_service_codes', 'agency_service_locations', 'office_locations', 'clients',
+  'agency_receivables_report_rows', 'billing_report_lines', 'family_receivables', 'family_receivable_allocations',
+  'family_payment_plans', 'family_plan_installments'];
 const REQUIRED_TABLE_BY_REPORT = {
   claims: ['clinical', 'clinical_claims'],
   claim_lines: ['clinical', 'clinical_claim_lines'],
@@ -154,7 +179,9 @@ const REQUIRED_TABLE_BY_REPORT = {
   treatment_plans: ['clinical', 'clinical_treatment_plans'],
   fee_schedule: ['clinical', 'medical_fee_schedule_items'],
   service_codes: ['main', 'agency_medical_service_codes'],
-  service_locations: ['main', 'agency_service_locations']
+  service_locations: ['main', 'agency_service_locations'],
+  insurance_aging: ['main', 'agency_receivables_report_rows'],
+  patient_aging: ['main', 'family_receivables']
 };
 
 const clean = (value) => String(value || '').trim();
@@ -200,11 +227,16 @@ const selectColumn = (schema, plane, table, column, expression, alias = column, 
 
 function reportAvailability(report, schema) {
   const [plane, table] = REQUIRED_TABLE_BY_REPORT[report.type] || [];
-  const available = !!schema?.[plane]?.has(table);
+  const companionTables = {
+    insurance_aging: ['billing_report_lines'],
+    patient_aging: ['family_receivable_allocations', 'family_payment_plans', 'family_plan_installments']
+  };
+  const missing = [table, ...(companionTables[report.type] || [])].find(name => !schema?.[plane]?.has(name));
+  const available = !missing;
   return {
     ...report,
     available,
-    unavailableReason: available ? null : `Required table ${table} is not available. Apply the latest ${plane === 'clinical' ? 'clinical ' : ''}database migrations.`
+    unavailableReason: available ? null : `Required table ${missing} is not available. Apply the latest ${plane === 'clinical' ? 'clinical ' : ''}database migrations.`
   };
 }
 
@@ -528,7 +560,70 @@ async function queryServiceLocations(agencyId, filters, page) {
   });
 }
 
+const summarizeAging = (days, amount) => [
+  [`${days}<0`, 'current_cents'],
+  [`${days} BETWEEN 0 AND 29`, 'days_0_29_cents'],
+  [`${days} BETWEEN 30 AND 59`, 'days_30_59_cents'],
+  [`${days} BETWEEN 60 AND 89`, 'days_60_89_cents'],
+  [`${days}>=90`, 'days_90_plus_cents'],
+  [`${days} IS NULL`, 'undated_cents']
+].map(([condition, key]) => `SUM(CASE WHEN ${condition} THEN ${amount} ELSE 0 END) AS ${key}`)
+  .concat(`SUM(${amount}) AS total_cents`).join(', ');
+
+async function fetchAging({ from, params, group, label, limit, offset }) {
+  const aged = summarizeAging('days_old', 'balance_cents');
+  const [rows] = await pool.execute(
+    `SELECT ${label}, ${aged} FROM (${from}) aged WHERE balance_cents>0
+     GROUP BY ${group} ORDER BY total_cents DESC, ${group} LIMIT ${limit} OFFSET ${offset}`, params);
+  const [[summary]] = await pool.execute(
+    `SELECT COUNT(DISTINCT ${group}) AS group_count, ${aged} FROM (${from}) aged WHERE balance_cents>0`, params);
+  return { rows, total: Number(summary.group_count), summary };
+}
+
+async function queryInsuranceAging(agencyId, filters, page, schema) {
+  const { where, params } = baseFilters('r', agencyId, { ...filters, clientId: null }, { dateExpression: 'r.service_date' });
+  const payer = "COALESCE(NULLIF(TRIM(l.primary_payer_name), ''), 'Payer not recorded')";
+  where.push('r.insurance_outstanding_amount>0');
+  if (hasColumn(schema,'main','clients','is_demo') && !includesDemoBilling(filters)) where.push('COALESCE(c.is_demo,0)=0');
+  addLike(where, params, [payer], filters.payer);
+  addLike(where, params, [payer], filters.search);
+  const from = `SELECT ${payer} AS payer_name, GREATEST(0,DATEDIFF(CURRENT_DATE,r.service_date)) AS days_old,
+                 ROUND(r.insurance_outstanding_amount*100) AS balance_cents
+                FROM agency_receivables_report_rows r
+                LEFT JOIN billing_report_lines l ON l.id=r.billing_line_id AND l.agency_id=r.agency_id
+                LEFT JOIN clients c ON c.id=l.client_id AND c.agency_id=r.agency_id WHERE ${where.join(' AND ')}`;
+  return fetchAging({ from, params, group: 'payer_name', label: 'payer_name', ...page });
+}
+
+async function queryPatientAging(agencyId, filters, page, schema) {
+  const { where, params } = baseFilters('r', agencyId, { ...filters, startDate: null, endDate: null });
+  where.push("r.status='open'", 'r.hold_reason IS NULL', 'r.disputed_at IS NULL', 'a.amount_cents>a.paid_cents',
+    "r.source_type IN ('clinical_copay','claim_responsibility') AND r.insurance_reviewed=1");
+  if (hasColumn(schema,'main','clients','is_demo') && !includesDemoBilling(filters)) where.push('COALESCE(c.is_demo,0)=0');
+  const dueDateFilters = [];
+  addDateFilters(dueDateFilters, params, 'COALESCE(installment_due,due_date)', filters);
+  const from = `SELECT client_id, DATEDIFF(CURRENT_DATE,COALESCE(installment_due,due_date)) AS days_old,
+                     CASE WHEN installment_cents IS NULL THEN share_due
+                          ELSE GREATEST(0,installment_cents-GREATEST(0,payments_for_plan-prior_installments)) END AS balance_cents
+                FROM (
+                  SELECT r.client_id, r.due_date, a.amount_cents-a.paid_cents AS share_due,
+                         GREATEST(0,a.paid_cents-p.paid_before_cents) AS payments_for_plan,
+                         i.amount_cents AS installment_cents,i.due_date AS installment_due,
+                         COALESCE(SUM(i.amount_cents) OVER (PARTITION BY a.id ORDER BY i.sequence_number
+                           ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING),0) AS prior_installments
+                  FROM family_receivables r JOIN family_receivable_allocations a ON a.receivable_id=r.id
+                  JOIN clients c ON c.id=r.client_id AND c.agency_id=r.agency_id
+                  LEFT JOIN family_payment_plans p ON p.id=(SELECT MAX(p2.id) FROM family_payment_plans p2
+                    WHERE p2.agency_id=r.agency_id AND p2.allocation_id=a.id AND p2.status='active')
+                  LEFT JOIN family_plan_installments i ON i.plan_id=p.id
+                  WHERE ${where.join(' AND ')}
+                ) installments${dueDateFilters.length ? ` WHERE ${dueDateFilters.join(' AND ')}` : ''}`;
+  return fetchAging({ from, params, group: 'client_id', label: 'client_id', ...page });
+}
+
 const queryByType = {
+  insurance_aging: queryInsuranceAging,
+  patient_aging: queryPatientAging,
   claims: queryClaims,
   claim_lines: queryClaimLines,
   encounters: queryEncounters,
@@ -596,8 +691,8 @@ export async function runMedicalBillingReport({ agencyId, type, filters = {}, li
     error.status = 400;
     throw error;
   }
-  const safeLimit = Math.min(10000, Math.max(1, Number(limit) || 50));
-  const safeOffset = Math.max(0, Number(offset) || 0);
+  const safeLimit = Math.min(10000, Math.max(1, positiveInt(limit) || 50));
+  const safeOffset = Number.isSafeInteger(Number(offset)) ? Math.max(0, Number(offset)) : 0;
   const schema = await loadReportSchema();
   const reportWithAvailability = reportAvailability(report, schema);
   if (!reportWithAvailability.available) {

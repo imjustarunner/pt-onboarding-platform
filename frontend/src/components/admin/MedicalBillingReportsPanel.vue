@@ -12,6 +12,15 @@
 
     <div v-if="catalogError" class="mbr-error">{{ catalogError }}</div>
     <template v-else>
+      <div v-if="agingReports.length" class="mbr-quick-reports" aria-label="Aging reports">
+        <button v-for="report in agingReports" :key="report.type" type="button" class="mbr-btn mbr-btn--secondary"
+          :aria-pressed="filters.type === report.type" :disabled="loading"
+          @click="filters.type = report.type; handleTypeChange()">{{ report.label }}</button>
+        <RouterLink v-if="filters.type === 'patient_aging' && agencySlug"
+          :to="{ name: 'FamilyBillingDesk', params: { organizationSlug: agencySlug }, query: { tab: 'collections' } }">
+          Open collections
+        </RouterLink>
+      </div>
       <div class="mbr-filters">
         <label class="mbr-field mbr-field--wide">
           <span>Report</span>
@@ -139,10 +148,12 @@ import { computed, onMounted, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
 
 const props = defineProps({
-  agencyId: { type: Number, required: true }
+  agencyId: { type: Number, required: true },
+  agencySlug: String
 });
 
 const reports = ref([]);
+const agingReports = computed(() => reports.value.filter(report => report.available && ['insurance_aging', 'patient_aging'].includes(report.type)));
 const rows = ref([]);
 const summary = ref({});
 const loadingCatalog = ref(false);
@@ -180,6 +191,7 @@ const statusOptions = computed(() => (STATUS_OPTIONS[filters.type] || []).map((v
 })));
 
 const searchPlaceholder = computed(() => {
+  if (filters.type === 'insurance_aging') return 'Payer name';
   if (filters.type === 'claims' || filters.type === 'claim_lines') return 'Claim number, payer, status, or code';
   if (filters.type === 'notes' || filters.type === 'treatment_plans') return 'Title, type, status, or source';
   if (filters.type === 'diagnoses') return 'ICD-10 code or description';
@@ -187,6 +199,9 @@ const searchPlaceholder = computed(() => {
 });
 
 const SUMMARY_LABELS = {
+  group_count: 'Groups', current_cents: 'Not yet due', days_0_29_cents: '0–29 days',
+  days_30_59_cents: '30–59 days', days_60_89_cents: '60–89 days',
+  days_90_plus_cents: '90+ days', undated_cents: 'No date', total_cents: 'Outstanding',
   record_count: 'Records', client_count: 'Clients', claim_count: 'Claims', provider_count: 'Providers',
   total_amount_cents: 'Total amount', average_amount_cents: 'Average price', total_units: 'Total units',
   total_minutes: 'Total time', paid_count: 'Paid claims', exception_count: 'Rejected/denied',
@@ -203,11 +218,11 @@ const formatMinutes = (minutes) => {
   return hours ? `${hours}h ${remainder}m` : `${remainder}m`;
 };
 const summaryCards = computed(() => Object.entries(summary.value || {})
-  .filter(([key]) => SUMMARY_LABELS[key])
+  .filter(([key]) => SUMMARY_LABELS[key] && (key !== 'current_cents' || filters.type === 'patient_aging'))
   .map(([key, raw]) => ({
     key,
     label: SUMMARY_LABELS[key],
-    value: key.includes('amount_cents')
+    value: key.endsWith('_cents')
       ? formatCurrency(raw)
       : (key === 'total_minutes' ? formatMinutes(raw) : Number(raw || 0).toLocaleString())
   })));
@@ -372,6 +387,8 @@ onMounted(initialize);
 .mbr-heading { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; }
 .mbr-heading h2 { margin: 0; }
 .mbr-heading p { color: #5c6570; margin: 0.3rem 0 0; }
+.mbr-quick-reports { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem; margin-top: 1rem; }
+.mbr-quick-reports button[aria-pressed="true"] { border-color: #245789; background: #eaf3fd; }
 .mbr-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.7rem; margin-top: 1rem; }
 .mbr-field { display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; }
 .mbr-field span { color: #4f5964; font-size: 0.78rem; font-weight: 600; }

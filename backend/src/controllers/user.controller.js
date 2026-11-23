@@ -4102,6 +4102,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
     }
     const googleCalendarEnabled = !teamCalendar && await usesGoogleSchedule(provider);
     const skipGoogleSync = ['true', '1'].includes(String(req.query.skipGoogleSync || '').toLowerCase());
+    const teamGoogleBusyRequested = teamCalendar && String(req.query.includeGoogleBusy || '').toLowerCase() === 'true';
     const includeGoogleEvents = !skipGoogleSync && googleCalendarEnabled && String(req.query.includeGoogleEvents || '').toLowerCase() === 'true';
     const includeGoogleBusy = !skipGoogleSync && googleCalendarEnabled && !includeGoogleEvents && String(req.query.includeGoogleBusy || '').toLowerCase() === 'true';
 
@@ -5793,6 +5794,10 @@ export const getUserScheduleSummary = async (req, res, next) => {
       }
       if (includeGoogleBusy && googleEventsError) googleBusyError = googleEventsError;
     }
+    if (teamGoogleBusyRequested && await usesGoogleSchedule(provider)) {
+      const result = await GoogleCalendarService.freeBusy({ subjectEmail: provider.email, timeMin: timeMinIso, timeMax: timeMaxIso }).catch(() => null);
+      if (result?.ok) googleBusy = result.busy;
+    }
 
     let videoConfigured = false;
     try {
@@ -6067,7 +6072,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
       externalCalendars: [],
       externalBusy: [],
       videoConfigured,
-      ...(includeGoogleBusy ? { googleBusy, googleBusyError } : {}),
+      ...(includeGoogleBusy || teamGoogleBusyRequested ? { googleBusy, googleBusyError } : {}),
       ...(includeGoogleEvents ? { googleEvents, googleEventsError } : {}),
 
     };
