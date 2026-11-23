@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 const m = vi.hoisted(() => ({ get: vi.fn() }));
+vi.mock('../../../store/auth',()=>({useAuthStore:()=>({user:{id:8,role:'support'}})}));
 vi.mock('../../../services/api', () => ({ default: { get: m.get } }));
 vi.mock('vue-router', () => ({ useRoute: () => ({ params: { organizationSlug: 'demo' } }) }));
 vi.mock('../../../store/agency', () => ({ useAgencyStore: () => ({ currentAgency: { id: 450 } }) }));

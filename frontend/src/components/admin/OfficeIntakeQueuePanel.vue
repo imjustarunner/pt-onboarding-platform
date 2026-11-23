@@ -208,7 +208,7 @@
             </div>
           </div>
           <div class="oiq-detail-header-actions">
-            <button type="button" class="oiq-btn oiq-btn--terminate" @click="terminationClient = selected">Mark inactive / follow up</button>
+
             <a
               :href="clientProfilePath(selected)"
               class="oiq-open-client"
@@ -405,6 +405,7 @@
             </div>
           </div>
         </section>
+        <section v-if="canMarkInactive" class="oiq-section"><h3>End active enrollment</h3><button type="button" class="oiq-btn oiq-btn--terminate" @click="terminationClient = selected">Mark inactive / follow up</button></section>
 
         <!-- Provider acceptance -->
         <div v-if="acceptance?.agency && demoFilter === 'exclude'" class="oiq-section oiq-section--acceptance">
@@ -426,6 +427,7 @@
 </template>
 
 <script setup>
+import {useAuthStore} from '../../store/auth';
 import LearningEnrollmentSummary from '../learning/LearningEnrollmentSummary.vue';
 import AuricWellBrand from '../auricwell/AuricWellBrand.vue';
 import '../../styles/auricwellClients.css';
@@ -448,6 +450,8 @@ import { exchangeScheduleLines, scheduleFromIntake } from '../../utils/clientExc
 
 const { getClientLabel, getAvatarLetters } = useClientDisplayMode();
 
+const authStore=useAuthStore();
+const canMarkInactive=computed(()=>['admin','support','super_admin'].includes(String(authStore.user?.role || '').toLowerCase()));
 const props = defineProps({ agencyIds: Array, demo: String });
 const emit = defineEmits(['update:demo', 'count']);
 const agencyStore = useAgencyStore();
@@ -520,7 +524,7 @@ async function onClientTerminated({ clientId, disposition, emailed }) {
   if (disposition !== 'waitlist') clients.value = clients.value.filter(c => c.id !== clientId);
   if (selectedId.value === clientId) selectedId.value = null;
   terminationClient.value = null;
-  successMessage.value = `${emailed ? 'Final follow-up sent. ' : ''}${name} ${disposition === 'waitlist' ? 'kept on the school waitlist' : 'marked as terminated and moved to Inactive'}.`;
+  successMessage.value = `${emailed ? 'Final follow-up sent. ' : ''}${name} ${disposition === 'waitlist' ? 'kept on the school waitlist' : 'marked inactive'}.`;
   await loadAll();
 }
 

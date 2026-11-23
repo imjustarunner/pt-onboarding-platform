@@ -38,9 +38,9 @@ export async function reopenEnrollment({ clientId, agencyId, actorUserId = null,
         await db.rollback();
         return { reopened: false, reason: 'already_reopened_or_superseded' };
       }
-      const expected = action.disposition === 'waitlist' ? 'waitlist' : 'terminated';
+      const expected = action.disposition === 'waitlist' ? ['waitlist'] : ['inactive','terminated'];
       const expectedWorkflow = action.disposition === 'waitlist' ? 'PENDING_REVIEW' : 'ARCHIVED';
-      if (normalize(client.client_status_key) !== expected || client.status !== expectedWorkflow || client.provider_id) {
+      if (!expected.includes(normalize(client.client_status_key)) || client.status !== expectedWorkflow || client.provider_id) {
         await db.rollback();
         return { reopened: false, reason: 'client_status_changed' };
       }

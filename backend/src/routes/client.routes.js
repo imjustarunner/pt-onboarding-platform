@@ -45,6 +45,8 @@ import {
   postNoteAidClaimUnassigned,
   unarchiveClient,
   terminateClient,
+  markClientInactive,
+  getClientClosureReview,
   getClientTerminationProviders,
   getEnrollmentFollowup,
   previewEnrollmentFollowup,
@@ -252,6 +254,8 @@ router.get('/:id/enrollment-followup', getEnrollmentFollowup);
 router.post('/:id/enrollment-followup/preview', previewEnrollmentFollowup);
 router.post('/:id/enrollment-followup', postEnrollmentFollowup);
 router.post('/:id/reopen-enrollment', reopenClientEnrollment);
+router.get('/:id/closure-review', getClientClosureReview);
+router.post('/:id/inactive', markClientInactive);
 router.post('/:id/terminate', terminateClient);
 
 // Update client status

@@ -14,8 +14,9 @@ it('keeps a legacy status visible and saves only the explicitly selected status'
 it('keeps a failed status selection editable and shows the server error inline',async()=>{
  m.put.mockRejectedValue({response:{data:{error:{message:'Status could not be saved'}}}});const w=mount(Editor,{props:{client},global:{stubs:{Teleport:true}}});await flushPromises();await w.get('select').setValue('11');await w.get('form').trigger('submit');await flushPromises();expect(w.get('[role=alert]').text()).toBe('Status could not be saved');expect(w.get('select').element.value).toBe('11');expect(w.emitted('saved')).toBeUndefined();w.unmount();
 });
-it('requires an explicit reason when choosing Terminated',async()=>{
- m.get.mockResolvedValue({data:[{id:12,label:'Terminated',status_key:'terminated'}]});const w=mount(Editor,{props:{client},global:{stubs:{Teleport:true}}});await flushPromises();await w.get('select').setValue('12');expect(w.get('button[type=submit]').element.disabled).toBe(true);await w.get('textarea').setValue('Synthetic closure reason');await w.get('form').trigger('submit');await flushPromises();expect(m.put.mock.calls[0][1]).toEqual({client_status_id:12,termination_reason:'Synthetic closure reason'});w.unmount();
+it('keeps inactive and termination actions out of ordinary status edits',async()=>{
+ m.get.mockResolvedValue({data:[{id:12,label:'Terminated',status_key:'terminated'},{id:13,label:'Inactive',status_key:'inactive'},{id:14,label:'Archived',status_key:'archived'},{id:11,label:'Current',status_key:'current'}]});
+ const w=mount(Editor,{props:{client},global:{stubs:{Teleport:true}}});await flushPromises();expect(w.findAll('option').map(o=>o.element.value)).toEqual(['','99','11']);expect(w.text()).toContain('bottom of the profile');w.unmount();
 });
 
 it('keeps the selection visible if a successful response still reports the old status', async () => {

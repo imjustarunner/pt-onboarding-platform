@@ -903,7 +903,7 @@ export async function notifyClientTerminated({
   clientNameOrIdentifier,
   terminationReason,
   actorUserId,
-  providerUserId
+  providerUserId, closureKind='terminate'
 }) {
   if (!agencyId || !clientId) return;
 
@@ -914,9 +914,9 @@ export async function notifyClientTerminated({
   const recipients = new Set([...(agencyStaff || []), ...(schoolStaff || [])]);
   if (providerUserId) recipients.add(providerUserId);
 
-  const title = 'Client terminated';
+  const title = closureKind==='inactive' ? 'Client marked inactive' : 'Client terminated';
   const reasonSnippet = terminationReason ? ` Reason: ${String(terminationReason).slice(0, 200)}${terminationReason.length > 200 ? '…' : ''}` : '';
-  const message = `Client ${clientNameOrIdentifier || `ID ${clientId}`} has been terminated.${reasonSnippet}`;
+  const message = `Client ${clientNameOrIdentifier || `ID ${clientId}`} has been ${closureKind==='inactive' ? 'marked inactive' : 'terminated'}.${reasonSnippet}`;
 
   await Promise.all(
     Array.from(recipients).map((userId) =>

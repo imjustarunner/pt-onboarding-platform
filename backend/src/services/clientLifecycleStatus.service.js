@@ -40,7 +40,7 @@ export const LIFECYCLE_STATUS_KEYS = {
   CURRENT: 'current'
 };
 
-const TERMINAL = new Set(['terminated', 'archived']);
+const TERMINAL = new Set(['inactive', 'terminated', 'archived']);
 
 async function syncProviderTasks(clientId, actorUserId) {
   try {

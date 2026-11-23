@@ -1,3 +1,5 @@
+import {withClientSchedulingLock} from '../services/clientSchedulingGuard.service.js';
+import { canMarkClientInactive, isClosureStatus, clientClosureReview, validateClientClosureReview, queueClientClosureNote } from '../services/clientClosureReview.service.js';
 import { attachCaseloadIdentities } from '../services/clientChartIdentity.service.js';
 import { clientServiceKindsForAgency } from '../services/clientServiceCatalog.service.js';
 import { isOfficeRootOrganization, supportsAgencyOfficeClients } from '../utils/clientOfficeOrganization.js';
@@ -2924,6 +2926,11 @@ async function clientForTermination(req) {
     return currentClient;
 }
 
+export const getClientClosureReview = async (req,res,next) => {
+  try { const client=await clientForTermination(req); res.json({...await clientClosureReview(client),canMarkInactive:canMarkClientInactive(req.user.role)}); }
+  catch(error) { if(error.status)return res.status(error.status).json({error:{message:error.message}});next(error); }
+};
+
 export const getClientTerminationProviders = async (req, res, next) => {
   try {
     const client = await clientForTermination(req);
@@ -2961,6 +2968,8 @@ export const previewEnrollmentFollowup = async (req, res, next) => {
 export const postEnrollmentFollowup = async (req, res, next) => {
   try {
     const client = await clientForTermination(req);
+    if(!canMarkClientInactive(req.user.role))return res.status(403).json({error:{message:'Only administrators and support can change enrollment to inactive.'}});
+    if(req.body?.disposition!=='waitlist'){const review=await validateClientClosureReview(req.body,client);req.body={...req.body,termination_note_required:review.termination_note_required,termination_note_not_required_reason:review.termination_note_not_required_reason,closureExistingNoteId:review.terminationNote?.id || null};}
     res.json(await sendEnrollmentFollowup({ client, actorUserId: req.user.id, body: req.body }));
   } catch (error) {
     if (error.status || error.followupSent) return res.status(error.status || 503).json({ error: { message: error.followupSent ? 'The email was sent. The status change still needs to finish. Retry this same action without editing the email; it will not be sent again.' : error.message, followupSent: !!error.followupSent, deliveryReview: !!error.deliveryReview } });
@@ -2981,16 +2990,20 @@ export const reopenClientEnrollment = async (req, res, next) => {
 };
 
 /** Terminate a client with optional reason, historical provider and effective date. */
-export const terminateClient = async (req, res, next) => {
+export const terminateClient = (req,res,next) => closeClient(req,res,next,'terminate');
+export const markClientInactive = (req,res,next) => closeClient(req,res,next,'inactive');
+const closeClient = async (req, res, next, action) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
+    if(action==='inactive' && !canMarkClientInactive(req.user.role)) return res.status(403).json({error:{message:'Only administrators and support can mark a client inactive. Providers must use Terminate client.'}});
     const currentClient = await clientForTermination(req);
+    const review = await validateClientClosureReview(req.body,currentClient);
     const details = await clientTerminationDetails(req.body, currentClient);
 
     const terminatedStatusId = await getClientStatusIdByKey({
       agencyId: currentClient.agency_id,
-      statusKey: 'terminated'
+      statusKey: action==='inactive' ? 'inactive' : 'terminated'
     });
     if (!terminatedStatusId) {
       return res.status(400).json({
@@ -2999,15 +3012,34 @@ export const terminateClient = async (req, res, next) => {
     }
 
     const terminationReason = details.termination_reason;
-    // Client.update atomically archives the active roster and ends provider assignments while retaining history.
-    const updated = await Client.update(id, {
+    // Close active assignments atomically. The legacy workflow flag remains compatible with inactive roster queries.
+    let updated;
+    const {terminationJobId}=await withClientSchedulingLock([Number(id)],async()=>{
+    const connection=await pool.getConnection();
+    let terminationJobId;
+    try {
+      await connection.beginTransaction();
+      const [[locked]]=await connection.execute('SELECT * FROM clients WHERE id=? AND agency_id=? FOR UPDATE',[id,currentClient.agency_id]);
+      if(!locked)throw Object.assign(new Error('Client not found'),{status:404});
+      await validateClientClosureReview(req.body,{...currentClient,...locked});
+      await queueClientClosureNote(connection,{client:currentClient,actorUserId:userId,providerId:Number(req.body.termination_note_provider_id) || null,review});
+      const saved = await Client.update(id, {
       client_status_id: terminatedStatusId,
+      termination_note_required:review.termination_note_required,
+      termination_note_not_required_reason:review.termination_note_not_required_reason,
       ...details,
       ...(currentClient.enrollment_followup_id ? { enrollment_followup_id: null } : {}),
       terminated_at: new Date(),
       terminated_by_user_id: userId,
       roi_expires_at: null
-    }, userId);
+    }, userId, {executor:connection,hydrate:false});
+      terminationJobId=saved?.terminationJobId;
+      await connection.commit();
+    } catch(error) { await connection.rollback();throw error; } finally {connection.release();}
+    return {terminationJobId};
+    });
+    if(terminationJobId) { try {await (await import('../services/clientScheduleTermination.service.js')).processClientScheduleTermination(terminationJobId);} catch { /* Durable cleanup retries. */ } }
+    updated=await Client.findById(id);
 
     await stampClientTerminationSchoolYear({
       clientId: id,
@@ -3023,6 +3055,8 @@ export const terminateClient = async (req, res, next) => {
       from_value: currentClient.client_status_id ? String(currentClient.client_status_id) : null,
       to_value: String(terminatedStatusId),
       note: [
+        `Action: ${action==='inactive' ? 'Marked inactive' : 'Terminated; marked inactive'}`,
+        `Termination note: ${review.terminationNote ? 'Already completed' : review.termination_note_required ? 'Required; queued for provider' : 'Not required: '+review.termination_note_not_required_reason}`,
         `Reason: ${terminationReason || 'Not recorded'}`,
         `Last provider: ${details.termination_last_provider_name || 'Not recorded'}`,
         `Termination date: ${details.termination_effective_date || 'Not recorded'}`
@@ -3039,11 +3073,12 @@ export const terminateClient = async (req, res, next) => {
       clientId: parseInt(id, 10),
       clientNameOrIdentifier: updated.identifier_code || updated.full_name || updated.initials,
       terminationReason,
+      closureKind:action,
       actorUserId: userId,
       providerUserId: currentClient.provider_id ? parseInt(currentClient.provider_id, 10) : null
     }).catch(() => {});
 
-    logClientAccess(req, id, 'client_terminated').catch(() => {});
+    logClientAccess(req, id, action==='inactive' ? 'client_marked_inactive' : 'client_terminated').catch(() => {});
     res.json(updated);
   } catch (e) {
     if (e.status) return res.status(e.status).json({ error: { message: e.message } });
@@ -3057,13 +3092,14 @@ export const terminateClient = async (req, res, next) => {
  */
 export const updateClient = async (req, res, next) => {
   try {
-    if (['termination_effective_date', 'termination_last_provider_id', 'termination_last_provider_name', 'enrollment_followup_id', 'enrollment_reopened_at', 'enrollment_reopened_source'].some(field => req.body?.[field] !== undefined)) {
+    if (['termination_note_required','termination_note_not_required_reason','terminated_at','terminated_by_user_id','termination_effective_date', 'termination_last_provider_id', 'termination_last_provider_name', 'enrollment_followup_id', 'enrollment_reopened_at', 'enrollment_reopened_source'].some(field => req.body?.[field] !== undefined)) {
       return res.status(400).json({ error: { message: 'Use the termination action to record termination details.' } });
     }
     const { id } = req.params;
     const userId = req.user.id;
     const userRole = req.user.role;
 
+    if (['ARCHIVED','INACTIVE'].includes(String(req.body?.status || '').toUpperCase())) return res.status(canMarkClientInactive(userRole)?400:403).json({error:{message:'Use the reviewed Mark inactive action at the bottom of the client profile.'}});
     // Get current client
     const currentClient = await Client.findById(id);
     if (!currentClient) {
@@ -3204,6 +3240,7 @@ export const updateClient = async (req, res, next) => {
       if (!newStatusRow) return res.status(400).json({error:{message:'Choose a status configured for this client’s agency.'}});
       const newKey = String(newStatusRow?.status_key || '').toLowerCase();
       const newLabel = String(newStatusRow?.label || '').toLowerCase();
+      if(isClosureStatus(newStatusRow) && requestedStatusId!==Number(currentClient.client_status_id)) return res.status(400).json({error:{message:'Use Terminate client or Mark inactive at the bottom of the profile to review documentation and confirm.'}});
       const currentStatusId = parseInt(currentClient.client_status_id || 0, 10);
       const fallPendingKeys = new Set([
         'confirmation_pending',
@@ -3758,6 +3795,8 @@ export const updateClientStatus = async (req, res, next) => {
         error: { message: `Invalid status. Must be one of: ${validStatuses.join(', ')}` } 
       });
     }
+
+    if (['ARCHIVED','INACTIVE'].includes(String(status || '').toUpperCase())) return res.status(canMarkClientInactive(userRole)?400:403).json({error:{message:'Use the reviewed Mark inactive action at the bottom of the client profile.'}});
 
     // Archive permission: only admin/staff/support/super_admin may archive.
     const roleNorm = String(userRole || '').toLowerCase();

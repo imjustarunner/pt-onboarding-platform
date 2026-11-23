@@ -304,7 +304,7 @@ export async function syncClientProviderLifecycleTasks({
   for (const providerUserId of providers) {
     if (!activeProviders.includes(providerUserId)
       || String(client.status || '').toUpperCase() === 'ARCHIVED'
-      || ['archived', 'terminated'].includes(String(client.client_status_key || '').toLowerCase())) {
+      || ['inactive', 'archived', 'terminated'].includes(String(client.client_status_key || '').toLowerCase())) {
       await completeOpenLifecycleTasks(providerUserId, cid, actorUserId);
       continue;
     }

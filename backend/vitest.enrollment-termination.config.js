@@ -5,6 +5,7 @@ export default {
     env: { SKIP_DB_CONNECT: '1' },
     include: [
       'src/controllers/__tests__/clientTermination.test.js',
+      'src/services/__tests__/clientClosureReview.test.js',
       'src/services/__tests__/clientTerminationDetails.test.js',
       'src/services/__tests__/clientTerminationSchoolYear.test.js',
       'src/services/__tests__/enrollmentFollowup.test.js',

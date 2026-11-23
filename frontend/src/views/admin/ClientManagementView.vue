@@ -482,9 +482,7 @@
             >
               {{ bulkRenewalBusy ? 'Sending…' : 'Send needed updates' }}
             </button>
-            <button class="btn btn-danger btn-sm" type="button" :disabled="bulkWorking" @click="bulkArchive">
-              Archive
-            </button>
+
             <button
               v-if="selectedDevFillCount > 0"
               class="btn btn-danger btn-sm"
@@ -701,7 +699,7 @@
 
                 <button type="button" class="btn btn-secondary btn-sm" @click.stop="openClientDetail(client)">Open client</button>
                 <button v-if="canBackofficeEdit" type="button" class="btn btn-secondary btn-sm" :aria-pressed="!!Number(client.is_demo)" @click.stop="toggleClientDemo(client,!Number(client.is_demo));closeRowMenu($event)">{{Number(client.is_demo)?'Demo: on — turn off':'Demo: off — turn on'}}</button>
-                <button v-if="canBackofficeEdit" type="button" class="btn btn-danger btn-sm" @click.stop="terminationClient = client;closeRowMenu($event)">Mark inactive / final follow-up</button>
+                <div v-if="canMarkInactive" class="client-end-services"><button type="button" class="btn btn-danger btn-sm" @click.stop="terminationClient = client;closeRowMenu($event)">Mark inactive / final follow-up</button></div>
               </div>
               </details>
             </td>
@@ -1197,9 +1195,9 @@
     <!-- Duplicate / archived client modal -->
     <div v-if="dupesModalOpen" class="modal-overlay" @click.self="closeDupesModal">
       <div class="modal-content" @click.stop style="max-width: 860px;">
-        <h3>{{ dupesCanForceCreate ? 'Archived client found' : 'Similar client code found' }}</h3>
+        <h3>{{ dupesCanForceCreate ? 'Inactive client found' : 'Similar client code found' }}</h3>
         <p style="margin-top: 6px; color: var(--text-secondary);">
-          We found one or more clients with the same code in the database. If it’s the same student, unarchive instead of creating a duplicate.
+          We found one or more clients with the same code in the database. If it’s the same student, reopen enrollment instead of creating a duplicate.
         </p>
 
         <div style="margin-top: 12px; overflow-x: auto;">
@@ -1210,7 +1208,7 @@
                 <th>Affiliation</th>
                 <th>Prior Provider</th>
                 <th>Client Status</th>
-                <th>Archived?</th>
+                <th>Inactive?</th>
                 <th></th>
               </tr>
             </thead>
@@ -1228,7 +1226,7 @@
                     :disabled="String(m.workflowStatus || '').toUpperCase() !== 'ARCHIVED'"
                     @click="unarchiveMatch(m)"
                   >
-                    Unarchive and Reactivate
+                    Reopen enrollment
                   </button>
                 </td>
               </tr>
@@ -1549,6 +1547,7 @@ const tenantSourceOrganizations = computed(() => (
 ));
 const { routeTenantAgencyId } = useRouteTenantAgencyId(route, tenantSourceOrganizations);
 
+const canMarkInactive = computed(()=>['admin','support','super_admin'].includes(String(authStore.user?.role || '').toLowerCase()));
 const canBackofficeEdit = computed(() => {
   const r = String(authStore.user?.role || '').toLowerCase();
   return ['super_admin', 'admin', 'support', 'staff'].includes(r);
@@ -3030,11 +3029,7 @@ const runBulk = async (fn) => {
   }
 };
 
-const bulkArchive = async () => {
-  const ok = window.confirm(`Archive ${selectedIds.value.size} client(s)? This removes them from rosters.`);
-  if (!ok) return;
-  await runBulk((id) => api.put(`/clients/${id}/status`, { status: 'ARCHIVED' }));
-};
+
 
 const openBulkDeleteDevFillModal = async () => {
   bulkDeleteDevFillError.value = '';
@@ -3180,24 +3175,12 @@ const formatClientStatus = (client) => {
     'ACTIVE': 'Current',
     'ON_HOLD': 'Waitlist',
     'DECLINED': 'Declined',
-    'ARCHIVED': 'Archived'
+    'ARCHIVED': 'Inactive'
   };
   return map[status] || (status ? status.toLowerCase() : '-');
 };
 
-const startEditStatus = async (client) => {
-  const ok = window.confirm(client.client_type==='school'||client.organization_type==='school'?'Archive this client? This will remove them from active school rosters. Their chart stays on file.':'Archive this client? This will hide them from active client lists. Their chart stays on file.');
-  if (!ok) return;
-  try {
-    await api.put(`/clients/${client.id}/status`, { status: 'ARCHIVED' });
-    await fetchClients();
-  } catch (err) {
-    console.error('Failed to archive client:', err);
-    alert(err.response?.data?.error?.message || 'Failed to archive client');
-  } finally {
-    cancelEdit();
-  }
-};
+
 
 const cancelEdit = () => {
   // kept for legacy callers; provider inline editing removed

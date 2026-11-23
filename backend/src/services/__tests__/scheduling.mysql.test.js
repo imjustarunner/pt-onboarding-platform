@@ -89,13 +89,14 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
     await clinicalPool.query(`CREATE TABLE clinical_sessions (id INT PRIMARY KEY, agency_id INT, client_id INT, office_event_id INT, scheduled_start_at DATETIME, scheduled_end_at DATETIME, encounter_status VARCHAR(32) DEFAULT 'scheduled', claim_blocked_reason VARCHAR(255), updated_at DATETIME)`);
     await clinicalPool.query('ALTER TABLE clinical_sessions ADD COLUMN billing_encounter_id INT NULL');
     const lifecycleDdl = [
+      `ALTER TABLE client_schedule_termination_jobs ADD COLUMN closure_reason VARCHAR(80) NOT NULL DEFAULT 'Client terminated'`,
       `CREATE TABLE supervision_session_attendees (session_id INT,user_id INT,is_required BOOLEAN,status VARCHAR(32))`,
       `ALTER TABLE clients ADD COLUMN client_status_id INT, ADD COLUMN agency_id INT, ADD COLUMN terminated_at DATETIME, ADD COLUMN updated_by_user_id INT, ADD COLUMN last_activity_at DATETIME, ADD COLUMN status VARCHAR(32) DEFAULT 'ACTIVE', ADD COLUMN provider_id INT, ADD COLUMN service_day VARCHAR(32), ADD COLUMN organization_id INT`,
       `CREATE TABLE client_provider_assignments (id INT AUTO_INCREMENT PRIMARY KEY,client_id INT,organization_id INT,provider_user_id INT,service_day VARCHAR(32),is_active BOOLEAN,is_primary BOOLEAN,updated_by_user_id INT,updated_at DATETIME)`,
       `CREATE TABLE provider_school_assignments (id INT PRIMARY KEY,provider_user_id INT,school_organization_id INT,day_of_week VARCHAR(32),is_active BOOLEAN,slots_total INT,slots_available INT)`,
       `CREATE TABLE client_status_history (id INT AUTO_INCREMENT PRIMARY KEY,client_id INT,changed_by_user_id INT,field_changed VARCHAR(64),from_value TEXT,to_value TEXT,note TEXT)`,
       `CREATE TABLE client_statuses (id INT PRIMARY KEY,status_key VARCHAR(64),label VARCHAR(80))`,
-      `INSERT INTO client_statuses VALUES (1,'current','Current'),(2,'terminated','Terminated')`,
+      `INSERT INTO client_statuses VALUES (1,'current','Current'),(2,'terminated','Terminated'),(3,'inactive','Inactive')`,
       `ALTER TABLE office_standing_assignments ADD COLUMN assigned_frequency VARCHAR(32) DEFAULT 'WEEKLY'`,
       `ALTER TABLE office_booking_plans ADD COLUMN booked_frequency VARCHAR(32) DEFAULT 'WEEKLY'`,
       `ALTER TABLE office_events ADD COLUMN slot_state VARCHAR(32), ADD COLUMN google_provider_event_id VARCHAR(255), ADD COLUMN source ENUM('SUPPORT','PROVIDER_REQUEST','YELLOW_CLAIM','ADMIN_OVERRIDE')`,
@@ -462,6 +463,15 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
     expect(row.sessions_remaining).toBe(5); expect(row.free_misses_remaining).toBe(2);
     const [[old]] = await pool.query('SELECT * FROM booking_package_entitlements WHERE id = 6');
     expect(old.free_misses_remaining).toBe(0); expect(old.bonus_sessions_remaining).toBe(0); lookup.mockRestore();
+  });
+
+  it('inactivation closes the roster and future care with accurate cancellation attribution',async()=>{
+    await Client.update(8,{client_status_id:3,terminated_at:new Date()},9,{hydrate:false});
+    const [[client]]=await pool.query('SELECT status,client_status_id,provider_id FROM clients WHERE id=8');
+    expect(client).toMatchObject({status:'ARCHIVED',client_status_id:3,provider_id:null});
+    const [[appointment]]=await pool.query('SELECT status,cancellation_reason,canceled_by_user_id FROM appointments WHERE id=10');
+    expect(appointment).toMatchObject({status:'canceled_by_organization',cancellation_reason:'Client made inactive',canceled_by_user_id:9});
+    const [[job]]=await pool.query('SELECT * FROM client_schedule_termination_jobs');expect(job.completed_at).toBeTruthy();
   });
 
   it('termination cancels future sessions, releases the package and restores a distinct available room without deleting history', async () => {

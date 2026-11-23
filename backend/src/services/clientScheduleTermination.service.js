@@ -6,7 +6,7 @@ import OfficeEvent from '../models/OfficeEvent.model.js';
 import BookingPackage from '../models/BookingPackage.model.js';
 import OfficeScheduleMaterializer from './officeScheduleMaterializer.service.js';
 
-export const isTerminatedClient = client => String(client?.client_status_key || client?.status_key || '').toLowerCase() === 'terminated'
+export const isTerminatedClient = client => ['inactive','terminated'].includes(String(client?.client_status_key || client?.status_key || '').toLowerCase())
   || String(client?.client_status_label || '').toLowerCase().includes('terminated');
 
 // Called with the same transaction as Client.update, so a committed termination
@@ -16,7 +16,7 @@ export async function enqueueClientScheduleTermination(db, clientId, actorUserId
     FROM clients c LEFT JOIN client_statuses s ON s.id=c.client_status_id WHERE c.id=?`, [clientId]);
   if (!isTerminatedClient(client)) return null;
   await closeTerminatedClientRoster(db,{clientId,actorUserId});
-  const [result] = await db.execute('INSERT INTO client_schedule_termination_jobs (client_id,actor_user_id) VALUES (?,?)', [clientId, actorUserId]);
+  const [result] = await db.execute('INSERT INTO client_schedule_termination_jobs (client_id,actor_user_id,closure_reason) VALUES (?,?,?)', [clientId, actorUserId, String(client.status_key).toLowerCase()==='inactive' ? 'Client made inactive' : 'Client terminated']);
   return result.insertId;
 }
 
@@ -87,10 +87,10 @@ async function cancelAppointmentItem(job, item) {
       // Original participants are retained in the durable audit snapshot.
       await db.execute('DELETE FROM appointment_participants WHERE appointment_id=? AND client_id=?', [a.id,job.client_id]);
       await db.execute(`UPDATE appointment_billing SET payment_status='review',responsible_client_id=NULL,
-        notes='Client terminated; select a new responsible party before settlement.' WHERE appointment_id=? AND responsible_client_id=?`, [a.id,job.client_id]);
+        notes=? WHERE appointment_id=? AND responsible_client_id=?`, [`${job.closure_reason || 'Client terminated'}; select a new responsible party before settlement.`,a.id,job.client_id]);
     } else {
-      await db.execute(`UPDATE appointments SET status='canceled_by_organization',cancellation_reason='Client terminated',
-        cancellation_fee_cents=0,canceled_at=COALESCE(canceled_at,CURRENT_TIMESTAMP),canceled_by_user_id=?,updated_by_user_id=? WHERE id=?`, [job.actor_user_id,job.actor_user_id,a.id]);
+      await db.execute(`UPDATE appointments SET status='canceled_by_organization',cancellation_reason=?,
+        cancellation_fee_cents=0,canceled_at=COALESCE(canceled_at,CURRENT_TIMESTAMP),canceled_by_user_id=?,updated_by_user_id=? WHERE id=?`, [job.closure_reason || 'Client terminated',job.actor_user_id,job.actor_user_id,a.id]);
       if (a.provider_schedule_event_id) await db.execute(`UPDATE provider_schedule_events SET status='CANCELLED',recurrence_stopped=1,recurrence_calendar_pending=1,updated_by_user_id=? WHERE id=?`, [job.actor_user_id,a.provider_schedule_event_id]);
     }
     await db.execute(`UPDATE appointment_reminders SET status='canceled' WHERE appointment_id=? AND status='pending'${group ? ` AND recipient_participant_id IN (${participants.filter(p => Number(p.client_id) === Number(job.client_id)).map(() => '?').join(',') || 'NULL'})` : ''}`, group ? [a.id,...participants.filter(p => Number(p.client_id) === Number(job.client_id)).map(p => p.id)] : [a.id]);
@@ -169,8 +169,8 @@ async function processLockedTermination(jobId) {
       AND NOT EXISTS (SELECT 1 FROM appointments a JOIN appointment_participants p ON p.appointment_id=a.id
         WHERE a.provider_schedule_event_id=e.id AND p.client_id<>? AND a.status IN ('scheduled','confirmed'))`,
     [job.actor_user_id,job.client_id,job.cutoff_at,job.client_id]);
-    await clinicalPool.execute(`UPDATE clinical_sessions SET encounter_status='cancelled',claim_blocked_reason='Client terminated; future session cancelled',updated_at=CURRENT_TIMESTAMP
-      WHERE client_id=? AND scheduled_start_at>=? AND encounter_status IN ('scheduled','confirmed','cancelled') AND billing_encounter_id IS NULL`, [job.client_id,job.cutoff_at]);
+    await clinicalPool.execute(`UPDATE clinical_sessions SET encounter_status='cancelled',claim_blocked_reason=?,updated_at=CURRENT_TIMESTAMP
+      WHERE client_id=? AND scheduled_start_at>=? AND encounter_status IN ('scheduled','confirmed','cancelled') AND billing_encounter_id IS NULL`, [`${job.closure_reason || 'Client terminated'}; future session cancelled`,job.client_id,job.cutoff_at]);
     await db.execute('UPDATE client_schedule_termination_jobs SET completed_at=CURRENT_TIMESTAMP,last_error_code=NULL WHERE id=?', [jobId]);
     return { completed:true,cancelled:items.length };
   } catch (error) {

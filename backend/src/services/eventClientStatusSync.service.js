@@ -36,7 +36,7 @@ const PROMOTION_RANK = {
   inactive: 1
 };
 
-const TERMINAL_KEYS = new Set(['archived', 'terminated']);
+const TERMINAL_KEYS = new Set(['inactive', 'archived', 'terminated']);
 
 const rankOf = (key) => {
   const k = String(key || '').toLowerCase();

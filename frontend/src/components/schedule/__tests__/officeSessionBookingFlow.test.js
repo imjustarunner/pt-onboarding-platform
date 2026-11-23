@@ -589,3 +589,11 @@ it('offers available dates and keeps the original cadence when a provider skips 
  });
  expect(s.scheduleChangeNotice).toContain('Skipped');
 });
+
+it('marks room usage directly from the card and does not open the reservation editor',async()=>{
+ wrapper=shallowMount(Grid,{props:{userId:7,agencyId:2},global:{stubs:{Teleport:true,RouterLink:true}}});await flushPromises();
+ const s=wrapper.vm.$.setupState;
+ await s.updateRoomCardOccupancy({officeLocationId:8,officeEventId:91,dateYmd:'2026-11-24',hour:10},'vacant');
+ expect(mocks.post).toHaveBeenCalledWith('/office-slots/8/events/91/occupancy',{usage:'vacant',date:'2026-11-24'},{skipGlobalLoading:true});
+ expect(s.showRequestModal).toBe(false);
+});
