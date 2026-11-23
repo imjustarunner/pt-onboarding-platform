@@ -13,6 +13,7 @@
     <div v-if="!agencyId" class="hint">Select an organization first.</div>
 
     <div v-else class="grid">
+      <label class="field"><span class="label">Fiscal year for totals</span><select v-model="fiscalYearStart" class="select"><option v-for="fy in fiscalYearOptions" :key="fy.startYmd" :value="fy.startYmd">{{fy.label}} · July 1–June 30</option></select></label>
       <SessionCountImport :agency-id="agencyId" @imported="loadSummary" />
 
       <div class="panel">
