@@ -1,7 +1,7 @@
 import { bookingNoticePreferenceFacts } from '../utils/recurringBookingNotice.js';
 import {resolveTutoringBookingContext} from './tutoringBookingContext.service.js';
 import {validateExternalMeeting} from './appointmentExternalMeeting.service.js';
-import { filterBookingServicesForClient, assertAppointmentServiceContext } from './clientServiceContext.service.js';
+import { readClientServiceContext, filterBookingServicesForClient, assertAppointmentServiceContext } from './clientServiceContext.service.js';
 import {requireTestingEligibility} from './testingEligibility.service.js';
 import { normalizeCustomSessionReminders, readAppointmentNotificationRules, saveAppointmentNotificationRules, validateCustomReminderChannels } from './appointmentNotificationCustomization.service.js';
 import { recordQaAttendanceTerms, syncQaAppointmentBalance, requireQaOutcomeElapsed } from './qaAppointmentBilling.service.js';
@@ -60,7 +60,8 @@ export async function resolveBookingOptions({
   agencyId,
   serviceId = null,
   providerId = null,
-  clientId = null
+  clientId = null,
+  sessionOnly = false
 } = {}) {
   const aid = Number(agencyId || 0);
   if (!aid) throw Object.assign(new Error('agencyId is required'), { status: 400 });
@@ -84,6 +85,31 @@ export async function resolveBookingOptions({
     services = services.filter((s) => Number(s.id) === Number(serviceId));
   }
 
+  const sessionCategory = { mental_health: 'mental_health', healthcare: 'mental_health', tutoring: 'tutoring',
+    learning: 'tutoring', coaching: 'coaching', consulting: 'consulting' };
+  let clientSessionCategories = null;
+  if (sessionOnly) {
+    services = services.filter(service => sessionCategory[service.businessType] && !isStaffTimeCode(service.serviceCode));
+    if (providerId) {
+      const [{ resolveEffectivePracticeCategories }, { assignmentServicesForProviders }] = await Promise.all([
+        import('./practiceCategories.service.js'), import('./providerServiceOfferings.service.js')
+      ]);
+      const [practice, offerings] = await Promise.all([
+        resolveEffectivePracticeCategories(aid, providerId), assignmentServicesForProviders(aid, [providerId])
+      ]);
+      const enabled = offerings.get(Number(providerId)) || [];
+      services = services.filter(service => {
+        const category = sessionCategory[service.businessType];
+        return practice.categories.includes(category) && (category !== 'tutoring' || enabled.includes('tutoring'))
+          && (category !== 'mental_health' || enabled.includes('counseling'));
+      });
+    }
+    if (clientId) {
+      const context = await readClientServiceContext({ agencyId: aid, clientId, providerId });
+      const categories = { counseling: 'mental_health', tutoring: 'tutoring', coaching: 'coaching', consultation: 'consulting' };
+      clientSessionCategories = context.serviceKinds.map(kind => categories[kind]).filter(Boolean);
+    }
+  }
   services = await filterBookingServicesForClient(services, { agencyId: aid, clientId, providerId });
 
   let providers = [];
@@ -130,8 +156,19 @@ export async function resolveBookingOptions({
     services,
     providers,
     clientId: cid,
-    packagePreview
+    packagePreview,
+    ...(sessionOnly ? { sessionOnly: true, clientSessionCategories } : {})
   };
+}
+
+function isStaffTimeCode(value) {
+  return /^(ADMIN(?:ISTRATIVE)?(?: TIME)?|INDIRECT (TIME|HOURS)|.*MEETING)$/.test(String(value || '').trim().toUpperCase().replace(/[-_]+/g, ' '));
+}
+
+function assertAudioOnlySetting(modality, placeOfService) {
+  if (!['TELEHEALTH', 'VIRTUAL'].includes(String(modality).toUpperCase()) || !['02', '10'].includes(String(placeOfService).padStart(2, '0'))) {
+    throw Object.assign(new Error('Choose whether the client will be at home or away from home for the phone session.'), { status: 400 });
+  }
 }
 
 export async function getAppointmentBundle(appointmentId, { includeTimeline = true } = {}) {
@@ -185,6 +222,7 @@ async function createLockedAppointment({
   title = null,
   notes = null,
   othersPresentNames = null,
+  audioOnly = false,
   videoRoomMode = 'unique_session',
   externalMeetingUrl = null,
   includeGoogleDialIn = false,
@@ -214,6 +252,11 @@ async function createLockedAppointment({
   if (start >= end) throw Object.assign(new Error('endAt must be after startAt'), { status: 400 });
 
   if (typeof includeGoogleDialIn !== 'boolean') throw Object.assign(new Error('Choose whether Google Meet phone instructions should be included.'), { status: 400 });
+  if (typeof audioOnly !== 'boolean') throw Object.assign(new Error('Choose a valid session type.'), { status: 400 });
+  if (audioOnly) {
+    videoRoomMode = 'none';
+    externalMeetingUrl = null;
+  }
   if (appointmentHasStarted(start)) notificationMode = 'off';
   if (appointmentHasStarted(end)) {
     videoRoomMode = 'none';
@@ -276,7 +319,11 @@ async function createLockedAppointment({
     }
     actualPlaceOfService=location.place_of_service||null;
   }
+  if (audioOnly) assertAudioOnlySetting(modality, actualPlaceOfService);
   serviceCode = serviceCode || service?.serviceCode || null;
+  if (bookingClients.length && isStaffTimeCode(serviceCode)) {
+    throw Object.assign(new Error('Choose a client service. Staff time is scheduled separately.'), { status: 400 });
+  }
   await assertAppointmentServiceContext({ agencyId: aid, providerId: providerUserId, clientIds: bookingClients.map(client => client.id),
     service, settlementMode:billing?.settlementMode, businessType: businessType || (serviceCode === 'TUTORING' ? 'tutoring' : 'mental_health'), serviceCode, addonServiceCodes });
   let learningContext=null;
@@ -392,6 +439,7 @@ async function createLockedAppointment({
     title: title || service?.name || null,
     notes,
     othersPresentNames,
+    audioOnly,
     videoRoomMode,
     externalMeetingUrl,
     includeGoogleDialIn,
@@ -484,6 +532,18 @@ async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId 
     await validateCustomReminderChannels(existing.agencyId, patch.customReminders);
   }
   if (!existing) return null;
+  if (patch.audioOnly !== undefined && typeof patch.audioOnly !== 'boolean') {
+    throw Object.assign(new Error('Choose a valid session type.'), { status: 400 });
+  }
+  if (patch.modality && patch.modality === 'IN_PERSON' && existing.audioOnly && patch.audioOnly === undefined) patch.audioOnly = false;
+  if ((patch.audioOnly ?? existing.audioOnly) && ['audioOnly', 'videoRoomMode', 'modality', 'serviceLocationId', 'includeGoogleDialIn'].some(key => patch[key] !== undefined)) {
+    const locationId = patch.serviceLocationId === undefined ? existing.serviceLocationId : patch.serviceLocationId;
+    const location = locationId ? await AgencyServiceLocation.findById(locationId) : null;
+    assertAudioOnlySetting(patch.modality || existing.modality, location?.place_of_service);
+    patch.videoRoomMode = 'none';
+    patch.externalMeetingUrl = null;
+    patch.includeGoogleDialIn = false;
+  }
   if(patch.includeGoogleDialIn!==undefined&&typeof patch.includeGoogleDialIn!=='boolean')throw Object.assign(new Error('Choose whether Google Meet phone instructions should be included.'),{status:400});
   if (patch.videoRoomMode !== undefined || patch.externalMeetingUrl !== undefined || (existing.videoRoomMode === 'external' && (patch.modality !== undefined || patch.providerUserId !== undefined))) {
     const externalMeetingUrl = patch.videoRoomMode !== undefined && patch.videoRoomMode !== 'external' && patch.externalMeetingUrl === undefined
@@ -538,7 +598,7 @@ async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId 
     }
   }
   await requireQaOutcomeElapsed({ ...existing, endAt: patch.endAt || existing.endAt }, patch.status);
-  let clinicalContextChanged=['serviceCode','tenantServiceId','serviceLocationId','modality','providerUserId','roomId'].some(key=>patch[key]!==undefined && String(patch[key]??'')!==String(existing[key]??''))
+  let clinicalContextChanged=['serviceCode','tenantServiceId','serviceLocationId','modality','audioOnly','providerUserId','roomId'].some(key=>patch[key]!==undefined && String(patch[key]??'')!==String(existing[key]??''))
     || (patch.addonServiceCodes!==undefined && JSON.stringify(patch.addonServiceCodes)!==JSON.stringify(existing.addonServiceCodes||[]));
   if(clinicalContextChanged){
     const {assertAppointmentCanMove}=await import('./appointmentScheduleSync.service.js');

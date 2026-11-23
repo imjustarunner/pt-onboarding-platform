@@ -1,5 +1,6 @@
 import { appointmentHasStarted } from '../utils/appointmentVideoPolicy.js';
 import { requireClientSessionBooking } from '../services/clientSessionBookingRollout.service.js';
+import { prepareStaffAppointmentMeet } from '../services/staffAppointmentMeet.service.js';
 import { hasActiveMeetingMembership } from '../services/meetingJoinPolicy.service.js';
 import { counselingClinicalToken,endClinicalCounseling } from '../services/counselingClinicalVideo.service.js';
 import * as visitService from '../services/counselingSessionVisit.service.js';
@@ -406,6 +407,10 @@ export async function findOrCreateFromAppointment(req, res) {
     const [[lock]] = await bookingLock.execute('SELECT GET_LOCK(?, 8) AS acquired', [bookingLockName]);
     locked = Number(lock?.acquired) === 1;
     if (!locked) return res.status(409).json({ error: { message: 'This video room is being created; retry the same appointment' } });
+    if (appointment.videoRoomMode === 'google_meet') {
+      const meetUrl = await prepareStaffAppointmentMeet(appointment, bookingLock);
+      return res.json({ ok: true, meetingReady: true, ...(Number(req.user.id) === providerUserId ? { meetUrl } : {}) });
+    }
     let session = await CounselingSession.findByAppointmentId(appointmentId);
     if (!session) {
       if (appointmentHasStarted(appointment.endAt)) return res.status(409).json({ error: { message: 'This appointment has already ended.' } });

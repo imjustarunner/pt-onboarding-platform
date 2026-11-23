@@ -7,8 +7,10 @@
       <p>{{ booking.appointments.length }} {{ booking.appointments.length === 1 ? 'appointment is' : 'appointments are' }} saved on your schedule.</p>
       <p v-if="booking.partial">Part of this booking needs review. Keep these saved appointments; do not schedule the same sessions again.</p>
       <p v-if="booking.historical">No booking confirmation, reminders, or video room were created.</p>
-      <p v-else-if="booking.noVideo">No video room was created.</p>
+      <p v-else-if="booking.audioOnly">Phone session. Call the client at the scheduled time.</p>
+      <p v-else-if="booking.noVideo">Video is off for this session.</p>
       <p v-else-if="busy" role="status">Finishing the session’s video links…</p>
+      <p v-else-if="booking.googleMeetReady && !shareUrl">Google Meet is ready for the assigned provider.</p>
       <p v-else-if="!shareUrl && !booking.externalMeeting">The appointment is saved. Its video link is not ready yet. Retry links to continue with these same appointments.</p>
       <p v-if="booking.externalMeeting && !shareUrl">The session uses an external meeting. You can add its link to the appointment later.</p>
       <button v-if="shareUrl" type="button" @click="$emit('copy')">{{ copied ? 'Copied' : 'Copy client link' }}</button>

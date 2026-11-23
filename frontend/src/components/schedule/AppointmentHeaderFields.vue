@@ -120,37 +120,46 @@
             <button
               type="button"
               class="ahf-mod-chip"
-              :class="{ on: modality === 'TELEHEALTH' }"
+              :class="{ on: modality === 'TELEHEALTH' && !audioOnly }"
+              :aria-pressed="modality === 'TELEHEALTH' && !audioOnly"
               :disabled="disabled"
-              @click="emit('update:modality', 'TELEHEALTH')"
+              @click="selectDelivery('TELEHEALTH', false)"
             >
-              Virtual
+              {{ bookSessionLayout && !learning ? 'Video' : 'Virtual' }}
             </button>
+            <button v-if="bookSessionLayout && !learning" type="button" class="ahf-mod-chip"
+              :class="{ on: modality === 'TELEHEALTH' && audioOnly }"
+              :aria-pressed="modality === 'TELEHEALTH' && audioOnly"
+              :disabled="disabled" @click="selectDelivery('TELEHEALTH', true)">Phone (audio only)</button>
             <button
               type="button"
               class="ahf-mod-chip"
               :class="{ on: modality === 'IN_PERSON' }"
+              :aria-pressed="modality === 'IN_PERSON'"
               :disabled="disabled"
-              @click="emit('update:modality', 'IN_PERSON')"
+              @click="selectDelivery('IN_PERSON', false)"
             >
               In-person
             </button>
           </div>
         </div>
 
-        <div v-if="showModality && modality === 'TELEHEALTH'" class="ahf-field ahf-field--grow">
+        <p v-if="showModality && modality === 'TELEHEALTH' && audioOnly" class="ahf-info-banner">
+          Call the client at the scheduled time. Document why audio only was used in the clinical note.
+        </p>
+        <div v-if="showModality && modality === 'TELEHEALTH' && !audioOnly" class="ahf-field ahf-field--grow">
           <template v-if="historicalBooking">
             <span class="ahf-label">Virtual session room</span>
-            <span>No video room will be created for a past session.</span>
+            <span>An upcoming session is required to create a video link.</span>
           </template>
           <template v-else-if="!['tutoring', 'learning'].includes(appointmentType)">
-            <label class="ahf-label" for="appointment-video-room">Virtual session room</label>
-            <select id="appointment-video-room" class="ahf-input" :value="videoRoomMode" :disabled="disabled"
-              @change="emit('update:videoRoomMode', $event.target.value)">
-              <option value="unique_session">Create an office video room</option>
-              <option value="none">No video room</option>
-            </select>
-            <p v-if="videoRoomMode !== 'none' && recurrenceFrequency !== 'ONCE'" class="ahf-hint">Each upcoming recurring session gets its own room.</p>
+            <label class="ahf-booking-notice">
+              <input type="checkbox" :checked="videoRoomMode === 'google_meet'" :disabled="disabled"
+                @change="emit('update:videoRoomMode', $event.target.checked ? 'google_meet' : 'none')" />
+              Create a secure private Google Meet link
+            </label>
+            <p v-if="videoRoomMode === 'unique_session'" class="ahf-hint">This appointment uses its existing in-app video link.</p>
+            <p v-if="videoRoomMode === 'google_meet' && recurrenceFrequency !== 'ONCE'" class="ahf-hint">Each upcoming session gets its own link.</p>
           </template>
           <template v-else>
           <span class="ahf-label">Virtual meeting option</span>
@@ -167,39 +176,31 @@
           <label v-if="externalMeetingsEnabled && videoRoomMode==='external'">External meeting URL (optional)<input class="ahf-input" type="url" maxlength="2048" placeholder="https://…" :value="externalMeetingUrl" :disabled="disabled" @input="emit('update:externalMeetingUrl',$event.target.value)" /></label>
           <p v-if="videoRoomMode==='external'" class="ahf-hint">The meeting is arranged externally. Add its link now or update the appointment later.</p>
           </template>
-          <label v-if="videoRoomMode !== 'none' && (googleDialInStatus === 'available' || includeGoogleDialIn)"><input type="checkbox" :checked="includeGoogleDialIn" :disabled="disabled || (!includeGoogleDialIn && googleDialInStatus!=='available')" @change="emit('update:includeGoogleDialIn',$event.target.checked)" /> Include Google Meet phone instructions in emails and reminders</label>
+          <label v-if="videoRoomMode !== 'none' && (videoRoomMode === 'google_meet' || googleDialInStatus === 'available' || includeGoogleDialIn)"><input type="checkbox" :checked="includeGoogleDialIn" :disabled="disabled || (videoRoomMode !== 'google_meet' && !includeGoogleDialIn && googleDialInStatus!=='available')" @change="emit('update:includeGoogleDialIn',$event.target.checked)" /> Include dial-in in eligible reminders when Google provides it</label>
           <p v-if="googleDialInStatus==='not_verified'" class="ahf-hint">Google Meet phone details could not be verified. Phone instructions will be omitted until Google provides them.</p>
         </div>
 
         <p
-          v-if="showModality && modality === 'TELEHEALTH' && !historicalBooking && videoRoomMode !== 'none' && (!['tutoring', 'learning'].includes(appointmentType) || !['my_room', 'external'].includes(videoRoomMode))"
+          v-if="showModality && modality === 'TELEHEALTH' && !audioOnly && !historicalBooking && videoRoomMode !== 'none' && (!['tutoring', 'learning'].includes(appointmentType) || !['my_room', 'external'].includes(videoRoomMode))"
           class="ahf-info-banner"
           role="status"
         >
-          A virtual meeting link will be available after booking.
+          The video link will be available after booking.
         </p>
 
         <div v-if="showLocation || showRoom || showOfficeRequestCta || officeRequestActive" class="ahf-location-stack">
         <div v-if="showLocation && reservationLocationLabel" class="ahf-field ahf-field--full"><span class="ahf-label">Reserved location</span><p class="ahf-hint">{{ reservationLocationLabel }}</p><small>The building and room come from the linked office reservation.</small></div>
         <div v-else-if="showLocation" class="ahf-field ahf-field--full">
-          <span class="ahf-label">{{ modality === 'TELEHEALTH' ? 'Client location during the online session' : 'Where will the session take place?' }}</span>
-          <select
+          <span class="ahf-label">{{ modality === 'TELEHEALTH' ? 'Where will the client be?' : 'Where will the session take place?' }}</span>
+          <AppointmentLocationPicker
             v-if="locationOptions.length || bookSessionLayout"
-            class="ahf-input"
-            aria-label="Service location"
-            :value="serviceLocationId"
-            :disabled="disabled || !canEditLocation || locationOptionsLoading || !locationOptions.length"
-            @change="emit('update:serviceLocationId', Number($event.target.value || 0))"
-          >
-            <option :value="0">{{ locationOptionsLoading ? 'Loading locations…' : !locationOptions.length ? 'No configured locations available' : modality === 'TELEHEALTH' ? 'Client location not selected' : 'Select location…' }}</option>
-            <option
-              v-for="loc in locationOptions"
-              :key="`ahf-loc-${loc.id}`"
-              :value="Number(loc.id)"
-            >
-              {{ loc.label }}
-            </option>
-          </select>
+            :locations="locationOptions"
+            :model-value="serviceLocationId"
+            :remote="modality === 'TELEHEALTH'"
+            :loading="locationOptionsLoading"
+            :disabled="disabled || !canEditLocation"
+            @update:model-value="emit('update:serviceLocationId', $event)"
+          />
           <input
             v-else
             class="ahf-input"
@@ -242,7 +243,7 @@
           >
             <template v-if="!officeRequestActive">
               <div class="ahf-office-copy">
-                <strong>No office room assigned</strong>
+                <strong>Provider’s room</strong>
                 <span class="muted">{{ officeRoomHelpText }}</span>
               </div>
               <button
@@ -251,7 +252,7 @@
                 :disabled="disabled"
                 @click="emit('request-office')"
               >
-                Request room
+                Request a room
               </button>
             </template>
             <template v-else>
@@ -506,7 +507,7 @@
         </div>
 
         <div v-if="showBookedUntil" class="ahf-field">
-          <span class="ahf-label">Booked until (optional)</span>
+          <span class="ahf-label">Ends on (optional)</span>
           <input
             v-if="canEditBookedUntil"
             class="ahf-input"
@@ -636,10 +637,15 @@
 import { officeRoomTitle } from '../../utils/officeRoomTitle.js';
 import ServiceInformation from '../notes/ServiceInformation.vue';
 import { computed, ref, watch } from 'vue';
+import AppointmentLocationPicker from './AppointmentLocationPicker.vue';
 import ScheduleAgencyLogo from './ScheduleAgencyLogo.vue';
 import AppointmentReminderSettings from './AppointmentReminderSettings.vue';
 
 const roomPreferenceSearch = ref('');
+function selectDelivery(modality, audioOnly) {
+  if (props.audioOnly !== audioOnly) emit('update:audioOnly', audioOnly);
+  emit('update:modality', modality);
+}
 const moreServices = ref(false);
 const actualDurationMinutes=computed(()=>{const minutes=time=>/^\d{2}:\d{2}$/.test(time)?Number(time.slice(0,2))*60+Number(time.slice(3)):NaN;const duration=minutes(props.endTime)-minutes(props.startTime);return duration>0?duration:null;});
 const commonServiceCodes = computed(() => new Set(['90837','90791',String(props.primaryServiceCode || '').toUpperCase()]));
@@ -659,6 +665,7 @@ function chooseRoomPreference(id) {
 }
 
 const props = defineProps({
+  audioOnly: { type: Boolean, default: false },
   showVirtualOptions: { type: Boolean, default: false },
   dateYmd: { type: String, default: '' },
   startTime: { type: String, default: '' },
@@ -766,6 +773,7 @@ const props = defineProps({
 
 
 const emit = defineEmits([
+  'update:audioOnly',
   'update:dateYmd',
   'update:startTime',
   'update:endTime',
@@ -919,7 +927,7 @@ function roomOptionLabel(r) {
 const officeRoomHelpText = computed(() => {
   if (props.multipleRoomPreferences) return 'Request a room for the selected time or recurring series. This reserves space only after approval; it does not create a client appointment.';
   if (String(props.modality || '') === 'TELEHEALTH') {
-    return 'Use this if you want to work from the office or need a room. This does not change the session modality — the client stays virtual.';
+    return 'Reserve a room if you’re taking the session from the office.';
   }
   return 'Request a room for this appointment or series. In-person sessions use the booked room as the session location.';
 });

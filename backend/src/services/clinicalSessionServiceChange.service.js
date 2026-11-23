@@ -25,7 +25,7 @@ export function clinicalServiceChangeSummary(session) {
   const meta=parse(session?.metadata_json),duration=Number(session?.actual_duration_minutes||session?.duration_minutes)||Math.round((utc(session?.scheduled_end_at)-utc(session?.scheduled_start_at))/60000);
   const explicit=String(meta.narrivaContext?.modality||meta.sessionContext?.modality||meta.modality||'').toLowerCase();
   const remote=Number(session?.is_telehealth)===1||['02','10'].includes(String(session?.place_of_service||''));
-  const modality=['in_person','phone','video'].includes(explicit)?explicit:remote?'':Number(session?.is_telehealth)===0||['11','03','12'].includes(String(session?.place_of_service))?'in_person':'';
+  const modality=['in_person','phone','video'].includes(explicit)?explicit:meta.scheduledAudioOnly?'phone':remote?'':Number(session?.is_telehealth)===0||['11','03','12'].includes(String(session?.place_of_service))?'in_person':'';
   const asIso=value=>{const parsed=utc(value);return Number.isFinite(parsed.getTime())?parsed.toISOString():null;};
   return {id:Number(session.id),clinicalSessionId:Number(session.id),agencyId:Number(session.agency_id),clientId:Number(session.client_id),serviceCode:code(session.service_code),durationMinutes:duration>0?duration:null,modality,
     appointmentId:Number(session.appointment_id)||null,officeEventId:Number(session.office_event_id)||null,billingEncounterId:Number(session.billing_encounter_id)||null,

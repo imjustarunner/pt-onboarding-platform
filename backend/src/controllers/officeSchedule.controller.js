@@ -27,7 +27,6 @@ import { expandAppointmentRecurrence } from '../utils/appointmentRecurrence.js';
 import { rescheduleStandingAssignment, rescheduleOfficeEvent } from './officeSlotActions.controller.js';
 import { attachOfficeSchedulingPolicies } from '../services/officeSchedulingPolicy.service.js';
 import { utcToZonedMysqlWall as officePolicyLocalWall } from '../utils/officeEventDateTime.util.js';
-import { appointmentMode } from '../utils/officeSchedulingPolicy.js';
 import { officePlanHasClient, withinOfficeRecordWindow } from '../utils/officeRecordWindow.js';
 import { officeBookingAgencyId } from '../utils/officeBookingAgency.js';
 import {officeBookingNeedsSession} from '../utils/officeBookingSessionLink.js';
@@ -1564,11 +1563,10 @@ export const getWeeklyGrid = async (req, res, next) => {
           const standingHit = standingCandidates.find((sa) => isAssignmentActiveOnDate(sa, date));
           if (standingHit && !cancelledLegacyBySlotProvider.has(`${Number(room.id)}:${date}:${hour}:${Number(standingHit.provider_id)}`)) {
             const storedPlan = planByStandingId.get(Number(standingHit.id)) || null;
-            const appointmentsOnly = appointmentMode(standingHit, date);
-            const plan = appointmentsOnly && !officePlanHasClient(storedPlan) ? null : storedPlan;
+            const plan = officePlanHasClient(storedPlan) ? storedPlan : null;
             // The assignment remains reserved even between appointment occurrences.
             {
-              const bookedToday = (!appointmentsOnly && date >= officePolicyLocalWall(new Date(), officeTz).slice(0, 10)) || !!(plan && shouldBookOnDate(plan, standingHit, date));
+              const bookedToday = !!(plan && shouldBookOnDate(plan, standingHit, date));
               // Best-effort heal: recreate the missing materialization so approve + grid stay in sync.
               let healedEventId = null;
               try {

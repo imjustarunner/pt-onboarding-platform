@@ -3,6 +3,7 @@ import {buildPublicAppUrl} from '../utils/publicPortalUrl.js';
 import {authorizedAppointmentClient} from './guardianAppointments.service.js';
 import {guardianAppointmentJoin} from './guardianVirtualJoin.js';
 import {guardianContextAllowsAppointment} from './clientServiceEnrollment.service.js';
+import { readStaffAppointmentMeetConference, savedStaffAppointmentMeet } from './staffAppointmentMeet.service.js';
 import {currentGoogleConference,googleDialInContent} from './googleMeetingConference.service.js';
 
 const active=appointment=>['VIRTUAL','TELEHEALTH','VIDEO','ONLINE'].includes(String(appointment.modality||'').toUpperCase())&&['scheduled','confirmed','client_confirmed','in_progress'].includes(appointment.status);
@@ -10,8 +11,13 @@ const esc=value=>String(value||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;
 export async function appointmentGoogleConference(appointment,{db=pool,conference=currentGoogleConference}={}) {
  if(!active(appointment)||['external', 'none'].includes(appointment.videoRoomMode)||!appointment.providerScheduleEventId)return {status:'not_available',phones:[]};
  try{
+ if (appointment.videoRoomMode === 'google_meet') {
+   const url = await savedStaffAppointmentMeet(appointment, db);
+   return url ? readStaffAppointmentMeetConference(appointment, url) : {status:'not_available',phones:[]};
+ }
  const [[event]]=await db.execute('SELECT google_event_id,google_meet_link FROM provider_schedule_events WHERE id=? AND agency_id=? AND provider_id=?',[appointment.providerScheduleEventId,appointment.agencyId,appointment.providerUserId]);
- if(!event?.google_event_id||!event.google_meet_link)return {status:'not_available',phones:[]};
+  if (!event?.google_meet_link) return {status:'not_available',phones:[]};
+  if (!event.google_event_id) return {status:'not_available',phones:[]};
  return await conference({providerUserId:appointment.providerUserId,eventId:event.google_event_id,startAt:appointment.startAt,endAt:appointment.endAt,meetLink:event.google_meet_link});
  }catch{return {status:'not_verified',phones:[]};}
 }
@@ -33,8 +39,10 @@ export async function appointmentJoinEmail({appointment,clientId,to,context,reci
   if(!permissions||typeof permissions!=='object'||Array.isArray(permissions))return null;
   if(permissions.billingOnly||permissions.noView||permissions.noViewOtherGuardian||permissions.coGuardianInviteRestricted)return null;
   if(client.portal_access?.limited||!guardianContextAllowsAppointment(client,appointment))return null;
-  const [[event]]=appointment.providerScheduleEventId?await d.db.execute('SELECT google_meet_link FROM provider_schedule_events WHERE id=? AND agency_id=? AND provider_id=?',[appointment.providerScheduleEventId,appointment.agencyId,appointment.providerUserId]):[[]];
-  const destination=await d.join({...appointment,googleMeetLink:event?.google_meet_link||null},client,d.db,{includeFutureDestination:true});
+  const [[event]]=appointment.videoRoomMode !== 'google_meet' && appointment.providerScheduleEventId?await d.db.execute('SELECT google_meet_link FROM provider_schedule_events WHERE id=? AND agency_id=? AND provider_id=?',[appointment.providerScheduleEventId,appointment.agencyId,appointment.providerUserId]):[[]];
+  const meetLink = appointment.videoRoomMode === 'google_meet'
+    ? await savedStaffAppointmentMeet(appointment, d.db) : event?.google_meet_link || null;
+  const destination=await d.join({...appointment,googleMeetLink:meetLink},client,d.db,{includeFutureDestination:true});
   if(!destination)return null;
   context ||= await (await import('./clientPortalEmail.service.js')).clientEmailContext({agencyId:appointment.agencyId,clientId,...(['learning','tutoring'].includes(appointment.businessType)?{learning:true}:{})});
   const bookedTutoring = destination.startsWith('/tutoring/appointment/') && Number(context.tenant?.id) === Number(appointment.agencyId);

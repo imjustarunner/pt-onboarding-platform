@@ -20,13 +20,13 @@ it('shows NLU external meeting selection with an optional URL instead of new pla
  expect(select.findAll('option').map(row=>row.attributes('value'))).toEqual(['none','external']);expect(w.text()).not.toContain('will be available after booking');
  const input=w.get('input[type=url]');expect(input.attributes('required')).toBeUndefined();await input.setValue('https://video.example.test/session');expect(w.emitted('update:externalMeetingUrl')).toEqual([['https://video.example.test/session']]);w.unmount();
 });
-it('uses appointment-specific office rooms for counseling',()=>{
- const w=shallowMount(AppointmentHeaderFields,{props:{showModality:true,modality:'TELEHEALTH',videoRoomMode:'unique_session',recurrenceFrequency:'WEEKLY'}});
- expect(w.findAll('option').some(option=>option.attributes('value')==='external')).toBe(false);expect(w.text()).toContain('Each upcoming recurring session gets its own room');expect(w.findAll('option').some(option=>option.attributes('value')==='my_room')).toBe(false);w.unmount();
+it('offers a private Google Meet link for each counseling session',()=>{
+ const w=shallowMount(AppointmentHeaderFields,{props:{showModality:true,modality:'TELEHEALTH',videoRoomMode:'google_meet',recurrenceFrequency:'WEEKLY'}});
+ expect(w.findAll('option').some(option=>option.attributes('value')==='external')).toBe(false);expect(w.text()).toContain('Each upcoming session gets its own link.');expect(w.findAll('option').some(option=>option.attributes('value')==='my_room')).toBe(false);w.unmount();
 });
 it('offers Google phone instructions only after availability is verified and forwards the saved preference',async()=>{
  const w=shallowMount(AppointmentHeaderFields,{props:{showModality:true,modality:'TELEHEALTH',googleDialInStatus:'available'}});
- const checkbox=w.findAll('label').find(label=>label.text().includes('Include Google Meet phone')).get('input');
+ const checkbox=w.findAll('label').find(label=>label.text().includes('Include dial-in')).get('input');
  await checkbox.setValue(true);expect(w.emitted('update:includeGoogleDialIn')).toEqual([[true]]);w.unmount();
  const shell=shallowMount(AppointmentEditorShell,{props:{includeGoogleDialIn:true,googleDialInStatus:'available'}});
  const header=shell.getComponent(AppointmentHeaderFields);expect(header.props('includeGoogleDialIn')).toBe(true);header.vm.$emit('update:includeGoogleDialIn',false);expect(shell.emitted('update:includeGoogleDialIn')).toEqual([[false]]);shell.unmount();
@@ -35,9 +35,9 @@ it('offers Google phone instructions only after availability is verified and for
 it('explains past booking dates with a status message', async () => {
  const header = shallowMount(AppointmentHeaderFields, { props: { seriesStarted: true, historicalBooking: true, showModality: true, modality: 'TELEHEALTH' } });
  expect(header.get('.ahf-past-date').text()).toContain('booking an appointment in the past');
- expect(header.text()).toContain('No video room will be created');
- await header.setProps({recurrenceFrequency:'WEEKLY', historicalBooking:false});
+ expect(header.text()).toContain('An upcoming session is required');
+ await header.setProps({recurrenceFrequency:'WEEKLY', historicalBooking:false, videoRoomMode:'google_meet'});
  expect(header.get('.ahf-past-date').text()).toContain('This recurring series starts in the past');
- expect(header.text()).toContain('Each upcoming recurring session gets its own room');
+ expect(header.text()).toContain('Each upcoming session gets its own link.');
  header.unmount();
 });

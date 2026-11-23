@@ -298,7 +298,8 @@ export const getBookingOptions = async (req, res, next) => {
       agencyId,
       serviceId: req.query.serviceId ? Number(req.query.serviceId) : null,
       providerId: req.query.providerId ? Number(req.query.providerId) : null,
-      clientId: req.query.clientId ? Number(req.query.clientId) : null
+      clientId: req.query.clientId ? Number(req.query.clientId) : null,
+      ...(req.query.sessionOnly === '1' ? { sessionOnly: true } : {})
     });
     if(req.query.quote==='1' && Number(req.query.providerId)>0) {
       for(const service of options.services||[])if(service.businessType==='tutoring') {

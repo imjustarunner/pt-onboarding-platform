@@ -17,7 +17,7 @@ vi.mock('../../controllers/kiosk.controller.js',async()=>{
   const names=source.match(/import \{([^{}]+)\} from '\.\.\/controllers\/kiosk.controller.js';/)[1].replace(/\/\/[^\n]*/g,'').split(',').map(n=>n.trim()).filter(Boolean);
   return Object.fromEntries(names.map(name=>[name,(_req,res)=>res.json({handler:name})]));
 });
-vi.mock('../../controllers/officeClientSubmissions.controller.js',()=>Object.fromEntries(['completeForms','listSubmissions','submissionClients','submissionSessions','attachSubmission','attachSeries','clientFeedback','clientFeedbackSummaries','submissionResponses'].map(name=>[name,(_req,res)=>res.json({handler:name})])));
+vi.mock('../../controllers/officeClientSubmissions.controller.js',()=>Object.fromEntries(['completeForms','listSubmissions','countSubmissions','submissionClients','submissionSessions','attachSubmission','attachSeries','clientFeedback','clientFeedbackSummaries','submissionResponses'].map(name=>[name,(_req,res)=>res.json({handler:name})])));
 vi.mock('../../services/officeLobby.service.js',()=>({lobbyLocation:async id=>({id}),officePeople:async()=>({people:[]}),lobbyProviderProfile:async()=>({profile:{}})}));
 vi.mock('../../services/officeKioskSupport.service.js',()=>({submitOfficeSupport:async()=>({ok:true}),readOfficeSupport:async()=>({})}));
 vi.mock('../rateLimiter.middleware.js',()=>({publicAgencySupportTicketLimiter:(_req,_res,next)=>next()}));

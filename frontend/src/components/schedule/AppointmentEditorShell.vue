@@ -31,6 +31,7 @@
       @update:primaryServiceCode="emit('update:primaryServiceCode', $event)"
       @update:addonServiceCodes="emit('update:addonServiceCodes', $event)"
       @update:modality="emit('update:modality', $event)"
+      @update:audioOnly="emit('update:audioOnly', $event)"
       @update:selectedClientIds="emit('update:selectedClientIds', $event)"
       @update:recurrenceFrequency="emit('update:recurrenceFrequency', $event)"
       @update:videoRoomMode="emit('update:videoRoomMode', $event)"
@@ -236,6 +237,7 @@ const props = defineProps({
   addonServiceCodes: { type: Array, default: () => [] },
   addonServiceCodeOptions: { type: Array, default: () => [] },
   showModality: { type: Boolean, default: false },
+  audioOnly: { type: Boolean, default: false },
   modality: { type: String, default: 'TELEHEALTH' },
   showGroupClients: { type: Boolean, default: false },
   groupClientOptions: { type: Array, default: () => [] },
@@ -284,6 +286,7 @@ const emit = defineEmits([
   'update:primaryServiceCode',
   'update:addonServiceCodes',
   'update:modality',
+  'update:audioOnly',
   'update:selectedClientIds',
   'update:recurrenceFrequency',
   'update:recurrenceEndMode',
@@ -379,6 +382,7 @@ const headerProps = computed(() => ({
   addonServiceCodeOptions: props.addonServiceCodeOptions,
   showModality: props.showModality,
   modality: props.modality,
+  audioOnly: props.audioOnly,
   showGroupClients: props.showGroupClients,
   groupClientOptions: props.groupClientOptions,
   selectedClientIds: props.selectedClientIds,

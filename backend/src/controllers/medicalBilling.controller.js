@@ -1888,6 +1888,13 @@ export const signClinicalNote = async (req, res, next) => {
       return res.json({ ok: true, noteId, signedAt: note.provider_signed_at, terminationTodo, achievementTasks });
     }
     const sourceMeta=parseObject(note.metadata_json);
+    const sessionMeta = parseObject(lockedSession?.metadata_json);
+    const delivery = sourceMeta.sessionContext?.modality || sourceMeta.narrivaContext?.modality
+      || (sessionMeta.scheduledAudioOnly ? 'phone' : '');
+    const audioReason = sourceMeta.sessionContext?.audioOnlyReason;
+    if (delivery === 'phone' && (typeof audioReason !== 'string' || !audioReason.trim() || audioReason.length > 2000)) {
+      throw Object.assign(new Error('Document why audio only was used in the clinical note before signing.'), { status: 400 });
+    }
     if(isProgressClinicalNote(note,sourceMeta) || fullProgressNoteRequiresSession({toolId:sourceMeta.toolId,
       serviceCode:sourceMeta.serviceCode || lockedSession?.service_code,noteKind:note.note_type || sourceMeta.noteType})) {
       assertActualProgressSessionSnapshot(lockedSession,{providerUserId:req.user.id});

@@ -26,7 +26,7 @@ export async function guardianAppointmentJoin(row,client,db,{includeFutureDestin
   if((client.services||[]).some(s=>Number(s.provider_user_id)===Number(row.providerUserId)&&(Number(s.is_active)!==1||s.portal_limited)&&serviceMatchesAppointment(s,{...row,agencyId:row.agencyId||client.agency_id})))return null;
   if(row.videoRoomMode==='external')return guardianVirtualJoin(row);
   const google=guardianVirtualJoin(row);
-  if(google)return google;
+  if (google || row.videoRoomMode === 'google_meet') return google;
   if(!learning){
     if(!db?.execute||!['VIRTUAL','ONLINE','VIDEO','TELEHEALTH'].includes(String(row.modality).toUpperCase())||!['scheduled','confirmed','client_confirmed','in_progress'].includes(row.status))return null;
     let room;

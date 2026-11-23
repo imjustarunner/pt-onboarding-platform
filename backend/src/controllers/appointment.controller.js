@@ -113,6 +113,10 @@ export const getAppointment = async (req, res, next) => {
     const {appointmentGoogleConference}=await import('../services/appointmentJoinEmail.service.js');
     const conference=await appointmentGoogleConference(bundle);
     bundle.googleDialInStatus=conference.status;
+    if (bundle.videoRoomMode === 'google_meet' && Number(req.user.id) === Number(bundle.providerUserId)) {
+      const { savedStaffAppointmentMeet } = await import('../services/staffAppointmentMeet.service.js');
+      bundle.googleMeetUrl = await savedStaffAppointmentMeet(bundle);
+    }
     const {default:scheduleReferences}=await import('../services/scheduleRecordReference.service.js');
     const references=await scheduleReferences.ensure([{type:'appointment',id}]);
     bundle.scheduleReference=references.get(`appointment:${id}`)||null;
@@ -170,7 +174,7 @@ export const createAppointmentHandler = async (req, res, next) => {
     try {
       for (const [recurrenceIndex, occurrence] of occurrences.entries()) {
         const appointment = await createAppointment({
-          deferScheduleNotice: !!recurrenceSeriesId,
+          deferScheduleNotice: !!recurrenceSeriesId || req.body?.videoRoomMode === 'google_meet',
           sendBookingNotice: req.body?.sendBookingNotice !== false,
           agencyId,
           parentAgencyId: req.body?.parentAgencyId || null,
@@ -181,6 +185,7 @@ export const createAppointmentHandler = async (req, res, next) => {
           startAt: occurrence.startAt,
           endAt: occurrence.endAt,
           modality: req.body?.modality || null,
+          audioOnly: req.body?.audioOnly ?? false,
           officeLocationId: req.body?.officeLocationId || null,
           roomId: req.body?.roomId || null,
           status: req.body?.status || 'scheduled',
@@ -264,6 +269,14 @@ export const createAppointmentHandler = async (req, res, next) => {
           }
         }
 
+        if (appointment.videoRoomMode === 'google_meet' && !appointmentHasStarted(appointment.endAt)) {
+          try {
+            const { prepareStaffAppointmentMeet } = await import('../services/staffAppointmentMeet.service.js');
+            await prepareStaffAppointmentMeet(appointment);
+          } catch {
+            calendarWarnings.push(`Session ${appointment.id} was saved. Retry its Google Meet link from the appointment.`);
+          }
+        }
         createdAppointments.push(await getAppointmentBundle(appointment.id));
       }
     } catch (error) {
@@ -277,9 +290,9 @@ export const createAppointmentHandler = async (req, res, next) => {
           createdAppointmentIds: createdAppointments.map(appointment => appointment.id) });
       }
     }
-    if (recurrenceSeriesId) {
+    if (recurrenceSeriesId || req.body?.videoRoomMode === 'google_meet') {
       const facts = {
-        ...recurringBookingNoticeFacts(recurrenceSeriesId, createdAppointments),
+        ...(recurrenceSeriesId ? recurringBookingNoticeFacts(recurrenceSeriesId, createdAppointments) : {}),
         ...bookingNoticePreferenceFacts(req.body?.sendBookingNotice)
       };
       const { appointmentScheduleNotices } = await import('../services/appointmentScheduleNotice.service.js');

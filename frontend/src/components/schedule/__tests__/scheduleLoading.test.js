@@ -372,7 +372,16 @@ it('keeps a one-time room request unsent when the user cancels confirmation', as
  await flushPromises();state.modalStartHour=17;state.modalEndHour=18;
  state.editorOfficeLocationId=1;state.editorPreferredRoomIds=[7];state.editorRecurrenceFrequency='ONCE';
  const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);
- try {await state.submitRequest();expect(confirm).toHaveBeenCalled();expect(m.post.mock.calls.some(([url])=>url==='/availability/office-requests')).toBe(false);}finally{confirm.mockRestore();}
+ try {
+   const submit = state.submitRequest();
+   await flushPromises();
+   const confirmation = new DOMWrapper(document.body).get('[role="alertdialog"]');
+   expect(confirmation.text()).toContain('Reserve this room once?');
+   await confirmation.findAll('button')[0].trigger('click');
+   await submit;
+   expect(confirm).not.toHaveBeenCalled();
+   expect(m.post.mock.calls.some(([url])=>url==='/availability/office-requests')).toBe(false);
+ } finally { confirm.mockRestore(); }
 });
 
 it('keeps Book Session coming soon visible in the primary chooser and leaves nonclinical actions enabled', async () => {

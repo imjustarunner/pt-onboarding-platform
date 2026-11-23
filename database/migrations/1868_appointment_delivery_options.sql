@@ -1,0 +1,3 @@
+ALTER TABLE appointments
+  ADD COLUMN audio_only TINYINT(1) NOT NULL DEFAULT 0,
+  ADD COLUMN private_meet_url VARCHAR(255) NULL;

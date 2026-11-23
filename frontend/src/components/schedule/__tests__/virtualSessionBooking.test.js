@@ -64,7 +64,8 @@ it('defaults to the assigned school, retains office and virtual choices, and exc
   s.onEditorOfficeLocationId(8); await flushPromises();
   expect(s.editorServiceLocationId).toBe(51); expect(s.editorSchoolOrganizationId).toBe(0);
   s.editorModality = 'TELEHEALTH'; await flushPromises();
-  expect(s.editorServiceLocationId).toBe(52); expect(s.editorSchoolOrganizationId).toBe(0);
+  expect(s.editorServiceLocationId).toBe(0); expect(s.editorSchoolOrganizationId).toBe(0);
+  expect(s.editorServiceLocationOptions.map(location => location.id)).toEqual([52]);
 });
 
 it('offers only schools shared by all selected clients and no schools before selecting a client', async () => {
@@ -92,19 +93,29 @@ it('blocks a school appointment if its default school location cannot be prepare
   expect(s.modalError).toContain('school service location could not be prepared'); expect(countCreates()).toBe(0);
 });
 
-it('offers only the appointment-linked office room when scheduling virtual counseling, including old personal-room defaults', () => {
-  wrapper = mount(Header, { props: { showModality: true, modality: 'TELEHEALTH', videoRoomMode: 'my_room', recurrenceFrequency: 'WEEKLY' } });
-  expect(wrapper.text()).toContain('Each upcoming recurring session gets its own room');
+it('offers a private Google Meet option for counseling', () => {
+  wrapper = mount(Header, { props: { showModality: true, modality: 'TELEHEALTH', videoRoomMode: 'google_meet', recurrenceFrequency: 'WEEKLY' } });
+  expect(wrapper.text()).toContain('Each upcoming session gets its own link.');
   expect(wrapper.text()).not.toContain('personal link'); expect(wrapper.find('option[value="my_room"]').exists()).toBe(false);
 });
 
-it('saves one appointment, creates its own room, and keeps a clear saved confirmation with the correct calendar time', async () => {
+it('saves one appointment, creates its private Google Meet link, and keeps a clear saved confirmation with the correct calendar time', async () => {
   const s = await editor(); s.editorVideoRoomMode = 'my_room';
+  const fallback = m.post.getMockImplementation();
+  m.post.mockImplementation(async (url, body) => {
+    if (url === '/appointments') {
+      const saved = { ...appointment, videoRoomMode: body.videoRoomMode };
+      return { data: { appointment: saved, appointments: [saved] } };
+    }
+    if (url === '/counseling/sessions/from-appointment') return { data: { meetUrl: 'https://meet.google.com/abc-defg-hij' } };
+    return fallback(url, body);
+  });
   await s.submitRequest(); await flushPromises();
   expect(s.modalError).toBe(''); expect(countCreates()).toBe(1);
-  expect(m.post).toHaveBeenCalledWith('/appointments', expect.objectContaining({ videoRoomMode: 'unique_session', startAt: '2026-11-19T17:00:00' }), { skipGlobalLoading: true });
+  expect(m.post).toHaveBeenCalledWith('/appointments', expect.objectContaining({ videoRoomMode: 'google_meet', startAt: '2026-11-19T17:00:00' }), { skipGlobalLoading: true });
   expect(m.get.mock.calls.some(([url]) => url === '/my-room/me')).toBe(false);
   expect(wrapper.get('[data-testid="virtual-session-booked"]').text()).toContain('Session scheduled');
+  expect(s.virtualSessionShareUrl).toBe('https://meet.google.com/abc-defg-hij');
   expect(wrapper.find('[data-testid="appointment-workspace"]').exists()).toBe(false);
   const block = s.cellBlocks('Thursday', 17, 0).find(b => b.appointmentId === 41);
   expect(block).toBeTruthy(); expect(s.summary.scheduleEvents.find(e => e.appointmentId === 41).startAt).toBe('2026-11-20T00:00:00.000Z');
@@ -174,7 +185,7 @@ it.each(['provider','provider_plus','clinical_practice_assistant','admin','suppo
   const s = await editor({ mode: role === 'provider' ? 'self' : 'admin' });
   await s.submitRequest(); await flushPromises();
   expect(s.modalError).toBe('');
-  expect(m.post).toHaveBeenCalledWith('/appointments', expect.objectContaining({providerUserId:7,timeZone:'America/Denver',startAt:'2026-11-19T17:00:00',videoRoomMode:'unique_session'}), { skipGlobalLoading: true });
+  expect(m.post).toHaveBeenCalledWith('/appointments', expect.objectContaining({providerUserId:7,timeZone:'America/Denver',startAt:'2026-11-19T17:00:00',videoRoomMode:'google_meet'}), { skipGlobalLoading: true });
   expect(s.cellBlocks('Thursday',17,0).some(block => block.appointmentId === 41)).toBe(true);
   expect(countCreates()).toBe(1);
 });
@@ -212,7 +223,7 @@ it('preserves future series preferences when the first occurrence is in the past
   await s.submitRequest();
   expect(s.modalError).toBe('');
   expect(m.post.mock.calls[0][1]).toMatchObject({
-    recurrence: 'WEEKLY', occurrenceCount: 2, sendBookingNotice: true, notificationMode: 'default', videoRoomMode: 'unique_session'
+    recurrence: 'WEEKLY', occurrenceCount: 2, sendBookingNotice: true, notificationMode: 'default', videoRoomMode: 'google_meet'
   });
   expect(m.post.mock.calls.filter(([url]) => url.includes('/from-appointment')).map(([, body]) => body.appointmentId)).toEqual([42]);
 });
@@ -365,4 +376,38 @@ it('offers tutoring only for the selected provider’s authorized services in th
   await flushPromises();
   expect(s.editorBookServiceChoices.map(row => row.value)).toEqual(['mental_health', 'tutoring']);
   expect(s.mixedSessionServices).toBe(true);
+});
+
+it('saves an audio-only appointment with the client setting and never requests a video link', async () => {
+  const s = await schoolClientEditor();
+  s.editorModality = 'TELEHEALTH';
+  s.editorAudioOnly = true;
+  await flushPromises();
+  expect(s.requestSubmitBlockedReason).toContain('where the client will be');
+  await s.onEditorServiceLocationId(52);
+  await s.submitRequest();
+  expect(m.post).toHaveBeenCalledWith('/appointments', expect.objectContaining({
+    audioOnly: true, serviceLocationId: 52, videoRoomMode: 'none'
+  }), { skipGlobalLoading: true });
+  expect(m.post.mock.calls.some(([url]) => url.includes('/counseling/sessions/'))).toBe(false);
+});
+
+it('filters Book Session by provider offering and hides staff time codes', async () => {
+  const s = await editor();
+  s.editorPracticeCategories = ['mental_health', 'tutoring'];
+  s.bookingProviderBusinessTypes = ['mental_health'];
+  s.bookingMetadata = { ...s.bookingMetadata, serviceCodes: [
+    { code: '90837' }, { code: 'ADMIN TIME' }, { code: 'TUTORING' }
+  ] };
+  await flushPromises();
+  expect(s.editorBookServiceChoices).toEqual([{ value: 'mental_health', label: 'Clinical' }]);
+  expect(s.bookingServiceCodeOptions.map(item => item.code)).toEqual(['90837']);
+  const base = m.get.getMockImplementation();
+  m.get.mockImplementation((url, ...args) => url.endsWith('/booking-options')
+    ? Promise.resolve({ data: { clientSessionCategories: ['tutoring'], sessionOnly: true } })
+    : base(url, ...args));
+  s.bookingProviderBusinessTypes = ['mental_health', 'tutoring'];
+  s.clientSessionCategories = ['tutoring'];
+  await flushPromises();
+  expect(s.editorBookServiceChoices).toEqual([{ value: 'tutoring', label: 'Learning' }]);
 });

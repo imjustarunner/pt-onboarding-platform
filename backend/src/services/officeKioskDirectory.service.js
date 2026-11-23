@@ -1,7 +1,6 @@
 import { localDayUtcBounds, mysqlDateTimeForDateHour, utcToZonedMysqlWall } from '../utils/officeEventDateTime.util.js';
 import { isAssignmentActiveOnDate, shouldBookOnDate, shouldBookByCount } from './officeScheduleMaterializer.service.js';
 import { attachOfficeSchedulingPolicies } from './officeSchedulingPolicy.service.js';
-import { appointmentMode } from '../utils/officeSchedulingPolicy.js';
 import { officePlanHasClient } from '../utils/officeRecordWindow.js';
 import { officeBookingAgencyId } from '../utils/officeBookingAgency.js';
 
@@ -44,8 +43,7 @@ export function buildOfficeDirectory({ rooms, events, standing, plans, people, d
   events = events.map(event => {
     const assignment = assignmentById.get(Number(event.standing_assignment_id));
     if (historical || !assignment || (event.booked_provider_id && Number(event.booked_provider_id) !== Number(assignment.provider_id)) || event.status === 'CANCELLED' || event.client_id || event.clinical_session_id || event.has_appointment || event.billing_context_id || event.note_context_id) return event;
-    const booked = !appointmentMode(assignment, date);
-    return { ...event, status: booked ? 'BOOKED' : 'RELEASED', slot_state: booked ? 'ASSIGNED_BOOKED' : 'ASSIGNED_AVAILABLE', booked_provider_id: booked ? assignment.provider_id : null };
+    return { ...event, status: 'RELEASED', slot_state: 'ASSIGNED_AVAILABLE', booked_provider_id: null };
   });
   const dayEvents = [...events];
   const weekday = new Date(`${date}T12:00:00Z`).getUTCDay();
@@ -69,8 +67,7 @@ export function buildOfficeDirectory({ rooms, events, standing, plans, people, d
       });
     }
     const plan = planByAssignment.get(Number(assignment.id));
-    const booked = (!historical && !appointmentMode(assignment, date))
-      || ((historical || officePlanHasClient(plan)) && shouldBookOnDate(plan, assignment, date) && shouldBookByCount(plan, assignment, date));
+    const booked = (historical || officePlanHasClient(plan)) && shouldBookOnDate(plan, assignment, date) && shouldBookByCount(plan, assignment, date);
     for (const [from, to] of gaps) dayEvents.push({ room_id: assignment.room_id, start_at: from, end_at: to,
       status: booked ? 'BOOKED' : 'RELEASED', slot_state: booked ? 'ASSIGNED_BOOKED' : 'ASSIGNED_AVAILABLE',
       standing_assignment_id: assignment.id, booking_agency_id: assignment.booking_agency_id,

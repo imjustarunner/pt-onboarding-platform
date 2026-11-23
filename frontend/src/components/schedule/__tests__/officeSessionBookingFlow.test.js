@@ -87,7 +87,7 @@ it('uses the viewed provider’s reserved room when a staff member opens Book Se
   expect(s.scheduleActorUserId).toBe(9);
 });
 
-it('carries the reserved office, room, biweekly cadence and billing location into the session and keeps them after selecting a client', async () => {
+it('keeps appointment cadence separate and detects dates outside a biweekly reservation', async () => {
   const track = vi.fn();
   wrapper = shallowMount(Grid, { props: { userId: 7, agencyId: 2 }, global: { stubs: { Teleport: false, RouterLink: true, ScheduleBookingJobs: {template:'<div/>',setup:(_, {expose})=>{expose({track});return {};}} } } });
   await flushPromises();
@@ -104,8 +104,18 @@ it('carries the reserved office, room, biweekly cadence and billing location int
   expect(s.requestType).toBe('individual_session');
   expect(s.editorModality).toBe('IN_PERSON'); expect(s.bookingModality).toBe('IN_PERSON');
   expect(s.editorOfficeLocationId).toBe(8); expect(s.editorRoomId).toBe(10);
-  expect(s.editorRecurrenceFrequency).toBe('BIWEEKLY'); expect(s.editorRecurrenceEndMode).toBe('until');
-  expect(s.editorRecurrenceUntilDate).toBe('2027-02-18');
+  expect(s.editorRecurrenceFrequency).toBe('ONCE');
+  expect(s.editorRecurrenceUntilDate).toBe('');
+  s.editorRecurrenceFrequency = 'WEEKLY';
+  s.editorRecurrenceEndMode = 'count';
+  s.editorRecurrenceOccurrenceCount = 2;
+  await nextTick();
+  expect(s.uncoveredReservationDates).toEqual(['2026-12-03']);
+  s.editorRecurrenceFrequency = 'BIWEEKLY';
+  s.editorRecurrenceEndMode = 'until';
+  s.editorRecurrenceUntilDate = '2027-02-18';
+  await nextTick();
+  expect(s.uncoveredReservationDates).toEqual([]);
   expect(s.editorRecurrenceWeekdays).toEqual(['Thu']);
   expect(s.editorServiceLocationId).toBe(51); expect(s.bookingServiceLocationId).toBe(51);
   expect(s.editorServiceLocationOptions.map(row => row.id)).toEqual([51, 53]);
@@ -172,7 +182,7 @@ it('lets an admin edit the primary facilitator and add a cofacilitator while pre
 
 it('keeps session locations as a selector when the catalog is empty or loading', async () => {
   wrapper = mount(Header, { props: { bookSessionLayout: true, modality: 'IN_PERSON', locationOptionsLoading: true }, global: { stubs: { ScheduleAgencyLogo: true } } });
-  expect(wrapper.get('select[aria-label="Service location"]').element.disabled).toBe(true);
+  expect(wrapper.get('fieldset.location-picker').element.disabled).toBe(true);
   expect(wrapper.text()).toContain('Loading locations');
   expect(wrapper.find('input[type="text"]').exists()).toBe(false);
   await wrapper.setProps({ locationOptionsLoading: false });
@@ -218,31 +228,25 @@ async function openReservation() {
   await nextTick();
   return s;
 }
-it('anchors editing to the selected date, time and room and prevents occurrence scope after a cadence change', async () => {
+it('shows reservation actions first and opens the editing fields explicitly', async () => {
   const s = await openReservation();
   const editor = new DOMWrapper(document.body).get('.modal-backdrop--request');
-  const context = editor.get('[data-testid="selected-office-reservation"]');
-  expect(context.text()).toContain('Thursday, November 26, 2026');
-  expect(context.text()).toContain('3:00 PM–4:00 PM'); expect(context.text()).toContain('Office #10');
-  s.bookingStripFrequency = 'BIWEEKLY'; await nextTick();
-  expect(editor.get('select[aria-label="Reservation edit scope"] option[value="occurrence"]').element.disabled).toBe(true);
-  expect(s.bookingMoveScope).toBe('future');
-});
-it('locks recurrence for one-date edits and moves only that occurrence without a booking-plan write', async () => {
-  const s = await openReservation();
-  const editor = new DOMWrapper(document.body).get('.modal-backdrop--request');
-  await editor.get('select[aria-label="Reservation edit scope"]').setValue('occurrence');
-  expect(s.bookingStripFrequency).toBe('ONCE'); expect(s.bookingStripDirty).toBe(false);
-  const repeat = editor.get('[data-testid="schedule-booking-meta"] select');
-  expect(repeat.element.disabled).toBe(true);
-  s.onModalStartTimeInput('16:00'); await nextTick();
-  s.onModalEndTimeInput('17:00'); await nextTick();
-  expect(s.editorStartTime).toBe('16:00'); expect(s.editorEndTime).toBe('17:00');
-  expect(s.bookingStripDirty).toBe(true);
+  const card = editor.get('[data-testid="selected-office-reservation"]');
+  expect(card.text()).toContain('Thursday, November 26, 2026');
+  expect(card.text()).toContain('3:00 PM–4:00 PM');
+  expect(card.text()).toContain('Office #10');
+  expect(editor.find('[data-testid="schedule-booking-meta"]').exists()).toBe(false);
+  await card.findAll('button').find(button => button.text() === 'Edit room reservation').trigger('click');
+  expect(editor.find('[data-testid="schedule-booking-meta"]').exists()).toBe(true);
+  expect(editor.find('select[aria-label="Reservation edit scope"]').exists()).toBe(false);
+  s.onModalStartTimeInput('16:00');
+  await nextTick();
+  s.onModalEndTimeInput('17:00');
+  await nextTick();
   await s.saveBookingStripEdits();
   expect(s.bookingStripError).toBe('');
-  expect(mocks.post).toHaveBeenCalledWith('/office-slots/8/events/91/reschedule', expect.objectContaining({ scope: 'single', startAt: '2026-11-26T16:00:00', endAt: '2026-11-26T17:00:00' }), expect.anything());
-  expect(mocks.post.mock.calls.some(([url]) => /booking-plan|recurrence|temporary/.test(url))).toBe(false);
+  expect(mocks.post).toHaveBeenCalledWith('/office-slots/8/assignments/19/reschedule',
+    expect.objectContaining({ newHour: 16, blockHours: 1 }), expect.anything());
 });
 it('uses the selected session agency even when only the office owner agency is shown on the calendar', async () => {
   const s = await openReservation();
@@ -362,7 +366,7 @@ it.each([
  mocks.agency={id:6,slug:'nlu',organization_type:'agency',feature_flags:{hasClinicalOrg:true,medicalBillingEnabled:true}};
  const base=mocks.get.getMockImplementation();
  mocks.get.mockImplementation((path,...args)=>path.includes('/virtual-session-clients')?Promise.resolve({data:{clients:[{id:81,full_name:'Synthetic Client'}]}}):base(path,...args));
- mocks.post.mockImplementation(async(path,payload)=>({data:path==='/appointments'?{appointment:{id:821,agencyId:6,businessType,videoRoomMode:payload.videoRoomMode,externalMeetingUrl:payload.externalMeetingUrl||null,providerScheduleEventId:910}}:path.includes('counseling')?{session:{publicId:'clinical-821'},sharePath:'/counseling/invite/clinical-821'}:{}}));
+ mocks.post.mockImplementation(async(path,payload)=>({data:path==='/appointments'?{appointment:{id:821,agencyId:6,businessType,videoRoomMode:payload.videoRoomMode,externalMeetingUrl:payload.externalMeetingUrl||null,providerScheduleEventId:910}}:path.includes('counseling')?{meetUrl:'https://meet.google.com/abc-defg-hij'}:{}}));
  wrapper=shallowMount(Grid,{props:{userId:7,agencyId:6},global:{stubs:{Teleport:false,RouterLink:true}}});await flushPromises();
  const s=wrapper.vm.$.setupState;
  s.weekStart='2026-11-23';s.modalDay='Thursday';s.modalHour=15;s.modalStartHour=15;s.modalEndHour=16;s.selectedActionAgencyId=6;
@@ -373,13 +377,14 @@ it.each([
  s.editorTenantServiceId=320;await flushPromises();
  s.editorExternalMeetingUrl=url;s.virtualSessionSelectedClientIds=[81];await flushPromises();s.bookingServiceCode=businessType==='tutoring'?'TUTORING':'90837';
  expect(s.editorExternalMeetingUrl).toBe(url);s.clientSessionBookingEnabled=true;await nextTick();
- expect({enabled:s.editorExternalMeetingsEnabled,agency:s.editorAgencyId,modality:s.editorModality,editing:s.isAppointmentEditMode,mode:s.editorVideoRoomMode}).toEqual({enabled:true,agency:6,modality:'TELEHEALTH',editing:false,mode:businessType==='tutoring'?'external':'unique_session'});expect(s.isQuarterHourRequestType).toBe(true);expect(s.submitActionLabel).toBe(businessType==='tutoring'?'Schedule':'Schedule & link video room');
+ expect({enabled:s.editorExternalMeetingsEnabled,agency:s.editorAgencyId,modality:s.editorModality,editing:s.isAppointmentEditMode,mode:s.editorVideoRoomMode}).toEqual({enabled:true,agency:6,modality:'TELEHEALTH',editing:false,mode:businessType==='tutoring'?'external':'google_meet'});expect(s.isQuarterHourRequestType).toBe(true);expect(s.submitActionLabel).toBe(businessType==='tutoring'?'Schedule':'Schedule & create Meet link');
+ if (businessType === 'mental_health') await s.onEditorServiceLocationId(s.editorServiceLocationOptions[0].id);
  await s.submitRequest();await flushPromises();
  expect(s.modalError).toBe('');
- expect(mocks.post).toHaveBeenCalledWith('/appointments',expect.objectContaining({agencyId:6,providerUserId:7,videoRoomMode:businessType==='tutoring'?'external':'unique_session',participants:[expect.objectContaining({clientId:81})]}), {skipGlobalLoading:true});
+ expect(mocks.post).toHaveBeenCalledWith('/appointments',expect.objectContaining({agencyId:6,providerUserId:7,videoRoomMode:businessType==='tutoring'?'external':'google_meet',participants:[expect.objectContaining({clientId:81})]}), {skipGlobalLoading:true});
  if(businessType==='mental_health'){
   expect(mocks.post.mock.calls.filter(([path])=>path.includes('counseling'))).toHaveLength(1);
-  expect(s.virtualSessionScheduledSessionKey).toBe('clinical-821');return;
+  expect(s.virtualSessionScheduledSessionKey).toBe('google-meet-appointment:821');return;
  }
  expect(mocks.post.mock.calls.some(([path])=>path.includes('counseling'))).toBe(false);
  expect(s.virtualSessionScheduledSessionKey).toBe('external-appointment:821');expect(s.submitActionLabel).toBe(url?'Open external meeting':'Done');
@@ -405,7 +410,7 @@ it('does not offer external links for the scheduled SSO provider when booking st
  const base=mocks.get.getMockImplementation();mocks.get.mockImplementation((url,...args)=>url.includes('/booking-metadata')?Promise.resolve({data:{meetingPolicy:{providerId:7,usesGoogleSso:true,externalLinksAllowed:false},serviceCodes:[{code:'90837'}]}}):base(url,...args));
  wrapper=shallowMount(Grid,{props:{userId:7,agencyId:6},global:{stubs:{Teleport:false,RouterLink:true}}});await flushPromises();const s=wrapper.vm.$.setupState;
  s.weekStart='2026-11-23';s.selectedActionAgencyId=6;s.modalDay='Thursday';s.modalHour=15;s.modalEndHour=16;s.modalContext={agencyId:6,dateYmd:'2026-11-26',hour:15};s.showRequestModal=true;await flushPromises();
- s.onQuickActionSelect({id:'individual_session'});await flushPromises();expect(s.editorExternalMeetingsEnabled).toBe(false);expect(s.editorVideoRoomMode).toBe('unique_session');
+ s.onQuickActionSelect({id:'individual_session'});await flushPromises();expect(s.editorExternalMeetingsEnabled).toBe(false);expect(s.editorVideoRoomMode).toBe('google_meet');
 });
 
 it('preserves a manually entered 36-minute intake when choosing its service and renders its exact calendar span', async () => {
@@ -450,8 +455,9 @@ it('adds a private personal event during an office reservation without editing t
   s.modalActionSource = 'office_block';
   s.showRequestModal = true;
   await nextTick();
-  const action = wrapper.find('.nr-personal-event');
-  expect(action.exists()).toBe(true);
+  const actions = wrapper.findAll('button').filter(button => button.text().includes('Add a personal plan'));
+  expect(actions).toHaveLength(1);
+  const [action] = actions;
   await action.trigger('click');
   await flushPromises();
   expect(s.requestType).toBe('personal_event');
@@ -482,8 +488,9 @@ it.each([
     standingAssignmentId:19,slotState,dateYmd:'2026-11-26'};
   s.modalActionSource='office_block';s.showRequestModal=true;
   await nextTick();
-  expect(wrapper.find('.nr-forfeit-shortcut').exists()).toBe(true);
-  await wrapper.get('.nr-forfeit-shortcut').trigger('click');
+  const cancel = wrapper.get('[data-testid="selected-office-reservation"]').findAll('button')
+    .find(button => button.text() === 'Cancel reservation');
+  await cancel.trigger('click');
   expect(s.requestType).toBe('forfeit_slot');
   expect(wrapper.find('.nr-sidebar').exists()).toBe(false);
   expect(wrapper.get('#office-cancellation-scope').element.value).toBe('occurrence');

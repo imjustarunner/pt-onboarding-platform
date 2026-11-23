@@ -8,7 +8,6 @@ import { officeBookingAgencyId } from '../utils/officeBookingAgency.js';
 import pool from '../config/database.js';
 import { reservationContextAfterClientCancellation, isDetachedOfficeReservation } from '../utils/officeClientCancellation.js';
 import { attachOfficeSchedulingPolicies } from './officeSchedulingPolicy.service.js';
-import { appointmentMode } from '../utils/officeSchedulingPolicy.js';
 import OfficeStandingAssignment from '../models/OfficeStandingAssignment.model.js';
 import OfficeBookingPlan from '../models/OfficeBookingPlan.model.js';
 import OfficeEvent from '../models/OfficeEvent.model.js';
@@ -371,14 +370,12 @@ export class OfficeScheduleMaterializer {
           if (a.availability_mode === 'TEMPORARY' && extCount >= 2 && untilStr && date > untilStr) continue;
 
           // Keep temporary expiry semantics, but surface approved availability as assigned_available.
-          const appointmentsOnly = appointmentMode(a, date);
-          const baseSlotState = appointmentsOnly ? 'ASSIGNED_AVAILABLE' : 'ASSIGNED_BOOKED';
 
           const storedPlan = planByAssignment.get(a.id) || null;
           // Automatic reservations stop at cutover. Client appointment series remain intact.
-          const plan = appointmentsOnly && !officePlanHasClient(storedPlan) ? null : storedPlan;
+          const plan = officePlanHasClient(storedPlan) ? storedPlan : null;
           const bookedFromPlan = !!(plan && shouldBookOnDate(plan, a, date) && shouldBookByCount(plan, a, date));
-          let slotState = bookedFromPlan ? 'ASSIGNED_BOOKED' : baseSlotState;
+          let slotState = bookedFromPlan ? 'ASSIGNED_BOOKED' : 'ASSIGNED_AVAILABLE';
           let desiredBookedProviderId = slotState === 'ASSIGNED_BOOKED' ? Number(a.provider_id || 0) : 0;
           let desiredPlanId = bookedFromPlan ? Number(plan?.id || 0) : 0;
           let sessionContext = null;
@@ -388,7 +385,7 @@ export class OfficeScheduleMaterializer {
             if (sessionContext?.officeCancellationDisposition==='release') {slotState='ASSIGNED_AVAILABLE';desiredBookedProviderId=0;desiredPlanId=0;}
           }
           if (!sessionContext?.agencyId && a.booking_agency_id) sessionContext = { ...sessionContext, agencyId: Number(a.booking_agency_id) };
-          if (!desiredPlanId || !officePlanHasClient(plan)) sessionContext = { ...sessionContext, bookingSource: appointmentsOnly ? 'office_assignment' : 'automatic_office_reservation' };
+          if (!desiredPlanId || !officePlanHasClient(plan)) sessionContext = { ...sessionContext, bookingSource: 'office_assignment' };
           const hasMatchingRow = existingRows.some((ev) =>
             String(ev?.status || '').toUpperCase() !== 'CANCELLED'
             && String(ev?.slot_state || '').toUpperCase() === String(slotState || '').toUpperCase()
@@ -417,7 +414,7 @@ export class OfficeScheduleMaterializer {
                 businessType:service?.businessType||(['learning','tutoring'].includes(client?.client_type)?'learning':null),officeBookingPlanId:desiredPlanId});
             }
             const sessionEvent = await OfficeEvent.upsertSlotState({
-              allowAutomaticReservationDowngrade: appointmentsOnly,
+              allowAutomaticReservationDowngrade: true,
               officeLocationId: officeId,
               roomId: a.room_id,
               startAt,

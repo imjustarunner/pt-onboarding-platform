@@ -4,7 +4,9 @@ const virtual = new Set(['TELEHEALTH', 'VIRTUAL', 'VIDEO', 'ONLINE']);
 
 export function appointmentVideoRoomMode({ modality, businessType, videoRoomMode }) {
   if (videoRoomMode === 'none') return 'none';
-  if (virtual.has(String(modality).toUpperCase()) && !['learning', 'tutoring'].includes(String(businessType || '').toLowerCase())) return 'unique_session';
+  if (virtual.has(String(modality).toUpperCase()) && !['learning', 'tutoring'].includes(String(businessType || '').toLowerCase())) {
+    return videoRoomMode === 'google_meet' ? 'google_meet' : 'unique_session';
+  }
   return ['my_room', 'external'].includes(videoRoomMode) ? videoRoomMode : 'unique_session';
 }
 

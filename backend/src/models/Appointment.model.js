@@ -28,7 +28,7 @@ const LIVE_STATUSES = new Set([
   'voided'
 ]);
 
-const VIDEO_ROOM_MODES = new Set(['unique_session', 'my_room', 'external', 'none']);
+const VIDEO_ROOM_MODES = new Set(['unique_session', 'my_room', 'external', 'google_meet', 'none']);
 const NOTIFICATION_MODES = new Set(['default', 'customizable', 'in_app', 'off']);
 
 function parseJsonSafe(raw, fallback = null) {
@@ -95,6 +95,7 @@ class Appointment {
       notes: r.notes != null ? String(r.notes) : null,
       ...(r.learning_context_json!==undefined?{learningContext:parseJsonSafe(r.learning_context_json,null)}:{}),
       othersPresentNames: r.others_present_names != null ? String(r.others_present_names) : null,
+      audioOnly: Number(r.audio_only) === 1,
       videoRoomMode: normalizeVideoRoomMode(r.video_room_mode, 'unique_session'),
       externalMeetingUrl:r.external_meeting_url || null,
       includeGoogleDialIn:Number(r.include_google_dial_in)===1,
@@ -275,6 +276,8 @@ class Appointment {
     const dialInColumn=row.includeGoogleDialIn===true?', include_google_dial_in':'';
     const dialInValue=row.includeGoogleDialIn===true?', ?':'';
     const dialInParams=row.includeGoogleDialIn===true?[1]:[];
+    const audioColumn = row.audioOnly ? ', audio_only' : '';
+    const audioValue = row.audioOnly ? ', 1' : '';
     const baseParams = [
       Number(row.agencyId),
       row.parentAgencyId || null,
@@ -309,8 +312,8 @@ class Appointment {
            office_event_id, office_booking_request_id, provider_schedule_event_id, clinical_session_id, package_entitlement_id,
            cancellation_policy_id, cancel_deadline_at,
            source, title, notes, others_present_names, video_room_mode, notification_mode,
-           created_by_user_id, updated_by_user_id${learningColumns}${externalColumns}${dialInColumn}
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${learningValues}${externalValues}${dialInValue})`,
+           created_by_user_id, updated_by_user_id${learningColumns}${externalColumns}${dialInColumn}${audioColumn}
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${learningValues}${externalValues}${dialInValue}${audioValue})`,
         [
           ...baseParams.slice(0, 22),
           othersPresentNames,
@@ -325,7 +328,7 @@ class Appointment {
       );
       return this.findById(result.insertId, { executor });
     } catch (e) {
-      if(videoRoomMode==='external'||row.includeGoogleDialIn===true)throw e;
+      if(videoRoomMode==='external'||videoRoomMode==='google_meet'||row.audioOnly||row.includeGoogleDialIn===true)throw e;
       if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
       const [result] = await executor.execute(
         `INSERT INTO appointments (
@@ -404,6 +407,8 @@ class Appointment {
       ? String(next.othersPresentNames).trim().slice(0, 500) || null
       : null;
     const videoRoomMode = normalizeVideoRoomMode(next.videoRoomMode, existing.videoRoomMode || 'unique_session');
+    const audioUpdate = patch.audioOnly === undefined ? '' : ', audio_only = ?';
+    const audioParams = patch.audioOnly === undefined ? [] : [patch.audioOnly ? 1 : 0];
     const notificationMode = normalizeNotificationMode(next.notificationMode, existing.notificationMode || 'default');
     const writesExternalLink = videoRoomMode === 'external' || existing.videoRoomMode === 'external';
     const externalUpdate = writesExternalLink ? ', external_meeting_url = ?' : '';
@@ -428,7 +433,7 @@ class Appointment {
            cancellation_fee_cents = ?, cancellation_recommendation_json = ?,
            canceled_at = ?, canceled_by_user_id = ?,
            title = ?, notes = ?,
-           others_present_names = ?, video_room_mode = ?, notification_mode = ?${externalUpdate}${dialInUpdate},
+           others_present_names = ?, video_room_mode = ?, notification_mode = ?${externalUpdate}${dialInUpdate}${audioUpdate},
            updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
          WHERE id = ?${compare}`,
         [
@@ -461,13 +466,14 @@ class Appointment {
           notificationMode,
           ...externalParams,
           ...dialInParams,
+          ...audioParams,
           next.updatedByUserId || null,
           Number(id), ...compareParams
         ]
       );
       if (expected && result.affectedRows === 0) throw Object.assign(new Error('This appointment changed while you were editing. Refresh before saving.'), { status: 409 });
     } catch (e) {
-      if(videoRoomMode==='external'||existing.videoRoomMode==='external'||patch.includeGoogleDialIn!==undefined)throw e;
+      if(videoRoomMode==='external'||videoRoomMode==='google_meet'||existing.videoRoomMode==='external'||patch.audioOnly!==undefined||patch.includeGoogleDialIn!==undefined)throw e;
       if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
       const [result] = await executor.execute(
         `UPDATE appointments SET

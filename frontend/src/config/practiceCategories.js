@@ -1,8 +1,8 @@
 /** Provider practice categories — overarching Book Session types. */
 
 export const PRACTICE_CATEGORY_LABELS = {
-  mental_health: 'Mental health',
-  tutoring: 'Tutoring',
+  mental_health: 'Clinical',
+  tutoring: 'Learning',
   coaching: 'Coaching',
   consulting: 'Consulting'
 };

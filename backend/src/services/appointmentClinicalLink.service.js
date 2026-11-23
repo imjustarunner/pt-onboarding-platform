@@ -105,13 +105,14 @@ export async function ensureAppointmentClinicalLink(appointmentId, actorUserId =
            scheduled_start_at = VALUES(scheduled_start_at), scheduled_end_at = VALUES(scheduled_end_at),
            provider_user_id = VALUES(provider_user_id), rendering_provider_user_id = VALUES(rendering_provider_user_id),
            service_code = VALUES(service_code), duration_minutes = VALUES(duration_minutes), is_telehealth = VALUES(is_telehealth),
+           metadata_json = JSON_SET(COALESCE(metadata_json, JSON_OBJECT()), '$.scheduledAudioOnly', ?),
            source_timezone = VALUES(source_timezone), service_location_id = VALUES(service_location_id),
            billing_office_location_id = VALUES(billing_office_location_id), place_of_service = VALUES(place_of_service)`,
         [appointment.agencyId, participant.clientId, appointment.id, appointment.providerUserId, appointment.providerUserId, sourceTimezone,
           appointment.startAt, appointment.endAt, appointment.serviceCode, appointment.startAt, appointment.endAt,
-          isTelehealth ? 1 : 0, JSON.stringify({ source: 'appointment', appointmentId: appointment.id }), actorUserId,
+          isTelehealth ? 1 : 0, JSON.stringify({ source: 'appointment', appointmentId: appointment.id, scheduledAudioOnly: !!appointment.audioOnly }), actorUserId,
           serviceLocation?.id || null, serviceLocation?.billing_office_location_id || appointment.officeLocationId || client.default_office_location_id || null,
-          serviceLocation?.place_of_service || client.default_place_of_service || null, claimBlocked]
+          serviceLocation?.place_of_service || client.default_place_of_service || null, claimBlocked, appointment.audioOnly ? 1 : 0]
       );
       const [rows] = await clinicalPool.execute(
         `SELECT * FROM clinical_sessions WHERE appointment_id = ? AND client_id = ? AND agency_id = ?`,

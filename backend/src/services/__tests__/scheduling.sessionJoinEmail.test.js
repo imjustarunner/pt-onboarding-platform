@@ -60,3 +60,18 @@ it('resolves a queued SMS recipient by the exact guardian identity rather than a
  expect(d.guestLink).toHaveBeenCalledWith(qa,22,9,d.db);
  expect(result.url).toContain('/tutoring/invite#');
 });
+
+it('delivers a private Meet URL only to an authorized recipient and never falls back to an in-app room', async () => {
+ const d=fixture();
+ const meet='https://meet.google.com/abc-defg-hij';
+ const google={...appointment,businessType:'mental_health',videoRoomMode:'google_meet',providerScheduleEventId:55};
+ d.db.execute.mockImplementation(async sql=>sql.includes('private_meet_url') ? [[{private_meet_url:meet}]] : [[{id:9}]]);
+ expect((await appointmentJoinEmail({appointment:google,clientId:22,to:'guardian@example.test',context},d)).url).toBe(meet);
+ expect(d.db.execute.mock.calls.find(([sql])=>sql.includes('private_meet_url'))[1]).toEqual([google.id,google.agencyId,google.providerUserId]);
+ d.db.execute.mockClear();
+ d.authorize.mockResolvedValue({...client,permissions_json:{billingOnly:true}});
+ expect(await appointmentJoinEmail({appointment:google,clientId:22,to:'other@example.test',context},d)).toBeNull();
+ expect(d.db.execute.mock.calls.some(([sql])=>sql.includes('private_meet_url'))).toBe(false);
+ expect(await guardianAppointmentJoin(google,client,d.db)).toBeNull();
+ expect(d.db.execute.mock.calls.some(([sql])=>sql.includes('counseling_sessions'))).toBe(false);
+});
