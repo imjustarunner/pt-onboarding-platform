@@ -18,7 +18,7 @@ const ALREADY_ACTIVE = new Set([
   'onboarded'
 ]);
 
-const BLOCKED = new Set(['terminated', 'archived', 'waitlist', 'declined', 'dead']);
+const BLOCKED = new Set(['inactive', 'terminated', 'archived', 'waitlist', 'declined', 'dead']);
 
 export async function promoteNoteAidClientAfterSetup({ clientId, actorUserId = null }) {
   const cid = Number(clientId || 0);

@@ -17,7 +17,7 @@ export async function markRecordsClientCurrent(scope, actorId, db) {
      WHERE c.id=? AND c.agency_id=? FOR UPDATE`, [scope.clientId,scope.agencyId]
   );
   if (!client) throw Object.assign(Error('Client not found in this agency.'), {status:404});
-  if (['ARCHIVED','TERMINATED'].includes(String(client.status).toUpperCase()) || ['archived','terminated','dead'].includes(String(client.status_key).toLowerCase())) {
+  if (['ARCHIVED','TERMINATED'].includes(String(client.status).toUpperCase()) || ['inactive','archived','terminated','dead'].includes(String(client.status_key).toLowerCase())) {
     throw Object.assign(Error('Reopen this client’s status in the profile before completing the records import.'), {status:409});
   }
   const target = await requireRecordsCurrentStatus(scope.agencyId, db);

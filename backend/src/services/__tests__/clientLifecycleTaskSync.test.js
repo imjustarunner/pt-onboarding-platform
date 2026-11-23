@@ -8,7 +8,7 @@ vi.mock('../../utils/clientStatusCatalog.js', () => ({ getClientStatusIdByKey: m
 vi.mock('../clientOnboardingTask.service.js', () => ({ syncClientProviderLifecycleTasks: mocks.sync }));
 vi.mock('../schoolClientStatusEmail.service.js', () => ({ queueSchoolClientStatusEmails: mocks.queue }));
 
-import { markClientBeingSeen, setClientLifecycleStatus } from '../clientLifecycleStatus.service.js';
+import { markClientBeingSeen, setClientLifecycleStatus, reconcileSchoolClientStatus } from '../clientLifecycleStatus.service.js';
 
 describe('service confirmation reconciles existing provider tasks', () => {
   beforeEach(() => {
@@ -47,10 +47,15 @@ describe('service confirmation reconciles existing provider tasks', () => {
     expect(mocks.queue).toHaveBeenCalledWith(expect.anything(), expect.not.objectContaining({assignmentChanged:true}));
   });
 
-  it('does not sync or reopen a terminal client when service confirmation is rejected', async () => {
-    mocks.execute.mockResolvedValue([[{ id: 101, client_status_key: 'archived' }]]);
+  it.each(['archived','inactive'])('does not sync or reopen a %s client when service confirmation is rejected', async statusKey => {
+    mocks.execute.mockResolvedValue([[{ id: 101, client_status_key: statusKey }]]);
     const result = await markClientBeingSeen({ clientId: 101, actorUserId: 9 });
     expect(result.skipped).toBe('terminal');expect(mocks.update).not.toHaveBeenCalled();expect(mocks.sync).not.toHaveBeenCalled();
+  });
+  it('preserves the Inactive label when reconciling a closed school client',async()=>{
+    mocks.execute.mockResolvedValue([[{id:101,client_type:'school',client_status_key:'inactive'}]]);
+    expect(await reconcileSchoolClientStatus({clientId:101})).toEqual({statusKey:'inactive',changed:false});
+    expect(mocks.update).not.toHaveBeenCalled();expect(mocks.sync).not.toHaveBeenCalled();
   });
   it.each(['2026-11-04T18:00:00Z', '2026-11-05T03:00:00Z'])('prevents a later readiness write from undoing confirmed services at %s', async now => {
     vi.useFakeTimers();

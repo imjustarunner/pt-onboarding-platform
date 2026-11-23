@@ -13,7 +13,7 @@ const hashState = state => createHash('sha256').update(JSON.stringify(state)).di
 const json = value => { try { return typeof value==='string'?JSON.parse(value):value||{}; } catch { return {}; } };
 export function schoolStatusEmailState(client, providers, reason = null) {
   const status=String(client.client_status_key||'').toLowerCase();
-  const inactive=['terminated','archived','not_returning'].includes(status)||['TERMINATED','ARCHIVED'].includes(client.status);
+  const inactive=['inactive','terminated','archived','not_returning'].includes(status)||['TERMINATED','ARCHIVED'].includes(client.status);
   const ids=[...new Set(providers.map(p=>Number(p.id)))].sort((a,b)=>a-b);
   const kind=inactive?null:status==='waitlist'?'waitlist':ids.length?'assigned':null;
   return {agencyId:Number(client.agency_id),kind,providerIds:ids,reason:kind==='waitlist'?String(json(client.agency_intake_json).waitlistReason||reason||'').trim():null};

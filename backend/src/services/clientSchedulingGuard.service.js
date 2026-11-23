@@ -3,9 +3,10 @@ import pool from '../config/database.js';
 const held = new AsyncLocalStorage();
 export const hasClientSchedulingLock = () => (held.getStore()?.size || 0) > 0;
 export function assertClientNotTerminated(client) {
-  if (String(client?.client_status_key || client?.status_key || '').toLowerCase() === 'terminated'
+  const key=String(client?.client_status_key || client?.status_key || '').toLowerCase();
+  if (['inactive','archived','terminated','dead'].includes(key) || ['ARCHIVED','TERMINATED','INACTIVE'].includes(String(client?.status || '').toUpperCase())
       || String(client?.client_status_label || '').toLowerCase().includes('terminated')) {
-    throw Object.assign(new Error('This client is terminated. Restore their active status before booking future sessions.'), { status:409,code:'CLIENT_TERMINATED' });
+    throw Object.assign(new Error('This client is inactive. Reopen enrollment and restore their active status before booking future sessions.'), { status:409,code:'CLIENT_TERMINATED' });
   }
 }
 // Reentrant across office-plan -> context -> appointment calls in one request.

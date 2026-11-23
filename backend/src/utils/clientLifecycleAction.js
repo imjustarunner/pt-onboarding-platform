@@ -121,7 +121,7 @@ export function deriveLifecycleAction({ client, viewerRole, disposition = null, 
   const isAgency = ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant'].includes(role);
   const isProvider = ['provider', 'provider_plus', 'intern', 'intern_plus'].includes(role);
 
-  if (statusKey === 'terminated') return null;
+  if (['inactive', 'archived', 'terminated', 'dead'].includes(statusKey)) return null;
   if (statusKey === 'waitlist') {
     if (isAgency) {
       return { role: 'agency', actionKey: 'waitlist_resolution', label: 'Waitlist – Action Needed' };
@@ -273,7 +273,7 @@ export function deriveLifecycleAction({ client, viewerRole, disposition = null, 
  */
 export function needsInsuranceClearance({ client, disposition = null, ignoreOverride = false, now = new Date() }) {
   const statusKey = String(client?.client_status_key || '').toLowerCase();
-  if (statusKey === 'terminated' || statusKey === 'waitlist') return false;
+  if (['inactive', 'archived', 'terminated', 'dead', 'waitlist'].includes(statusKey)) return false;
   if (NO_AGENCY_CLEARANCE.has(statusKey) && statusKey !== 'confirmation_pending') return false;
   const continuation = parseJson(client?.continuation_services_json) || {};
   if (continuationBlocksAgencyClearance(continuation)) return false;

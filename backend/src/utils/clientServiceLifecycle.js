@@ -6,7 +6,7 @@ export function serviceStatus(service={}) {
   return Number(service.is_active)===1?saved:saved==='active'?'discontinued':saved;
 }
 export function terminalProfile(client={}) {
-  return ['terminated','archived','dead'].includes(String(client.client_status_key||client.status_key||'').toLowerCase())
+  return ['inactive','terminated','archived','dead'].includes(String(client.client_status_key||client.status_key||'').toLowerCase())
     ||['ARCHIVED','TERMINATED'].includes(client.status)||String(client.client_status_label||'').toLowerCase().includes('terminated');
 }
 export function servicePortalAccess(client,services=[],serviceId=null) {
