@@ -8,7 +8,8 @@ import { ensureClientSchoolYearMembership } from '../services/clientSchoolYear.s
 export async function stampClientTerminationSchoolYear({
   clientId,
   agencyId = null,
-  actorUserId = null
+  actorUserId = null,
+  effectiveDate = null
 }) {
   const cid = Number(clientId || 0);
   if (!cid) return null;
@@ -20,7 +21,7 @@ export async function stampClientTerminationSchoolYear({
   const row = rows?.[0];
   if (!row) return null;
 
-  const currentYear = computeCurrentSchoolYearLabel();
+  const currentYear = computeCurrentSchoolYearLabel(effectiveDate ? new Date(`${effectiveDate}T12:00:00`) : new Date());
   const priorYear = normalizeSchoolYearLabel(row.school_year);
   const termYear = currentYear || priorYear;
 

@@ -44,6 +44,11 @@ import {
   postNoteAidClaimUnassigned,
   unarchiveClient,
   terminateClient,
+  getClientTerminationProviders,
+  getEnrollmentFollowup,
+  previewEnrollmentFollowup,
+  postEnrollmentFollowup,
+  reopenClientEnrollment,
   bulkPromoteSchoolYear,
   bulkCreateClientRenewals,
   rolloverSchoolYear,
@@ -236,6 +241,11 @@ router.put('/:id/chart-types', requireActiveStatus, putClientChartTypes);
 router.post('/:id/unarchive', unarchiveClient);
 
 // Terminate client (support staff or assigned provider; requires termination_reason)
+router.get('/:id/termination-providers', getClientTerminationProviders);
+router.get('/:id/enrollment-followup', getEnrollmentFollowup);
+router.post('/:id/enrollment-followup/preview', previewEnrollmentFollowup);
+router.post('/:id/enrollment-followup', postEnrollmentFollowup);
+router.post('/:id/reopen-enrollment', reopenClientEnrollment);
 router.post('/:id/terminate', terminateClient);
 
 // Update client status

@@ -146,6 +146,8 @@ server.listen(PORT, HOST, () => {
       const { requireNluAttendanceRepairSchema } = await import('./services/nluAttendanceRepairReadiness.service.js');
       await requireNluAttendanceRepairSchema();
       const {requireClientCreationDraftSchema}=await import('./services/clientCreationDraftReadiness.service.js');
+      const { requireEnrollmentFollowupReadiness } = await import('./services/enrollmentFollowupReadiness.service.js');
+      await requireEnrollmentFollowupReadiness();
       await requireClientCreationDraftSchema();
       console.log('[startup:clients] Encrypted client-creation draft schema verified');
       const { requireClientProgramSchema } = await import('./services/clientProgramSchemaReadiness.service.js');

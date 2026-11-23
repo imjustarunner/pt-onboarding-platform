@@ -110,6 +110,7 @@
           Possible duplicates
           <span v-if="nameDuplicateGroupCount" class="cm-view-badge cm-view-badge--warn">{{ nameDuplicateGroupCount }}</span>
         </button>
+        <button v-if="canBackofficeEdit" type="button" class="cm-view-tab" :class="{ active: cmViewMode === 'inactive' }" @click="cmViewMode = 'inactive'">Inactive</button>
       </div>
 
     <!-- Inline Intakes view -->
@@ -133,6 +134,10 @@
         @open-client="openClientDetail"
         @merged="fetchClients(); loadSideCounts()"
       />
+    </div>
+
+    <div v-else-if="cmViewMode === 'inactive'" class="cm-inline-panel">
+      <InactiveClientsPanel :agency-ids="directoryAgencyIds" :demo="devFillFilter || 'exclude'" @open-client="openClientDetail" @reopened="loadSideCounts(); fetchClients()" />
     </div>
 
     <template v-else>
@@ -696,7 +701,7 @@
 
                 <button type="button" class="btn btn-secondary btn-sm" @click.stop="openClientDetail(client)">Open client</button>
                 <button v-if="canBackofficeEdit" type="button" class="btn btn-secondary btn-sm" :aria-pressed="!!Number(client.is_demo)" @click.stop="toggleClientDemo(client,!Number(client.is_demo));closeRowMenu($event)">{{Number(client.is_demo)?'Demo: on — turn off':'Demo: off — turn on'}}</button>
-                <button v-if="canBackofficeEdit" type="button" class="btn btn-danger btn-sm" @click.stop="startEditStatus(client);closeRowMenu($event)">Archive client</button>
+                <button v-if="canBackofficeEdit" type="button" class="btn btn-danger btn-sm" @click.stop="terminationClient = client;closeRowMenu($event)">Mark inactive / final follow-up</button>
               </div>
               </details>
             </td>
@@ -1325,12 +1330,15 @@
     />
 
   </div>
+  <ClientTerminationDialog v-if="terminationClient" :key="terminationClient.id" :client-id="Number(terminationClient.id)" :client-name="getClientLabel(terminationClient)" :agency-id="Number(terminationClient.agency_id)" @close="terminationClient = null" @saved="terminationClient = null; fetchClients(); loadSideCounts()" />
   <ReferralUpload v-if="standalonePaperOpen && selectedPaperSchoolSlug" :organization-slug="selectedPaperSchoolSlug" @close="standalonePaperOpen=false" @submitted="onPaperUploaded" />
 </template>
 
 <script setup>
 import { offersAssignmentService, chartOrganizationLabel } from '../../utils/clientRosterContext.js';
 import ClientQuickLook from '../../components/clients/ClientQuickLook.vue';
+import ClientTerminationDialog from '../../components/admin/ClientTerminationDialog.vue';
+import InactiveClientsPanel from '../../components/admin/InactiveClientsPanel.vue';
 import ClientFollowUpTask from '../../components/clients/ClientFollowUpTask.vue';
 import ClientServiceEnrollments from '../../components/admin/ClientServiceEnrollments.vue';
 import { useClientQuickLook } from '../../composables/useClientQuickLook.js';
@@ -1397,6 +1405,7 @@ const searchHints = SEARCH_HINTS;
 
 // View-mode switcher: 'clients' | 'intakes' | 'exchange' | 'duplicates'
 const cmViewMode = ref('clients');
+const terminationClient = ref(null);
 const identityReviewMode = ref(null);
 const pendingIntakeCount = ref(0);
 const exchangeListingCount = ref(0);

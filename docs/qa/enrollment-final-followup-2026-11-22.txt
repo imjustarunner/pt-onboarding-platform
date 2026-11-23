@@ -1,0 +1,42 @@
+New Enrollments: final follow-up and inactive lifecycle
+
+Staff can mark clients inactive from New Enrollments or the All Clients row
+menu. Termination reason, historical provider, and effective date are optional.
+Inactive is the user-facing list; existing roster storage remains compatible.
+The Inactive tab and client record can reopen the same enrollment for review.
+
+The optional final email composer offers insurance, TRICARE provider, in-office
+options, school waitlist, MH4Kidz grant funding, missing paperwork, and provider
+connection checkboxes. It generates editable text and a branded preview. From
+and Reply-To use the owning agency's configured schools@ identity. Selecting
+school waitlist preserves that outcome instead of terminating the client.
+
+An accepted send precedes the status change. A stable request key prevents
+duplicate sends on retries. An interrupted accepted send can be resumed from
+the dialog; uncertain delivery is held for Communications review.
+
+A uniquely matched, authenticated human reply to the final message reopens
+the original client as prospective/PENDING_REVIEW, with no provider assignment
+or new client. The sender gets an app notification, New Enrollments highlights
+the reply and sorts by reopening date, and the reply is retained in the shared
+school support inbox linked to the existing client. Replays, automated replies,
+bounces, mismatched recipients, and superseded staff decisions do not reopen a
+client. Unmatched mail continues through the existing inbox review workflow.
+
+Migration 1867 is additive and is applied by normal backend startup. A dedicated
+readiness check blocks production traffic if the required storage is absent.
+The backend image includes the pure shared email template constants.
+
+Validation:
+- 92 backend tests, including existing inbound mail delivery regressions.
+- 26 frontend tests, including existing enrollment preferences regressions.
+- 3 public release checks; changed Vue files compile; git diff --check passes.
+- Synthetic desktop and 375px mobile Chrome: edited branded preview, correct
+  schools@ sender/reply routing, successful submit, and no horizontal overflow
+  or page exceptions. No family messages or production client records changed.
+- Focused backend/frontend suites are included in scheduling regression CI.
+
+Deployment and Rachel notification receipts will be retained separately after
+the exact release is verified live. The release notification uses the established
+automation transport, an explicitly identified Codex Assistant sender, and null
+human audit actors with append-only automation evidence.

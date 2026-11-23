@@ -65,6 +65,9 @@ import { normalizeContinuationServicesPayload } from '../utils/fallReadiness.js'
 import { applyFallContinuationSideEffects } from '../services/fallContinuation.service.js';
 import { addClientToSchoolYear } from '../services/clientSchoolYear.service.js';
 import { stampClientTerminationSchoolYear } from '../services/clientTerminationSchoolYear.service.js';
+import { clientTerminationDetails, listClientTerminationProviders } from '../services/clientTerminationDetails.service.js';
+import { enrollmentFollowupContext, enrollmentFollowupPreview, sendEnrollmentFollowup } from '../services/enrollmentFollowup.service.js';
+import { reopenEnrollment } from '../services/enrollmentFollowupReply.service.js';
 import { findNameDuplicateGroups } from '../services/clientNameDuplicate.service.js';
 import { clientDuplicateReviewAgencies } from '../services/clientChartIdentity.service.js';
 import { nameMatchKey, parseFullName } from '../utils/clientNameDuplicate.js';
@@ -2877,26 +2880,13 @@ export const unarchiveClient = async (req, res, next) => {
   }
 };
 
-/**
- * Terminate client (support staff or assigned provider)
- * POST /api/clients/:id/terminate
- * Body: { termination_reason: string } (required)
- */
-export const terminateClient = async (req, res, next) => {
-  try {
+async function clientForTermination(req) {
     const { id } = req.params;
     const userId = req.user.id;
     const userRole = req.user.role;
 
     const currentClient = await Client.findById(id, { includeSensitive: true });
-    if (!currentClient) return res.status(404).json({ error: { message: 'Client not found' } });
-
-    const reason = String(req.body?.termination_reason || '').trim();
-    if (!reason) {
-      return res.status(400).json({
-        error: { message: 'A termination reason (comment) is required when terminating a client.' }
-      });
-    }
+    if (!currentClient) throw Object.assign(new Error('Client not found'), { status: 404 });
 
     // Permission: support staff (admin/support/staff) OR provider assigned to this client
     const roleNorm = String(userRole || '').toLowerCase();
@@ -2921,18 +2911,82 @@ export const terminateClient = async (req, res, next) => {
     }
 
     if (!isSupportStaff && !isAssignedProvider) {
-      return res.status(403).json({
-        error: { message: 'Only support staff or the assigned provider can terminate a client.' }
-      });
+      throw Object.assign(new Error('Only support staff or the assigned provider can terminate a client.'), { status: 403 });
     }
 
     if (userRole !== 'super_admin') {
       const userAgencies = await User.getAgencies(userId);
       const userAgencyIds = (userAgencies || []).map((a) => a.id);
       if (!userAgencyIds.includes(currentClient.agency_id)) {
-        return res.status(403).json({ error: { message: 'You do not have access to this client' } });
+        throw Object.assign(new Error('You do not have access to this client'), { status: 403 });
       }
     }
+    return currentClient;
+}
+
+export const getClientTerminationProviders = async (req, res, next) => {
+  try {
+    const client = await clientForTermination(req);
+    res.json({ providers: await listClientTerminationProviders(client) });
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: { message: error.message } });
+    next(error);
+  }
+};
+
+export const getEnrollmentFollowup = async (req, res, next) => {
+  try {
+    const client = await clientForTermination(req);
+    const context = await enrollmentFollowupContext(client);
+    const { brand, senderIdentityId, ...publicContext } = context;
+    const [[pending]] = await pool.execute("SELECT request_key,payload_json,state FROM client_enrollment_followups WHERE client_id=? AND state IN ('sending','sent','delivery_unknown','held') ORDER BY id DESC LIMIT 1", [client.id]);
+    res.json({ ...publicContext, pendingFollowup: pending ? { requestKey: pending.request_key, state: pending.state, reviewed: typeof pending.payload_json === 'string' ? JSON.parse(pending.payload_json) : pending.payload_json } : null });
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: { message: error.message } });
+    next(error);
+  }
+};
+
+export const previewEnrollmentFollowup = async (req, res, next) => {
+  try {
+    const client = await clientForTermination(req);
+    const context = await enrollmentFollowupContext(client);
+    res.json({ html: enrollmentFollowupPreview(context, req.body?.text), from: context.from, replyTo: context.replyTo });
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: { message: error.message } });
+    next(error);
+  }
+};
+
+export const postEnrollmentFollowup = async (req, res, next) => {
+  try {
+    const client = await clientForTermination(req);
+    res.json(await sendEnrollmentFollowup({ client, actorUserId: req.user.id, body: req.body }));
+  } catch (error) {
+    if (error.status || error.followupSent) return res.status(error.status || 503).json({ error: { message: error.followupSent ? 'The email was sent. The status change still needs to finish. Retry this same action without editing the email; it will not be sent again.' : error.message, followupSent: !!error.followupSent, deliveryReview: !!error.deliveryReview } });
+    next(error);
+  }
+};
+
+export const reopenClientEnrollment = async (req, res, next) => {
+  try {
+    const client = await clientForTermination(req);
+    const role = String(req.user.role).toLowerCase();
+    if (!['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant'].includes(role)) return res.status(403).json({ error: { message: 'Support staff access is required to reopen enrollment.' } });
+    res.json(await reopenEnrollment({ clientId: client.id, agencyId: client.agency_id, actorUserId: req.user.id }));
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: { message: error.message } });
+    next(error);
+  }
+};
+
+/** Terminate a client with optional reason, historical provider and effective date. */
+export const terminateClient = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+    const currentClient = await clientForTermination(req);
+    const details = await clientTerminationDetails(req.body, currentClient);
 
     const terminatedStatusId = await getClientStatusIdByKey({
       agencyId: currentClient.agency_id,
@@ -2944,11 +2998,12 @@ export const terminateClient = async (req, res, next) => {
       });
     }
 
-    const terminationReason = reason.slice(0, 2000);
+    const terminationReason = details.termination_reason;
     // Client.update atomically archives the active roster and ends provider assignments while retaining history.
     const updated = await Client.update(id, {
       client_status_id: terminatedStatusId,
-      termination_reason: terminationReason,
+      ...details,
+      ...(currentClient.enrollment_followup_id ? { enrollment_followup_id: null } : {}),
       terminated_at: new Date(),
       terminated_by_user_id: userId,
       roi_expires_at: null
@@ -2957,7 +3012,8 @@ export const terminateClient = async (req, res, next) => {
     await stampClientTerminationSchoolYear({
       clientId: id,
       agencyId: currentClient.agency_id,
-      actorUserId: userId
+      actorUserId: userId,
+      effectiveDate: details.termination_effective_date
     }).catch(() => {});
 
     await ClientStatusHistory.create({
@@ -2966,7 +3022,11 @@ export const terminateClient = async (req, res, next) => {
       field_changed: 'client_status_id',
       from_value: currentClient.client_status_id ? String(currentClient.client_status_id) : null,
       to_value: String(terminatedStatusId),
-      note: terminationReason
+      note: [
+        `Reason: ${terminationReason || 'Not recorded'}`,
+        `Last provider: ${details.termination_last_provider_name || 'Not recorded'}`,
+        `Termination date: ${details.termination_effective_date || 'Not recorded'}`
+      ].join('\n')
     }).catch(() => {});
 
     // Roster closure, provider assignment history and slot reconciliation now
@@ -2986,6 +3046,7 @@ export const terminateClient = async (req, res, next) => {
     logClientAccess(req, id, 'client_terminated').catch(() => {});
     res.json(updated);
   } catch (e) {
+    if (e.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);
   }
 };
@@ -2996,6 +3057,9 @@ export const terminateClient = async (req, res, next) => {
  */
 export const updateClient = async (req, res, next) => {
   try {
+    if (['termination_effective_date', 'termination_last_provider_id', 'termination_last_provider_name', 'enrollment_followup_id', 'enrollment_reopened_at', 'enrollment_reopened_source'].some(field => req.body?.[field] !== undefined)) {
+      return res.status(400).json({ error: { message: 'Use the termination action to record termination details.' } });
+    }
     const { id } = req.params;
     const userId = req.user.id;
     const userRole = req.user.role;
@@ -3194,6 +3258,8 @@ export const updateClient = async (req, res, next) => {
       }
     }
 
+    // A later staff status decision supersedes reopening from older outreach.
+    if (req.body.client_status_id !== undefined && currentClient.enrollment_followup_id) req.body.enrollment_followup_id = null;
     // Update client
     let updatedClient = await Client.update(id, req.body, userId);
 

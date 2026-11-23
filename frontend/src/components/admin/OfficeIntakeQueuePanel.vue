@@ -80,7 +80,7 @@
       <div class="oiq-sort-wrap">
         <label class="oiq-sort-label">Sort:</label>
         <select v-model="sortField" class="oiq-sort-select">
-          <option value="createdAt">Date submitted</option>
+          <option value="createdAt">Date added / reopened</option>
           <option value="fullName">Name</option>
           <option value="clientType">Type</option>
           <option value="pathway">Pathway</option>
@@ -108,6 +108,7 @@
       <span>{{ filtered.length }} matching enrollments</span>
     </div>
     <!-- Error / empty -->
+    <div v-if="successMessage" class="oiq-banner" role="status">{{ successMessage }}</div>
     <div v-if="error" class="oiq-banner oiq-banner--warn">{{ error }}</div>
     <div v-else-if="!loading && filtered.length === 0" class="oiq-empty">
       <span>{{ searchQuery ? 'No results for your search.' : 'No enrollments are awaiting assignment.' }}</span>
@@ -128,6 +129,7 @@
           @click="select(c)"
         >
           <QuickPostClientToExchange :client="c" />
+          <span v-if="c.enrollmentReopenedSource === 'email_reply'" class="oiq-pill oiq-pill--reply">Replied to final follow-up</span>
           <div class="oiq-card-top">
             <div class="oiq-card-initials" :style="initialsStyle(c)">{{ getAvatarLetters(c) }}</div>
 
@@ -206,6 +208,7 @@
             </div>
           </div>
           <div class="oiq-detail-header-actions">
+            <button type="button" class="oiq-btn oiq-btn--terminate" @click="terminationClient = selected">Mark inactive / follow up</button>
             <a
               :href="clientProfilePath(selected)"
               class="oiq-open-client"
@@ -418,6 +421,7 @@
       <!-- No selection placeholder - only shown in split mode which won't happen without a selection -->
       
     </div>
+    <ClientTerminationDialog v-if="terminationClient" :key="terminationClient.id" :client-id="terminationClient.id" :client-name="getClientLabel(terminationClient)" :agency-id="terminationClient.agencyId || singleAgencyId || undefined" @close="terminationClient = null" @saved="onClientTerminated" />
   </div>
 </template>
 
@@ -438,6 +442,7 @@ import {
 import api from '../../services/api';
 import QuickPostClientToExchange from '../clientExchange/QuickPostClientToExchange.vue';
 import ClientDisplayModeToggle from './ClientDisplayModeToggle.vue';
+import ClientTerminationDialog from './ClientTerminationDialog.vue';
 import { reportCalendarDate } from '../../utils/reportDateTime.js';
 import { exchangeScheduleLines, scheduleFromIntake } from '../../utils/clientExchangeSchedule.js';
 
@@ -457,6 +462,8 @@ const scopedAgencyIds = computed(() => props.agencyIds ?? (agencyId.value ? [age
 const singleAgencyId = computed(() => scopedAgencyIds.value.length === 1 ? scopedAgencyIds.value[0] : null);
 const loading = ref(false);
 const error = ref('');
+const successMessage = ref('');
+const terminationClient = ref(null);
 const clients = ref([]);
 const referredRows = ref([]);
 const recentlyReferred = computed(() => filterEnrollments(referredRows.value, enrollmentFilters.value));
@@ -506,6 +513,15 @@ function clientProfilePath(c) {
 
 function select(c) {
   selectedId.value = c.id;
+}
+
+async function onClientTerminated({ clientId, disposition, emailed }) {
+  const name = getClientLabel(terminationClient.value);
+  if (disposition !== 'waitlist') clients.value = clients.value.filter(c => c.id !== clientId);
+  if (selectedId.value === clientId) selectedId.value = null;
+  terminationClient.value = null;
+  successMessage.value = `${emailed ? 'Final follow-up sent. ' : ''}${name} ${disposition === 'waitlist' ? 'kept on the school waitlist' : 'marked as terminated and moved to Inactive'}.`;
+  await loadAll();
 }
 
 const recentCount = computed(() => {
@@ -634,8 +650,8 @@ const filtered = computed(() => {
     let va = a[sortField.value] || '';
     let vb = b[sortField.value] || '';
     if (sortField.value === 'createdAt') {
-      va = new Date(va).getTime() || 0;
-      vb = new Date(vb).getTime() || 0;
+      va = new Date(a.enrollmentReopenedAt || va).getTime() || 0;
+      vb = new Date(b.enrollmentReopenedAt || vb).getTime() || 0;
     } else {
       va = String(va).toLowerCase();
       vb = String(vb).toLowerCase();
@@ -1098,6 +1114,7 @@ watch([filtered, loading], ([rows, busy]) => {
 }
 .oiq-detail-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.6rem;
   padding: 0.7rem 0.9rem;
@@ -1365,6 +1382,9 @@ a.oiq-detail-value {
   border-color: var(--primary, #2d6a4f);
 }
 .oiq-btn--ghost:not(:disabled):hover { background: #f0fdf4; }
+.oiq-btn--terminate { color: #9f2424; border: 1px solid #d9a3a3; background: var(--card-bg, #fff); white-space: nowrap; }
+.oiq-btn--terminate:hover { background: #fff1f2; }
+.oiq-pill--reply { color: #14532d; background: #dcfce7; margin: .4rem; }
 
 /* ── Recently referred section ─────────────────────── */
 .oiq-referred-section {

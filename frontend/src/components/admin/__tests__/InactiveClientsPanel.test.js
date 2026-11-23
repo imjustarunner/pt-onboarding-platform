@@ -1,0 +1,22 @@
+import { afterEach, expect, it, vi } from 'vitest';
+import { flushPromises, mount } from '@vue/test-utils';
+const api = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }));
+vi.mock('../../../services/api', () => ({ default: api }));
+vi.mock('../../../composables/useClientDisplayMode', () => ({ useClientDisplayMode: () => ({ getClientLabel: client => client.full_name }) }));
+import Panel from '../InactiveClientsPanel.vue';
+let wrapper;
+afterEach(() => wrapper?.unmount());
+it('lists inactive records from the authorized agency and reopens the same enrollment', async () => {
+  api.get.mockResolvedValueOnce({ data: { items: [{ id: 51, agency_id: 2, full_name: 'Example Client', client_status_label: 'Terminated' }], total: 1 } }).mockResolvedValue({ data: { items: [], total: 0 } });
+  api.post.mockResolvedValue({ data: { clientId: 51, reopened: true } });
+  wrapper = mount(Panel, { props: { agencyIds: [2] } });
+  await flushPromises();
+  expect(wrapper.text()).toContain('Inactive · Terminated');
+  expect(wrapper.text()).toContain('Example Client');
+  expect(api.get).toHaveBeenCalledWith('/clients/archived', expect.objectContaining({ params: expect.objectContaining({ agency_id: 2, status: 'ARCHIVED', includeArchived: true }) }));
+  await wrapper.findAll('button').find(button => button.text() === 'Reopen enrollment').trigger('click');
+  await flushPromises();
+  expect(api.post).toHaveBeenCalledWith('/clients/51/reopen-enrollment', {}, { headers: { 'X-Agency-Id': '2' } });
+  expect(wrapper.get('[role="status"]').text()).toContain('back in New Enrollments');
+  expect(wrapper.emitted('reopened')[0][0].id).toBe(51);
+});

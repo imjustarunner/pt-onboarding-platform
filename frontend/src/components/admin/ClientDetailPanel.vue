@@ -86,14 +86,14 @@
               </div>
               <div v-show="!headerCollapsed" class="cdp-meta-row">
                 <button v-if="canEditAccount" type="button" class="cdp-pill cdp-status-edit" :class="statusPillClass" aria-label="Change client status" title="Change client status" @click="editHeaderStatus">
-                  {{ isClientArchived ? 'Archived' : displayStatusLabel }} ▾
+                  {{ isClientArchived ? 'Inactive' : displayStatusLabel }} ▾
                 </button>
                 <span v-else
                   class="cdp-pill"
                   :class="statusPillClass"
                   :title="isClientTerminated && client.termination_reason ? client.termination_reason : undefined"
                 >
-                  {{ isClientArchived ? 'Archived' : displayStatusLabel }}
+                  {{ isClientArchived ? 'Inactive' : displayStatusLabel }}
                 </span>
                 <ClientTypeEditor v-if="canReadChartTypes" :key="`${client.id}:${activeChartAgencyId}`"
                   :profile="chartTypes" :label="clientTypeLabel" :error="chartTypeError" :can-edit="canEditClientType"
@@ -199,7 +199,7 @@
             :can-view-medical-record="canViewMedicalRecord"
             :can-view-private-chart="['super_admin', 'admin', 'support', 'provider', 'provider_plus'].includes(roleNorm)"
             :glance-items="overviewGlanceItems"
-            :status-label="isClientArchived ? 'Archived' : displayStatusLabel"
+            :status-label="isClientArchived ? 'Inactive' : displayStatusLabel"
             :program-label="overviewProgramLabel"
             :care-team-label="primaryProviderLabel"
             :care-team-meta="careTeamGlanceMeta"
@@ -362,7 +362,7 @@
             </div>
             <div class="cdp-school-profile-item">
               <span class="cdp-school-profile-kicker">Status</span>
-              <strong>{{ isClientArchived ? 'Archived' : displayStatusLabel }}</strong>
+              <strong>{{ isClientArchived ? 'Inactive' : displayStatusLabel }}</strong>
             </div>
             <div
               v-if="canViewAdminNote"
@@ -399,7 +399,7 @@
             <div class="cdp-care-strip">
               <button type="button" class="cdp-care-chip">
                 <span class="cdp-care-chip__title">Status</span>
-                <span class="cdp-care-chip__body">{{ isClientArchived ? 'Archived' : displayStatusLabel }}</span>
+                <span class="cdp-care-chip__body">{{ isClientArchived ? 'Inactive' : displayStatusLabel }}</span>
                 <span class="cdp-care-chip__meta">{{ clientTypeLabel }}</span>
               </button>
               <button v-if="canViewMedicalRecord" type="button" class="cdp-care-chip" @click="goChartSub('clinical')">
@@ -671,14 +671,12 @@
                       >
                         {{ displayStatusLabel }}
                       </span>
-                      <div v-if="isClientTerminated && client.termination_reason" class="hint" style="margin-top: 6px;">
-                        <strong>Termination reason:</strong> {{ client.termination_reason }}
-                      </div>
+                      <ClientTerminationSummary v-if="isClientTerminated" :client="client" />
                     </template>
                   </div>
                 </div>
                 <div class="ov-row">
-                  <div class="ov-row-label">Archived</div>
+                  <div class="ov-row-label">Inactive</div>
                   <div class="ov-row-value">{{ isClientArchived ? 'Yes' : 'No' }}</div>
                 </div>
                 <div class="ov-row">
@@ -1089,7 +1087,7 @@
                   type="button"
                   @click="unarchiveClient"
                 >
-                  Unarchive client
+                  Reopen enrollment
                 </button>
               </template>
             </div>
@@ -2929,6 +2927,7 @@ import ClientUpdateAssignments from './clientChart/ClientUpdateAssignments.vue';
 import ClientSchedulePanel from './clientChart/ClientSchedulePanel.vue';
 import ClientEhrBringUpToDatePanel from './clientChart/ClientEhrBringUpToDatePanel.vue';
 import { formatAuditTimestamp, formatDate as formatCalendarDate } from '../../utils/formatDate';
+import ClientTerminationSummary from './ClientTerminationSummary.vue';
 import EnrollmentPreferencesSummary from './clientChart/EnrollmentPreferencesSummary.vue';
 import ClientClinicalTab from './clientChart/ClientClinicalTab.vue';
 import ClientClinicalNotesFeed from './clientChart/ClientClinicalNotesFeed.vue';
@@ -5405,11 +5404,11 @@ const archiveClient = async () => {
 const unarchiveClient = async () => {
   if (!canEditAccount.value) return;
   try {
-    await api.post(`/clients/${props.client.id}/unarchive`);
+    await api.post(`/clients/${props.client.id}/reopen-enrollment`);
     emit('updated');
   } catch (err) {
-    console.error('Failed to unarchive client:', err);
-    alert(err.response?.data?.error?.message || 'Failed to unarchive client');
+    console.error('Failed to reopen enrollment:', err);
+    alert(err.response?.data?.error?.message || 'Failed to reopen enrollment');
   }
 };
 

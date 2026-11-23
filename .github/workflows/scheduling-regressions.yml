@@ -117,6 +117,8 @@ jobs:
         run: |
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.rachel-school-operations.config.js
           node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.rachel-school-operations.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.enrollment-termination.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.enrollment-termination.config.js
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.client-exchange.config.js
           (cd frontend && node node_modules/vitest/vitest.mjs run --config vitest.client-exchange.config.js)
           node --test backend/src/utils/__tests__/clientExchangeMatching.test.js backend/src/utils/__tests__/supportExchangeSummary.test.js

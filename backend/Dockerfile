@@ -134,6 +134,7 @@ COPY frontend/src/config/clinicalInterventionSeed.js /frontend/src/config/clinic
 # Mark these files as ES modules so Node resolves named exports correctly.
 # Without this, Node treats the .js files as CommonJS and named imports fail.
 RUN echo '{"type":"module"}' > /frontend/package.json
+COPY frontend/src/constants/enrollmentFollowup.js /frontend/src/constants/enrollmentFollowup.js
 
 # Copy database migrations (run automatically on startup via bootstrap.js)
 COPY database/migrations ./database/migrations

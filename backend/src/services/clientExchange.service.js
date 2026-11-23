@@ -590,6 +590,8 @@ export async function listPendingOfficeClients({ agencyId, includeSchool = false
        AND c.client_type IN (${typePlaceholders})
        AND c.provider_id IS NULL
        AND ${awaitingEnrollment}
+       AND NOT EXISTS (SELECT 1 FROM client_statuses terminal_status WHERE terminal_status.id=c.client_status_id
+         AND (LOWER(terminal_status.status_key) IN ('terminated','archived','dead') OR LOWER(terminal_status.label) LIKE '%terminated%'))
      ORDER BY c.created_at DESC`;
   let rows;
   try {
@@ -597,7 +599,7 @@ export async function listPendingOfficeClients({ agencyId, includeSchool = false
       `SELECT c.id, c.initials, c.full_name, c.identifier_code, c.client_type, c.status,
               c.contact_phone, c.submission_date, c.source, c.intake_preferences_json,
               c.adaptive_intake_meta_json, c.created_at, c.date_of_birth,
-              c.created_via_dev_fill, c.is_demo, c.email, c.agency_id, c.organization_id, org.name AS organization_name, org.organization_type, a.name AS agency_name, ${demoEnrollmentGuardian}
+              c.created_via_dev_fill, c.enrollment_reopened_at, c.enrollment_reopened_source, c.is_demo, c.email, c.agency_id, c.organization_id, org.name AS organization_name, org.organization_type, a.name AS agency_name, ${demoEnrollmentGuardian}
        FROM clients c LEFT JOIN agencies org ON org.id=c.organization_id LEFT JOIN agencies a ON a.id=c.agency_id
        ${baseWhere}`,
       [aid, ...clientTypes]
@@ -634,7 +636,9 @@ export async function listPendingOfficeClients({ agencyId, includeSchool = false
     pathway: parseJsonColumn(row.adaptive_intake_meta_json)?.pathway || null,
     createdAt: row.created_at,
     dateOfBirth: row.date_of_birth || null,
-    createdViaDevFill: Number(row.created_via_dev_fill) === 1
+    createdViaDevFill: Number(row.created_via_dev_fill) === 1,
+    enrollmentReopenedAt: row.enrollment_reopened_at || null,
+    enrollmentReopenedSource: row.enrollment_reopened_source || null
   }));
   for (const client of clients) {
     client.serviceSubject = normalizeEnrollmentSubject(client.adaptiveMeta?.whoFor
