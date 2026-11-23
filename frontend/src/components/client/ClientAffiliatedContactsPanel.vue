@@ -3,11 +3,11 @@
     <header class="cca-head">
       <div>
         <h3 class="cca-title">{{ title }}</h3>
-        <p class="cca-sub">
+        <p v-if="!readOnly && mode === 'guardian'" class="cca-sub">
           Contacts stay outside the portal. Both parents can see them; each parent manages the contacts they added.
         </p>
       </div>
-      <button type="button" class="btn btn-primary btn-sm" @click="showForm = !showForm">
+      <button v-if="!readOnly" type="button" class="btn btn-primary btn-sm" @click="showForm = !showForm">
         {{ showForm ? 'Cancel' : 'Add contact' }}
       </button>
     </header>
@@ -103,7 +103,7 @@
             <span v-if="item.contactChoiceAt"> · {{ formatWhen(item.contactChoiceAt) }}</span>
           </p>
         </div>
-        <div v-if="item.canEdit !== false" class="cca-item-actions">
+        <div v-if="!readOnly && item.canEdit !== false" class="cca-item-actions">
           <button
             type="button"
             class="btn btn-ghost btn-sm"
@@ -120,11 +120,11 @@
             Remove
           </button>
         </div>
-        <p v-if="item.canEdit === false" class="cca-choice">Added by the other parent or care team · View only</p>
-        <button v-if="allowGuardianInvites && ['parent','guardian'].includes(item.relationshipType) && item.contact?.email" type="button" class="btn btn-secondary btn-sm" :disabled="saving" @click="inviteGuardian(item)">Invite secondary guardian</button>
+        <p v-if="!readOnly && item.canEdit === false" class="cca-choice">Added by the other parent or care team · View only</p>
+        <button v-if="!readOnly && allowGuardianInvites && ['parent','guardian'].includes(item.relationshipType) && item.contact?.email" type="button" class="btn btn-secondary btn-sm" :disabled="saving" @click="inviteGuardian(item)">Invite secondary guardian</button>
       </li>
     </ul>
-    <p v-else class="cca-muted">No affiliated contacts yet.</p>
+    <p v-else-if="!error" class="cca-muted">No affiliated contacts yet.</p>
 
     <div v-if="editing" class="cca-modal" @click.self="editing = null">
       <div class="cca-modal-card" role="dialog">
@@ -176,6 +176,8 @@ import api from '../../services/api';
 const props = defineProps({
   embedded:Boolean,
   allowGuardianInvites:{type:Boolean,default:true},
+  readOnly: Boolean,
+  agencyId: [Number, String],
   clientId: { type: [Number, String], required: true },
   /** 'staff' uses /api/clients/:id/contacts; 'guardian' uses guardian-portal path */
   mode: { type: String, default: 'staff' },
@@ -183,6 +185,8 @@ const props = defineProps({
   clientInitials: { type: String, default: '' }
 });
 
+const requestScope = computed(() => props.agencyId ? { headers:{ 'X-Agency-Id': String(props.agencyId) } } : {});
+const mutationScope = computed(() => props.agencyId ? [requestScope.value] : []);
 const contactForm=ref(null);
 const items = ref([]);
 const loading = ref(false);
@@ -256,7 +260,7 @@ async function invite(item) {
   saving.value = true;
   error.value = '';
   try {
-    const { data } = await api.post(`${basePath.value}/${item.id}/sms-invitation`, { recipientPermissionToInvite: true });
+    const { data } = await api.post(`${basePath.value}/${item.id}/sms-invitation`, { recipientPermissionToInvite: true }, ...mutationScope.value);
     success.value = resultMessage(data, 'Contact saved.');
     await load();
   } catch (e) {
@@ -288,7 +292,7 @@ async function load() {
   loading.value = true;
   error.value = '';
   try {
-    const { data } = await api.get(basePath.value, { skipGlobalLoading: true });
+    const { data } = await api.get(basePath.value, { ...requestScope.value, skipGlobalLoading: true });
     items.value = Array.isArray(data?.items) ? data.items : [];
   } catch (e) {
     items.value = [];
@@ -318,7 +322,7 @@ async function submit() {
       verbalEmailConsent:form.verbalEmailConsent,
       verbalSmsConsent:form.verbalSmsConsent,
       acknowledgeNotify: form.acknowledgeNotify
-    });
+    }, ...mutationScope.value);
     success.value = resultMessage(data, 'Contact saved.');
     showForm.value = false;
     form.fullName = '';
@@ -346,7 +350,7 @@ function togglePrefs(item) {
 
 async function inviteGuardian(item){
   saving.value=true;error.value='';success.value='';
-  try{const{data}=await api.post(`${basePath.value}/${item.id}/guardian-invitation`,{});success.value=data.emailed?'Secondary guardian invitation sent. They will complete their own portal setup.':data.queued?'Secondary guardian invitation queued.':'Invitation created. Check its delivery in enrollment communications.';await load();}
+  try{const{data}=await api.post(`${basePath.value}/${item.id}/guardian-invitation`,{},...mutationScope.value);success.value=data.emailed?'Secondary guardian invitation sent. They will complete their own portal setup.':data.queued?'Secondary guardian invitation queued.':'Invitation created. Check its delivery in enrollment communications.';await load();}
   catch(e){error.value=e.response?.data?.error?.message || 'Unable to invite this contact as a secondary guardian.';}
   finally{saving.value=false;}
 }
@@ -362,7 +366,7 @@ async function saveEdit() {
       verbalEmailConsent:editForm.verbalEmailConsent,
       verbalSmsConsent:editForm.verbalSmsConsent,
       acknowledgeNotify: editForm.acknowledgeNotify
-    });
+    }, ...mutationScope.value);
     success.value = resultMessage(data, 'Reminder settings updated.');
     editing.value = null;
     await load();
@@ -377,7 +381,7 @@ async function remove(item) {
   if (!confirm(`Remove ${item.contact?.fullName || 'this contact'} from reminder contacts?`)) return;
   saving.value = true;
   try {
-    await api.delete(`${basePath.value}/${item.id}`);
+    await api.delete(`${basePath.value}/${item.id}`, ...mutationScope.value);
     await load();
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Could not remove';
@@ -387,7 +391,7 @@ async function remove(item) {
 }
 
 watch(
-  () => props.clientId,
+  () => [props.clientId, props.agencyId],
   () => load()
 );
 

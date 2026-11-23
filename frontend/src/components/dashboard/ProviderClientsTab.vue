@@ -304,7 +304,9 @@
           :show-search="true"
           search-placeholder="Search school clients…"
           edit-mode="inline"
-          @preview-client="client => openQuickView(client, schoolClientsForGrid || [])"
+          @preview-client="client => openQuickView(client, schoolPreviewClients)"
+          @hover-client="client => hoverQuickView(client, schoolPreviewClients)"
+          @leave-client="closeQuickViewLater"
           @edit-client="onSchoolRosterEditClient"
           @update:needsAttentionCount="(count) => emit('update:needsAttentionCount', count)"
         />
@@ -421,6 +423,16 @@
           <div class="new-block-head">
             <strong>School client actions</strong>
           </div>
+          <ul v-if="pendingSchoolPreviews.length" class="pct-pending-school">
+            <li v-for="client in pendingSchoolPreviews" :key="client.id" class="pct-client-cell"
+                @mouseenter="hoverQuickView(client,pendingSchoolPreviews)" @mouseleave="closeQuickViewLater"
+                @focusin="hoverQuickView(client,pendingSchoolPreviews)" @focusout="closeQuickViewLater">
+              <button type="button" class="pct-client-link" @click="openClientProfile(client,pendingSchoolPreviews)">
+                {{ formatOfficeClientLabel(client) }}
+              </button>
+              <span v-if="client.organization_name">{{ client.organization_name }}</span>
+            </li>
+          </ul>
           <p class="muted tiny">
             Use Action / Next Step on your school roster, or
             <router-link class="pct-inline-link" :to="providerOnboardingTo">
@@ -458,7 +470,8 @@
               </thead>
               <tbody>
                 <tr v-for="c in pendingOfficeClients" :key="c.id">
-                  <td>
+                  <td class="pct-client-cell" @mouseenter="hoverQuickView(c,pendingOfficeClients)"
+                      @mouseleave="closeQuickViewLater" @focusin="hoverQuickView(c,pendingOfficeClients)" @focusout="closeQuickViewLater">
                     <button
                       type="button"
                       class="pct-client-link"
@@ -481,7 +494,7 @@
 
     <ClientFollowUpTask ref="followUpTask" :agency-id="followUpAgencyId" />
     <ClientQuickView v-if="quickClient" :key="`quick-${quickClient.agency_id}-${quickClient.id}`" :client="quickClient"
-      :label="formatOfficeClientLabel(quickClient)" :status="officeStatusLabel(quickClient)" :school="isSchoolSettingClient(quickClient)"
+      :label="formatOfficeClientLabel(quickClient)" :label-mode="clientLabelMode" :status="officeStatusLabel(quickClient)" :school="isSchoolSettingClient(quickClient)"
       :snapshot="sessionSnapshots[sessionSnapshotKey(quickClient)]" @close="closeQuickView"
       @follow-up="openFollowUp" @fiscal-sessions="onFiscalSessions" @open-chart="openQuickChart" @school-workspace="openSchoolWorkspace" @keep-open="keepQuickView" @leave="closeQuickViewLater" />
     <Teleport to="body">
@@ -1033,7 +1046,7 @@ async function openFollowUp(client){followUpAgencyId.value=Number(client.agency_
 const fiscalSnapshots=ref({});
 function onFiscalSessions({clientId,agencyId,totals}){fiscalSnapshots.value={...fiscalSnapshots.value,[`${agencyId}:${clientId}`]:totals};}
 const rosterAgencyId=ref('all'),profileInitialTab=ref(''),schoolGrid=ref(null);
-const {selectedUser:quickClient,scheduleOpen:scheduleQuickView,keepOpen:keepQuickView,scheduleClose:closeQuickViewLater,close:closeQuickView}=useDirectoryQuickView({outsideSelector:'.client-quick-view,.pct-client-cell',key:c=>`${c.agency_id}:${c.id}`});
+const {selectedUser:quickClient,scheduleOpen:scheduleQuickView,keepOpen:keepQuickView,scheduleClose:closeQuickViewLater,close:closeQuickView}=useDirectoryQuickView({outsideSelector:'.client-quick-view,.pct-client-cell,.school-client-preview',key:c=>`${c.agency_id}:${c.id}`});
 function hoverQuickView(client,navList){if(Array.isArray(navList))profileNavClients.value=navList;scheduleQuickView(scopedRosterClient(client));}
 const rosterAgencies=computed(()=>{
   const agencies=new Map();
@@ -1089,6 +1102,14 @@ const sortedCombinedClientsList = computed(() => {
 const schoolClientsForGrid = computed(() => {
   if (isAllSchools.value) return allClients.value.filter(agencyMatches);
   return null;
+});
+
+const schoolPreviewClients = computed(() => allClients.value.filter(client =>
+  agencyMatches(client) && (isAllSchools.value || Number(client.organization_id) === Number(selectedSchoolOrgId.value))
+));
+const pendingSchoolPreviews = computed(() => {
+  const pendingIds = new Set(pendingClientsFiltered.value.map(client => Number(client.id)));
+  return schoolPreviewClients.value.filter(client => pendingIds.has(Number(client.id)));
 });
 
 const officeStatusLabel = (c) => rosterStatusLabel(c, { school: isSchoolSettingClient(c) });
@@ -2139,6 +2160,9 @@ watch(skillBuildersOnlyFilter, async () => {
 .office-clients-table td:last-child { width:95px; }
 .office-clients-table .pct-link-btn { white-space:normal; }
 .pct-client-cell { min-width:215px; }
+.pct-pending-school { list-style:none; padding:0; margin:.5rem 0; }
+.pct-pending-school li { padding:.35rem 0; }
+.pct-pending-school li span { margin-left:.7rem; }
 .office-clients-table tr.is-terminated td { color: #9a1f14; opacity: 0.9; }
 .pct-client-cell {
   display: grid;

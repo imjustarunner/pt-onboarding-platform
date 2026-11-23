@@ -11,7 +11,9 @@
     <p v-if="compact" class="muted">{{ exchangeLocationLabel(listing.preferences) }}</p>
     <template v-if="compact">
       <div class="lc-compact-row">
-        <strong class="lc-client-label">{{ clientLabel || 'Client' }} · #{{ listing.id }}</strong>
+        <button type="button" class="lc-profile-button lc-client-label" :aria-current="selected ? 'true' : undefined" @click.stop="$emit('select', listing)">
+          {{ clientLabel || 'Client' }} · #{{ listing.id }}
+        </button>
         <span v-if="listing.pendingRequestCount > 0" class="lc-pending-badge lc-pending-badge--compact">
           {{ listing.pendingRequestCount }}
         </span>
@@ -175,6 +177,7 @@ function toggleExpand() {
   gap: 8px;
   min-width: 0;
 }
+.lc-profile-button { border: 0; padding: 0; background: none; color: inherit; cursor: pointer; font: inherit; font-weight: 700; text-decoration: underline; text-align: left; }
 .lc-compact-row .lc-client-label {
   flex: 1;
   min-width: 0;

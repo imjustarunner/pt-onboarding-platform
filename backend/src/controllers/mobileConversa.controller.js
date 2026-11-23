@@ -65,9 +65,9 @@ export const getMobileInbox=mobile(async(req,res)=>{
   }
   if(includeCounts) { const overlap=countsFor(chats.filter(i=>i.isGroupDirect)); for(const field of ['total','unread','needs','sent']) counts.all[field]-=overlap[field] || 0; }
   if(countsOnly)return res.json({counts});
-  // Unknown mail remains in its own folder, while All really includes every source.
+  // Channel discovery belongs in Channels. Inbox contains conversations with activity.
   let availableChannels=[];
-  if((suite==='channels' && (filter==='all' || includeCounts) || suite==='all' && filter==='all')&&!qaAgencyId){
+  if(suite==='channels' && (filter==='all' || includeCounts) && !qaAgencyId){
     const {listMobileAgencies}=await import('../services/mobile/agencyScope.service.js');const {agencies}=await listMobileAgencies(await User.findById(userId,{raw:true}));
     const data={channels:[]};
     for(let offset=0;offset<agencies.length;offset+=4){
@@ -75,7 +75,7 @@ export const getMobileInbox=mobile(async(req,res)=>{
       data.channels.push(...batch.flat());
     }
     availableChannels=(data.channels || []).filter(channel=>!chats.some(item=>item.id===Number(channel.thread_id || channel.id)) && (includeArchived || !archives.has(`chat:${channel.thread_id || channel.id}`))).map(channel=>({...mobileThreadItem({...channel,thread_id:channel.thread_id || channel.id,thread_type:'channel',channel_name:channel.name || channel.channel_name},userId),at:channel.updated_at || channel.created_at || null,preview:channel.description || 'Open this channel',join:!(channel.is_member===true || Number(channel.is_member)===1 || channel.isMember===true)}));
-    if(includeCounts){counts.channels.total+=availableChannels.length;counts.all.total+=availableChannels.length;}
+    if(includeCounts)counts.channels.total+=availableChannels.length;
   }
   let items=[...emails,...chats,...availableChannels].filter(item=>suite==='all'?!item.unknown && !['spam','notices'].includes(item.category):suite==='unknown'?item.unknown:(item.category===suite || (suite==='direct' && item.isGroupDirect)) && !item.unknown).filter(i=>matches(i,filter));
   if(['threads','mentions','files'].includes(suite)){

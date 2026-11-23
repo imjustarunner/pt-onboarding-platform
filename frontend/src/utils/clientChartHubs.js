@@ -23,6 +23,7 @@ export const LEGACY_TAB_ALIASES = Object.freeze({
   portal: { hub: 'portal', sub: null },
   demographics: { hub: 'account', sub: 'demographics' },
   guardians: { hub: 'account', sub: 'guardians' },
+  relationships: { hub: 'account', sub: 'guardians' },
   'billing-settings': { hub: 'account', sub: 'billing-settings' },
   assignments: { hub: 'account', sub: 'assignments' },
   'school-years': { hub: 'account', sub: 'school-years' },
@@ -68,7 +69,7 @@ export function accountSubnav({ isSchool = false, canEditAccount = false, canVie
   const items = [
     { id: 'profile', label: 'Profile' },
     { id: 'demographics', label: 'Demographics' },
-    { id: 'guardians', label: 'Guardians' }
+    { id: 'guardians', label: 'Relationships' }
   ];
   if (canViewBilling) items.push({ id: 'billing-settings', label: 'Billing & insurance' });
   if (canEditAccount) items.push({ id: 'assignments', label: 'Assignments' });

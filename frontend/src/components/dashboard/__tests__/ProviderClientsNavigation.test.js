@@ -102,3 +102,35 @@ it('skips school assignment calls for navigation-only and inactive memberships',
  await render();
  expect(m.get.mock.calls.filter(([url])=>url.endsWith('/assigned-schools')).map(([,config])=>config.params.agencyId)).toEqual([2]);
 });
+
+it('opens the shared preview from the school roster and keeps profile clicks separate', async () => {
+  m.schools = true;
+  const router = await render();
+  await router.push('/dashboard?tab=clients&clients=school&schoolId=60');
+  await flushPromises();
+  const client = { id:60, agency_id:6, organization_id:60, initials:'BBB', status:'CURRENT' };
+  const grid = wrapper.findComponent({ name:'ClientListGrid' });
+  grid.vm.$emit('hover-client', client);
+  await vi.waitFor(() => expect(wrapper.findComponent({ name:'ClientQuickView' }).props('client')).toMatchObject({ id:60, agency_id:6 }));
+  grid.vm.$emit('edit-client', { client });
+  await flushPromises();
+  expect(wrapper.findComponent({ name:'ClientQuickView' }).exists()).toBe(false);
+  expect(wrapper.findComponent({ name:'ClientDetailPanel' }).exists()).toBe(true);
+});
+
+it('previews a pending office client on hover and opens the chart on click', async () => {
+  const original = m.get.getMockImplementation();
+  m.get.mockImplementation((url, ...args) => url === '/clients'
+    ? Promise.resolve({ data:[{ id:20, agency_id:2, initials:'AAA', status:'PENDING', client_type:'clinical' }] })
+    : original(url, ...args));
+  const router = await render();
+  await router.push('/dashboard?tab=clients&clients=new');
+  await flushPromises();
+  const cell = wrapper.get('tbody td.pct-client-cell');
+  await cell.trigger('mouseenter');
+  await vi.waitFor(() => expect(wrapper.findComponent({ name:'ClientQuickView' }).exists()).toBe(true));
+  await cell.get('.pct-client-link').trigger('click');
+  await flushPromises();
+  expect(wrapper.findComponent({ name:'ClientQuickView' }).exists()).toBe(false);
+  expect(wrapper.findComponent({ name:'ClientDetailPanel' }).exists()).toBe(true);
+});

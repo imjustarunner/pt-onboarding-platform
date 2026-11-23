@@ -124,7 +124,7 @@
             :is-backoffice="listing.canViewAudit ?? isBackoffice"
             :selected="selectedListingId === listing.id"
             :client-label="listingClientLabel(listing)"
-            :compact="!!selectedListing"
+            compact
             :requests="requestsByListing[listing.id] || []"
             :requests-loading="requestsLoadingId === listing.id"
             :can-request="canRequest(listing)"
@@ -152,7 +152,7 @@
             :is-backoffice="listing.canViewAudit ?? isBackoffice"
             :selected="selectedListingId === listing.id"
             :client-label="listingClientLabel(listing)"
-            :compact="!!selectedListing"
+            compact
             :requests="requestsByListing[listing.id] || []"
             :requests-loading="requestsLoadingId === listing.id"
             :can-request="canRequest(listing)"
@@ -174,7 +174,7 @@
               <div>
                 <span class="cep-status-badge" :class="`cep-status-${r.status}`">{{ r.status }}</span>
               </div>
-              <div class="cep-request-dates">{{ formatDate(r.createdAt) }}</div>
+              <div class="cep-request-dates">Requested {{ formatDate(r.createdAt) }}</div>
               <div class="cep-request-listing-status">Listing: {{ r.listingStatus }}</div>
               <button type="button" class="cep-btn cep-btn--ghost cep-btn--sm" @click="openClaimListing(r.listingId)">View client</button>
               <div v-if="r.message" class="cep-request-msg">{{ r.message }}</div>
@@ -193,7 +193,7 @@
             :is-backoffice="listing.canViewAudit ?? isBackoffice"
             :selected="selectedListingId === listing.id"
             :client-label="listingClientLabel(listing)"
-            :compact="!!selectedListing"
+            compact
             :requests="requestsByListing[listing.id] || []"
             :requests-loading="requestsLoadingId === listing.id"
             :can-request="canRequest(listing)"
@@ -206,7 +206,7 @@
       </div>
 
       <!-- Right: detail panel -->
-      <div class="cep-detail-col" v-if="selectedListing">
+      <div v-if="selectedListing" ref="detailScroll" class="cep-detail-col">
         <div class="cep-detail-header">
           <div class="cep-detail-header-left">
             <div class="cep-detail-id-row">
@@ -219,8 +219,23 @@
             </div>
             <p class="cep-detail-posted">Referral #{{ selectedListing.id }} · Posted {{ formatDate(selectedListing.createdAt) }}</p>
           </div>
-          <button type="button" class="cep-close-detail" @click="selectedListingId = null" title="Close">✕</button>
+          <nav class="cep-profile-nav" aria-label="Referral profiles">
+            <button type="button" class="cep-btn cep-btn--ghost cep-btn--sm" :disabled="profileIndex < 1" @click="stepProfile(-1)">Previous</button>
+            <span v-if="profileIndex >= 0">{{ profileIndex + 1 }} of {{ currentTabList.length }}</span>
+            <button type="button" class="cep-btn cep-btn--ghost cep-btn--sm" :disabled="profileIndex < 0 || profileIndex + 1 >= currentTabList.length" @click="stepProfile(1)">Next</button>
+            <button type="button" class="cep-close-detail" @click="selectedListingId = null" aria-label="Close referral profile">✕</button>
+          </nav>
         </div>
+
+        <section class="cep-detail-section cep-own-request" aria-label="Your request">
+          <div v-if="selectedRequest">
+            <strong>Your request · {{ selectedRequest.status }}</strong>
+            <div>Requested {{ formatDate(selectedRequest.createdAt) }}<span v-if="selectedRequest.resolvedAt"> · Updated {{ formatDate(selectedRequest.resolvedAt) }}</span></div>
+          </div>
+          <strong v-else>You haven’t requested this client</strong>
+          <button v-if="selectedRequest?.status === 'pending'" type="button" class="cep-btn cep-btn--ghost cep-btn--sm"
+                  :disabled="actionPending" @click="onWithdrawMyRequest(selectedRequest)">Withdraw my request</button>
+        </section>
 
         <section class="cep-detail-section">
           <ExchangeMatchStatus :fit="selectedListing.viewerFit" />
@@ -314,7 +329,6 @@
               </button>
             </div>
           </template>
-          <p v-if="hasPendingClaim(selectedListing)" class="cep-muted">Your request is pending. You will be notified if the client is assigned to you.</p>
           <template v-if="canWithdraw(selectedListing)">
             <button type="button" class="cep-btn cep-btn--ghost" @click="onWithdraw(selectedListing.id)">
               Withdraw listing
@@ -339,7 +353,7 @@
 
 <script setup>
 import {exchangeRequestNeedsPlan,exchangeRequestPlanValid} from '../../navigation/clientExchangePolicy.js';
-import { exchangeStaffRole,canRequestExchangeListing,exchangeNavigationCounts } from '../../navigation/clientExchangePolicy.js';
+import { exchangeStaffRole,canRequestExchangeListing,exchangeNavigationCounts,exchangeListingFitRank } from '../../navigation/clientExchangePolicy.js';
 const emit=defineEmits(['counts']);
 import { rateLimitRetryAt } from '../../utils/rateLimitRetry.js';
 import ClientExchangeAuditPanel from './ClientExchangeAuditPanel.vue';
@@ -383,6 +397,7 @@ const requestsLoadingId = ref(null);
 const detailRequestVersions = new Map();
 const showPostModal = ref(false);
 const selectedListingId = ref(null);
+const detailScroll = ref(null);
 const searchQuery = ref('');
 const sortOrder=ref('newest');
 const viewPreferenceKey=`exchange-view-v2:${authStore.user?.id || 'anon'}`;
@@ -412,8 +427,12 @@ const visibleMine=computed(()=>myListings.value.filter(matchSearch));
 const visibleClosed=computed(()=>closedListings.value.filter(matchSearch));
 const currentTabList = computed(() => {
   if (activeTab.value === 'open' || activeTab.value === 'requests') return visibleOpen.value;
-  if (activeTab.value === 'mine') return myListings.value;
-  return closedListings.value;
+  if (activeTab.value === 'mine') {
+    const requestedIds = new Set(myRequests.value.map(request => request.listingId));
+    return [...visibleMine.value, ...sortedListings.value.filter(listing =>
+      requestedIds.has(listing.id) && !myListings.value.some(row => row.id === listing.id) && matchSearch(listing))];
+  }
+  return visibleClosed.value;
 });
 
 const searchTokens = computed(() => String(searchQuery.value || '').toLowerCase().split(/\s+/).filter(Boolean));
@@ -431,7 +450,16 @@ function matchSearch(listing) {
   });
 }
 
-const filteredOpen = computed(() => openListings.value.filter(matchSearch));
+const filteredOpen = computed(() => openListings.value.filter(matchSearch)
+  .sort((a, b) => exchangeListingFitRank(a) - exchangeListingFitRank(b)));
+const profileIndex = computed(() => currentTabList.value.findIndex(row => row.id === selectedListingId.value));
+const selectedRequest = computed(() => myRequests.value
+  .filter(request => request.listingId === selectedListingId.value)
+  .sort((a,b) => Number(b.status === 'pending') - Number(a.status === 'pending') || b.id - a.id)[0]);
+function stepProfile(direction) {
+  const listing = currentTabList.value[profileIndex.value + direction];
+  if (profileIndex.value >= 0 && listing) selectListing(listing);
+}
 const manageableListings = computed(() => openListings.value.filter(l => l.canManageClaims && l.pendingRequestCount > 0));
 const visibleOpen = computed(() => activeTab.value === 'requests' ? manageableListings.value.filter(matchSearch) : filteredOpen.value);
 
@@ -477,6 +505,7 @@ function canWithdraw(listing) {
 
 function selectListing(listing) {
   selectedListingId.value = listing.id;
+  if (detailScroll.value) detailScroll.value.scrollTop = 0;
   onExpand(listing.id);
 }
 
@@ -590,6 +619,23 @@ async function keepInExchange(listingId) {
   try { await api.post(`/client-exchange/listings/${listingId}/keep-in-exchange`);await load();await onExpand(listingId); }
   catch(e){error.value=e?.response?.data?.error?.message || 'Could not keep this client available for transfer';}
   finally {actionPending.value=false;}
+}
+
+async function onWithdrawMyRequest(request) {
+  if (actionPending.value) return;
+  actionPending.value = true;
+  error.value = '';
+  try {
+    const { data } = await api.post(`/client-exchange/requests/${request.id}/withdraw`, {}, {
+      headers: { 'X-Agency-Id': String(selectedListing.value.agencyId) }
+    });
+    myRequests.value = myRequests.value.map(row => row.id === request.id ? { ...row, ...data.request } : row);
+    await load();
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Could not withdraw your request';
+  } finally {
+    actionPending.value = false;
+  }
 }
 
 async function onWithdraw(listingId) {
@@ -829,7 +875,7 @@ watch(() => browseAgencyIds.value.join(','), () => {
 }
 .cep-layout--split {
   display: grid;
-  grid-template-columns: 200px 1fr;
+  grid-template-columns: minmax(220px, 28%) minmax(0, 1fr);
   min-height: 500px;
 }
 @media (max-width: 900px) {
@@ -901,6 +947,13 @@ watch(() => browseAgencyIds.value.join(','), () => {
   gap: 0.5rem;
 }
 .cep-detail-header-left { flex: 1; min-width: 0; }
+.cep-profile-nav { display: flex; gap: .4rem; flex-wrap: wrap; align-items: center; }
+.cep-profile-nav span { font-size: .8rem; white-space: nowrap; }
+.cep-own-request { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: .5rem; background: var(--bg-muted, #f5f7f6); }
+@media (max-width: 600px) {
+  .cep-detail-header { flex-direction: column; }
+  .cep-layout--split .cep-list-col { max-height: 24vh; }
+}
 .cep-detail-id-row {
   display: flex;
   align-items: center;

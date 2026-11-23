@@ -39,9 +39,9 @@ async function assertCanManageClientContacts(req, clientId) {
       clientId,
       client
     });
-    if (!access.ok) {
+    if (!access.ok || (req.user.scopedAgencyId && Number(req.user.scopedAgencyId) !== Number(client.agency_id))) {
       const err = new Error(access.message || 'Access denied');
-      err.status = access.status || 403;
+      err.status = access.ok ? 403 : access.status || 403;
       throw err;
     }
     return client;
@@ -74,7 +74,7 @@ export async function listClientAffiliatedContacts(req, res, next) {
     const clientId = parseId(req.params.id || req.params.clientId);
     if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
     const client = await assertCanManageClientContacts(req, clientId);
-    const rows = await ClientContactAffiliation.listForClient(clientId);
+    const rows = (await ClientContactAffiliation.listForClient(clientId)).filter(row => Number(row.agency_id) === Number(client.agency_id));
     const staff = !['client','guardian','client_guardian'].includes(req.user.role);
     const guardians = staff && rows.length ? await ClientGuardian.listForClient(clientId) : [];
     const items = await Promise.all(rows.map(async row => {

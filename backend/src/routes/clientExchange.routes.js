@@ -28,6 +28,7 @@ router.post('/listings/:id/requests', ctrl.createRequest);
 router.get('/my-requests', ctrl.listMyRequests);
 router.post('/requests/:id/approve', ctrl.approveRequest);
 router.post('/requests/:id/deny', ctrl.denyRequest);
+router.post('/requests/:id/withdraw', ctrl.withdrawMyRequest);
 
 router.get('/pending-office-clients', ctrl.listPendingOfficeClients);
 router.get('/recently-referred', ctrl.listRecentlyReferredClients);

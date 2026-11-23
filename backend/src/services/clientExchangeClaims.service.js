@@ -9,14 +9,14 @@ import { recordProviderAssignmentChange } from './officeClientAcceptance.service
 const backoffice = role => ['admin', 'super_admin', 'support', 'staff'].includes(String(role || '').toLowerCase());
 const fail = (message, status = 409) => Object.assign(new Error(message), { status });
 
-async function withListing(listingId, action) {
+async function withListing(listingId, action, { requireOpen = true } = {}) {
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
     const [rows] = await connection.execute('SELECT * FROM client_exchange_listings WHERE id = ? FOR UPDATE', [listingId]);
     const listing = rows[0];
     if (!listing) throw fail('Listing not found', 404);
-    if (!['open', 'requested'].includes(listing.status)) throw fail('This listing is no longer accepting requests');
+    if (requireOpen && !['open', 'requested'].includes(listing.status)) throw fail('This listing is no longer accepting requests');
     const result = await action(connection, listing);
     await connection.commit();
     return result;
@@ -63,6 +63,28 @@ export async function withdrawExchangeListing({ listingId, actingUserId }) {
     await connection.execute("UPDATE client_exchange_listings SET status = 'withdrawn', closed_at = NOW(), closed_by_user_id = ? WHERE id = ?", [actingUserId, listingId]);
     await connection.execute("UPDATE client_exchange_requests SET status = 'withdrawn', resolved_by_user_id = ?, resolved_at = NOW() WHERE listing_id = ? AND status = 'pending'", [actingUserId, listingId]);
   });
+}
+
+export async function withdrawOwnExchangeClaim({ requestId, listingId, userId, agencyId }) {
+  return withListing(listingId, async (connection, listing) => {
+    if (Number(listing.agency_id) !== Number(agencyId)) throw fail('Request not found', 404);
+    const [[request]] = await connection.execute(`
+      SELECT id,status FROM client_exchange_requests
+      WHERE id=? AND listing_id=? AND requesting_provider_user_id=? FOR UPDATE`, [requestId, listing.id, userId]);
+    if (!request) throw fail('Request not found', 404);
+    if (request.status === 'withdrawn') return false;
+    if (request.status !== 'pending' || !['open', 'requested'].includes(listing.status)) {
+      throw fail('This request has already been resolved');
+    }
+    await connection.execute(`
+      UPDATE client_exchange_requests SET status='withdrawn',resolved_by_user_id=?,resolved_at=NOW() WHERE id=?`,
+      [userId, requestId]);
+    await connection.execute(`
+      UPDATE client_exchange_listings SET status='open' WHERE id=? AND status='requested'
+        AND NOT EXISTS (SELECT 1 FROM client_exchange_requests WHERE listing_id=? AND status='pending')`,
+      [listing.id, listing.id]);
+    return true;
+  }, { requireOpen: false });
 }
 
 export async function resolveExchangeClaim({ requestId, action, actingUserId, actingRole, denialReason = null }) {

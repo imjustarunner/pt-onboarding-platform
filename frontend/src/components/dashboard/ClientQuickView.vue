@@ -58,18 +58,23 @@
               <div><dt>Email</dt><dd><button v-if="record.email" class="cq-link" type="button" @click="emailClient">{{ record.email }}</button><span v-else>Not recorded</span></dd></div></dl>
             <button class="cq-link" type="button" @click="$emit('open-chart',record,'demographics')">Edit contact details</button>
           </section>
-          <section v-if="canViewGuardians" class="cq-card"><h3>Guardians and authorized contacts</h3>
+          <section class="cq-card"><h3>Relationships</h3>
+            <template v-if="canViewGuardians">
             <p v-if="guardianActionError" role="alert">{{ guardianActionError }}</p>
             <p v-if="guardiansLoading" role="status">Loading linked contacts…</p>
             <p v-if="guardiansError" role="alert">{{ guardiansError }}</p>
-            <p v-if="!guardiansLoading && !guardiansError && !activeGuardians.length">No active guardian account links.</p>
-            <article v-for="guardian in activeGuardians" :key="guardian.guardian_user_id" class="cq-contact">
+            <p v-if="!guardiansLoading && !guardiansError && !guardianRelationships.length && chartProfile?.types?.includes('dependent')">No guardian accounts linked.</p>
+            <article v-for="guardian in guardianRelationships" :key="guardian.guardian_user_id" class="cq-contact">
               <strong>{{ [guardian.first_name,guardian.last_name].filter(Boolean).join(' ') || 'Guardian' }}</strong>
               <small>{{ guardian.relationship_title || guardian.relationship_type || 'Guardian' }}</small>
               <a v-if="guardian.phone" :href="'tel:'+guardian.phone">{{ guardian.phone }}</a>
               <span v-if="guardian.email">{{ guardian.email }}</span>
-              <button class="cq-link" type="button" :disabled="!!recipientBusy" @click="messageGuardian(guardian)">{{ recipientBusy===Number(guardian.guardian_user_id)?'Checking guardian…':'Message this guardian' }}</button>
+              <small v-if="!guardianCanMessage(guardian)">Secure messaging unavailable</small>
+              <button v-else class="cq-link" type="button" :disabled="!!recipientBusy" @click="messageGuardian(guardian)">{{ recipientBusy===Number(guardian.guardian_user_id)?'Checking guardian…':'Message this guardian' }}</button>
             </article>
+            </template>
+            <ClientRelationshipDirectory :client-id="client.id" :agency-id="agencyId" :label-mode="labelMode" compact />
+            <ClientAffiliatedContactsPanel v-if="canListAffiliatedContacts" :client-id="client.id" :agency-id="agencyId" mode="staff" title="Other contacts" read-only />
             <button class="cq-link" type="button" @click="$emit('open-chart',record,'guardians')">View relationships and access</button>
           </section>
           <section v-if="school" class="cq-card"><h3>School coordination</h3>
@@ -89,12 +94,14 @@ import {computed,ref,watch,onBeforeUnmount} from 'vue';
 import {useRoute,useRouter} from 'vue-router';
 import {useAuthStore} from '../../store/auth';
 import api from '../../services/api';
+import ClientRelationshipDirectory from '../client/ClientRelationshipDirectory.vue';
+import ClientAffiliatedContactsPanel from '../client/ClientAffiliatedContactsPanel.vue';
 import ClientCareOverview from './ClientCareOverview.vue';
 import {useClientChartTypes} from '../../composables/useClientChartTypes.js';
 import {resolveClientEmail,composeClientEmail} from '../../utils/clientEmailComposer.js';
 import {useLinkedGuardianContact} from '../../composables/useLinkedGuardianContact.js';
 import {sessionDateLabel as date} from '../../composables/useClientSessionSnapshots.js';
-const props=defineProps({client:{type:Object,required:true},label:String,status:String,snapshot:Object,school:Boolean});
+const props=defineProps({client:{type:Object,required:true},label:String,labelMode:String,status:String,snapshot:Object,school:Boolean});
 const emit=defineEmits(['close','open-chart','school-workspace','keep-open','leave','fiscal-sessions','follow-up']);
 const route=useRoute(),router=useRouter(),auth=useAuthStore();
 const prefix=computed(()=>route.params.organizationSlug?'/'+route.params.organizationSlug:'');
@@ -105,12 +112,15 @@ const record=ref({id:props.client.id,agency_id:props.client.agency_id}),loading=
 const tasks=ref([]),tasksLoading=ref(false),tasksError=ref('');
 const guardians=ref([]),guardiansLoading=ref(false),guardiansError=ref('');
 const canViewGuardians=computed(()=>['super_admin','admin','support','provider','provider_plus','intern','intern_plus','clinical_practice_assistant','supervisor'].includes(auth.user?.role));
+const canListAffiliatedContacts=computed(()=>['super_admin','admin','support','staff','scheduler','provider','provider_plus','clinical_practice_assistant'].includes(auth.user?.role));
 useLinkedGuardianContact({clientId:computed(()=>props.client.id),canView:canViewGuardians,guardians,loading:guardiansLoading,error:guardiansError,api});
-const activeGuardians=computed(()=>guardians.value.filter(g=>{
-  let p=g.permissions_json;
-  if(typeof p==='string'){try{p=JSON.parse(p);}catch{return false;}}
-  return Number(g.access_enabled)===1 && g.relationship_type!=='self' && !p?.revoked && !p?.relationshipRevoked;
-}));
+const guardianRelationships=computed(()=>guardians.value.filter(guardian=>guardian.relationship_type!=='self' && Number(guardian.access_enabled)===1));
+function guardianCanMessage(guardian) {
+  let permissions=guardian.permissions_json;
+  if(typeof permissions==='string'){try{permissions=JSON.parse(permissions);}catch{return false;}}
+  return Number(guardian.access_enabled)===1 && !permissions?.revoked && !permissions?.relationshipRevoked
+    && !permissions?.pendingGuardianVerification && !permissions?.noView && !permissions?.billingOnly;
+}
 const guardianActionError=ref(''),recipientBusy=ref(0);let recipientRequest=0;onBeforeUnmount(()=>recipientRequest++);
 const dialog=ref(null),emailBusy=ref(false),actionError=ref('');
 const avatar=computed(()=>String(props.label || props.client.initials || '?').split(/\s+/).map(word=>word[0]).slice(0,2).join(''));

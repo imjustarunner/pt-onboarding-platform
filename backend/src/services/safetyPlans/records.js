@@ -61,6 +61,28 @@ export async function readPlan(user,id,version){
  await event(pool,row,user,'viewed',v.version);
  return {id:row.id,agencyId:row.agency_id,clientId:row.client_id,version:v.version,documentKey:row.document_key,currentVersion:row.current_version,contentHash:v.content_hash,...decode(v.payload_encrypted),revocation:decode((await versionById(pool,row)).payload_encrypted).revocation||null,signers:signers.map(signerView),history,recipients:await recipientOptions(user,row)};
 }
+export async function listReleaseRelationships(user, clientId) {
+ const client=await clientAccess(user,clientId,{documentKey:'release-of-information'});
+ const [rows]=await pool.execute(`SELECT r.id,r.current_version,v.payload_encrypted
+   FROM clinical_form_records r JOIN clinical_form_versions v ON v.plan_id=r.id AND v.version=r.current_version
+   WHERE r.agency_id=? AND r.client_id=? AND r.document_key='release-of-information'
+   ORDER BY r.updated_at DESC LIMIT 100`,[client.agency_id,client.id]);
+ const releases=[];
+ for (const row of rows) {
+   const payload=decode(row.payload_encrypted);
+   const [signers]=await pool.execute(`SELECT details_encrypted,portal_shared_at,signed_at,revoked_at
+     FROM clinical_form_signers WHERE plan_id=? AND version=? AND signer_kind<>'clinician'
+     AND (portal_shared_at IS NOT NULL OR signed_at IS NOT NULL) ORDER BY id`,[row.id,payload.reviewOfVersion||row.current_version]);
+   const recipient=String(payload.data?.recipientName||'').trim();
+   if (recipient) releases.push({id:`release-${row.id}`,name:recipient,kind:'Named in release',status:payload.revocation?'Revoked':payload.reviewStatus==='reviewed'?'Reviewed':'On file'});
+   for (const signer of signers) {
+     const name=String(decode(signer.details_encrypted).name||'').trim();
+     if (name) releases.push({id:`share-${row.id}-${releases.length}`,name,kind:'Release request',status:signer.revoked_at||payload.revocation?'Revoked':signer.signed_at?'Signed':'Shared to portal',at:signer.signed_at||signer.portal_shared_at});
+   }
+   await event(pool,row,user,'listed');
+ }
+ return releases;
+}
 export async function listPlans(user,{agencyId,clientId,mine,documentKey}){
  const releaseList=user.role==='support' && clientId && documentKey==='release-of-information';
  if(!releaseList)staffRole(user);
