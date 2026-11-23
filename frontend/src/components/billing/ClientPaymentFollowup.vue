@@ -17,30 +17,31 @@
         <ul><li v-for="recipient in preview.recipients || []" :key="`${recipient.kind}:${recipient.userId}`">{{ recipient.kind === 'family' ? 'Responsible payer' : 'Provider' }}: {{ recipient.name }} · {{ recipient.email || 'Email missing' }}</li></ul>
       </template>
       <ul v-if="preview.blockers?.length"><li v-for="blocker in preview.blockers" :key="blocker">{{ blocker }}</li></ul>
-      <button v-if="preview.ready && !pendingRequest" type="button" class="btn btn-primary" :disabled="busy || !!result" @click="send">{{ noticeKind === 'payment_setup' ? 'Send payment setup request' : 'Send service-delay notice' }}</button>
+      <button v-if="canSend && !pendingRequest" type="button" class="btn btn-primary" :disabled="busy || !!result" @click="send">{{ noticeKind === 'payment_setup' ? 'Send payment setup request' : 'Send service-delay notice' }}</button>
     </div>
     <div v-if="pendingRequest">
       <p>A billing notice is being checked. Retrieve its saved result before starting another request.</p>
       <button type="button" class="btn btn-primary" :disabled="busy" @click="send">{{ busy ? 'Checking request…' : 'Retrieve saved request result' }}</button>
     </div>
     <div v-if="result" role="status">
-      <p>Billing notice #{{ result.id }} · {{ result.status }}</p>
+      <p>{{ noticeKind === 'payment_setup' ? 'Payment request' : 'Service-delay notice' }} #{{ result.id }} · {{ result.status }}</p>
       <ul><li v-for="delivery in result.deliveries || []" :key="`${delivery.kind}:${delivery.userId}`">{{ recipientName(delivery) }}: {{ statusText(delivery.status) }}</li></ul>
       <p v-if="result.deliveries?.some(delivery=>delivery.status!=='sent')">Some messages were not confirmed sent. Review their communication records before sending another request.</p>
     </div>
   </section>
 </template>
 <script setup>
-import {ref,watch,onBeforeUnmount} from 'vue';
+import {computed,ref,watch,onBeforeUnmount} from 'vue';
 import api from '../../services/api';
 const props=defineProps({clientId:{type:[Number,String],required:true}});
 const noticeKind=ref('payment_setup');
 const preview=ref(null),result=ref(null),error=ref(''),busy=ref(false),pendingRequest=ref(null);
+const canSend=computed(()=>preview.value?.ready && (noticeKind.value==='insurance_delay' || !preview.value.summary?.medicaid));
 let sequence=0,requestKey=null;
 const storageKey=clientId=>`payment-setup-pending:${Number(clientId)}`;
 function persistPending(clientId,pending){try{if(pending)sessionStorage.setItem(storageKey(clientId),JSON.stringify(pending));else sessionStorage.removeItem(storageKey(clientId));}catch{/* A request can still be safely retried in this open page. */}}
 function readPending(clientId){try{const saved=JSON.parse(sessionStorage.getItem(storageKey(clientId))||'null');return saved&&/^[a-zA-Z0-9_-]{16,100}$/.test(saved.requestKey)&&typeof saved.reviewHash==='string'?saved:null;}catch{return null;}}
-watch(()=>props.clientId,()=>{sequence++;preview.value=null;result.value=null;error.value='';busy.value=false;requestKey=null;pendingRequest.value=readPending(props.clientId);},{immediate:true});
+watch(()=>props.clientId,()=>{sequence++;preview.value=null;result.value=null;error.value='';busy.value=false;requestKey=null;pendingRequest.value=readPending(props.clientId);noticeKind.value=pendingRequest.value?.noticeKind||'payment_setup';},{immediate:true});
 function clearPreview(){preview.value=null;result.value=null;error.value='';requestKey=null;}
 async function review(){
   if(busy.value||pendingRequest.value)return;
@@ -50,7 +51,7 @@ async function review(){
   finally{if(current===sequence)busy.value=false;}
 }
 async function send(){
-  if(busy.value||(!pendingRequest.value&&(!preview.value?.ready||result.value||!requestKey)))return;
+  if(busy.value||(!pendingRequest.value&&(!canSend.value||result.value||!requestKey)))return;
   const current=++sequence,clientId=props.clientId,pending=pendingRequest.value||{requestKey,reviewHash:preview.value.reviewHash,noticeKind:noticeKind.value};
   pendingRequest.value=pending;persistPending(clientId,pending);busy.value=true;error.value='';
   try{

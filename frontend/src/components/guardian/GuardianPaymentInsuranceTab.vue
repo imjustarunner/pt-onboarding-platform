@@ -93,8 +93,7 @@ const props = defineProps({ agencyId:[Number,String], guardianUserId:[Number,Str
 const data = ref(null), loading = ref(false), error = ref(''), notice = ref(''), busy = ref(false), showCard = ref(false), removingCard = ref(null), authorization = ref(null), signature = ref(''), accepted = ref(false), limitDollars = ref(''), cardSelections = ref({}), insuranceDraft = ref(null), hasSecondary = ref(false), coverageConfirmed = ref(false);
 const scopedClients = computed(() => (data.value?.clients || []).filter(c => !props.clientId || Number(c.clientId) === Number(props.clientId)));
 const scopedProfiles = computed(() => (data.value?.profiles || []).filter(p => !props.clientId || p.clientIds?.some(id => Number(id) === Number(props.clientId))));
-const manageableClients = computed(() => scopedClients.value.filter(c => c.canManageBilling));
-const paymentEligibleClients=computed(()=>scopedClients.value.filter(c=>c.canSaveCard));
+const paymentEligibleClients=computed(()=>scopedClients.value.filter(c=>c.canSaveCard ?? (c.canManageBilling && !c.medicaid)));
 const insurableClients = computed(() => props.learningOnly ? [] : scopedClients.value.filter(c => c.insuranceApplicable !== false && (c.canManageInsurance ?? c.canManageBilling)));
 const expired = card => Number(card.card_exp_year) < new Date().getFullYear() || (Number(card.card_exp_year) === new Date().getFullYear() && Number(card.card_exp_month) < new Date().getMonth() + 1);
 const money = cents => new Intl.NumberFormat(undefined,{style:'currency',currency:'USD'}).format(Number(cents || 0)/100);
