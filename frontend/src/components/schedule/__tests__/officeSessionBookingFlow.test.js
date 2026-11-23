@@ -3,9 +3,9 @@ import { DOMWrapper, flushPromises, shallowMount, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia';
 import { nextTick } from 'vue';
 
-const mocks = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn(), user: null, agency: null }));
+const mocks = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn(), push: vi.fn(async () => {}), user: null, agency: null }));
 vi.mock('../../../services/api', () => ({ default: { get: mocks.get, post: mocks.post, patch: mocks.patch }, isApiRateLimited: () => false }));
-vi.mock('vue-router', () => ({ useRoute: () => ({ path: '/innerstrength/dashboard', params: { organizationSlug: 'innerstrength' }, query: {} }), useRouter: () => ({ push: vi.fn(), replace: vi.fn(), resolve: () => ({ href: '/dashboard' }) }) }));
+vi.mock('vue-router', () => ({ useRoute: () => ({ path: '/innerstrength/dashboard', params: { organizationSlug: 'innerstrength' }, query: {} }), useRouter: () => ({ push: mocks.push, replace: vi.fn(), resolve: () => ({ href: '/dashboard' }) }) }));
 vi.mock('../../../store/auth', () => ({ useAuthStore: () => ({ user: mocks.user, isAuthenticated: true }) }));
 vi.mock('../../../store/agency', () => ({ useAgencyStore: () => ({
   currentAgency: mocks.agency || { id: 2, name: 'The Inner Strength Institute', slug: 'innerstrength', organization_type: 'agency', feature_flags: { hasClinicalOrg: true, medicalBillingEnabled: true }, logo_url: '/assets/branding/innerstrength-mark.png' },
@@ -541,6 +541,19 @@ it('shows vacancy on the calendar and lets the reservation close before the requ
   complete({data:{ok:true}});
   await save;
   expect(s.showRequestModal).toBe(false);
+});
+
+it('opens a direct conversation with the person borrowing the room', async () => {
+  wrapper=shallowMount(Grid,{props:{userId:7,agencyId:2},global:{stubs:{Teleport:true,RouterLink:true}}});
+  await flushPromises();
+  const s=wrapper.vm.$.setupState;
+  s.borrowedRoom={id:10,agencyId:2,name:'Test coworker',room:'Main office'};
+  s.borrowedRoomDialog={close:vi.fn()};
+  s.messageRoomBorrower();
+  expect(mocks.push).toHaveBeenCalledWith({
+    path:'/innerstrength/messages',
+    query:{view:'workspace',agencyId:'2',openChatWith:'10',openChatWithName:'Test coworker'}
+  });
 });
 
 it('offers one publication action and preselects in-person for an office reservation', async () => {

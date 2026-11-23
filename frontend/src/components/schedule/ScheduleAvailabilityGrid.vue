@@ -14311,7 +14311,7 @@ function messageRoomBorrower() {
   const room = borrowedRoom.value;
   if (!room?.id || !room.agencyId) return;
   borrowedRoomDialog.value?.close();
-  router.push({ path: scheduleOrgTo('/messages'), query: { openChatWith: String(room.id), agencyId: String(room.agencyId) } }).catch(() => {});
+  router.push({ path: scheduleOrgTo('/messages'), query: { view: 'workspace', openChatWith: String(room.id), agencyId: String(room.agencyId), openChatWithName: room.name } }).catch(() => {});
 }
 function matchesRoomOccurrence(event, context) {
   if (Number(event.id || event.eventId) === context.officeEventId) return true;
