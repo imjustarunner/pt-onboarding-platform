@@ -28,7 +28,7 @@ function hasVerifiedHistoryScope(input) {
     && proof.agencyId === Number(input.agencyId) && proof.ticketId === Number(input.targetTicketId) && proof.threadId === input.threadId;
 }
 
-async function findThread({ agencyId, threadId, messageId, inReplyTo, referencesHeader, fromEmail, staffCopy, targetTicketId, credentialingCaseEmailId, verifiedHistory = false }, db) {
+async function findThread({ agencyId, threadId, messageId, inReplyTo, referencesHeader, fromEmail, staffCopy, targetTicketId, credentialingCaseEmailId, clientId = null, verifiedHistory = false }, db) {
   if (verifiedHistory) {
     // Group rewriting can make the historic seed's From differ from its real
     // author. A verified backfill may recover that mail only into its fixed,
@@ -59,8 +59,9 @@ async function findThread({ agencyId, threadId, messageId, inReplyTo, references
   if (credentialingCaseEmailId) {
     params.push(credentialingCaseEmailId);
   }
+  if (clientId) params.push(clientId);
   const [candidates] = await db.execute(`SELECT t.* FROM support_tickets t WHERE t.agency_id=? AND t.source_channel IN ('email','public_web')
-    AND (${conditions.join(' OR ')}) ${credentialingCaseEmailId ? 'AND EXISTS (SELECT 1 FROM credentialing_email_tickets cet WHERE cet.ticket_id=t.id AND cet.case_email_id=?)' : ''} ORDER BY (t.claimed_by_user_id IS NOT NULL) DESC,t.id DESC LIMIT 20 FOR UPDATE`, params);
+    AND (${conditions.join(' OR ')}) ${credentialingCaseEmailId ? 'AND EXISTS (SELECT 1 FROM credentialing_email_tickets cet WHERE cet.ticket_id=t.id AND cet.case_email_id=?)' : ''} ${clientId ? 'AND t.client_id=?' : ''} ORDER BY (t.claimed_by_user_id IS NOT NULL) DESC,t.id DESC LIMIT 20 FOR UPDATE`, params);
   const parentIds = replyMessageIds(inReplyTo, referencesHeader).slice(0, 30);
   let exactParentTicketId = null;
   if (parentIds.length) {
@@ -69,7 +70,7 @@ async function findThread({ agencyId, threadId, messageId, inReplyTo, references
     exactParentTicketId = parentIds.map((id) => parents.find((p) => p.internet_message_id === id)?.ticket_id).find(Boolean);
   }
   candidates.sort((a, b) => Number(b.id === exactParentTicketId) - Number(a.id === exactParentTicketId));
-  for (const ticket of candidates.filter((t) => !targetTicketId || Number(t.id) === Number(targetTicketId))) {
+  for (const ticket of candidates.filter(t => (!targetTicketId || Number(t.id) === Number(targetTicketId)) && (!clientId || Number(t.client_id) === Number(clientId)))) {
     if (staffCopy || emailKey(ticket.source_email_from) === fromEmail) return ticket;
     const [addresses] = await db.execute('SELECT from_email,to_json,cc_json FROM support_ticket_email_messages WHERE ticket_id=?', [ticket.id]);
     if (addresses.some((a) => [emailKey(a.from_email), ...parseEmailList(a.to_json), ...parseEmailList(a.cc_json)].includes(fromEmail))) return ticket;
@@ -86,13 +87,15 @@ async function findThread({ agencyId, threadId, messageId, inReplyTo, references
 export async function ingestSupportTicketEmail(input, dependencies = {}) {
   const database = dependencies.database || pool;
   const persistAttachments = dependencies.persistAttachments || persistGmailAttachmentsForTicket;
-  const { agencyId, schoolOrganizationId, threadId = null, inReplyTo = null, referencesHeader = null,
+  const { agencyId, schoolOrganizationId: requestedSchoolOrganizationId, threadId = null, inReplyTo = null, referencesHeader = null,
     gmailMessageId = null, gmail = null, payload = null, receivedAt = new Date(),
     staffCopy = false, staffUserId = null, createIfMissing = true, generateDraft = true, preserveTicketState = false } = input;
   const from = emailKey(input.fromEmail);
+  let schoolOrganizationId = requestedSchoolOrganizationId;
   const messageId = String(input.messageId || (gmailMessageId ? `gmail:${gmailMessageId}` : '')).trim();
   if (!agencyId || !messageId || !from) throw supportEmailError('Email receipt needs an agency, sender and message ID.', 400);
   const db = await database.getConnection();
+  const clientId = input.enrollmentClientId == null ? null : Number(input.enrollmentClientId);
   const lockName = `support-email:${agencyId}`;
   let locked = false, ticket, ticketMessageId, duplicate = false, ignored = false, appOriginReceipt = false;
   try {
@@ -100,6 +103,12 @@ export async function ingestSupportTicketEmail(input, dependencies = {}) {
     if (Number(lock?.acquired) !== 1) throw supportEmailError('Ticket email intake is busy. Retry this receipt.');
     locked = true;
     await db.beginTransaction();
+    if (clientId !== null) {
+      if (!Number.isSafeInteger(clientId) || clientId < 1) throw supportEmailError('Invalid enrollment client.', 400);
+      const [[linkedClient]] = await db.execute(`SELECT c.id,c.organization_id,o.organization_type FROM clients c LEFT JOIN agencies o ON o.id=c.organization_id WHERE c.id=? AND c.agency_id=? LIMIT 1`, [clientId, agencyId]);
+      if (!linkedClient) throw supportEmailError('The enrollment client is outside this inbox agency.', 403);
+      if (!schoolOrganizationId && linkedClient.organization_type === 'school') schoolOrganizationId = linkedClient.organization_id;
+    }
     const [[receipt]] = await db.execute('SELECT * FROM support_ticket_email_messages WHERE agency_id=? AND internet_message_id_hash=?', [agencyId, emailHash(messageId)]);
     if (receipt) {
       [[ticket]] = await db.execute('SELECT * FROM support_tickets WHERE id=?', [receipt.ticket_id]);
@@ -115,7 +124,7 @@ export async function ingestSupportTicketEmail(input, dependencies = {}) {
       appOriginReceipt = receipt.direction === 'outbound' && !!(receipt.communication_id || receipt.client_request_key);
     } else {
       ticket = await findThread({ agencyId, threadId, messageId, inReplyTo, referencesHeader, fromEmail: from, staffCopy,
-        targetTicketId: input.targetTicketId, credentialingCaseEmailId: input.credentialingCaseEmailId, verifiedHistory: hasVerifiedHistoryScope(input) }, db);
+        targetTicketId: input.targetTicketId, credentialingCaseEmailId: input.credentialingCaseEmailId, clientId, verifiedHistory: hasVerifiedHistoryScope(input) }, db);
       if (ticket && !input.targetTicketId && !input.credentialingCaseEmailId) {
         const canonical = await resolveSupportTicketEmailThread(ticket, db);
         if (canonical.canonicalTicketId !== Number(ticket.id)) {
@@ -185,6 +194,11 @@ export async function ingestSupportTicketEmail(input, dependencies = {}) {
       const [[caseEmail]] = await db.execute('SELECT credential_id FROM credentialing_case_emails WHERE id=? AND agency_id=?', [input.credentialingCaseEmailId, agencyId]);
       if (!caseEmail) throw supportEmailError('Credentialing case no longer exists.', 409);
       await notifyCredentialingTeam(db, { agencyId, type: 'credentialing_email', title: 'New credentialing email', kind: 'provider', recordId: caseEmail.credential_id });
+    }
+    if (clientId && ticket) {
+      if (ticket.client_id && Number(ticket.client_id) !== clientId) throw supportEmailError('This email thread belongs to a different enrollment and needs review.', 409);
+      await db.execute('UPDATE support_tickets SET client_id=? WHERE id=? AND agency_id=? AND (client_id IS NULL OR client_id=?)', [clientId, ticket.id, agencyId, clientId]);
+      ticket.client_id = clientId;
     }
     if (staffCopy && ticket) await applySchoolGmailOwnership({ input, ticket, appOriginReceipt, database: db });
     await db.commit();

@@ -1330,7 +1330,7 @@
     />
 
   </div>
-  <ClientTerminationDialog v-if="terminationClient" :key="terminationClient.id" :client-id="Number(terminationClient.id)" :client-name="getClientLabel(terminationClient)" :agency-id="Number(terminationClient.agency_id)" @close="terminationClient = null" @saved="terminationClient = null; fetchClients(); loadSideCounts()" />
+  <ClientTerminationDialog v-if="terminationClient" :key="terminationClient.id" :client-id="Number(terminationClient.id)" :client-name="getClientDisplay(terminationClient)" :agency-id="Number(terminationClient.agency_id)" @close="terminationClient = null" @saved="terminationClient = null; fetchClients(); loadSideCounts()" />
   <ReferralUpload v-if="standalonePaperOpen && selectedPaperSchoolSlug" :organization-slug="selectedPaperSchoolSlug" @close="standalonePaperOpen=false" @submitted="onPaperUploaded" />
 </template>
 

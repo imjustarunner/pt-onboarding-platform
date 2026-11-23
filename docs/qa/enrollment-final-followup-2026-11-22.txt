@@ -35,6 +35,10 @@ Validation:
   schools@ sender/reply routing, successful submit, and no horizontal overflow
   or page exceptions. No family messages or production client records changed.
 - Focused backend/frontend suites are included in scheduling regression CI.
+- Extended checks passed: 159 client/profile tests, 70 client-management tests,
+  and 36 shared-school-inbox tests. A directory shortcut binding was corrected.
+- Enrollment replies are linked inside the inbox transaction. A shared family
+  email or Gmail thread cannot attach one child's reply to a sibling's record.
 
 Deployment and Rachel notification receipts will be retained separately after
 the exact release is verified live. The release notification uses the established

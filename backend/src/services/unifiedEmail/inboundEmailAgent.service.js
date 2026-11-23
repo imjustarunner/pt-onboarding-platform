@@ -984,7 +984,7 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
       // This is an existing enrollment, never a new-client intake. Keep the
       // family's reply in the shared inbox for staff review after reopening.
       const saved = await ingestSupportTicketEmail({
-        agencyId: enrollmentReply.agencyId, fromEmail: rawFromEmail, subject,
+        agencyId: enrollmentReply.agencyId, enrollmentClientId: enrollmentReply.clientId, fromEmail: rawFromEmail, subject,
         bodyText: pickBodyText(payload), messageId: hdrs.get('message-id') || `gmail:${id}`,
         threadId: full.data?.threadId || null, inReplyTo: hdrs.get('in-reply-to'), referencesHeader: hdrs.get('references'),
         recipients: [...routed.to, ...routed.cc, ...routed.deliveredTo],
@@ -992,8 +992,6 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
         receivedAt: new Date(Number(full.data?.internalDate) || Date.now()), generateDraft: false
       });
       if (!saved?.handled || !saved.ticketId) throw Object.assign(new Error('Enrollment reply inbox persistence needs retry'), { code: 'ENROLLMENT_REPLY_INBOX_PENDING' });
-      await pool.execute(`UPDATE support_tickets SET client_id=? WHERE id=? AND agency_id=? AND (client_id IS NULL OR client_id=?)`,
-        [enrollmentReply.clientId, saved.ticketId, enrollmentReply.agencyId, enrollmentReply.clientId]);
       await gmail.users.messages.modify({ userId: 'me', id, requestBody: { addLabelIds: [processedLabelId, needsHumanLabelId] } });
       results.inboxDeliveries++;
       continue;

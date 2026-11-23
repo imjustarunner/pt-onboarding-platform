@@ -23,8 +23,7 @@ beforeEach(() => {
 });
 it('files a matched family reply against the existing client and skips new-client intake', async () => {
   expect((await runInboundEmailAgentOnce()).inboxDeliveries).toBe(1);
-  expect(h.persist).toHaveBeenCalledWith(expect.objectContaining({ agencyId: 2, fromEmail: 'family@example.com', generateDraft: false, bodyText: 'Yes, we would like help getting started.' }));
-  expect(h.execute).toHaveBeenCalledWith(expect.stringContaining('UPDATE support_tickets SET client_id'), [51, 19, 2, 51]);
+  expect(h.persist).toHaveBeenCalledWith(expect.objectContaining({ agencyId: 2, enrollmentClientId: 51, fromEmail: 'family@example.com', generateDraft: false, bodyText: 'Yes, we would like help getting started.' }));
   expect(h.execute.mock.calls.some(([sql]) => /INSERT INTO clients|INSERT INTO users/.test(sql))).toBe(false);
   expect(h.modify).toHaveBeenCalledWith(expect.objectContaining({ requestBody: { addLabelIds: ['AI_PROCESSED', 'AI_NEEDS_HUMAN'] } }));
 });

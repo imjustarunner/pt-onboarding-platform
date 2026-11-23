@@ -233,6 +233,7 @@ function fixture({ credentialingCaseId = null, staffCopy = false, initialReceipt
     if (sql.includes('SELECT DISTINCT u.id')) return [[]];
     if (sql.includes('GET_LOCK')) return [[{ acquired: 1 }]];
     if (sql.includes('RELEASE_LOCK')) return [[{ released: 1 }]];
+    if (sql.startsWith('SELECT c.id,c.organization_id,o.organization_type FROM clients')) return [Number(values[1]) === 2 ? [{ id: values[0], organization_id: 8, organization_type: 'school' }] : []];
     if (sql.startsWith('SELECT * FROM support_ticket_email_messages')) return [receipt ? [receipt] : []];
     if (sql.startsWith('SELECT * FROM support_tickets') && sql.includes('BINARY source_email_thread_id')) {
       return [Number(values[0]) === ticket.id && Number(values[1]) === ticket.agency_id && values[2] === ticket.source_email_thread_id ? [ticket] : []];
@@ -281,6 +282,48 @@ test('school follow-up appends to same closed ticket, reopens it and preserves c
   assert.equal(f.generations.length, 1);
   assert.equal(f.generations[0].intakeComplete, true);
   assert.equal(f.statements.some((s) => s.sql.startsWith('INSERT INTO support_tickets')), false);
+}));
+
+test('a verified enrollment reply links the existing client before the inbox is mirrored', async () => withKey(async () => {
+  const f = fixture();
+  f.ticket.client_id = 51;
+  let mirroredClientId;
+  f.dependencies.syncInbox = async () => { mirroredClientId = f.ticket.client_id; };
+  const saved = await ingestSupportTicketEmail({ ...base, enrollmentClientId: 51, generateDraft: false }, f.dependencies);
+  assert.equal(saved.ticketId, 7);
+  assert.equal(f.ticket.client_id, 51);
+  assert.equal(mirroredClientId, 51);
+  assert.equal(f.generations.length, 0);
+  assert.equal(f.statements.some(({ sql }) => /INSERT INTO clients|INSERT INTO users/.test(sql)), false);
+}));
+
+test('a known enrollment never reuses a sibling client’s ticket in the same Gmail thread', async () => withKey(async () => {
+  const f = fixture();
+  f.ticket.client_id = 52;
+  const db = await f.dependencies.database.getConnection();
+  const execute = db.execute.bind(db);
+  let created;
+  db.execute = async (sql, values = []) => {
+    if (sql.startsWith('INSERT INTO support_tickets')) {
+      created = { ...f.ticket, id: 17, client_id: null, source_channel: 'email', source_email_thread_id: base.threadId };
+      return [{ insertId: 17 }];
+    }
+    if (sql.startsWith('SELECT * FROM support_tickets') && Number(values[0]) === 17) return [[created]];
+    if (sql.startsWith('UPDATE support_tickets SET client_id') && Number(values[1]) === 17) { created.client_id = values[0]; return [{ affectedRows: 1 }]; }
+    if (sql.startsWith('UPDATE support_tickets') && values.includes(17)) { created.status = 'open'; return [{ affectedRows: 1 }]; }
+    return execute(sql, values);
+  };
+  const saved = await ingestSupportTicketEmail({ ...base, enrollmentClientId: 51, generateDraft: false }, f.dependencies);
+  assert.equal(saved.ticketId, 17);
+  assert.equal(created.client_id, 51);
+  assert.equal(f.ticket.client_id, 52);
+  assert.equal(f.ticket.status, 'closed');
+}));
+
+test('an enrollment link cannot cross the shared inbox agency boundary', async () => withKey(async () => {
+  const f = fixture();
+  await assert.rejects(ingestSupportTicketEmail({ ...base, agencyId: 3, enrollmentClientId: 51, generateDraft: false }, f.dependencies), { status: 403 });
+  assert.equal(f.statements.some(({ sql }) => sql.startsWith('INSERT INTO support_ticket_messages')), false);
 }));
 
 test('staff Gmail copy captures actual historical reply with provider evidence and preserves closed state', async () => withKey(async () => {
