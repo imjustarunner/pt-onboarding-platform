@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { utcMysqlToIso } from '../utils/zonedWallTime.util.js';
+import { isClientCalendarEvent } from './calendarClientPrivacy.js';
 export const digest = value => crypto.createHash('sha256').update(String(value)).digest('hex');
 export function calendarWindow(from, to, maxDays = 370) {
   const start = new Date(from), end = new Date(to);
@@ -9,17 +10,12 @@ export function calendarWindow(from, to, maxDays = 370) {
   return {start,end};
 }
 export function workTitle(event) {
-  if (event.is_private || ['PERSONAL_EVENT','SCHEDULE_HOLD'].includes(event.kind)) return 'Busy';
+  if (event.is_private) return 'Busy';
+  if (isClientCalendarEvent(event)) return 'Client session';
+  if (['PERSONAL_EVENT','SCHEDULE_HOLD'].includes(event.kind)) return 'Busy';
   const names={TEAM_MEETING:'Team meeting',HUDDLE:'Huddle',SESSION:'Session',CLINICAL_SESSION:'Clinical session',APPOINTMENT:'Appointment',INDIVIDUAL_SESSION:'Individual session',GROUP_SESSION:'Group session',SUPERVISION:'Supervision',OFFICE:'Office booking',WORK_HOURS:'Work hours',TRAINING:'Training',INDIRECT_SERVICES:'Indirect services',OUTREACH_TRIP:'Outreach trip'};
   const subtypes={GROUP_THERAPY:'Group therapy',TELEHEALTH:'Telehealth session',ASSESSMENT:'Assessment',INDIRECT_SERVICES:'Indirect services',SUPERVISION:'Supervision',MEETING:'Meeting'};
-  const title=subtypes[event.appointment_subtype_code] || subtypes[event.appointment_type_code] || names[event.kind] || (event.client_id ? 'Session' : 'Work');
-  // Only the dedicated initials field is eligible; titles/notes/full_name never leave the app.
-  const rawInitials=String(event.client_initials || '').trim();
-  const letters=rawInitials.replace(/[^\p{L}]/gu,'');
-  const initials=letters && letters.length<=4 && letters===letters.toUpperCase()
-    ? rawInitials.replace(/[^\p{L}. -]/gu,'')
-    : (rawInitials.match(/\p{Lu}/gu) || rawInitials.split(/\s+/).map(part=>part.match(/\p{L}/u)?.[0] || '')).slice(0,4).join('.').toUpperCase();
-  return event.client_id && initials ? `${title} · ${initials}` : title;
+  return subtypes[event.appointment_subtype_code] || subtypes[event.appointment_type_code] || names[event.kind] || 'Work';
 }
 const escapeText = v => String(v || '').replace(/\\/g,'\\\\').replace(/\r?\n/g,'\\n').replace(/;/g,'\\;').replace(/,/g,'\\,').replace(/\r/g,'');
 function fold(line) {

@@ -34,18 +34,18 @@ it('includes co-facilitators and excludes removed or declined supervision attend
   expect(sql).toContain('s.co_facilitator_user_id=?');expect(sql).toContain("'DECLINED','REMOVED','CANCELLED','WITHDRAWN'");expect(args.slice(0,5)).toEqual([2,5,5,5,5]);
 });
 
-it('publishes session type and initials for appointments stored as personal calendar facets',async()=>{
+it('publishes a generic label for appointments stored as personal calendar facets',async()=>{
  const event={id:14,agency_id:2,provider_id:5,kind:'PERSONAL_EVENT',client_id:3,client_initials:'A.B.',appointment_id:22,appointment_modality:'TELEHEALTH',start_at:office.start_at,end_at:office.end_at,title:'Full Name - confidential assessment',description:'Private note'};
  m.execute.mockImplementation(async sql=>sql.includes('FROM provider_schedule_events')?[[event]]:[[]]);
  const events=await workCalendarEvents(5,2,'2026-09-26','2026-09-27');
- expect(events[0].title).toBe('Telehealth session · A.B.');expect(JSON.stringify(events)).not.toMatch(/Full Name|confidential|Private note/);
+ expect(events[0].title).toBe('Client session');expect(JSON.stringify(events)).not.toMatch(/A\.B\.|Full Name|confidential|Private note/);
 });
 
 it('SMS summaries omit initials, addresses, room names, contents and join links without creating invitations',async()=>{
  const event={id:14,agency_id:2,provider_id:5,kind:'TEAM_MEETING',client_id:3,client_initials:'A.B.',start_at:office.start_at,end_at:office.end_at,title:'SECRET',description:'SECRET',platform_video_link:1};
  m.execute.mockImplementation(async sql=>sql.includes('FROM provider_schedule_events')?[[event]]:sql.includes('FROM office_events')?[[{...office,client_id:3,client_initials:'C.D.'}]]:sql.includes('FROM supervision_sessions')?[[{...event,modality:'VIRTUAL'}]]:[[]]);
  const events=await workCalendarEvents(5,2,'2026-09-26','2026-09-27',{summaryOnly:true});
- expect(events.map(e=>e.title)).toEqual(['Team meeting','Session','Supervision']);
+ expect(events.map(e=>e.title)).toEqual(['Client session','Client session','Supervision']);
  expect(JSON.stringify(events)).not.toMatch(/A\.B\.|C\.D\.|SECRET|Windchime|204|https:/);expect(m.personal).not.toHaveBeenCalled();
  expect(m.execute.mock.calls.every(([sql])=>sql.startsWith('SELECT'))).toBe(true);
 });

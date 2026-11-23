@@ -12,6 +12,7 @@ import {
 import { ensureMeetAutoTranscriptionEnabled } from './googleMeetTranscript.service.js';
 import { utcToRfc3339Wall } from '../utils/officeEventDateTime.util.js';
 import { officeCalendarSummary } from '../utils/officeCalendarSummary.js';
+import { privateClientCalendarFields } from './calendarClientPrivacy.js';
 
 function parseServiceAccountJson() {
   const raw = process.env.GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON;
@@ -459,6 +460,7 @@ export class GoogleCalendarService {
     attendeeDetails = null,
     inviteGoogleGuests = false,
     createMeetLink = false,
+    privateClientEvent = false,
     /** Google Calendar invite emails: 'all' | 'externalOnly' | 'none' */
     sendUpdates = 'all',
     /** Google Calendar color id ("1"–"11"); e.g. "3" = grape for interviews */
@@ -534,7 +536,10 @@ export class GoogleCalendarService {
         return {email, ...(detail?.displayName ? {displayName:detail.displayName} : {})};
       }) } : {})
     };
-    if (createMeetLink) {
+    if (privateClientEvent) {
+      Object.assign(requestBody, privateClientCalendarFields());
+      requestBody.extendedProperties = { private: { pt_kind: 'PROVIDER_SCHEDULE_EVENT' } };
+    } else if (createMeetLink) {
       requestBody.conferenceData = {
         createRequest: {
           requestId: randomUUID(),
@@ -547,8 +552,8 @@ export class GoogleCalendarService {
       const ins = await cal.events.insert({
         calendarId,
         requestBody,
-        sendUpdates: sendUpdatesMode,
-        ...(createMeetLink ? { conferenceDataVersion: 1 } : {})
+        sendUpdates: privateClientEvent ? 'none' : sendUpdatesMode,
+        ...(createMeetLink && !privateClientEvent ? { conferenceDataVersion: 1 } : {})
       });
       const data = ins?.data || {};
       const meetLink = data?.hangoutLink
@@ -711,7 +716,8 @@ export class GoogleCalendarService {
     attendees = [],
     extendedProperties = {},
     sendUpdates = 'all',
-    disableReminders = false
+    disableReminders = false,
+    privateClientEvent = false
   } = {}) {
     const subject = String(subjectEmail || '').trim().toLowerCase();
     if (!subject) return { ok: false, reason: 'missing_subject_email' };
@@ -753,6 +759,11 @@ export class GoogleCalendarService {
     if (attendeeEmails.length) {
       requestBody.attendees = attendeeEmails.map((email) => ({ email }));
     }
+    if (privateClientEvent) {
+      Object.assign(requestBody, privateClientCalendarFields());
+      sendUpdates = 'none';
+    }
+    const privacyWriteOptions = privateClientEvent ? { supportsAttachments: true, conferenceDataVersion: 1 } : {};
 
     const cal = this.buildCalendarClientForSubject(subject);
     const calendarId = 'primary';
@@ -764,7 +775,8 @@ export class GoogleCalendarService {
           calendarId,
           eventId: googleEventId,
           requestBody,
-          sendUpdates
+          sendUpdates,
+          ...privacyWriteOptions
         });
         googleEventId = upd.data?.id || googleEventId;
       } else {
@@ -772,14 +784,15 @@ export class GoogleCalendarService {
           const ins = await cal.events.insert({
             calendarId,
             requestBody: stableInsertId ? { ...requestBody, id: stableInsertId } : requestBody,
-            sendUpdates
+            sendUpdates,
+            ...privacyWriteOptions
           });
           googleEventId = ins.data?.id || null;
         } catch (error) {
           // Worker may have persisted to Google before losing its DB connection.
           // A stable provider ID makes that retry an update, not a duplicate.
           if (!stableInsertId || Number(error?.code || error?.response?.status) !== 409) throw error;
-          await cal.events.patch({ calendarId, eventId: stableInsertId, requestBody, sendUpdates });
+          await cal.events.patch({ calendarId, eventId: stableInsertId, requestBody, sendUpdates, ...privacyWriteOptions });
           googleEventId = stableInsertId;
         }
       }
@@ -787,6 +800,21 @@ export class GoogleCalendarService {
     } catch (e) {
       logGoogleUnauthorizedHint(e, { context: 'GoogleCalendarService.upsertProviderPrimaryCalendarEvent' });
       return { ok: false, reason: 'google_api_error', error: String(e?.message || e) };
+    }
+  }
+
+  static async redactLinkedClientCalendarEvent(subjectEmail, eventId) {
+    if (!eventId || !this.isConfigured() || !(await googleScheduleAllowedForEmail(subjectEmail))) return false;
+    try {
+      const calendar = this.buildCalendarClientForSubject(subjectEmail);
+      await calendar.events.patch({
+        calendarId: 'primary', eventId, sendUpdates: 'none', supportsAttachments: true, conferenceDataVersion: 1,
+        requestBody: privateClientCalendarFields()
+      });
+      return true;
+    } catch (error) {
+      // The app's stored ID no longer exists on this calendar.
+      return [404,410].includes(Number(error?.code || error?.response?.status));
     }
   }
 

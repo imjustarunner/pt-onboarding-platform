@@ -247,8 +247,8 @@ export const createAppointmentHandler = async (req, res, next) => {
               if (!appointmentHasStarted(appointment.startAt)) {
                 try {
                   const mirrored = await GoogleCalendarService.upsertProviderPrimaryCalendarEvent({
-                    subjectEmail: provider?.email, summary: appointment.title || 'Session',
-                    description: req.body?.notes || null, startAt: occurrence.startAt, endAt: occurrence.endAt,
+                    subjectEmail: provider?.email, summary: 'Client session', privateClientEvent: true,
+                    startAt: occurrence.startAt, endAt: occurrence.endAt,
                     timeZone: req.body?.timeZone || 'America/Denver',
                     sendUpdates: 'none', disableReminders: appointment.notificationMode === 'off'
                   });

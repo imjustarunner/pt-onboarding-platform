@@ -24,6 +24,7 @@ import { getStaffCommunicationAgencies, getStaffCommunicationChoices } from '../
 import { officeBookingAgencyId } from '../utils/officeBookingAgency.js';
 import { huddleSubtype, HUDDLE_SUBTYPES } from '../services/huddlePolicy.js';
 import { providerScheduleCalendarTiming } from '../utils/providerScheduleCalendar.js';
+import { isClientCalendarEvent, isLinkedClientCalendarCopy } from '../services/calendarClientPrivacy.js';
 import { randomUUID } from 'node:crypto';
 import { captureMeetingChange, queueMeetingChange } from '../services/meetingScheduleChanges.service.js';
 import { saveEventMeetingSettings, assertMeetingCompensationSetting } from '../services/meetingSettings.service.js';
@@ -6450,6 +6451,7 @@ export const createUserScheduleEvent = async (req, res, next) => {
       isPrivate,
       attendeeEmails,
       createMeetLink,
+      privateClientEvent: isClientCalendarEvent({ kind, clientId: req.body?.clientId }),
       sendUpdates: isAppMeeting ? 'none' : (notifyParticipants ? 'all' : 'none')
     });
 
@@ -7274,12 +7276,15 @@ export const updateUserScheduleEvent = async (req, res, next) => {
       if (!fresh || Number(fresh.recurrence_horizon_held)) continue;
       const googleEventId = String(fresh?.google_event_id || '').trim();
       if (!googleEventId) continue;
+      const privateClientEvent = isClientCalendarEvent(fresh) || canonicalSeriesWindows.has(occId)
+        || (kind === 'PERSONAL_EVENT' && !!(await (await import('../models/Appointment.model.js')).default.findByProviderScheduleEventId(occId)));
       // eslint-disable-next-line no-await-in-loop
       await GoogleCalendarService.upsertProviderPrimaryCalendarEvent({
         subjectEmail,
         existingGoogleEventId: googleEventId,
-        summary: String(fresh?.title || title || '').trim() || 'Schedule event',
-        description: ['TEAM_MEETING', 'HUDDLE'].includes(kind) && (fresh.platform_video_link == null || Number(fresh.platform_video_link) !== 0)
+        privateClientEvent,
+        summary: privateClientEvent ? 'Client session' : String(fresh?.title || title || '').trim() || 'Schedule event',
+        description: privateClientEvent ? null : ['TEAM_MEETING', 'HUDDLE'].includes(kind) && (fresh.platform_video_link == null || Number(fresh.platform_video_link) !== 0)
           ? [fresh.description, `Join with app: ${joinUrlForTeamMeeting(await tenantMeetingBase(fresh.agency_id), fresh.participant_join_token || fresh.join_token || fresh.id)}`].filter(Boolean).join('\n\n')
           : fresh?.description || null,
         ...(['TEAM_MEETING', 'HUDDLE'].includes(kind) ? { sendUpdates: 'none', disableReminders: true } : {}),
@@ -8056,6 +8061,9 @@ export const getUserGoogleEvent = async (req, res, next) => {
     }
 
     if (!(await usesGoogleSchedule(provider))) return res.status(403).json({ error: { message: 'Use your private calendar subscription in My Schedule.' } });
+    if (await isLinkedClientCalendarCopy(pool, providerId, eventId)) {
+      return res.status(409).json({ error: { message: 'Open the client session in My Schedule.' } });
+    }
 
     const providerEmail = String(provider?.email || '').trim().toLowerCase();
     if (!providerEmail) return res.status(400).json({ error: { message: 'Provider email is required' } });
@@ -8092,6 +8100,9 @@ export const patchUserGoogleEvent = async (req, res, next) => {
     if (!provider) return res.status(404).json({ error: { message: 'User not found' } });
 
     if (!(await usesGoogleSchedule(provider))) return res.status(403).json({ error: { message: 'Use your private calendar subscription in My Schedule.' } });
+    if (await isLinkedClientCalendarCopy(pool, providerId, eventId)) {
+      return res.status(409).json({ error: { message: 'Edit the client session in My Schedule.' } });
+    }
 
     const providerEmail = String(provider?.email || '').trim().toLowerCase();
     if (!providerEmail) return res.status(400).json({ error: { message: 'Provider email is required' } });

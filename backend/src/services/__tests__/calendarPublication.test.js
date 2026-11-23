@@ -14,7 +14,7 @@ beforeEach(()=>{vi.clearAllMocks();mocks.household.mockResolvedValue({id:1,role:
 describe('limited calendar content',()=>{
  it('does not export names, descriptions, private titles or host tokens',()=>{
   const raw={kind:'SESSION',client_id:4,client_initials:'A.B.',title:'Anna Baker trauma follow-up',description:'clinical note',host_join_token:'SECRET'};
-  expect(workTitle(raw)).toBe('Session · A.B.');expect(workTitle({...raw,is_private:1})).toBe('Busy');expect(workTitle({...raw,client_initials:'Michael Mendez'})).not.toContain('Michael');
+  expect(workTitle(raw)).toBe('Client session');expect(workTitle({...raw,is_private:1})).toBe('Busy');expect(workTitle({...raw,client_initials:'Michael Mendez'})).not.toContain('Michael');
   const exported=JSON.stringify(googleEventBody({...event,...raw,title:workTitle(raw)}));expect(exported).not.toMatch(/Anna|trauma|clinical note|SECRET/);
  });
  it('uses exclusive all-day dates and UTC timed events',()=>{const ics=renderCalendar('Family',[{...event,startDate:'2026-03-08',endDate:'2026-03-09'}, {...event,key:'other'}]);expect(ics).toContain('DTSTART;VALUE=DATE:20260308');expect(ics).toContain('DTEND;VALUE=DATE:20260309');expect(ics).toContain('DTSTART:20260920T100000Z');});
@@ -34,9 +34,9 @@ describe('private subscriptions',()=>{
 });
 
 describe('personal subscription content boundaries',()=>{
- it('reduces accidental names and mixed-case client codes to initials',()=>{
-   for(const [value,want] of [['Anna','A'],['Michael Mendez','M.M'],['TaRo','T.R'],['A.B.','A.B.']]) {
-     expect(workTitle({kind:'SESSION',client_id:3,client_initials:value})).toBe(`Session · ${want}`);
+ it('omits all client identifiers from published titles',()=>{
+   for(const value of ['Anna','Michael Mendez','TaRo','A.B.']) {
+     expect(workTitle({kind:'SESSION',client_id:3,client_initials:value})).toBe('Client session');
    }
  });
  it('exports private holds as Busy and marks calendar entries private',()=>{

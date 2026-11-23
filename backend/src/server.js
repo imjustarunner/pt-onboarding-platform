@@ -1954,6 +1954,16 @@ if (shouldStartServerBackgroundJobs()) {
   };
   setTimeout(syncSharedCalendars, 30000);
   setInterval(syncSharedCalendars, 5 * 60 * 1000);
+  const reconcilePrivateCalendarCopies = async () => {
+    try {
+      const { reconcileClientCalendarPrivacy } = await import('./services/calendarPrivacyReconciliation.service.js');
+      await reconcileClientCalendarPrivacy();
+    } catch (error) {
+      console.warn('[Calendar privacy] Reconciliation unavailable:', error.code || 'unknown');
+    }
+  };
+  setTimeout(reconcilePrivateCalendarCopies, 15000);
+  setInterval(reconcilePrivateCalendarCopies, 60000);
 
   // Run immediately on startup (best-effort)
   scheduleClinicalNoteDraftCleanup();
