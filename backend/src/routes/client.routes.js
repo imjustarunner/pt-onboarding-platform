@@ -1,3 +1,4 @@
+import { listClientRelationships, changeClientSibling } from '../controllers/clientRelationships.controller.js';
 import { getClientCreationDraft,saveClientCreationDraft } from '../controllers/clientCreationDraft.controller.js';
 import { requireClinicalStaffSecurity } from '../middleware/clinicalStaffSecurity.middleware.js';
 import { receiveClientDocument } from '../middleware/clientDocumentUpload.middleware.js';
@@ -199,6 +200,9 @@ router.post('/demo/bulk', requireBackofficeAdmin, bulkPatchClientDemo);
 
 // New Client Onboarding queue (must be before /:id)
 router.post('/caseload-session-dates',requireActiveStatus,caseloadSessionDates);
+router.get('/:id/relationships', requireActiveStatus, listClientRelationships);
+router.put('/:id/relationships/siblings/:peerId', requireActiveStatus, changeClientSibling);
+router.delete('/:id/relationships/siblings/:peerId', requireActiveStatus, changeClientSibling);
 router.get('/:id/quick-view-tasks',requireActiveStatus,clientQuickViewTasks);
 router.get('/:id/chart-appointments',requireActiveStatus,clientChartAppointments);
 router.get('/:id/overview-essentials',requireActiveStatus,clientOverviewEssentials);

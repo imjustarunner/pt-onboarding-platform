@@ -453,14 +453,7 @@
               </article>
             </div>
             <ClientReferralLinks v-if="client?.id && ['super_admin','admin','staff','support','provider','provider_plus'].includes(authStore.user?.role)" :client-id="client.id" :agency-id="client.agency_id" />
-            <div v-if="client?.id" class="cdp-affiliated-wrap">
-              <ClientAffiliatedContactsPanel
-                mode="staff"
-                :client-id="client.id"
-                :client-initials="client.initials || ''"
-                title="Appointment reminder contacts"
-              />
-            </div>
+
           </div>
 
           <div v-if="showPanel('account')" class="ov-sections ov-sections--account">
@@ -1636,7 +1629,21 @@
         <ClientPortalOverview :portal-setup="chartTypes?.portalSetup" :can-edit-contact="canEditClientEmail" @edit-contact="goChartSub('demographics')" @account-updated="loadChartTypes" ref="portalOverviewRef"  :dependent="showDependentFields" :show-actions="false" v-if="chartHub==='portal' && canViewGuardians" :key="client.id" :client="client" :agency="{id:Number(selectedAgencyId||client.agency_id),name:primaryAgencyDisplayName}" :actor="authStore.user" @share-documents="goChartSub('documents')" @share-assessments="goChartSub('assessments')" @manage-access="showDependentFields ? goChartSub('guardians') : onHubChange('portal')" :personal-login-available="clientIsMinor" />
 
         <!-- Guardians Tab -->
-        <div v-if="showDependentFields && showPanel('guardians')" class="detail-section">
+        <div v-if="showPanel('guardians')" class="detail-section">
+          <h3>Relationships</h3>
+          <ClientRelationshipDirectory :client-id="client.id" :agency-id="activeChartAgencyId" />
+            <div v-if="client?.id" class="cdp-affiliated-wrap">
+              <ClientAffiliatedContactsPanel
+                :key="`${client.id}:${activeChartAgencyId}`"
+                mode="staff"
+                :client-id="client.id"
+                :client-initials="client.initials || ''"
+                title="Other contacts and reminders"
+                :agency-id="activeChartAgencyId"
+                embedded
+              />
+            </div>
+          <template v-if="showDependentFields">
           <h3>{{ isSelfIntakeContact ? 'Client (self)' : 'Guardians' }}</h3>
           <DependentPortalSharing :client-id="Number(client.id)" :agency-id="Number(selectedAgencyId || client.agency_id)" />
           <div class="phi-warning" style="margin-bottom: 12px;">
@@ -1938,6 +1945,7 @@
               </div>
             </div>
           </div>
+          </template>
         </div>
 
         <ClientPortalInviteDialog v-if="showPortalInvites && canManageGuardians" :key="client.id" :client-ids="[Number(client.id)]" :agency-id="Number(selectedAgencyId || client.agency_id)" :personal-login-available="clientIsMinor" :allow-linked-accounts="showDependentFields" @edit-contact="showPortalInvites=false;goChartSub('demographics')" @close="showPortalInvites = false" />
@@ -2940,6 +2948,7 @@ import { isPractitionerOrgType } from '../../utils/practitionerVertical';
 import { serviceLocationForOffice,billingServiceLocationOptions } from '../../utils/officeBillingDefaults';
 import { toPlainEnglish } from '../../utils/auditActionRegistry.js';
 import ClientSkillBuildersProgramTab from '../skillBuilders/ClientSkillBuildersProgramTab.vue';
+import ClientRelationshipDirectory from '../client/ClientRelationshipDirectory.vue';
 import ClientAffiliatedContactsPanel from '../client/ClientAffiliatedContactsPanel.vue';
 import { isSkillsClientFlag } from '../../utils/skillsClientFlag.js';
 import {
@@ -3074,7 +3083,7 @@ const chartSubnav = computed(() => {
       isSchool: isSchoolClientType.value,
       canEditAccount: canEditAccount.value,
       canViewBilling: canViewClientBillingImport.value
-    }).filter(item => item.id !== 'guardians' || showDependentFields.value);
+    });
   }
   if (hub === 'lifecycle') {
     return lifecycleSubnav({ isSchool: isSchoolClientType.value });

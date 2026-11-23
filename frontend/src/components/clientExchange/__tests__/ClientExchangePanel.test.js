@@ -189,3 +189,42 @@ it('aggregates authorized agencies and restores the saved scope and sort',async(
  await wrapper.find('select[aria-label="Sort exchange listings"]').setValue('oldest');await wrapper.find('select').setValue('3');await flushPromises();wrapper.unmount();
  wrapper=makeWrapper();await flushPromises();expect(wrapper.find('select').element.value).toBe('3');expect(wrapper.find('select[aria-label="Sort exchange listings"]').element.value).toBe('oldest');wrapper.unmount();localStorage.clear();
 });
+
+
+it('browses matched, requestable and blocked profiles in order and withdraws the viewer’s pending request', async () => {
+  const listings = [
+    { id:3, agencyId:450, clientInitials:'Blocked', status:'open', viewerFit:{ status:'blocked', canRequest:false } },
+    { id:2, agencyId:450, clientInitials:'Available', status:'requested', viewerFit:{ status:'review', canRequest:true } },
+    { id:1, agencyId:450, clientInitials:'Matched', status:'open', viewerFit:{ status:'match', canRequest:true } }
+  ];
+  let request = { id:90, listingId:2, status:'pending', createdAt:'2026-11-01T19:00:00Z' };
+  mocks.user = { id:7, role:'provider' };
+  mocks.route.query = {};
+  mocks.store = reactive({ currentAgency:{ id:450 }, userAgencies:[], agencies:[], fetchUserAgencies:vi.fn().mockResolvedValue([]) });
+  mocks.get.mockReset().mockImplementation(async url => {
+    const listing = listings.find(row => url.endsWith('/' + row.id));
+    return { data: listing ? { listing, requests:[] } : { listings, requests:[request] } };
+  });
+  mocks.post.mockReset().mockImplementation(async () => {
+    request = { ...request, status:'withdrawn', resolvedAt:'2026-11-02T19:00:00Z' };
+    return { data:{ request } };
+  });
+  const wrapper = makeWrapper();
+  await flushPromises();
+  const cards = wrapper.findAllComponents({ name:'ListingCard' });
+  expect(cards.map(card => card.props('listing').id)).toEqual([1,2,3]);
+  cards[0].vm.$emit('select');
+  await flushPromises();
+  const button = label => wrapper.findAll('button').find(row => row.text() === label);
+  expect(wrapper.get('[aria-label="Your request"]').text()).toContain('haven’t requested');
+  await button('Next').trigger('click');
+  await flushPromises();
+  expect(wrapper.get('[aria-label="Your request"]').text()).toContain('Your request · pending');
+  await button('Withdraw my request').trigger('click');
+  await flushPromises();
+  expect(mocks.post).toHaveBeenCalledWith('/client-exchange/requests/90/withdraw', {}, { headers:{ 'X-Agency-Id':'450' } });
+  expect(wrapper.get('[aria-label="Your request"]').text()).toContain('Your request · withdrawn');
+  await button('Next').trigger('click');
+  expect(button('Next').attributes('disabled')).toBeDefined();
+  wrapper.unmount();
+});

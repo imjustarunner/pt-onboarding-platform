@@ -298,7 +298,11 @@
             @keydown.space.prevent="handleRowActivate(client)"
           >
 
-            <td class="initials-cell col-client">
+            <td class="initials-cell col-client school-client-preview"
+                @mouseenter="previewOnHover(client)"
+                @mouseleave="leavePreview"
+                @focusin="previewOnHover(client)"
+                @focusout="leavePreview">
               <div class="client-label">
                 <button
                   class="initials initials-btn"
@@ -894,7 +898,7 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(['preview-client','edit-client', 'update:statusFilterKey', 'update:actionFilterKey', 'update:needsAttentionCount', 'open-availability-request', 'open-profile']);
+const emit = defineEmits(['preview-client','hover-client','leave-client','edit-client', 'update:statusFilterKey', 'update:actionFilterKey', 'update:needsAttentionCount', 'open-availability-request', 'open-profile']);
 
 const schoolRosterRefreshToken = inject('schoolRosterRefreshToken', null);
 const bumpPeerRosterRefresh = () => {
@@ -971,6 +975,12 @@ const canOpenSchoolClient = (client) => {
   if (isClientTerminated(client)) return false;
   return !isSchoolClientLocked(client) && !props.previewMode;
 };
+function previewOnHover(client) {
+  if (props.rosterScope === 'provider' && !isSchoolStaff.value && canOpenSchoolClient(client)) emit('hover-client', client);
+}
+function leavePreview(event) {
+  if (props.rosterScope === 'provider' && !(event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget))) emit('leave-client');
+}
 const isNewClientActionClient = (client) => {
   const actionKey = String(
     client?.lifecycle_action?.actionKey || client?.provider_action_key || ''

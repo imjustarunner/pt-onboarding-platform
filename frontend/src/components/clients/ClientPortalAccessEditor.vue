@@ -15,7 +15,7 @@
         :guardian-id="Number(account.guardian_user_id)" @disconnected="onDisconnected" />
       </template>
     </article>
-    <p v-if="!loading && !accounts.length">No linked accounts yet. Prepare the client’s own account to invite them. Add a guardian separately under Account → Guardians.</p>
+    <p v-if="!loading && !accounts.length">No linked accounts yet. Prepare the client’s own account to invite them. Add a guardian separately under Account → Relationships.</p>
     <button v-if="showSelfPreparation && !selfIdentity && !accounts.some(account=>account.relationship_type==='self')" type="button" :disabled="busy" @click="loadClientIdentity">Prepare client’s own portal account</button>
     <form v-if="selfIdentity" @submit.prevent="prepareSelf"><p><strong>{{selfIdentity.full_name}}</strong> · {{selfIdentity.email}}</p><label class="self-confirm"><input v-model="selfConfirmed" type="checkbox" required /> I verified that this is the client’s own email and that the client should receive their own portal access. This email does not belong to a guardian.</label><button :disabled="busy || !selfConfirmed">Prepare client account without sending email</button></form>
   </section>

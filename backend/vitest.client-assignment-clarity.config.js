@@ -6,6 +6,7 @@ export default {
     restoreMocks: true,
     include: [
       'src/controllers/__tests__/clientExchange.test.js',
+      'src/controllers/__tests__/clientRelationships.test.js',
       'src/controllers/__tests__/officeClientSubmissionCounts.test.js',
       'src/services/__tests__/clientServiceContext.test.js',
       'src/services/__tests__/providerServiceCaseload.test.js',

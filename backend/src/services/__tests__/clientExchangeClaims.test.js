@@ -10,7 +10,7 @@ vi.mock('../providerClinicalFacets.service.js', () => ({ listClinicalFacetsForUs
 vi.mock('../providerAcceptedInsurance.service.js', () => ({ listProviderAcceptedInsurancesForDisplay: mocks.accepted }));
 vi.mock('../clientExchangeSummary.service.js', () => ({ loadClientExchangeSummary: async () => ({ demographics: {}, preferences: {}, diagnoses: [], presentingProblems: [] }) }));
 import { assertExchangeRequestEligible } from '../clientExchangeEligibility.service.js';
-import { createExchangeClaim, resolveExchangeClaim, withdrawExchangeListing } from '../clientExchangeClaims.service.js';
+import { createExchangeClaim, resolveExchangeClaim, withdrawExchangeListing, withdrawOwnExchangeClaim } from '../clientExchangeClaims.service.js';
 let listing, client, claims, eligible, waivers;
 beforeEach(() => {
   vi.clearAllMocks();
@@ -30,6 +30,13 @@ beforeEach(() => {
     if (sql.startsWith('SELECT u.id')) return [eligible ? [{ id: args[0] }] : []];
     if (sql.startsWith('SELECT * FROM clients')) return [[{ ...client }]];
     if (sql.startsWith('SELECT * FROM client_exchange_requests')) return [[claims.find(c => c.id === args[0])].filter(Boolean)];
+    if (sql.includes('SELECT id,status FROM client_exchange_requests')) {
+      return [claims.filter(c => c.id === args[0] && c.listing_id === args[1] && c.requesting_provider_user_id === args[2])];
+    }
+    if (sql.includes("SET status='withdrawn',resolved_by_user_id")) {
+      claims.find(c => c.id === args[1]).status = 'withdrawn';
+    }
+    if (sql.includes("SET status='open'") && !claims.some(c => c.status === 'pending')) listing.status = 'open';
     if (sql.startsWith('SELECT id FROM client_exchange_requests')) return [claims.filter(c => c.status === 'pending' && (args.length === 1 || c.requesting_provider_user_id === args[1]))];
     if (sql.startsWith('INSERT INTO client_exchange_requests')) { const id = claims.length + 1; claims.push({ id, listing_id: 1, requesting_provider_user_id: args[1], status: 'pending' }); return [{ insertId: id }]; }
     if (sql.startsWith("UPDATE client_exchange_listings SET status = 'requested'")) listing.status = 'requested';
@@ -166,4 +173,20 @@ it('blocks a demo request before a provider claim or support notice is created',
  client.email='demo@example.com';
  await expect(createExchangeClaim({listingId:1,requestingProviderUserId:9})).rejects.toMatchObject({status:403});
  expect(claims).toEqual([]);expect(mocks.commit).not.toHaveBeenCalled();
+});
+
+
+it('withdraws only the signed-in provider’s request and reopens the listing after the last withdrawal', async () => {
+  await createExchangeClaim({ listingId:1, requestingProviderUserId:10 });
+  await createExchangeClaim({ listingId:1, requestingProviderUserId:11 });
+  await expect(withdrawOwnExchangeClaim({ requestId:1, listingId:1, agencyId:2, userId:11 })).rejects.toMatchObject({ status:404 });
+  await expect(withdrawOwnExchangeClaim({ requestId:1, listingId:1, agencyId:9, userId:10 })).rejects.toMatchObject({ status:404 });
+  await expect(withdrawOwnExchangeClaim({ requestId:1, listingId:1, agencyId:2, userId:10 })).resolves.toBe(true);
+  expect(claims.map(c => c.status)).toEqual(['withdrawn', 'pending']);
+  expect(listing.status).toBe('requested');
+  await expect(withdrawOwnExchangeClaim({ requestId:1, listingId:1, agencyId:2, userId:10 })).resolves.toBe(false);
+  await withdrawOwnExchangeClaim({ requestId:2, listingId:1, agencyId:2, userId:11 });
+  expect(listing.status).toBe('open');
+  await createExchangeClaim({ listingId:1, requestingProviderUserId:10 });
+  expect(claims.at(-1).status).toBe('pending');
 });

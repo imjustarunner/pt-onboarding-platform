@@ -98,3 +98,9 @@ export function exchangePersonalFitSummary(fit){
  const reasons=[...new Set([...(fit.blockers||[]),...(fit.adjustments||[]),...(fit.review||[])].map(reason=>String(reason.message||reason.reason||'').trim()).filter(Boolean))];
  return {state,label,reasons};
 }
+
+// Keep the chosen date or agency order within each availability group.
+export function exchangeListingFitRank(listing) {
+  const state = exchangePersonalFitSummary(listing.viewerFit).state;
+  return ['matched', 'eligible', 'unavailable', 'blocked'].indexOf(state);
+}

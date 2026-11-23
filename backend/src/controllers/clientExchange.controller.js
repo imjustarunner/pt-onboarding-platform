@@ -1,3 +1,5 @@
+import { withdrawOwnExchangeClaim } from '../services/clientExchangeClaims.service.js';
+import { logAuditEvent } from '../services/auditEvent.service.js';
 import { canViewDemoExchange } from '../utils/clientExchangeDemo.js';
 import { isDemoExchangeListing } from '../services/clientExchangeDemo.service.js';
 import { exchangeStaffRole, exchangeNavigationCounts } from '../../../frontend/src/navigation/clientExchangePolicy.js';
@@ -286,6 +288,30 @@ export async function listMyRequests(req, res, next) {
     res.json({ requests });
   } catch (e) {
     next(e);
+  }
+}
+
+export async function withdrawMyRequest(req, res, next) {
+  try {
+    const requestId = safeInt(req.params.id);
+    if (!requestId) return res.status(400).json({ error: { message: 'Invalid request id' } });
+    const [[row]] = await pool.execute(`
+      SELECT l.id AS listingId,l.agency_id AS agencyId FROM client_exchange_requests r
+      JOIN client_exchange_listings l ON l.id=r.listing_id
+      WHERE r.id=? AND r.requesting_provider_user_id=?`, [requestId, req.user.id]);
+    if (!row || (req.user.scopedAgencyId && Number(req.user.scopedAgencyId) !== Number(row.agencyId))
+      || !(await assertAgencyAccess(req, row.agencyId))) {
+      return res.status(404).json({ error: { message: 'Request not found' } });
+    }
+    const changed = await withdrawOwnExchangeClaim({ requestId, userId: req.user.id, ...row });
+    if (changed) await logAuditEvent(req, {
+      actionType: 'client_exchange_request_withdrawn', agencyId: row.agencyId,
+      targetType: 'client_exchange_request', targetId: requestId, metadata: { listingId: row.listingId }
+    });
+    return res.json({ request: await ClientExchange.getRequestById(requestId) });
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: { message: error.message } });
+    next(error);
   }
 }
 
