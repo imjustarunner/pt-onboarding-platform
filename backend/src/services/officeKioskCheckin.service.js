@@ -1,3 +1,4 @@
+import { kioskAppointmentSql } from '../utils/officeRoomOccupancy.js';
 import { beginClientSubmission, submissionTokenHash } from './officeClientSubmissions.service.js';
 import pool from '../config/database.js';
 import NotificationDispatcher from './notificationDispatcher.service.js';
@@ -22,11 +23,12 @@ export async function recordOfficeKioskCheckin({ locationId, eventId, providerId
     await conn.beginTransaction();
     const [rows] = await conn.execute(
       `SELECT e.id, e.office_location_id, e.room_id, (CASE WHEN e.status='BOOKED' OR e.slot_state='ASSIGNED_BOOKED' THEN COALESCE(e.booked_provider_id,e.assigned_provider_id) ELSE e.assigned_provider_id END) AS booked_provider_id, e.status, e.slot_state,
-              e.start_at, e.end_at, e.client_id, e.clinical_session_id, ol.name AS location_name, ol.timezone, ol.agency_id,
+              ap.start_at, ap.end_at, ap.id AS appointment_id, e.client_id, e.clinical_session_id, ol.name AS location_name, ol.timezone, ol.agency_id,
               r.name AS room_name, r.room_number, u.email, u.work_email, u.role, u.sees_clients, p.public_details_json service_details,
               e.session_context_json, sa.booking_agency_id, c.agency_id client_agency_id,
-              (SELECT ap.agency_id FROM appointments ap WHERE ap.office_event_id=e.id ORDER BY ap.id LIMIT 1) appointment_agency_id
+              ap.agency_id AS appointment_agency_id
        FROM office_events e
+       JOIN appointments ap ON ap.id=(${kioskAppointmentSql()})
        JOIN office_locations ol ON ol.id = e.office_location_id AND ol.is_active = 1
        JOIN office_rooms r ON r.id = e.room_id AND r.is_active = 1
        LEFT JOIN office_standing_assignments sa ON sa.id = e.standing_assignment_id
@@ -37,7 +39,7 @@ export async function recordOfficeKioskCheckin({ locationId, eventId, providerId
        LEFT JOIN provider_public_profiles p ON p.user_id=u.id
        WHERE e.id = ? AND e.office_location_id = ? FOR UPDATE`, [eventId, locationId]);
     const event = rows[0];
-    if (!event) throw reject(404, 'Appointment not found at this office. Please select your provider again.');
+    if (!event?.appointment_id) throw reject(404, 'Appointment not found at this office. Please select your provider again.');
     if (providerId && Number(event.booked_provider_id) !== providerId) {
       throw reject(409, 'This appointment has changed. Please select your provider again.');
     }
@@ -50,7 +52,7 @@ export async function recordOfficeKioskCheckin({ locationId, eventId, providerId
       && parseUtcDate(event.end_at) > parseUtcDate(bounds.startAt))) {
       throw reject(409, 'Check-in is available only for today’s appointments.');
     }
-    const slot=lobbySlot(event,{nextHour,timezone});
+    const slot=lobbySlot(event,{nextHour,timezone,exactAppointment:true});
     if(!slot || (appointmentStartAt && appointmentStartAt!==slot.appointmentStartAt)) throw reject(409,'This appointment window has changed. Please select your provider again.');
     // Care eligibility belongs to the booking's agency, including on retries.
     // An explicit staff-only agency must never borrow another agency's permission.
@@ -66,10 +68,9 @@ export async function recordOfficeKioskCheckin({ locationId, eventId, providerId
     const bookedAgencyId = officeBookingAgencyId(event);
     const agencyId = (bookedAgencyId ? eligibleAgencies.find(a=>Number(a.agency_id)===bookedAgencyId) : eligibleAgencies[0])?.agency_id;
     if (!agencyId) throw reject(409, 'Client check-in is not available for this provider and organization. Please ask staff for help.');
-    // Preserve one arrival per displayed hour, even for a multi-hour office allocation.
+    // Use the actual appointment start for arrivals and repeated taps.
     const originalStart=parseUtcDate(event.start_at).toISOString().slice(0,19).replace('T',' ');
     event.start_at=parseUtcDate(slot.appointmentStartAt);
-    if(!event.client_id&&!event.clinical_session_id) event.end_at=new Date(Math.min(parseUtcDate(event.end_at).getTime(),event.start_at.getTime()+3600000));
     const slotStart=event.start_at.toISOString().slice(0,19).replace('T',' ');
     // During a rolling release an older instance can still write a null slot.
     // Adopt that arrival only for its original appointment, never a later hour.

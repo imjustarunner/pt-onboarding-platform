@@ -9,7 +9,7 @@ import { recordOfficeKioskCheckin } from '../officeKioskCheckin.service.js';
 let event, existing, alert, failNotification;
 beforeEach(() => {
   vi.resetAllMocks(); vi.useFakeTimers(); vi.setSystemTime(new Date('2026-09-30T01:00:00Z')); // Still September 29 in Denver.
-  event = { id: 9, office_location_id: 3, room_id: 4, booked_provider_id: 7, status: 'BOOKED', start_at: '2026-09-30 01:00:00', end_at: '2026-09-30 02:00:00', timezone: 'America/Denver', agency_id: 2, location_name: 'North Office', room_number: '204', email: 'provider@example.test', role: 'provider' };
+  event = { id: 9, appointment_id: 31, office_location_id: 3, room_id: 4, booked_provider_id: 7, status: 'BOOKED', start_at: '2026-09-30 01:00:00', end_at: '2026-09-30 02:00:00', timezone: 'America/Denver', agency_id: 2, location_name: 'North Office', room_number: '204', email: 'provider@example.test', role: 'provider' };
   existing = []; alert = []; failNotification = false;
   mocks.channel.mockResolvedValue(false);
   mocks.execute.mockImplementation(async (sql) => {
@@ -108,14 +108,12 @@ describe('office arrival atomicity and privacy', () => {
     });
     await expect(checkIn()).rejects.toThrow('Queue unavailable');expect(mocks.rollback).toHaveBeenCalledOnce();
   });
-  it('records the displayed hour of a multi-hour assignment, not its block start',async()=>{
-    event.start_at='2026-09-29 23:00:00';event.end_at='2026-09-30 04:00:00';event.status='ASSIGNED';
-    await recordOfficeKioskCheckin({locationId:3,eventId:9,providerId:7,appointmentStartAt:'2026-09-30T01:00:00.000Z'});
-    const insert=mocks.execute.mock.calls.find(([sql])=>sql.includes('INSERT INTO office_event_checkins'));
-    expect(insert[1].at(-1)).toBe('2026-09-30 01:00:00');
-    expect(mocks.execute.mock.calls.find(([sql])=>sql.includes('UPDATE office_event_checkins'))[1]).toEqual(['2026-09-29 23:00:00',9]);
-    expect(mocks.execute.mock.calls.find(([sql])=>sql.includes('INSERT INTO notifications'))[1][0]).toContain('7:00 PM MDT');
+  it('rejects an occupied room without a booked client appointment', async () => {
+    event.appointment_id = null;
+    await expect(checkIn()).rejects.toHaveProperty('status', 404);
+    expect(mocks.commit).not.toHaveBeenCalled();
   });
+
   it('does not silently check a stale selection into the next hour of the same block',async()=>{
     event.start_at='2026-09-29 23:00:00';event.end_at='2026-09-30 04:00:00';
     vi.setSystemTime(new Date('2026-09-30T01:31:00Z'));

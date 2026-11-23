@@ -1,3 +1,4 @@
+import { officeOccupancy } from '../utils/officeRoomOccupancy.js';
 import { officeSessionGapSql } from '../utils/officeSessionGap.js';
 import { isAvailableOfficeRelease } from '../utils/officeClientCancellation.js';
 import { activeOfficeProviderSql, inactiveOfficeProvider } from '../utils/officeProviderEligibility.js';
@@ -218,6 +219,7 @@ class OfficeEvent {
         const borrowingReleased = args.allowReleasedOffice === true && exactOccurrence && isAvailableOfficeRelease(released);
         const borrowingAssigned = args.allowAssignedOfficeBorrow === true && exactOccurrence
           && Number(released.assigned_provider_id) === Number(args.assignedProviderId)
+          && officeOccupancy(released) !== 'occupied'
           && !Number(released.office_gap_blocked) && !released.client_id && !released.clinical_session_id
           && !released.billing_context_id && !released.note_context_id;
         const reusable = conflicts.length === 1

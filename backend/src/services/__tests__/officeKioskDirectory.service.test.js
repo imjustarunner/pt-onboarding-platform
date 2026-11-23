@@ -21,7 +21,7 @@ describe('public office directory', () => {
   expect(result[0].current[0].assignedProvider.agencyName).toBe('Next Level Up');
  });
  it('does not substitute an unrelated agency for historical office entries', () => {
-  const result=buildOfficeDirectory({...base,events:[{...event,booked_provider_id:4,session_context_json:'{"agencyId":6}'}]});
+  const result=buildOfficeDirectory({...base,events:[{...event,booked_provider_id:4,client_id:42,session_context_json:'{"agencyId":6}'}]});
   expect(result[0].current[0].bookedProvider).toMatchObject({name:'Jordan Rivera',agencyName:null,agencyLogoPath:null});
  });
  it('uses office date across device/UTC date changes and DST day boundaries', () => {
@@ -51,7 +51,7 @@ describe('public office directory', () => {
   expect(()=>directorySelection({time:'16:00',endTime:'15:00'},timezone)).toThrow('End time');
  });
  it('sorts numerically and keeps booked and assigned providers distinct, with media', () => {
-  const result = buildOfficeDirectory(base);
+  const result = buildOfficeDirectory({...base, events: [{ ...event, client_id:42 }]});
   expect(result.map(r => r.roomNumber)).toEqual([1,2,10]);
   expect(result[0].occupied).toBe(true);
   expect(result[0].current[0].assignedProvider).toMatchObject({name:'Jordan Rivera',profilePhotoPath:'photo.jpg',agencyLogoPath:'logo.png'});
@@ -94,4 +94,21 @@ it('cancelling a client appointment preserves the assigned office hour after tra
  const result = buildOfficeDirectory({...base,standing:[{...assignment,transition_date:'2026-09-01'}],events:[{...event,status:'CANCELLED',client_id:123}]})[0];
  expect(result.occupied).toBe(false);
  expect(result.current[0].assignedProvider.id).toBe(4);
+});
+
+it('offers quiet assigned time today and keeps protected gaps and staff meetings occupied', () => {
+ const options = {...base, events:[], standing:[assignment], now:new Date('2026-09-29T15:00:00Z')};
+ const current = overrides => buildOfficeDirectory({...options, ...overrides})[0];
+ expect(current({})).toMatchObject({requestable:true,current:[{usage:'vacant'}]});
+ expect(current({now:new Date('2026-09-28T15:00:00Z')})).toMatchObject({requestable:false,current:[{usage:'assigned'}]});
+ const appointment = {room_id:assignment.room_id, provider_id:assignment.provider_id};
+ const appointments = [
+  {...appointment,start_at:'2026-09-29 15:00:00',end_at:'2026-09-29 16:00:00'},
+  {...appointment,start_at:'2026-09-29 17:00:00',end_at:'2026-09-29 18:00:00'}
+ ];
+ expect(current({appointments})).toMatchObject({requestable:false,current:[{usage:'occupied'}]});
+ expect(current({staffEvents:[{...appointment,start_at:'2026-09-29 16:00:00',end_at:'2026-09-29 17:00:00'}]}))
+  .toMatchObject({requestable:false,current:[{usage:'occupied'}]});
+ expect(current({events:[{...event,booked_provider_id:null,status:'RELEASED',slot_state:'ASSIGNED_AVAILABLE',
+  session_context_json:{roomOccupancy:'occupied'}}]})).toMatchObject({requestable:false,current:[{usage:'occupied'}]});
 });

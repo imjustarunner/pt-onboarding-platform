@@ -266,7 +266,6 @@ async function createLockedAppointment({
   customReminders = notificationMode === 'off' ? [] : normalizeCustomSessionReminders(customReminders);
   if (customReminders.length) notificationMode = 'customizable';
   await validateCustomReminderChannels(aid, customReminders);
-  externalMeetingUrl = await validateExternalMeeting({ agencyId, providerUserId, videoRoomMode, externalMeetingUrl, modality });
   let resuming = null;
   if (resumeReplacementAppointmentId) {
     resuming = await Appointment.findById(resumeReplacementAppointmentId);
@@ -305,7 +304,15 @@ async function createLockedAppointment({
   }
 
   const bookingClients = await assertAppointmentClients(aid, participants, { providerUserId, serviceLocationId });
-  videoRoomMode = appointmentVideoRoomMode({ modality, businessType: bookingClients.some(client => ['clinical', 'school'].includes(client.client_type)) ? 'mental_health' : businessType, videoRoomMode });
+  const clinicalVideoBooking = bookingClients.length > 0 && !audioOnly && !appointmentHasStarted(end)
+    && (['mental_health', 'healthcare'].includes(businessType)
+      || (!businessType && serviceCode !== 'TUTORING' && bookingClients.some(client => ['clinical', 'school', 'both'].includes(client.client_type))));
+  videoRoomMode = appointmentVideoRoomMode({ modality: modality || service?.modality, businessType, videoRoomMode, clinicalBooking: clinicalVideoBooking });
+  if (videoRoomMode === 'google_meet') {
+    includeGoogleDialIn = true;
+    externalMeetingUrl = null;
+  }
+  externalMeetingUrl = await validateExternalMeeting({ agencyId, providerUserId, videoRoomMode, externalMeetingUrl, modality: modality || service?.modality });
   for (const client of bookingClients) await assertClientServiceSchedulingActive({ agencyId:aid, providerUserId,
     clientId:client.id, businessType:businessType || (['learning','tutoring'].includes(client.client_type)?'learning':null), source, providerScheduleEventId,officeEventId });
   if (!businessType || ['mental_health', 'healthcare'].includes(businessType)) {

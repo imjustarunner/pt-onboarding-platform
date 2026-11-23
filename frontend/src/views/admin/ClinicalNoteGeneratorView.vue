@@ -306,6 +306,13 @@
         >
           <template #service-information><ServiceInformation v-if="actualServiceCode" presentation="button" :service-code="actualServiceCode" :agency-id="noteAidAgencyId || currentAgencyId" /></template>
         </NoteAidQuickSessionBar>
+        <section v-if="audioOnlyNote && !chartNoteReadOnly && !signedNoteViewerId" class="narriva-encounter-confirmation">
+          <label for="note-audio-only-reason"><strong>Audio only</strong> · Why was this format used?</label>
+          <textarea id="note-audio-only-reason" ref="audioOnlyReasonField" v-model="audioOnlyReason" class="na-textarea"
+            rows="2" maxlength="2000" required :aria-invalid="audioOnlyReasonMissing && !audioOnlyReason.trim()"
+            :aria-describedby="audioOnlyReasonMissing && !audioOnlyReason.trim() ? 'note-audio-only-error' : undefined" />
+          <p v-if="audioOnlyReasonMissing && !audioOnlyReason.trim()" id="note-audio-only-error" role="alert">Enter the reason before signing.</p>
+        </section>
         <PriorIntakeNotice v-if="!signedNoteViewerId && ['90791', '90792', 'H0031'].includes(actualServiceCode)" :sessions="signedNoteSessions" :client-id="effectiveClientId" :clinical-session-id="sessionClinicalSessionId" />
         <DraftAppointmentRepair v-if="draftId && !signedNoteViewerId && !isClientChartAid && !isReviewOnlyAid" :draft-id="draftId" :before-link="prepareDraftAppointmentRepair" @linked="onDraftAppointmentRepaired" @context="onDraftAppointmentContext" />
         <p v-if="draftId && needsActualProgressSession" class="na-context-strip na-context-strip--warn" role="alert">This saved progress draft has no verified actual session. Its text is preserved. Link its matching appointment above before saving, generating, or signing.</p>
@@ -387,11 +394,7 @@
         </div>
 
         <section v-if="!signedNoteViewerId && !chartNoteReadOnly && !isClientChartAid && (narrivaServicePending || narrivaServiceLoading || narrivaServiceError || sessionOfficeEventId && !sessionClinicalSessionId)" class="narriva-encounter-confirmation narriva-service-confirm"><p v-if="narrivaServiceLoading" role="status">Verifying the scheduled service…</p><p v-if="narrivaServiceError" role="alert">{{ narrivaServiceError }}</p><button v-if="narrivaServiceError || !sessionClinicalSessionId" type="button" class="na-btn-outline" @click="verifyNarrivaEncounter">Verify encounter service</button><template v-if="narrivaServicePending"><h3>{{ narrivaPendingConfirmation ? 'Finish pending service change' : 'Confirm service-code change' }}</h3><p v-if="narrivaPendingConfirmation">The prior confirmation is pending. Review its preserved service and reason, then explicitly retry it.</p><p v-else-if="narrivaServiceSnapshot.pendingServiceChange">A service change is pending. Its author must finish it before this note can proceed.</p><p>The scheduled encounter still uses {{ narrivaServiceSnapshot.serviceCode || 'its original service' }}. Narriva does not change the billed service automatically.</p><label>Reason / crisis justification<textarea v-model="narrivaServiceReason" :readonly="!!narrivaPendingConfirmation || narrivaServiceSnapshot.pendingServiceChange" class="na-textarea" rows="3" minlength="5" maxlength="4000" /></label><button type="button" class="na-btn-outline" :disabled="narrivaServiceSaving || narrivaServiceSnapshot.pendingServiceChange && !narrivaPendingConfirmation || narrivaServiceReason.trim().length<5" @click="confirmNarrivaService">{{ narrivaServiceSaving?'Checking eligibility…':narrivaPendingConfirmation?'Retry confirmation':'Confirm service change' }}</button></template></section>
-        <section v-if="audioOnlyNote && !chartNoteReadOnly && !signedNoteViewerId" class="narriva-encounter-confirmation">
-          <label for="note-audio-only-reason">Why was audio only used?</label>
-          <textarea id="note-audio-only-reason" v-model="audioOnlyReason" class="na-textarea" rows="2" maxlength="2000"
-            placeholder="Describe why video or in-person care was unavailable or unsuitable." />
-        </section>
+
         <p v-if="narrivaMappingError" class="error" role="alert">{{ narrivaMappingError }}</p>
         <p v-if="narrivaServiceSnapshot?.durationReview?.requiresReview" class="narriva-encounter-confirmation narriva-duration-review" role="status">{{ narrivaServiceSnapshot.durationReview.reason }}</p>
         <section v-if="isProBonoFundingCode(actualServiceCode)" class="narriva-encounter-confirmation narriva-underlying-service"><label for="narriva-underlying-service">Clinical service provided</label><div class="narriva-underlying-service__control"><select id="narriva-underlying-service" v-model="narrivaUnderlyingServiceCode" class="na-select" :disabled="chartNoteReadOnly || !!signedNoteViewerId"><option value="">Choose the clinical service provided</option><option v-if="narrivaUnderlyingServiceCode && !narrivaUnderlyingOptions.some(item => item.code === narrivaUnderlyingServiceCode)" :value="narrivaUnderlyingServiceCode" disabled>{{ narrivaUnderlyingServiceCode }} · Eligibility needs review</option><option v-for="item in narrivaUnderlyingOptions" :key="item.code" :value="item.code">{{ serviceCodeOptionLabel(item.code) }}</option></select><ServiceInformation presentation="button" :service-code="narrivaUnderlyingServiceCode" :agency-id="noteAidAgencyId || currentAgencyId" /></div><p>Pro Bono remains the funding arrangement. This identifies the clinical service for documentation review and does not change the scheduled or charged code.</p><p v-if="!narrivaUnderlyingServiceCode">Choose the clinical service to verify this note against its handbook requirements. Until then, the note remains unverified.</p></section>
@@ -3249,6 +3252,8 @@ const narrivaPreferenceSaving = ref(false), narrivaPreferenceError = ref('');
 let narrivaModeTouched = false;
 const narrivaConsentConfirmed = ref(false), narrivaModality = ref('');
 const audioOnlyReason = ref('');
+const audioOnlyReasonField = ref(null);
+const audioOnlyReasonMissing = ref(false);
 const audioOnlyNote = computed(() => !isClientChartAid.value && !isReviewOnlyAid.value
   && (narrivaModality.value || narrivaServiceSnapshot.value?.modality) === 'phone');
 const narrivaClientLocationDescription = ref('');
@@ -3280,7 +3285,7 @@ const sessionLocationModel=computed({get:()=>({locationLabel:sessionLocationLabe
  narrivaClientLocationDescription.value=value.clientLocationDescription || '';
  const site=sessionLocationChoices.value.find(choice=>choice.value===value.locationSelection);
  const suffix=['02','10'].includes(value.placeOfService)?value.placeOfService==='10'?' — client at home':' — client elsewhere':'';
- const label=site?.value || (value.locationLabel==='Telehealth'?`Telehealth (${value.modality==='phone'?'phone':'video'})${suffix}`:value.locationLabel);
+ const label=site?.value || (value.locationLabel==='Telehealth'?`${value.modality==='phone'?'Audio only':'Telehealth (video)'}${suffix}`:value.locationLabel);
  if(!label){sessionLocationLabel.value='';narrivaModality.value='';return;}
  const choice={...site,...value,value:label,label,name:value.locationLabel};
  sessionLocationChoices.value=[choice,...sessionLocationChoices.value.filter(item=>item.value!==label)];
@@ -6801,7 +6806,11 @@ const ensureClinicalSessionForApproval = async () => {
 
 const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) => {
   if (audioOnlyNote.value && !audioOnlyReason.value.trim()) {
-    approvalError.value = 'Document why audio only was used before signing.';
+    audioOnlyReasonMissing.value = true;
+    showAidPicker.value = false;
+    await nextTick();
+    audioOnlyReasonField.value?.scrollIntoView?.({ block: 'center' });
+    audioOnlyReasonField.value?.focus({ preventScroll: true });
     return;
   }
   if (needsActualProgressSession.value) { approvalError.value = 'Link the actual session before signing this progress note. Your draft text is preserved.'; return; }
@@ -7350,7 +7359,7 @@ const focusArchivedShelf = async () => {
 
 const resetClientClinicalContext = () => {
   sessionPresentingProblemOverride.value = null;
-  narrivaUnderlyingServiceCode.value='';narrivaConsentConfirmed.value=false;narrivaModality.value='';audioOnlyReason.value='';narrivaRiskIncluded.value=false;narrivaRiskRequired.value=false;narrivaRiskCompleted.value=false;narrivaAssessmentEvidence.value=[];showNarrivaAssessmentEvidence.value=false;invalidateNarrivaReview();
+  narrivaUnderlyingServiceCode.value='';narrivaConsentConfirmed.value=false;narrivaModality.value='';audioOnlyReason.value='';audioOnlyReasonMissing.value=false;narrivaRiskIncluded.value=false;narrivaRiskRequired.value=false;narrivaRiskCompleted.value=false;narrivaAssessmentEvidence.value=[];showNarrivaAssessmentEvidence.value=false;invalidateNarrivaReview();
   chartPlanLoadSeq += 1;
   intakeLoadSeq += 1;
   lastRenewalPrompt = '';
@@ -10323,7 +10332,7 @@ watch([sessionClinicalSessionId,noteAidAgencyId,effectiveClientId],loadNarrivaEn
 watch([noteAidAgencyId, currentAgencyId], loadNarrivaGeneratorMappings);
 watch([actualServiceCode, selectedProgramId, narrivaUnderlyingCode], syncMappedNarrivaTool);
 watch(() => narrivaReview.value?.riskAssessmentRequired, required => { narrivaRiskRequired.value = required === true; });
-watch([sessionObjectiveRatings, sessionPresentingProblemOverride, chartDiagnoses, chartDiagnosticJustification, inputText, revisionInstruction, actualServiceCode, dateOfService, sessionDurationMinutes, sessionStartTimeLocal, sessionEndTimeLocal, sessionParticipants, sessionParticipantsDetail, sessionLocationLabel, chartMentalStatus, chartRiskAssessment, sectionOverrides, narrivaUnderlyingServiceCode, narrivaConsentConfirmed, narrivaModality, narrivaRiskCompleted, narrivaRiskIncluded, narrivaClientLocationDescription, narrivaAssessmentEvidence], () => { if (!isWorkspaceHydrating()) { narrivaEditVersion++; invalidateNarrivaReview({ preserve: narrivaReview.value?.phase === 'pre_generation' }); } }, { deep:true });
+watch([audioOnlyReason, sessionObjectiveRatings, sessionPresentingProblemOverride, chartDiagnoses, chartDiagnosticJustification, inputText, revisionInstruction, actualServiceCode, dateOfService, sessionDurationMinutes, sessionStartTimeLocal, sessionEndTimeLocal, sessionParticipants, sessionParticipantsDetail, sessionLocationLabel, chartMentalStatus, chartRiskAssessment, sectionOverrides, narrivaUnderlyingServiceCode, narrivaConsentConfirmed, narrivaModality, narrivaRiskCompleted, narrivaRiskIncluded, narrivaClientLocationDescription, narrivaAssessmentEvidence], () => { if (!isWorkspaceHydrating()) { narrivaEditVersion++; invalidateNarrivaReview({ preserve: narrivaReview.value?.phase === 'pre_generation' }); } }, { deep:true });
 watch([audioOnlyReason,sessionObjectiveRatings,sessionPresentingProblemOverride,chartDiagnoses,narrivaUnderlyingServiceCode,narrivaConsentConfirmed,narrivaModality,narrivaRiskIncluded,narrivaRiskCompleted,narrivaClientLocationDescription,narrivaAssessmentEvidence], () => { if (!isWorkspaceHydrating()) scheduleAutosave(600); });
 watch([draftId,effectiveClientId,noteAidAgencyId,() => authStore.user?.id], () => { narrivaEditVersion++; pendingChartSignature=null; invalidateNarrivaReview(); });
 

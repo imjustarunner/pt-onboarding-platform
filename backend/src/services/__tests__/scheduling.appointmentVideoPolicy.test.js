@@ -34,3 +34,12 @@ it('keeps archived appointments hidden even when their calendar facet is missing
   : [[{resource_type:'appointment',resource_id:3,archive_id:14,archived_at:'2026-11-18 00:00:00'}]])};
  expect(await appointmentCalendarFallbacks({providerId:7,agencyId:2,windowStart:'start',windowEnd:'end'},db)).toEqual([]);
 });
+
+it('applies the same clinical video policy when the caller omits or supplies a different transport', () => {
+ for (const videoRoomMode of [undefined, 'unique_session', 'external', 'my_room', 'none']) {
+  expect(appointmentVideoRoomMode({modality:'TELEHEALTH',businessType:'mental_health',videoRoomMode,clinicalBooking:true}))
+    .toBe('google_meet');
+ }
+ expect(appointmentVideoRoomMode({modality:'IN_PERSON',businessType:'mental_health',videoRoomMode:'none',clinicalBooking:true}))
+   .toBe('none');
+});

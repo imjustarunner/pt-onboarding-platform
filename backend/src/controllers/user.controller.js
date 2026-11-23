@@ -1,3 +1,4 @@
+import { officeOccupancy } from '../utils/officeRoomOccupancy.js';
 import { officeSessionGapSql } from '../utils/officeSessionGap.js';
 import {attachAgencyAffiliationMetadata as attachAffiliationMeta} from '../services/agencyAffiliationMetadata.service.js';
 import {missingAppointmentOutcomeEvents} from '../utils/appointmentOutcomeCalendar.js';
@@ -4444,6 +4445,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
           .filter(Boolean)
           .join(' ') || null;
         return {
+        roomOccupancy: Number(r.office_gap_blocked) ? 'occupied' : officeOccupancy(r),
         displayStatus: Number(r.office_gap_blocked) === 1 ? 'BLOCKED' : toDisplayStatus({ status: r.status, slotState: normalizedSlotState }),
         id: r.id,
         buildingId: r.office_location_id,
@@ -7934,9 +7936,11 @@ export const listUserVirtualSessionClients = async (req, res, next) => {
     // Booking on behalf of a provider uses that provider's assigned caseload for every role.
     const [clientRows] = await pool.execute(
       `SELECT DISTINCT c.id, c.full_name, c.initials, c.identifier_code, c.client_type,
-         cs.status_key AS client_status_key, cs.label AS client_status_label
+         cs.status_key AS client_status_key, cs.label AS client_status_label,
+         COALESCE(membership.default_service_location_id, IF(c.agency_id = ?, c.default_service_location_id, NULL)) AS booking_service_location_id
        FROM clients c
        LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
+       LEFT JOIN client_agency_assignments membership ON membership.client_id = c.id AND membership.agency_id = ? AND membership.is_active = TRUE
        WHERE UPPER(COALESCE(c.status, '')) <> 'ARCHIVED'
          AND (c.agency_id = ? OR EXISTS (
            SELECT 1 FROM client_agency_assignments caa
@@ -7951,7 +7955,7 @@ export const listUserVirtualSessionClients = async (req, res, next) => {
              AND COALESCE(cse.service_kind, '') <> 'tutoring'
          ))
        ORDER BY COALESCE(NULLIF(TRIM(c.full_name), ''), c.initials, c.identifier_code) ASC, c.id ASC`,
-      [agencyId, agencyId, userId, userId, agencyId, userId]
+      [agencyId, agencyId, agencyId, agencyId, userId, userId, agencyId, userId]
     );
 
     const clients = (clientRows || []).map((r) => ({
@@ -7963,6 +7967,7 @@ export const listUserVirtualSessionClients = async (req, res, next) => {
       clientType: String(r.client_type || '').trim().toLowerCase() || null,
       statusKey: String(r.client_status_key || '').trim().toLowerCase() || null,
       statusLabel: String(r.client_status_label || '').trim() || null,
+      defaultServiceLocationId: Number(r.booking_service_location_id) || null,
       schools: []
     })).filter((c) => c.id > 0);
 

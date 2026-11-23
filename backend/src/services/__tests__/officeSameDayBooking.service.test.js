@@ -31,8 +31,19 @@ describe('same-day booking writes',()=>{
  it('books the full range for the signed-in provider without creating an approval request',async()=>{
   expect(await book()).toMatchObject({kind:'auto_booked',eventIds:[42]});
   const insert=mocks.execute.mock.calls.find(([sql])=>sql.includes('INSERT'));
-  expect(insert[1]).toEqual([1,4,'2026-09-30 01:15:00','2026-09-30 03:45:00',null,7,7,7]);
-  expect(mocks.execute.mock.calls.some(([sql])=>sql.includes('office_booking_requests'))).toBe(false);
+  expect(insert[1]).toEqual([1,4,'2026-09-30 01:15:00','2026-09-30 03:45:00',null,7,7,7,null,'staff']);
+  expect(mocks.execute.mock.calls.some(([sql])=>sql.includes('INSERT INTO office_booking_requests'))).toBe(false);
+ });
+ it('borrows a vacant occurrence and notifies its standing owner in the same transaction', async () => {
+  const assignment = {usage:'vacant',startAt:'2026-09-29 19:15:00',endAt:'2026-09-29 21:45:00',
+    assignedProvider:{id:9,agencyId:2},standingAssignmentId:16};
+  mocks.directory.mockResolvedValue({rooms:[{id:4,occupied:false,current:[assignment],assignments:[assignment]}]});
+  await expect(book()).resolves.toMatchObject({eventIds:[42]});
+  expect(mocks.execute.mock.calls.find(([sql])=>sql.includes('INSERT INTO office_events'))[1])
+   .toEqual([1,4,'2026-09-30 01:15:00','2026-09-30 03:45:00',9,7,7,7,16,'borrowed']);
+  expect(mocks.execute.mock.calls.find(([sql])=>sql.includes('INSERT INTO notifications'))[1])
+   .toEqual([expect.stringContaining('19:15–21:45'),9,2,42]);
+  expect(mocks.execute.mock.calls.some(([sql])=>sql.includes('UPDATE office_standing_assignments'))).toBe(false);
  });
  it('rejects assigned-only time without creating a booking',async()=>{mocks.directory.mockResolvedValue({rooms:[{id:4,occupied:false,current:[{assignedProvider:{id:9}}]}]});await expect(book()).rejects.toMatchObject({status:409});expect(mocks.execute.mock.calls.some(([sql])=>sql.includes('INSERT'))).toBe(false);});
  it('rejects an overlap anywhere in the requested range',async()=>{mocks.directory.mockResolvedValue({rooms:[{id:4,occupied:true}]});await expect(book()).rejects.toMatchObject({status:409});expect(mocks.execute.mock.calls.some(([sql])=>sql.includes('INSERT'))).toBe(false);});

@@ -174,7 +174,7 @@ export const createAppointmentHandler = async (req, res, next) => {
     try {
       for (const [recurrenceIndex, occurrence] of occurrences.entries()) {
         const appointment = await createAppointment({
-          deferScheduleNotice: !!recurrenceSeriesId || req.body?.videoRoomMode === 'google_meet',
+          deferScheduleNotice: true,
           sendBookingNotice: req.body?.sendBookingNotice !== false,
           agencyId,
           parentAgencyId: req.body?.parentAgencyId || null,
@@ -290,7 +290,7 @@ export const createAppointmentHandler = async (req, res, next) => {
           createdAppointmentIds: createdAppointments.map(appointment => appointment.id) });
       }
     }
-    if (recurrenceSeriesId || req.body?.videoRoomMode === 'google_meet') {
+    if (createdAppointments.length) {
       const facts = {
         ...(recurrenceSeriesId ? recurringBookingNoticeFacts(recurrenceSeriesId, createdAppointments) : {}),
         ...bookingNoticePreferenceFacts(req.body?.sendBookingNotice)

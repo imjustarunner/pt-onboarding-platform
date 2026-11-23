@@ -67,6 +67,7 @@ it('delivers a private Meet URL only to an authorized recipient and never falls 
  const google={...appointment,businessType:'mental_health',videoRoomMode:'google_meet',providerScheduleEventId:55};
  d.db.execute.mockImplementation(async sql=>sql.includes('private_meet_url') ? [[{private_meet_url:meet}]] : [[{id:9}]]);
  expect((await appointmentJoinEmail({appointment:google,clientId:22,to:'guardian@example.test',context},d)).url).toBe(meet);
+ expect(d.conference).toHaveBeenCalledWith(google);
  expect(d.db.execute.mock.calls.find(([sql])=>sql.includes('private_meet_url'))[1]).toEqual([google.id,google.agencyId,google.providerUserId]);
  d.db.execute.mockClear();
  d.authorize.mockResolvedValue({...client,permissions_json:{billingOnly:true}});

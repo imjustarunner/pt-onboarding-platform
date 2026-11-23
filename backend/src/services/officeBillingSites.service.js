@@ -35,7 +35,7 @@ export async function resolveBillingOfficeForSchool({ agencyId, schoolOrganizati
   }
 
   const offices = await OfficeLocation.findBillingByAgency(aid);
-  const list = offices || [];
+  const list = (offices || []).filter(office => Number(office.agency_id) === aid);
   const wind = list.find((o) => /windchime/i.test(`${o.name || ''} ${o.street_address || ''}`));
   const denver = list.find((o) => /denver/i.test(`${o.name || ''}`) || String(o.city || '').toLowerCase() === 'denver');
 
@@ -116,11 +116,15 @@ export function filterServiceLocationsForProvider(locations = [], officeIds = []
   const list = Array.isArray(locations) ? locations : [];
   const allowed = new Set((officeIds || []).map((n) => Number(n)).filter((n) => n > 0));
   const schools = new Set((schoolIds || []).map((n) => Number(n)).filter((n) => n > 0));
+  const readyCommunitySites = new Set(list.filter(location => location.place_of_service === '99' && location.billing_office_location_id)
+    .filter(location => !allowed.size || allowed.has(Number(location.billing_office_location_id)) || allowed.has(Number(location.physical_office_location_id)))
+    .map(location => location.name));
   const visible = list.filter((l) => l.is_provider_visible == null || Number(l.is_provider_visible) !== 0);
   return visible.filter((l) => {
     if (String(l.location_kind || l.locationKind || '') === 'school' || Number(l.school_organization_id || l.schoolOrganizationId || 0) > 0) {
       return schools.has(Number(l.school_organization_id || l.schoolOrganizationId));
     }
+    if (l.place_of_service === '99' && !l.billing_office_location_id && readyCommunitySites.has(l.name)) return false;
     if (!allowed.size) return true;
     const billOffice = Number(l.billing_office_location_id || l.billingOfficeLocationId || 0);
     if (!billOffice) return true;
@@ -154,22 +158,24 @@ export async function ensureSchoolServiceLocation({ agencyId, schoolOrganization
     [sid]
   );
   if (!school) return null;
-  let officeId = Number(billingOfficeLocationId || 0) || null;
+  const existing = await AgencyServiceLocation.findByAgencyAndSchool(aid, sid);
+  let officeId = Number(billingOfficeLocationId || existing?.billing_office_location_id || 0) || null;
+  if (officeId) {
+    const office = await OfficeLocation.findById(officeId);
+    if (!office || Number(office.agency_id) !== aid || !Number(office.is_active)) officeId = null;
+  }
   if (!officeId) {
     const office = await resolveBillingOfficeForSchool({ agencyId: aid, schoolOrganizationId: sid });
     officeId = Number(office?.id || 0) || null;
   }
-  if (!officeId) {
-    const offices = await OfficeLocation.findBillingByAgency(aid);
-    officeId = Number(offices?.[0]?.id || 0) || null;
-  }
+
   const address = {
     streetAddress: school.street_address || null,
     city: school.city || null,
     state: school.state || null,
     postalCode: school.postal_code || null
   };
-  let item = await AgencyServiceLocation.findByAgencyAndSchool(aid, sid);
+  let item = existing;
   if (item) {
     item = await AgencyServiceLocation.update(item.id, {
       ...address,

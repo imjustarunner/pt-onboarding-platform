@@ -4,6 +4,9 @@ import OfficeLocation from '../models/OfficeLocation.model.js';
 import OfficeLocationAgency from '../models/OfficeLocationAgency.model.js';
 import User from '../models/User.model.js';
 import UserComplianceDocument from '../models/UserComplianceDocument.model.js';
+import NotificationDispatcher from './notificationDispatcher.service.js';
+import { hasPendingSoftHoldAt } from './officeRequestSoftHold.service.js';
+import { officeOccupancy } from '../utils/officeRoomOccupancy.js';
 import { directorySelection, loadOfficeDirectory } from './officeKioskDirectory.service.js';
 import { utcToZonedMysqlWall } from '../utils/officeEventDateTime.util.js';
 const fail = (status, message) => Object.assign(new Error(message), { status });
@@ -35,25 +38,36 @@ export async function bookOfficeToday({ user, locationId, roomId, date, time, en
   if (documents.some(d => d.is_blocking && d.expiration_date && new Date(d.expiration_date) < new Date(new Date().toISOString().slice(0,10)))) throw fail(403, 'Scheduling is restricted due to an expired blocking credential.');
   const timezone = location.timezone || 'America/Denver';
   const window = sameDayWindow({date,time,endTime}, timezone);
-  return OfficeEvent.withRoomSlotLock({roomId, startAt:window.startAt,endAt:window.endAt}, async conn => {
+  const notices = [];
+  const result = await OfficeEvent.withRoomSlotLock({roomId, startAt:window.startAt,endAt:window.endAt}, async conn => {
     sameDayWindow({date,time,endTime},timezone);
     // Serialize this provider’s simultaneous requests for different rooms too.
     await conn.execute('SELECT id FROM users WHERE id = ? FOR UPDATE',[user.id]);
     const [roomRows] = await conn.execute('SELECT id FROM office_rooms WHERE id = ? AND location_id = ? AND is_active = 1 FOR UPDATE', [roomId,locationId]);
     if (!roomRows.length) throw fail(404,'Room not found at this building.');
-    const directory = await loadOfficeDirectory(conn, location, {date,time,endTime});
+    const directory = await loadOfficeDirectory(conn, location, {date,time,endTime}, {includeAssignmentIds:true});
     const room = directory.rooms.find(r=>Number(r.id)===roomId);
     if (!room || room.occupied) throw fail(409,'This office is no longer available for the entire time range. Refresh and choose another room or time.');
-    if ((room.current || []).some(entry => entry.assignedProvider)) throw fail(409, 'This office time is assigned. An empty room does not transfer the reservation; choose unassigned office time.');
+    if ((room.current || []).some(entry => (entry.assignedProvider || entry.hasOwner) && (entry.usage !== 'vacant' || !entry.assignedProvider))) throw fail(409, 'The assigned provider still reserves this time.');
+    const hour = value => Number(value.slice(0, 2)) + Number(value.slice(3, 5)) / 60;
+    if (await hasPendingSoftHoldAt({ officeLocationId: locationId, roomId, weekdayIndex: new Date(date).getUTCDay(),
+      startHour: hour(time), endHour: hour(endTime), date, timeZone: timezone, executor: conn })) {
+      throw fail(409, 'This office has a pending request for part of this time.');
+    }
     const [busy] = await conn.execute(`SELECT id FROM office_events WHERE booked_provider_id = ? AND start_at < ? AND end_at > ? AND status <> 'CANCELLED' AND (status = 'BOOKED' OR slot_state = 'ASSIGNED_BOOKED') LIMIT 1`,[user.id,window.endAt,window.startAt]);
     if (busy.length) throw fail(409,'You already have an office booking during this time.');
     const [overlaps] = await conn.execute(`SELECT * FROM office_events WHERE room_id = ? AND start_at < ? AND end_at > ? AND status <> 'CANCELLED' FOR UPDATE`,[roomId,window.endAt,window.startAt]);
     // Cancel the original occurrence and preserve both outside pieces verbatim.
     // Keeping the original row also preserves its audit/history references.
     for (const row of overlaps) {
-      if (row.assigned_provider_id || row.standing_assignment_id) throw fail(409, 'This office time is assigned. Choose unassigned office time.');
+      if (row.assigned_provider_id && !(room.current || []).some(entry => entry.usage === 'vacant'
+        && Number(entry.assignedProvider?.id) === Number(row.assigned_provider_id)
+        && (entry.standingAssignmentId || null) === (Number(row.standing_assignment_id) || null))) {
+        throw fail(409, 'The room assignment changed. Refresh and choose another time.');
+      }
+      if (['occupied', 'staff', 'borrowed'].includes(officeOccupancy(row))) throw fail(409, 'This office is already occupied.');
       if (row.status === 'BOOKED' || ['ASSIGNED_BOOKED','COMPANY_HOLD'].includes(row.slot_state)) throw fail(409,'This office was just booked. Refresh and choose another time.');
-      if (row.client_id || row.clinical_session_id) throw fail(409,'This time has a linked clinical record. Please choose another room or ask scheduling staff for help.');
+      if (row.client_id || row.clinical_session_id || row.billing_context_id || row.note_context_id) throw fail(409,'This time has a linked clinical record. Please choose another room or ask scheduling staff for help.');
       await conn.execute("UPDATE office_events SET status = 'CANCELLED' WHERE id = ?",[row.id]);
       const columns = Object.keys(row).filter(k=>!['id','created_at','updated_at'].includes(k) && !k.startsWith('active_guard_'));
       const originalStart = row.start_at instanceof Date ? row.start_at.toISOString().slice(0,19).replace('T',' ') : String(row.start_at);
@@ -68,11 +82,38 @@ export async function bookOfficeToday({ user, locationId, roomId, date, time, en
     }
     const segments = bookingSegments(window.selectedAt,window.selectedEndAt,room.assignments);
     const ids = [];
+    const recipients = new Map();
     for (const segment of segments) {
       const toUtc = wall => wallMysqlToUtcMysql(wall,timezone);
-      const [insert] = await conn.execute(`INSERT INTO office_events (office_location_id,room_id,start_at,end_at,status,slot_state,assigned_provider_id,booked_provider_id,source,created_by_user_id,approved_by_user_id,notes) VALUES (?,?,?,?,'BOOKED','ASSIGNED_BOOKED',?,?,'PROVIDER_REQUEST',?,?,'Same-day office reservation')`,[locationId,roomId,toUtc(segment.startAt),toUtc(segment.endAt),segment.assignedProviderId,user.id,user.id,user.id]);
+      const original = room.assignments.find(a => a.startAt <= segment.startAt && a.endAt > segment.startAt);
+      const ownerId = segment.assignedProviderId;
+      const borrowed = ownerId && Number(ownerId) !== Number(user.id);
+      const [insert] = await conn.execute(`INSERT INTO office_events
+        (office_location_id,room_id,start_at,end_at,status,slot_state,assigned_provider_id,booked_provider_id,
+          source,created_by_user_id,approved_by_user_id,standing_assignment_id,session_context_json,notes)
+        VALUES (?,?,?,?,'BOOKED','ASSIGNED_BOOKED',?,?,'PROVIDER_REQUEST',?,?,?,JSON_OBJECT('roomOccupancy',?),'Same-day office reservation')`,
+        [locationId,roomId,toUtc(segment.startAt),toUtc(segment.endAt),ownerId,user.id,user.id,user.id,
+          original?.standingAssignmentId || null, borrowed ? 'borrowed' : 'staff']);
+      if (borrowed) {
+        const intervals = recipients.get(ownerId) || [];
+        intervals.push({ id: insert.insertId, agencyId: original.assignedProvider?.agencyId || null,
+          time: `${segment.startAt.slice(11, 16)}–${segment.endAt.slice(11, 16)}` });
+        recipients.set(ownerId, intervals);
+      }
       ids.push(insert.insertId);
+    }
+    for (const [originalOwner, intervals] of recipients) {
+      const name = [provider.first_name, provider.last_name].filter(Boolean).join(' ') || 'Another staff member';
+      const message = `${name} reserved your vacant office at ${location.name} on ${date}, ${intervals.map(entry => entry.time).join(', ')}. Your standing reservation is still active.`;
+      const [notification] = await conn.execute(`INSERT INTO notifications
+        (type, severity, title, message, user_id, agency_id, related_entity_type, related_entity_id)
+        VALUES ('office_vacancy_reserved','info','Vacant office reserved',?,?,?,'office_event',?)`,
+        [message, originalOwner, intervals[0].agencyId, intervals[0].id]);
+      notices.push({ id: notification.insertId, user_id: originalOwner, agency_id: intervals[0].agencyId,
+        type: 'office_vacancy_reserved', title: 'Vacant office reserved', message, severity: 'info' });
     }
     return {ok:true,kind:'auto_booked',eventIds:ids,date,time,endTime,roomId};
   });
+  await Promise.allSettled(notices.map(notice => NotificationDispatcher.dispatchPushForNotification(notice)));
+  return result;
 }

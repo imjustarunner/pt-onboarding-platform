@@ -10,26 +10,31 @@ export function buildNoteAidLocationChoices({ locations = [], offices = [], offi
   const assigned = new Set(officeIds.map(Number));
   const assignedSchools = new Set((schoolIds || []).map(Number).filter(id => id > 0));
   const availableOffices = offices.filter(o => (assigned.has(Number(o.physical_office_location_id || o.id)) || assigned.has(Number(o.id))) && Number(o.is_active) !== 0);
+  const schoolSite = l => String(l.location_kind || '') === 'school' || String(l.place_of_service || '').padStart(2, '0') === '03';
+  const agencyOffices = new Map(offices.filter(o => Number(o.is_active) !== 0).map(o => [Number(o.id), o]));
   const byOffice = new Map(availableOffices.map(o => [Number(o.id), o]));
   const visible = locations.filter(l => (l.is_active == null || Number(l.is_active) !== 0) && (l.is_provider_visible == null || Number(l.is_provider_visible) !== 0)
-    && (!Number(l.billing_office_location_id) || byOffice.has(Number(l.billing_office_location_id)))
-    && (!(String(l.location_kind || '') === 'school' || String(l.place_of_service || '').padStart(2,'0') === '03') || assignedSchools.has(Number(l.school_organization_id))));
+    && (schoolSite(l)
+      ? assignedSchools.has(Number(l.school_organization_id)) && (!l.billing_office_location_id || agencyOffices.has(Number(l.billing_office_location_id)))
+      : !Number(l.billing_office_location_id) || byOffice.has(Number(l.billing_office_location_id))));
   const choices = new Map();
   // Linked office templates take precedence over legacy generic POS duplicates.
   for (const loc of [...visible].sort((a, b) => Number(!!b.billing_office_location_id) - Number(!!a.billing_office_location_id) || Number(a.id) - Number(b.id))) {
     const pos = String(loc.place_of_service || '').padStart(2, '0');
-    const office = byOffice.get(Number(loc.billing_office_location_id));
+    const office = (schoolSite(loc) ? agencyOffices : byOffice).get(Number(loc.billing_office_location_id));
     const mode = MODES[pos];
     if (pos === '11' && !office) continue; // A generic Office is not an assigned physical site.
     if (mode && !office && visible.some(l => String(l.place_of_service).padStart(2, '0') === pos && byOffice.has(Number(l.billing_office_location_id)))) continue;
+    const community = pos === '99' && ['Park', 'Library'].includes(loc.name);
+    if (community && !office && visible.some(row => row.place_of_service === '99' && row.name === loc.name && byOffice.has(Number(row.billing_office_location_id)))) continue;
     const key = pos === '11' || mode ? `${office?.id || 'generic'}:${pos}` : `site:${loc.id}`;
     if (choices.has(key)) continue;
     const name = pos === '11' ? office.name : mode || loc.name;
-    const serviceAddress = mode ? '' : address(pos === '11' ? office : loc);
+    const serviceAddress = mode || community ? '' : address(pos === '11' ? office : loc);
     const billingAddress = office ? address(office) : '';
     choices.set(key, {
       value: `service:${loc.id}`, name,
-      label: `${name}${serviceAddress ? ` — ${serviceAddress}` : ''}`,
+      label: `${name}${serviceAddress ? ` — ${serviceAddress}` : community && office ? ` · ${office.name}` : ''}`,
       address: serviceAddress, billingAddress, billingOfficeName: office?.name || null,
       serviceLocationId: Number(loc.id), billingOfficeLocationId: office?.id || null,
       schoolOrganizationId:Number(loc.school_organization_id)||null,

@@ -2,7 +2,7 @@ import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Appointment from '../models/Appointment.model.js';
 import { appointmentHasStarted } from '../utils/appointmentVideoPolicy.js';
-import { googleMeetingConference } from '../utils/googleMeetingConference.js';
+import { googleSpaceConference } from '../utils/googleMeetingConference.js';
 import { createGoogleSession, readGoogleSession, retireGoogleSession } from './auricwell/sessionTransports.js';
 import { managedDomain } from './managedWorkspaceGroupPolicy.js';
 import { usesGoogleSchedule } from './scheduleCalendarPolicy.service.js';
@@ -35,7 +35,7 @@ export async function prepareStaffAppointmentMeet(appointment, lockedConnection 
       if (!acquired) throw conflict('The meeting link is being prepared. Try again shortly.');
     }
     const current = await Appointment.findById(appointment.id, { executor: db });
-    if (current?.videoRoomMode !== 'google_meet' || !current.providerScheduleEventId
+    if (current?.videoRoomMode !== 'google_meet'
       || Number(current.providerUserId) !== Number(appointment.providerUserId)
       || Number(current.agencyId) !== Number(appointment.agencyId)
       || !activeStatuses.includes(current.status) || appointmentHasStarted(current.endAt)) {
@@ -52,10 +52,10 @@ export async function prepareStaffAppointmentMeet(appointment, lockedConnection 
       const [updated] = await db.execute(
         `UPDATE appointments SET private_meet_url = ?
          WHERE id = ? AND agency_id = ? AND provider_user_id = ?
-           AND provider_schedule_event_id = ? AND private_meet_url IS NULL
+           AND private_meet_url IS NULL
            AND video_room_mode = 'google_meet'
            AND status IN ('scheduled', 'confirmed', 'client_confirmed', 'in_progress')`,
-        [room.url, current.id, current.agencyId, current.providerUserId, current.providerScheduleEventId]);
+        [room.url, current.id, current.agencyId, current.providerUserId]);
       if (!updated.affectedRows) throw conflict('The appointment changed while the link was being created.');
     } catch (error) {
       await retireGoogleSession(room).catch(() => {});
@@ -86,12 +86,7 @@ export async function readStaffAppointmentMeetConference(appointment, meetLink) 
     const organizer = await providerMeetOrganizer(appointment.providerUserId, appointment.agencyId, pool);
     if (!organizer) return { status: 'not_verified', phones: [] };
     const data = await readGoogleSession({ organizer, meetingCode: code });
-    if (data.meetingUri !== meetLink) return { status: 'not_verified', phones: [] };
-    const phones = (data.phoneAccess || []).slice().sort((a, b) => Number(b.regionCode === 'US') - Number(a.regionCode === 'US'));
-    const conference = googleMeetingConference({ hangoutLink: meetLink, conferenceData: { entryPoints: phones.map(phone => ({
-      entryPointType: 'phone', uri: `tel:${phone.phoneNumber}`, pin: phone.pin
-    })) } });
-    return { ...conference, status: conference.phones.length ? 'available' : 'not_available' };
+    return googleSpaceConference(data, meetLink);
   } catch {
     return { status: 'not_verified', phones: [] };
   }

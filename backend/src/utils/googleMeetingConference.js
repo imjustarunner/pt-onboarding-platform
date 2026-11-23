@@ -11,3 +11,15 @@ export function googleMeetingConference(event = {}) {
  }):[];
  return {meetLink,phones};
 }
+
+export function googleSpaceConference(data, expectedLink) {
+  if (data?.meetingUri !== expectedLink) return { status: 'not_verified', phones: [] };
+  const phones = (data.phoneAccess || []).slice().sort((a, b) => Number(b.regionCode === 'US') - Number(a.regionCode === 'US'));
+  const conference = googleMeetingConference({
+    hangoutLink: expectedLink,
+    conferenceData: { entryPoints: phones.map(phone => ({
+      entryPointType: 'phone', uri: `tel:${phone.phoneNumber}`, pin: phone.pin
+    })) }
+  });
+  return { ...conference, status: conference.phones.length ? 'available' : 'not_available' };
+}

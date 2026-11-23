@@ -47,9 +47,8 @@ it('distinguishes assigned-only rooms and does not offer to book someone else’
  const entry = { assignedProvider: { id: 4, name: 'Jordan Rivera' }, booked: false, held: false, status: 'current', startAt: '2026-09-29 10:00:00', endAt: '2026-09-29 11:00:00' };
  api.get.mockResolvedValue({ data: { ...data, rooms: [{ ...data.rooms[0], occupied: false, current: [entry], assignments: [entry] }] } });
  wrapper = mount(KioskOfficeBoard, { props: { locationId: 1, allowBooking: true } }); await flushPromises();
- expect(wrapper.get('.room-card').classes()).toContain('assigned');
- expect(wrapper.text()).toContain('Assigned · no appointment');
+ expect(wrapper.get('.room-card').classes()).toContain('occupied');
+ expect(wrapper.text()).toContain('Assigned available');
  await wrapper.get('.room-card').trigger('click');
- expect(wrapper.text()).toContain('Check that the room is unoccupied');
- expect(wrapper.text()).not.toContain('Book this time for me');
+ expect(wrapper.text()).not.toContain('Reserve this time for me');
 });

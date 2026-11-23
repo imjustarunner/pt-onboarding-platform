@@ -1,3 +1,4 @@
+import { officeOccupancy } from '../utils/officeRoomOccupancy.js';
 import { isAvailableOfficeRelease } from '../utils/officeClientCancellation.js';
 import { randomUUID } from 'node:crypto';
 import { roomBlockForSession, sessionWindowInRoom } from '../utils/officeSessionWindow.js';
@@ -561,6 +562,7 @@ function eventContextRow(e = {}) {
     endAt: normalizeMysqlDateTime(e.end_at) || String(e.end_at || ''),
     status: String(e.status || '').toUpperCase() || null,
     slotState: String(e.slot_state || '').toUpperCase() || null,
+    roomOccupancy: Number(e.office_gap_blocked) ? 'occupied' : officeOccupancy(e),
     standingAssignmentId: Number(e.standing_assignment_id || 0) || null,
     bookingPlanId: Number(e.booking_plan_id || 0) || null,
     assignedProviderId: Number(e.assigned_provider_id || e.standing_assignment_provider_id || 0) || null,
@@ -1468,6 +1470,7 @@ export const getWeeklyGrid = async (req, res, next) => {
               hour,
               state,
               officeGapBlocked: Number(e.office_gap_blocked) === 1,
+              roomOccupancy: Number(e.office_gap_blocked) ? 'occupied' : officeOccupancy(e),
               displayStatus: Number(e.office_gap_blocked) === 1 ? 'BLOCKED' : toDisplayStatus({ status: e.status, slotState: st }),
               eventId: e.id,
               bookingAgencyId: officeBookingAgencyId(e),

@@ -476,26 +476,26 @@ it('adds a private personal event during an office reservation without editing t
 });
 
 it.each([
- ['ASSIGNED_BOOKED','book',{booked:false,scope:'occurrence',expectedBooking:'booked'}],
- ['ASSIGNED_AVAILABLE','forfeit',{acknowledged:true,scope:'occurrence',expectedBooking:'assigned'}]
-])('exposes the office cancel action up front and sends the correct change for %s', async (slotState, path, payload) => {
+ ['Confirm room use', null, 'occupancy', {usage:'occupied',date:'2026-11-26'}],
+ ['Cancel this date · Mark vacant', 'Mark vacant', 'occupancy', {usage:'vacant',date:'2026-11-26'}],
+ ['Forfeit room now and forward', 'Forfeit reservation', 'forfeit', {acknowledged:true,scope:'future',date:'2026-11-26'}]
+])('keeps %s in the room reservation card', async (label, confirm, path, payload) => {
   mocks.user={id:7,role:'provider'};
   wrapper=shallowMount(Grid,{props:{userId:7,agencyId:2},global:{stubs:{Teleport:true,RouterLink:true,ClinicalWorkspaceFrame:{template:'<div><slot /></div>'}}}});
   await flushPromises();
   const s=wrapper.vm.$.setupState;
   s.weekStart='2026-11-23';s.modalDay='Thursday';s.modalHour=10;s.modalStartHour=10;s.modalEndHour=11;
-  s.modalContext={agencyId:2,officeLocationId:8,officeEventId:40,roomId:9,assignedProviderId:7,bookedProviderId:slotState==='ASSIGNED_BOOKED'?7:null,
-    standingAssignmentId:19,slotState,dateYmd:'2026-11-26'};
+  s.modalContext={agencyId:2,officeLocationId:8,officeEventId:40,roomId:9,assignedProviderId:7,
+    standingAssignmentId:19,slotState:'ASSIGNED_AVAILABLE',dateYmd:'2026-11-26'};
   s.modalActionSource='office_block';s.showRequestModal=true;
   await nextTick();
-  const cancel = wrapper.get('[data-testid="selected-office-reservation"]').findAll('button')
-    .find(button => button.text() === 'Cancel reservation');
-  await cancel.trigger('click');
-  expect(s.requestType).toBe('forfeit_slot');
-  expect(wrapper.find('.nr-sidebar').exists()).toBe(false);
-  expect(wrapper.get('#office-cancellation-scope').element.value).toBe('occurrence');
-  s.ackForfeit=true;
-  await s.submitRequest();
+  await wrapper.get('[data-testid="selected-office-reservation"]').findAll('button')
+    .find(button => button.text() === label).trigger('click');
+  if (confirm) {
+    expect(mocks.post).not.toHaveBeenCalled();
+    await wrapper.get('[role="alertdialog"]').findAll('button').find(button => button.text() === confirm).trigger('click');
+  }
+  await flushPromises();
   expect(s.modalError).toBe('');
   expect(mocks.post).toHaveBeenCalledExactlyOnceWith('/office-slots/8/events/40/'+path,payload);
 });

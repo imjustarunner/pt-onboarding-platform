@@ -3,7 +3,7 @@ import { pool, seal, open, list, get, findSource, create, update, audit } from '
 import { fail, hash, has, requirePhi } from './policy.js';
 import { patientAccess } from './clinical.js';
 import { platformIntegrations } from './platformIntegrations.js';
-import { ensureAppointmentVideo, clientVideoLink, appointmentVersion, requireTelehealthConsent, retireUnusedSessionRooms } from './appointmentVideo.js';
+import { ensureAppointmentVideo, clientVideoLink, clientVideoDialIn, appointmentVersion, requireTelehealthConsent, retireUnusedSessionRooms } from './appointmentVideo.js';
 import { queuePatientSms, patientSmsCategoryEnabled, clientSmsPreferences, saveClientSmsPreferences } from './clientMessaging.js';
 import { nativeSchoolAppointment, schoolAppointmentReminderWindow, schoolAppointmentReminderText } from '../../utils/schoolAppointmentReminder.js';
 
@@ -68,6 +68,7 @@ export async function deliverAppointment(ctx, appointment, settings, deps = {}) 
   }
   if (!settings.emailReminders || prefs?.data.emailEnabled === false || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(patient.data.email || '')) return;
   room ||= video ? await ensureAppointmentVideo(ctx, appointment, settings, deps) : null;
+  const dialIn = video ? await clientVideoDialIn(room, { read: deps.readGoogleSession }) : null;
   const body = school ? `${ctx.practiceName || 'AuricWell'}: ${schoolAppointmentReminderText}`
     : `${ctx.practiceName || 'AuricWell'}: Your ${video ? 'virtual ' : ''}appointment is ${when}.${video ? ` Join your session: ${clientVideoLink(room)}` : ''}`;
   const id = crypto.randomUUID(), key = deliveryKey(appointment, kind, 'email', patient.data.email, room, ctx.settings.timezone);
@@ -79,7 +80,7 @@ export async function deliverAppointment(ctx, appointment, settings, deps = {}) 
     if (appointmentVersion(fresh) !== appointmentVersion(appointment) || !['scheduled','confirmed'].includes(fresh.data.status)) {
       await pool.execute("UPDATE auricwell_session_deliveries SET status='cancelled',updated_at=UTC_TIMESTAMP(3) WHERE id=?", [id]); return;
     }
-    const receipt = await (deps.sendEmail || sendEmail)(ctx, patient.data.email, `${body}\n\n${video ? 'Use Chrome for your video visit. Keep this appointment link private.\n' : ''}For scheduling changes, contact your practice.`, appointment);
+    const receipt = await (deps.sendEmail || sendEmail)(ctx, patient.data.email, `${body}${dialIn ? `\n\n${dialIn.text}` : ''}\n\n${video ? 'Use Chrome for your video visit. Keep this appointment link private.\n' : ''}For scheduling changes, contact your practice.`, appointment);
     if(receipt?.status==='cancelled') {
       await pool.execute("UPDATE auricwell_session_deliveries SET status='cancelled',updated_at=UTC_TIMESTAMP(3) WHERE id=?",[id]); return;
     }

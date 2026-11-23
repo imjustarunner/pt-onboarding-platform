@@ -1,3 +1,4 @@
+import { officeOccupancy } from './officeRoomOccupancy.js';
 export function reservationContextAfterClientCancellation(context,date) {
   if (!context?.clientUnscheduleFromDate || date < context.clientUnscheduleFromDate) return context;
   return {agencyId:context.agencyId,bookingSource:'office_assignment',bookingLimitsExplicit:context.bookingLimitsExplicit,
@@ -11,7 +12,7 @@ export function isBorrowableOfficeRelease(event) {
   return event?.status === 'RELEASED' && event.slot_state === 'ASSIGNED_AVAILABLE'
     && !!event.standing_assignment_id && !event.booked_provider_id && !event.client_id && !event.clinical_session_id
     && !event.billing_context_id && !event.note_context_id
-    && eventContext(event)?.officeCancellationDisposition === 'release';
+    && officeOccupancy(event) !== 'occupied' && eventContext(event)?.officeCancellationDisposition === 'release';
 }
 export function isAvailableOfficeRelease(event) {
   return isBorrowableOfficeRelease(event) && !Number(event.office_gap_blocked);

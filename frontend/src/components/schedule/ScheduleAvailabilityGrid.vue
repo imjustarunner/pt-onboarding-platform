@@ -1742,9 +1742,9 @@
               class="nr-forfeit-shortcut"
               :disabled="submitting || !!ownSlotForfeitAction.disabledReason"
               :title="officeCancellationHelp"
-              @click="openOwnSlotForfeit"
+              @click="updateSelectedRoomOccupancy('vacant')"
             >
-              Cancel office booking
+              Cancel this date · Mark vacant
             </button>
             <button
               v-if="isPickScheduleEventMode || (isScheduleEventEditMode && stackDetailsItems.length > 1)"
@@ -2138,8 +2138,8 @@
           @update:tenantServiceId="onEditorTenantServiceId"
           @update:primaryServiceCode="onEditorPrimaryServiceCode"
           @update:addonServiceCodes="editorAddonServiceCodes = $event"
-          v-model:audio-only="editorAudioOnly"
-          @update:modality="editorModality = $event"
+          @update:audio-only="editorSettingChosen = true; editorAudioOnly = $event"
+          @update:modality="onEditorDeliveryMode"
           @update:selectedClientIds="virtualSessionSelectedClientIds = $event"
           @update:recurrenceFrequency="onEditorRecurrenceFrequency"
           @update:recurrenceEndMode="onEditorRecurrenceEndMode"
@@ -2807,17 +2807,24 @@
             <span class="nr-info-label">Room reservation</span>
             <strong>{{ selectedOfficeReservationPlaceLabel }}</strong>
             <span>{{ selectedOfficeReservationDateLabel }} · {{ selectedOfficeReservationTimeLabel }} · {{ bookingTimezoneLabel }}</span>
+            <span v-if="roomOccupancyNotice" role="status">{{ roomOccupancyNotice }}</span>
             <span>{{ roomReservationFrequencyLabel }}<template v-if="roomReservationUntil"> · Reserved until {{ formatEditorDisplayDate(roomReservationUntil) }}</template></span>
             <div class="nr-reservation-actions">
               <button v-if="!editingRoomReservation" class="btn btn-primary btn-sm" type="button"
                 @click="editingRoomReservation = true">Edit room reservation</button>
               <button v-else class="btn btn-secondary btn-sm" type="button" :disabled="bookingStripSaving"
                 @click="leaveRoomReservationEditor">Back to room actions</button>
-              <button v-if="!editingRoomReservation && reservationExtensionAction" class="btn btn-secondary btn-sm" type="button"
+              <button v-if="!editingRoomReservation && roomReservationUntil && reservationExtensionAction" class="btn btn-secondary btn-sm" type="button"
                 :disabled="!!reservationExtensionAction.disabledReason"
-                @click="onQuickActionSelect(reservationExtensionAction)">{{ roomReservationUntil ? 'Extend reservation' : 'Confirm reservation' }}</button>
-              <button v-if="!editingRoomReservation && ownSlotForfeitAction" class="btn btn-secondary btn-sm" type="button"
-                @click="openOwnSlotForfeit">Cancel reservation</button>
+                @click="onQuickActionSelect(reservationExtensionAction)">Extend reservation</button>
+              <template v-if="!editingRoomReservation && ownSlotForfeitAction">
+                <button class="btn btn-secondary btn-sm" type="button" :disabled="submitting"
+                  @click="updateSelectedRoomOccupancy('occupied')">Confirm room use</button>
+                <button class="btn btn-secondary btn-sm" type="button" :disabled="submitting"
+                  @click="updateSelectedRoomOccupancy('vacant')">Cancel this date · Mark vacant</button>
+                <button v-if="hasFutureForfeitSupport" class="btn btn-secondary btn-sm" type="button" :disabled="submitting"
+                  @click="forfeitFutureRoomReservation">Forfeit room now and forward</button>
+              </template>
             </div>
           </section>
           <div v-if="!showInitialBookingContext || !canEditBookingStrip || editingRoomReservation" class="nr-info-bar nr-info-bar--edit">
@@ -12313,14 +12320,20 @@ const buildCellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout 
       });
     } else if (st === 'ASSIGNED_AVAILABLE') {
       const blocked = top?.officeGapBlocked === true;
-      const assignedLabel = blocked ? `Blocked · ${roomShort}`
+      const onSelectedSchedule = Number(top?.assignedProviderId) === Number(props.userId);
+      const staffUse = onSelectedSchedule && top?.roomOccupancy !== 'vacant' && (
+        supervisionSessionsInCell(dayName, hour, minute).some(event => !isScheduleEventTerminal(event))
+        || scheduleEventsInCell(dayName, hour, minute).some(event => ['TEAM_MEETING', 'HUDDLE'].includes(event.kind) && !isScheduleEventTerminal(event))
+      );
+      const occupied = blocked || top?.roomOccupancy === 'occupied' || staffUse;
+      const assignedLabel = occupied ? `Occupied · ${roomShort}` : top?.roomOccupancy === 'vacant' ? `Vacant · ${roomShort}`
         : (colorBlocksByTenant.value ? `Assigned · ${roomShort}` : roomShort || 'Office');
       blocks.push({
         key: `office-assigned-${blockKeySuffix}`,
         kind: 'oa',
         isOfficeBlock: true,
         officeStatus: 'reserved',
-        officeStatusLabel: blocked ? 'Blocked between sessions' : 'Assigned available',
+        officeStatusLabel: occupied ? 'Assigned available · Occupied' : top?.roomOccupancy === 'vacant' ? 'Assigned available · Vacant' : 'Assigned available',
         officeEmpty: true,
         officeRoomLabel,
         shortLabel: `${buildingPrefix}${assignedLabel}${intakeSuffix}`,
@@ -14161,13 +14174,36 @@ const chooserCardActions = computed(() => visibleQuickActions.value.filter(
   (action) => (!ownSlotForfeitAction.value || action.id !== 'forfeit_slot')
     && (!canEditBookingStrip.value || action.id !== 'extend_assignment')
 ));
-const openOwnSlotForfeit = () => {
-  const action = ownSlotForfeitAction.value;
-  if (!action || action.disabledReason || submitting.value) return;
-  ackForfeit.value = false;
-  forfeitScope.value = 'occurrence';
-  onQuickActionSelect(action);
-};
+const roomOccupancyNotice = ref('');
+async function changeSelectedRoomReservation(action, usage) {
+  if (submitting.value) return;
+  const contexts = selectedActionContexts().filter(ctx => ctx?.officeLocationId && (ctx.officeEventId || ctx.standingAssignmentId));
+  if (!contexts.length) return;
+  submitting.value = true;
+  modalError.value = '';
+  try {
+    for (const ctx of contexts) {
+      const resource = ctx.officeEventId ? `events/${ctx.officeEventId}` : `assignments/${ctx.standingAssignmentId}`;
+      await api.post(`/office-slots/${ctx.officeLocationId}/${resource}/${action}`, action === 'occupancy'
+        ? { usage, date: ctx.dateYmd } : { acknowledged: true, scope: 'future', date: ctx.dateYmd });
+    }
+    if (action === 'forfeit') closeModal();
+    else roomOccupancyNotice.value = usage === 'occupied' ? 'Assigned available · Occupied' : 'Assigned available · Vacant';
+    invalidateScheduleSummaryCacheForUser(props.userId);
+    await Promise.all([load({ forceRefresh: true }), loadSelectedOfficeGrid()]);
+  } catch (error) {
+    modalError.value = error?.response?.data?.error?.message || 'The room reservation could not be updated. Refresh the schedule to see its current status.';
+  } finally { submitting.value = false; }
+}
+async function updateSelectedRoomOccupancy(usage) {
+  if (usage === 'vacant' && !(await confirmScheduleAction('Mark this room time vacant?', 'Other staff can reserve this time on the selected date. Your recurring reservation is kept.', 'Mark vacant'))) return;
+  await changeSelectedRoomReservation('occupancy', usage);
+}
+async function forfeitFutureRoomReservation() {
+  if (!(await confirmScheduleAction('Forfeit room now and forward?', 'This ends your room reservation beginning on the selected date. Resolve any attached appointments before forfeiting.', 'Forfeit reservation'))) return;
+  await changeSelectedRoomReservation('forfeit');
+}
+watch(showRequestModal, () => { roomOccupancyNotice.value = ''; });
 const primaryQuickActions = computed(() => {
   const state = String(modalContext.value?.slotState || '').toUpperCase();
   const occupiedOffice = ['ASSIGNED_BOOKED', 'ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'].includes(state);
@@ -14651,6 +14687,11 @@ const editorOpenVirtual = ref(true);
 const editorOpenInPerson = ref(false);
 const editorCanLinkOpenOffice = computed(() => Number(modalContext.value?.officeEventId || 0) > 0 || findProviderOfficeBookingsForEditorWindow().length > 0);
 const editorModality = ref('TELEHEALTH');
+const editorSettingChosen = ref(false);
+function onEditorDeliveryMode(mode) {
+  editorSettingChosen.value = true;
+  editorModality.value = mode;
+}
 const editorPracticeCategories = ref([]);
 const editorTenantServiceId = ref(0);
 const editorTenantServices = ref([]);
@@ -15330,7 +15371,7 @@ const editorServiceLocationOptions = computed(() => {
     .filter((loc) => !allowed || !loc.placeOfService || allowed.has(String(loc.placeOfService)))
     .map((loc) => {
       const name = loc.placeOfService === '12' ? 'Client’s home' : serviceLocationDisplay(loc);
-      const siteAddress=['02','10','12'].includes(String(loc.placeOfService))?'':loc.address;
+      const siteAddress=['11','03'].includes(String(loc.placeOfService))?loc.address:'';
       return {
         id: loc.id,
         label: [name,siteAddress].filter(Boolean).join(' · '),
@@ -15344,18 +15385,20 @@ const editorServiceLocationOptions = computed(() => {
         name: loc.name
       };
     });
-  const schools = (editorClientSchoolLocationOptions.value || [])
+  const schools = (remote ? [] : editorClientSchoolLocationOptions.value || [])
     .filter((s) => !allowed || allowed.has('03'))
     .map(s => base.find(location => Number(location.schoolOrganizationId) === Number(s.schoolOrganizationId)) || s);
   const officeId = appointmentOfficeId(editorOfficeLocationId.value, selectedOfficeLocationId.value);
   const deduplicate = (choices) => {
     const savedId = Number(editorServiceLocationId.value);
     return choices.find(location => location.id === savedId)
-      || choices.find(location => location.billingOfficeLocationId === officeId) || choices[0];
+      || choices.find(location => [location.billingOfficeLocationId, location.physicalOfficeLocationId].includes(officeId)) || choices[0];
   };
   if (remote) return ['10', '02'].map(code => deduplicate(base.filter(location => location.placeOfService === code))).filter(Boolean);
   const home = deduplicate(base.filter(location => location.placeOfService === '12'));
-  return [...schools, ...base.filter(location => !location.isSchool && location.placeOfService !== '12'), home].filter(Boolean);
+  return [...schools, ...base.filter(location => !location.isSchool && !['12','99'].includes(location.placeOfService)), home,
+    ...[...new Set(base.filter(location => location.placeOfService === '99').map(location => location.name))]
+      .map(name => deduplicate(base.filter(location => location.placeOfService === '99' && location.name === name)))].filter(Boolean);
 });
 
 const editorHeaderServiceOptions = computed(() => {
@@ -15554,7 +15597,7 @@ const editorInfoTypeLabel = computed(() => {
 const editorInfoModalityLabel = computed(() => {
   if (editorIsMeeting.value) return editorMeetingIsVirtual.value ? 'Virtual' : 'In-person';
   if (editorIsSupervision.value) return editorSupervisionIsVirtual.value ? 'Virtual' : 'In-person';
-  if (editorAudioOnly.value && editorModality.value === 'TELEHEALTH') return 'Phone (audio only)';
+  if (editorAudioOnly.value && editorModality.value === 'TELEHEALTH') return 'Audio only';
   const m = String(editorModality.value || bookingModality.value || '').toUpperCase();
   if (['TELEHEALTH','VIRTUAL','ONLINE','VIDEO'].includes(m)) return editorIsLearning.value?'Online':'Virtual';
   if (m === 'IN_PERSON') return 'In-person';
@@ -16233,6 +16276,7 @@ function onEditorOfficeLocationId(id) {
 }
 
 async function onEditorServiceLocationId(id) {
+  editorSettingChosen.value = true;
   const next = Number(id || 0);
   // Synthetic school id: ensure a real POS-03 location (bills under tenant office).
   if (next < 0) {
@@ -16978,6 +17022,7 @@ function openAppointmentEditor({ mode = 'create', kind = '', id = 0, defaults = 
   editorStatusBaseline.value=editorStatus.value;
   editorAppointmentBaseline.value=null;
   editorAudioOnly.value = false;
+  editorSettingChosen.value = false;
   editorVideoRoomMode.value = editorIsLearning.value ? String(defaults.videoRoomMode || (mode === 'create' && editorExternalMeetingsEnabled.value && editorModality.value === 'TELEHEALTH' ? 'external' : 'unique_session')) : mode === 'create' ? 'google_meet' : 'unique_session';
   editorExternalMeetingUrl.value=String(defaults.externalMeetingUrl||'');
   editorIncludeGoogleDialIn.value=defaults.includeGoogleDialIn ?? (mode === 'create' && !editorIsLearning.value);editorGoogleDialInStatus.value='';
@@ -27142,6 +27187,34 @@ const scheduleEventEditClientOptions = computed(() => {
     rows.unshift({ id: selectedId, displayName: 'Client' });
   }
   return rows;
+});
+
+// A saved appointment, an explicit choice, or an office-reservation entry point
+// already supplies its own setting. Apply chart defaults on new client bookings.
+watch([virtualSessionSelectedClientIds, virtualSessionClients, bookingServiceCode, bookingMetadataLoading, bookingLocationsLoading], () => {
+  if (!showRequestModal.value || !isSessionBookingRequestType.value || !editorIsClinical.value || editorIsLearning.value
+    || editorSettingChosen.value || isAppointmentEditMode.value || isScheduleEventEditMode.value || sessionReservationContext.value) return;
+  const ids = virtualSessionSelectedClientIds.value.map(Number);
+  if (ids.length !== 1) return;
+  const client = virtualSessionClients.value.find(row => Number(row.id) === ids[0]);
+  if (!client) return;
+  const saved = bookingServiceLocationOptions.value.find(location => Number(location.id) === client.defaultServiceLocationId);
+  const school = client.clientType === 'school'
+    && (!allowedPosForSelectedServiceCode.value || allowedPosForSelectedServiceCode.value.has('03'))
+    ? editorClientSchoolLocationOptions.value[0] : null;
+  if (!school && !saved) return;
+  const modality = !school && ['02', '10'].includes(saved?.placeOfService) ? 'TELEHEALTH' : 'IN_PERSON';
+  if (editorModality.value !== modality) editorModality.value = modality;
+  void nextTick(() => {
+    if (editorSettingChosen.value || Number(primarySessionClientId.value) !== ids[0]) return;
+    const location = editorServiceLocationOptions.value.find(option => school
+      ? Number(option.schoolOrganizationId) === Number(school.schoolOrganizationId)
+      : option.id === saved?.id);
+    if (!location) return;
+    editorServiceLocationId.value = location.id;
+    bookingServiceLocationId.value = location.id;
+    editorSchoolOrganizationId.value = Number(location.schoolOrganizationId || 0);
+  });
 });
 
 watch([editorServiceLocationOptions, editorOfficeLocationId], () => {

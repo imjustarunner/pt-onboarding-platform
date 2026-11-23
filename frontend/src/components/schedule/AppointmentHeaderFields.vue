@@ -130,7 +130,7 @@
             <button v-if="bookSessionLayout && !learning" type="button" class="ahf-mod-chip"
               :class="{ on: modality === 'TELEHEALTH' && audioOnly }"
               :aria-pressed="modality === 'TELEHEALTH' && audioOnly"
-              :disabled="disabled" @click="selectDelivery('TELEHEALTH', true)">Phone (audio only)</button>
+              :disabled="disabled" @click="selectDelivery('TELEHEALTH', true)">Audio only</button>
             <button
               type="button"
               class="ahf-mod-chip"
@@ -153,7 +153,8 @@
             <span>An upcoming session is required to create a video link.</span>
           </template>
           <template v-else-if="!['tutoring', 'learning'].includes(appointmentType)">
-            <label class="ahf-booking-notice">
+            <p v-if="videoRoomMode === 'google_meet'" class="ahf-hint">Create a secure private Google Meet link</p>
+            <label v-else class="ahf-booking-notice">
               <input type="checkbox" :checked="videoRoomMode === 'google_meet'" :disabled="disabled"
                 @change="emit('update:videoRoomMode', $event.target.checked ? 'google_meet' : 'none')" />
               Create a secure private Google Meet link
@@ -176,7 +177,8 @@
           <label v-if="externalMeetingsEnabled && videoRoomMode==='external'">External meeting URL (optional)<input class="ahf-input" type="url" maxlength="2048" placeholder="https://…" :value="externalMeetingUrl" :disabled="disabled" @input="emit('update:externalMeetingUrl',$event.target.value)" /></label>
           <p v-if="videoRoomMode==='external'" class="ahf-hint">The meeting is arranged externally. Add its link now or update the appointment later.</p>
           </template>
-          <label v-if="videoRoomMode !== 'none' && (videoRoomMode === 'google_meet' || googleDialInStatus === 'available' || includeGoogleDialIn)"><input type="checkbox" :checked="includeGoogleDialIn" :disabled="disabled || (videoRoomMode !== 'google_meet' && !includeGoogleDialIn && googleDialInStatus!=='available')" @change="emit('update:includeGoogleDialIn',$event.target.checked)" /> Include dial-in in eligible reminders when Google provides it</label>
+          <p v-if="videoRoomMode === 'google_meet'" class="ahf-help">Appointment emails include dial-in instructions when Google Meet provides them.</p>
+          <label v-else-if="videoRoomMode !== 'none' && (googleDialInStatus === 'available' || includeGoogleDialIn)"><input type="checkbox" :checked="includeGoogleDialIn" :disabled="disabled || (videoRoomMode !== 'google_meet' && !includeGoogleDialIn && googleDialInStatus!=='available')" @change="emit('update:includeGoogleDialIn',$event.target.checked)" /> Include dial-in in eligible reminders when Google provides it</label>
           <p v-if="googleDialInStatus==='not_verified'" class="ahf-hint">Google Meet phone details could not be verified. Phone instructions will be omitted until Google provides them.</p>
         </div>
 

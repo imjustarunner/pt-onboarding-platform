@@ -1,3 +1,4 @@
+import { withOfficeDecisionLock } from '../services/officeApprovalWorkflow.service.js';
 import * as approvalWorkflow from '../controllers/officeApprovalWorkflow.controller.js';
 import { getOfficeAssignmentOptions } from '../services/officeAssignmentOptions.service.js';
 import { bookOfficeToday } from '../services/officeSameDayBooking.service.js';
@@ -103,7 +104,7 @@ router.post('/locations/:locationId/same-day-booking', async (req,res,next) => {
   try {
     const locationId = Number(req.params.locationId), roomId = Number(req.body?.roomId);
     if (!Number.isSafeInteger(locationId) || locationId <= 0 || !Number.isSafeInteger(roomId) || roomId <= 0) return res.status(400).json({error:{message:'Choose a building and room.'}});
-    res.status(201).json(await bookOfficeToday({user:req.user,locationId,roomId,date:req.body?.date,time:req.body?.time,endTime:req.body?.endTime}));
+    res.status(201).json(await withOfficeDecisionLock(() => bookOfficeToday({user:req.user,locationId,roomId,date:req.body?.date,time:req.body?.time,endTime:req.body?.endTime})));
   } catch(error) { if (error.status) return res.status(error.status).json({error:{message:error.message}}); next(error); }
 });
 

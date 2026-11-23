@@ -4,6 +4,7 @@ import { authenticate } from '../middleware/auth.middleware.js';
 import { requirePhysicalOffice } from '../middleware/physicalOffice.middleware.js';
 import {
   setBookingPlan,
+  changeRoomOccupancy,
   setAssignmentRecurrence,
   keepAvailable,
   snoozeStandingReview,
@@ -45,6 +46,8 @@ router.post('/:officeId/assignments/:assignmentId/snooze-review', snoozeStanding
 router.post('/:officeId/assignments/:assignmentId/downgrade', downgradeStandingAssignment);
 router.post('/:officeId/assignments/:assignmentId/temporary', setTemporary);
 router.post('/:officeId/assignments/:assignmentId/extend-temporary', extendTemporary);
+router.post('/:officeId/assignments/:assignmentId/occupancy', serializeOfficeWrite(changeRoomOccupancy));
+router.post('/:officeId/events/:eventId/occupancy', serializeOfficeWrite(changeRoomOccupancy));
 router.post('/:officeId/assignments/:assignmentId/forfeit', forfeitAssignment);
 router.post('/:officeId/events/:eventId/book', serializeOfficeWrite(staffBookEvent));
 router.post('/:officeId/events/:eventId/reschedule', serializeOfficeWrite(rescheduleOfficeEvent));

@@ -103,7 +103,7 @@ export async function hasPendingSoftHoldAt({
   roomId,
   weekdayIndex,
   startHour,
-  endHour, date = null, timeZone = 'America/Denver'
+  endHour, date = null, timeZone = 'America/Denver', executor = pool
 }) {
   const officeId = Number(officeLocationId || 0);
   const rid = Number(roomId || 0);
@@ -113,7 +113,7 @@ export async function hasPendingSoftHoldAt({
   if (!officeId || !rid || !(wd >= 0 && wd <= 6) || !(eh > sh)) return false;
 
   if(date) {
-    const pending=await pendingOfficeWindows(pool,{officeId,timeZone});
+    const pending=await pendingOfficeWindows(executor,{officeId,timeZone});
     return pending.some(row=>row.roomId===rid && overlappingRequest({startDate:date,startHour:sh,endHour:eh,recurrence:'ONCE'},row));
   }
   const [rows] = await pool.execute(

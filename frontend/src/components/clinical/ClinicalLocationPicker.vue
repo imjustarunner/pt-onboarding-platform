@@ -4,8 +4,8 @@
       <option value="">Choose location</option>
       <option v-if="selection==='saved'" value="saved">{{ modelValue.locationLabel }} · Saved session location</option>
       <option value="__telehealth_video__">Telehealth (video)</option>
-      <option value="__telehealth_phone__">Telehealth (phone)</option>
-      <option v-for="choice in sites" :key="choice.value" :value="choice.value">{{ choice.name || choice.label }}</option>
+      <option value="__telehealth_phone__">Audio only</option>
+      <option v-for="choice in sites" :key="choice.value" :value="choice.value">{{ String(choice.placeOfService) === '99' ? choice.label || choice.name : choice.name || choice.label }}</option>
       <option value="__home__">Home</option>
     </select></label>
     <label v-if="remote">Client’s location during telehealth<select aria-label="Client’s location during telehealth" :value="clientPlace" :disabled="disabled || unavailable" @change="choose(selection,$event.target.value)"><option value="">Choose location</option><option value="10">At home</option><option value="02">Somewhere else</option></select></label>
@@ -17,12 +17,12 @@
 import {computed} from 'vue';
 const props=defineProps({modelValue:{type:Object,default:()=>({})},choices:{type:Array,default:()=>[]},disabled:Boolean,unavailable:Boolean});
 const emit=defineEmits(['update:modelValue']);
-const sites=computed(()=>props.choices.filter(choice=>['11','03'].includes(String(choice.placeOfService))));
+const sites=computed(()=>props.choices.filter(choice=>['11','03','99'].includes(String(choice.placeOfService))));
 const remoteValue=method=>/phone|telephone/i.test(method || '')?'__telehealth_phone__':/video|virtual|telehealth/i.test(method || '')?'__telehealth_video__':'';
 const selection=computed(()=>{
  const current=props.modelValue;
  if(current.locationSelection && ['__telehealth_video__','__telehealth_phone__','__home__',...sites.value.map(s=>s.value)].includes(current.locationSelection))return current.locationSelection;
- if(['02','10'].includes(String(current.placeOfService)) || /telehealth|virtual|video|phone/i.test(current.locationLabel || ''))return remoteValue(current.modality) || (current.locationLabel?'saved':'');
+ if(['02','10'].includes(String(current.placeOfService)) || /telehealth|virtual|video|phone|audio only/i.test(current.locationLabel || ''))return remoteValue(current.modality) || (current.locationLabel?'saved':'');
  if(String(current.placeOfService)==='12' || /^home$|patient.?s?\s+(?:home|residence)/i.test(current.locationLabel || ''))return '__home__';
  const site=sites.value.find(choice=>{
   const label=!current.locationLabel || [choice.name,choice.label,choice.value,...(choice.aliases || [])].includes(current.locationLabel);

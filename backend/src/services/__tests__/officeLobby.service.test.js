@@ -19,7 +19,10 @@ beforeEach(() => {
     if (sql.includes('FROM agencies a')) return [[{ id: 2, name: 'ITSCO' }, { id: 6, name: 'Next Level Up' }]];
     if (sql.includes('FROM users u')) return [people];
     if (sql.includes('FROM office_event_checkins')) return [arrivals];
-    if (sql.includes('FROM office_events e JOIN office_rooms')) return [events];
+    if (sql.includes('FROM office_events e JOIN appointments ap')) {
+      expect(sql).toContain('appointment_participants');
+      return [events];
+    }
     throw new Error(`Unexpected query: ${sql}`);
   });
 });

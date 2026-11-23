@@ -1,3 +1,4 @@
+import { setRoomOccupancy } from '../services/officeRoomOccupancy.service.js';
 import { withinOfficeRecordWindow } from '../utils/officeRecordWindow.js';
 import { shiftedAppointmentWindow } from '../utils/appointmentSeriesMove.js';
 import { utcToZonedMysqlWall } from '../utils/officeEventDateTime.util.js';
@@ -2565,6 +2566,17 @@ async function releaseReservation(req, res, next, { keepAssigned = false, defaul
       event: req.params.eventId ? await OfficeEvent.findById(Number(req.params.eventId)) : undefined });
   } catch (error) { next(error); }
 }
+export const changeRoomOccupancy = async (req, res, next) => {
+  try {
+    const officeLocationId = Number(req.params.officeId);
+    if (!(await requireOfficeAccess(req, officeLocationId))) return res.status(403).json({ error: { message: 'Access denied' } });
+    const result = await setRoomOccupancy({ officeLocationId, eventId: Number(req.params.eventId) || null,
+      assignmentId: Number(req.params.assignmentId) || null, date: req.body?.date, usage: req.body?.usage,
+      actorUserId: req.user.id, canManage: canManageSchedule(req.user.role) });
+    OfficeScheduleMaterializer.invalidateOffice(officeLocationId);
+    res.json(result);
+  } catch (error) { next(error); }
+};
 export const forfeitEvent = (req, res, next) => releaseReservation(req, res, next);
 
 export const rescheduleOfficeEvent = async (req, res, next) => {

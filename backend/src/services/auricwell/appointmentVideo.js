@@ -4,7 +4,10 @@ import { fail, hash, requirePhi, requireCapability } from './policy.js';
 import { patientAccess } from './clinical.js';
 import { platformIntegrations } from './platformIntegrations.js';
 import { assertVideoWindow } from './integrationPolicy.js';
-import { createGoogleSession, retireGoogleSession } from './sessionTransports.js';
+import { createGoogleSession, retireGoogleSession, readGoogleSession } from './sessionTransports.js';
+
+import { googleSpaceConference } from '../../utils/googleMeetingConference.js';
+import { googleDialInContent } from '../googleMeetingConference.service.js';
 
 export const videoContext = (ctx, id, provider) => `auricwell:video:${ctx.practiceId}:${id}:${provider}`;
 export const appointmentVersion = a => hash(JSON.stringify([a.patientId, a.data.providerAccountId, a.data.start, a.data.end, a.data.modality]));
@@ -49,7 +52,7 @@ export async function ensureAppointmentVideo(ctx, appointment, settings, adapter
     }
     let data;
     if (settings.videoProvider === 'google_meet') {
-      data = await (adapters.createGoogleSession || createGoogleSession)(settings.googleOrganizer);
+      data = await (adapters.createGoogleSession || createGoogleSession)(settings.googleOrganizer, { privateAccess: true });
     } else {
       if (process.env.VONAGE_CLINICAL_VIDEO_APPROVED !== 'true') throw fail(409, 'Vonage clinical video readiness has not been enabled.');
       const { default: Video } = await import('../vonageVideo.service.js');
@@ -71,6 +74,17 @@ export async function ensureAppointmentVideo(ctx, appointment, settings, adapter
 export function clientVideoLink(room) {
   if (room.provider === 'google_meet') return room.url;
   return `${process.env.AURICWELL_PUBLIC_ORIGIN || 'https://auricwell.com'}/join/session#token=${room.guestToken}`;
+}
+export async function clientVideoDialIn(room, { read = readGoogleSession } = {}) {
+  if (room?.provider !== 'google_meet' || !room.organizer) return null;
+  const meetingCode = /^https:\/\/meet\.google\.com\/([a-z]{3}-[a-z]{4}-[a-z]{3})$/.exec(room.url)?.[1];
+  if (!meetingCode) return null;
+  try {
+    const data = await read({ organizer: room.organizer, meetingCode });
+    return googleDialInContent(googleSpaceConference(data, room.url));
+  } catch {
+    return null;
+  }
 }
 async function videoResponse(room, actor, appointment) {
   if (room.provider === 'google_meet') return { provider: 'google_meet', url: room.url };

@@ -1,3 +1,4 @@
+import { kioskAppointmentSql } from '../utils/officeRoomOccupancy.js';
 import { lobbyLocation, officeToday } from '../services/officeLobby.service.js';
 import { canCheckIn, checkinClosesAt } from '../utils/officeCheckinWindow.js';
 import { assertCheckinClientAccess } from '../services/officeClientSubmissions.service.js';
@@ -32,6 +33,7 @@ import {
   resyncStaleKioskSkillBuildersEventsAtOffice
 } from '../services/eventKioskDateSync.service.js';
 import {
+  localDayUtcBounds,
   mysqlDateTimeForDateHour,
   officeTodayUtcBounds,
   parseUtcDate,
@@ -120,17 +122,22 @@ export const getKioskContext = async (req, res, next) => {
 export const listKioskEvents = async (req, res, next) => {
   try {
     const { locationId } = req.params;
-    const date = String(req.query.date || new Date().toISOString().slice(0, 10));
-
     const loc = await OfficeLocation.findById(parseInt(locationId));
     if (!loc || !loc.is_active) return res.status(404).json({ error: { message: 'Location not found' } });
-
-    // Kiosk can show booked + assigned_available + assigned_temporary occurrences (metadata-only).
-    const events = await OfficeEvent.listForOfficeWindow({
-      officeLocationId: parseInt(locationId),
-      startAt: `${String(date).slice(0, 10)}T00:00:00.000Z`,
-      endAt: `${String(date).slice(0, 10)}T23:59:59.999Z`
-    });
+    const timezone = loc.timezone || 'America/Denver';
+    const date = req.query.date || utcToZonedMysqlWall(new Date(), timezone).slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(+new Date(date))) {
+      return res.status(400).json({ error: { message: 'Choose a valid date.' } });
+    }
+    const bounds = localDayUtcBounds(date, timezone);
+    const [events] = await pool.execute(`SELECT e.id, e.room_id, r.name AS room_name, ap.start_at, ap.end_at,
+      ap.provider_user_id AS booked_provider_id, e.slot_state, e.status,
+      u.first_name AS booked_provider_first_name, u.last_name AS booked_provider_last_name
+      FROM office_events e JOIN appointments ap ON ap.id=(${kioskAppointmentSql()})
+      JOIN office_rooms r ON r.id=e.room_id AND r.is_active=1
+      JOIN users u ON u.id=ap.provider_user_id AND u.is_active=1
+      WHERE e.office_location_id=? AND e.status<>'CANCELLED' AND ap.start_at<? AND ap.end_at>?
+      ORDER BY ap.start_at, ap.id`, [Number(locationId), bounds.endExclusive, bounds.startAt]);
     const out = (events || []).map((e) => {
       const first = String(e.booked_provider_first_name || e.provider_first_name || '').trim();
       const li = String(e.booked_provider_last_name || e.provider_last_name || '').trim().slice(0, 1);
@@ -326,7 +333,8 @@ export const submitKioskQuestionnaire = async (req, res, next) => {
     if (!ev || ev.office_location_id !== parseInt(locationId)) {
       return res.status(404).json({ error: { message: 'Event not found' } });
     }
-    if (ev.status !== 'BOOKED' || !ev.booked_provider_id) {
+    const [[booking]] = await pool.execute(`SELECT (${kioskAppointmentSql()}) AS appointment_id FROM office_events e WHERE e.id=?`, [eventId]);
+    if (!booking?.appointment_id || ev.status === 'CANCELLED' || !ev.booked_provider_id) {
       return res.status(400).json({ error: { message: 'Event is not a booked slot' } });
     }
 
