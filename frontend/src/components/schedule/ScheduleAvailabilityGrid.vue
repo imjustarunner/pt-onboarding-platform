@@ -2034,6 +2034,7 @@
           :location-options-loading="bookingLocationsLoading"
           :location-options-error="bookingLocationsError"
           :service-location-id="Number(editorServiceLocationId || bookingServiceLocationId || 0)"
+          :reservation-location-label="editorReservationLocationLabel"
           :show-room="editorShowRoom"
           :room-id="Number(editorRoomId || 0)"
           :room-label="editorRoomLabel"
@@ -3710,7 +3711,7 @@
             >
               <option :value="0">{{ bookingServiceLocationOptions.length ? 'Select location…' : 'No locations yet…' }}</option>
               <option v-for="loc in bookingServiceLocationOptions" :key="`loc-main-${loc.id}`" :value="loc.id">
-                {{ loc.name }}{{ loc.locationKind === 'office_pos' ? '' : (loc.placeOfService ? ` (POS ${loc.placeOfService})` : '') }}
+                {{ serviceLocationDisplay(loc) }}
               </option>
             </select>
             <div v-if="bookingUnitPreview" class="muted nr-help" style="margin-top: 6px;">{{ bookingUnitPreview }}</div>
@@ -5975,6 +5976,7 @@
 </template>
 
 <script setup>
+import {serviceLocationDisplay} from '../../utils/serviceLocationDisplay.js';
 import {tutoringMakeupSelection} from '../../utils/tutoringMakeupSelection.js';
 import {canPollWorkspace,useSessionPolling} from '../../composables/useSessionPolling';
 
@@ -15217,7 +15219,7 @@ const editorClientSchoolLocationOptions = computed(() => {
       if (!selectedClients.every(client => (client.schools || []).some(school => Number(school.schoolOrganizationId || school.id) === sid))) continue;
       bySchool.set(sid, {
         id: schoolLocationSyntheticId(sid),
-        label: `${s.name || `School #${sid}`} · School · POS 03`,
+        label: `${s.name || 'School'} · School`,
         name: String(s.name || '').trim() || `School #${sid}`,
         placeOfService: '03',
         schoolOrganizationId: sid,
@@ -15247,18 +15249,14 @@ const editorServiceLocationOptions = computed(() => {
     .filter((loc) => editorModality.value !== 'IN_PERSON' || !['02', '10'].includes(loc.placeOfService))
     .filter((loc) => !allowed || !loc.placeOfService || allowed.has(String(loc.placeOfService)))
     .map((loc) => {
-      const isOfficePos = String(loc.locationKind || '') === 'office_pos';
-      const pos = !isOfficePos && loc.placeOfService ? `POS ${loc.placeOfService}` : '';
-      const office = isOfficePos ? '' : (loc.schoolOrganizationId ? 'School site' : '');
-      const bits = [loc.name,
-        isOfficePos && loc.placeOfService === '11' ? loc.billingOfficeName : '',
-        !isOfficePos || loc.placeOfService === '11' ? loc.address : '',
-        office, pos].filter(Boolean);
+      const name=serviceLocationDisplay(loc);
+      const siteAddress=['02','10','12'].includes(String(loc.placeOfService))?'':loc.address;
       return {
         id: loc.id,
-        label: bits.join(' · '),
+        label: [name,siteAddress].filter(Boolean).join(' · '),
         billingOfficeLocationId: loc.billingOfficeLocationId,
         physicalOfficeLocationId: loc.physicalOfficeLocationId,
+        physicalOfficeName: loc.physicalOfficeName,
         placeOfService: loc.placeOfService,
         isSchool: Number(loc.schoolOrganizationId || 0) > 0 || loc.placeOfService === '03',
         schoolOrganizationId: Number(loc.schoolOrganizationId || 0) || 0,
@@ -15299,7 +15297,7 @@ const editorModalityPosWarning = computed(() => {
     || (bookingServiceLocationOptions.value || []).find((l) => Number(l.id) === locId);
   const pos = String(hit?.placeOfService || '').trim();
   if (pos === '02' || pos === '10') {
-    return 'In-person modality with a telehealth Place of Service (02/10). You can still save if that’s intentional.';
+    return 'This in-person appointment has an online location selected. Choose the actual building or change the visit method.';
   }
   return '';
 });
@@ -15533,10 +15531,21 @@ const editorInfoLocationLabel = computed(() => {
   if(editorIsLearning.value) return Number(editorLearningDetails.value?.appointmentId)===Number(editorAppointmentId.value) ? (String(editorLearningDetails.value?.serviceSetting?.locationLabel||'Location needs review').replace(/telehealth/gi,'Online')) : 'Loading appointment location…';
   const id = Number(editorServiceLocationId.value || bookingServiceLocationId.value || 0);
   const hit = (editorServiceLocationOptions.value || []).find((l) => Number(l.id) === id);
-  if (hit?.label) return hit.label;
+  if (hit?.label) {
+    const ctx=(isScheduleEventEditMode.value?scheduleEventEditForm.value:modalContext.value)||{};
+    const reserved=Number(editorOfficeEventId.value)>0;
+    const officeId=reserved?Number(ctx.officeLocationId||0):Number(hit.physicalOfficeLocationId||0);
+    const office=officeLocations.value.find(row=>Number(row.id)===officeId);
+    const room=String(ctx.roomLabel||ctx.roomName||officeRooms.value.find(row=>Number(row.id)===Number(ctx.roomId))?.name||'').trim();
+    return serviceLocationDisplay(hit,{buildingName:office?.name||(reserved?(ctx.officeLocationName||ctx.buildingName):''),roomLabel:room,reservationLinked:reserved,showReservationStatus:String(hit.placeOfService)==='11'});
+  }
   // A selected service site must never fall back to its billing office address.
   if (id) return 'Selected service location — details loading';
   return 'Service location needs review';
+});
+const editorReservationLocationLabel = computed(()=>{
+ const location=(editorServiceLocationOptions.value||[]).find(item=>Number(item.id)===Number(editorServiceLocationId.value||bookingServiceLocationId.value));
+ return Number(editorOfficeEventId.value)>0&&String(location?.placeOfService)==='11'&&editorModality.value==='IN_PERSON'?editorInfoLocationLabel.value:'';
 });
 const editorInfoNotes = computed(() => {
   if (editorIsSupervision.value) return '';
@@ -17300,6 +17309,7 @@ const bookingServiceLocationOptions = computed(() => {
     id: Number(row?.id || 0),
     name: String(row?.name || '').trim() || `Location #${row?.id}`,
     placeOfService: String(row?.place_of_service || row?.placeOfService || '').trim(),
+    physicalOfficeName: String(officeLocations.value.find(office=>Number(office.id)===Number(row?.physical_office_location_id||row?.physicalOfficeLocationId||0))?.name||'').trim(),
     billingOfficeName: String(row?.billing_office_name || row?.billingOfficeName || '').trim(),
     billingOfficeLocationId: Number(row?.billing_office_location_id || row?.billingOfficeLocationId || 0),
     physicalOfficeLocationId: Number(row?.physical_office_location_id || row?.physicalOfficeLocationId || 0),

@@ -13,6 +13,7 @@ import { billingError, auditBilling } from './familyBillingPolicy.service.js';
 import { validNpi } from './supervisedBillingPolicy.service.js';
 import { queueInsuranceVerificationSafely } from './insuranceVerificationTask.service.js';
 import { insuranceSubscriberIssues, isColoradoMedicaidPolicy, medicaidMemberIdNeedsDiscovery } from '../../../frontend/src/navigation/paperInsuranceReview.js';
+import {eligibilityPolicyDetails,otherInsuranceBenefit} from '../utils/eligibilityPolicyDetails.js';
 
 export const coverageFingerprint = coverageInsuranceFingerprint;
 // Bind a manual review to the exact saved policies and evidence the reviewer saw.
@@ -100,7 +101,8 @@ export function summarizeEligibility(result,{payerId}={}) {
  return {status:payerErrors.length?'review_required':active&&!inactive?'active_reported':inactive&&!active?'inactive_reported':'review_required',payerErrors,
   // Colorado uses U for TPL. Other payers use U for general referrals to
   // another entity, so only apply Colorado's meaning to its verified route.
-  otherCoverageReported:benefits.some(b=>String(b.benefit_coverage_code)==='R'||(payerId==='SKCO0'&&String(b.benefit_coverage_code)==='U')||['PRP','SEP','TTP'].includes(String(b.entity_code))),
+  otherCoverageReported:benefits.some(b=>otherInsuranceBenefit(b,payerId)),
+  policyDetails:eligibilityPolicyDetails(result,{payerId}),
   benefits,reference:asList(elig)[0]?.eligid||null,
   warning:'Eligibility is not a payment guarantee. An absent other-payer record does not establish that no other coverage exists.'};
 }
@@ -121,7 +123,7 @@ export async function listCoverageEvidence({agencyId,clientId,serviceDate},db=po
   const evidence=decryptFamilyBilling(row.evidence_encrypted,context(agencyId,clientId));
   // Re-evaluate the flag for older saved responses without changing the
   // encrypted evidence, repeating a paid inquiry, or clearing a prior flag.
-  if(evidence?.result)evidence.summary={...evidence.summary,otherCoverageReported:evidence.summary?.otherCoverageReported===true||summarizeEligibility(evidence.result,{payerId:evidence.eligibilityPayerId}).otherCoverageReported};
+  if(evidence?.result){const current=summarizeEligibility(evidence.result,{payerId:evidence.eligibilityPayerId});evidence.summary={...evidence.summary,policyDetails:current.policyDetails,otherCoverageReported:evidence.summary?.otherCoverageReported===true||current.otherCoverageReported};}
   return {...row,evidence,evidence_encrypted:undefined};
  }),review:review?{...review,evidence:decryptFamilyBilling(review.evidence_encrypted,context(agencyId,clientId)),evidence_encrypted:undefined}:null};
 }
@@ -157,7 +159,7 @@ export async function runCoverageCheck({agencyId,clientId,slot,serviceDate,reque
     try {const {sendAutomaticBillingBenefits}=await import('./billingBenefitsEmail.service.js');await sendAutomaticBillingBenefits({agencyId,clientId,coverageCheckId:id,actorUserId});}
     catch { /* Eligibility evidence remains valid; notification failures never invalidate it. */ }
   }
-  checked={id,status:'returned',...evidence,followUpTaskId};
+  checked={id,status:'returned',...evidence,followUpTaskId,serviceDate:date,checkedAt:new Date().toISOString()};
   if(source!=='automatic' && evidence.summary.identityMatches===true && evidence.summary.status==='active_reported') {
    try {const {applyEligibilityProfileResults}=await import('./eligibilityProfile.service.js');await (deps.applyProfile||applyEligibilityProfileResults)({agencyId,clientId,expectedFingerprint:fingerprint,results:[{slot,result:checked}],actorUserId},{db});}
    catch { checked.profileImportPending=true; await observeClaimMdData({agencyId,endpoint:'eligdata',failure:'profile_import_failed'}); await (deps.queueFollowUp||queueInsuranceVerificationSafely)({agencyId,clientId,actorUserId,coverageCheckId:id,reason:'eligibility_unresolved'},db); }

@@ -1,3 +1,4 @@
+import {cleanServiceLocationLabel,serviceSettingName} from './serviceLocationDisplay.js';
 export function serviceLocationForOffice(locations, officeId, placeOfService) {
   const office = row => Number(row.billing_office_location_id || row.billingOfficeLocationId || 0);
   const matchesPos = row => String(row.place_of_service || row.placeOfService || '') === String(placeOfService);
@@ -15,7 +16,7 @@ export function billingServiceLocationOptions(locations, selectedId = '') {
     const key=JSON.stringify(Object.entries(row).filter(([key])=>!metadata.has(key)).sort(([a],[b])=>a.localeCompare(b)));
     if(!groups.has(key)||String(row.id)===String(selectedId))groups.set(key,row);
   }
-  const result=[...groups.values()].map(row=>({...row,displayLabel:`${row.name||row.label||'Billing location'}${row.place_of_service||row.placeOfService?` (POS ${row.place_of_service||row.placeOfService})`:''}`}));
+  const result=[...groups.values()].map(row=>({...row,displayLabel:cleanServiceLocationLabel(row.name||row.label||serviceSettingName(row.place_of_service||row.placeOfService)||'Service location')}));
   const labelKey=row=>String(row.place_of_service||row.placeOfService||row.displayLabel).toLowerCase();
   for(const row of result)if(result.filter(other=>labelKey(other)===labelKey(row)).length>1){
     const address=row.address_line1||row.address_line_1||row.street_address||row.address||'';

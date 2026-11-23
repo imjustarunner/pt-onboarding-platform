@@ -366,7 +366,7 @@
 
     <section v-if="!compact && canAmendBilling && note.clinicalSessionId" class="ccn-block" aria-label="Billing amendment">
       <h4 class="ccn-block-title">Claim corrections</h4>
-      <p class="ccn-field-hint">Request clinical service corrections above. Billing staff review claim-only POS, modifier and charge corrections in the Billing Workspace, with a documented reason.</p>
+      <p class="ccn-field-hint">Request clinical service corrections above. Billing staff review claim-only coding and charge corrections in the Billing Workspace, with a documented reason.</p>
     </section>
   </div>
 </template>

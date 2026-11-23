@@ -56,6 +56,7 @@ jobs:
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.billing-transactions.config.js
       - name: Automatic insurance verification, shared payers and stable review forms
         run: |
+          node --test backend/src/services/__tests__/noteAidLocations.test.js
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.insurance-verification.config.js
           node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.insurance-verification.config.js
       - name: Fee schedule controls

@@ -164,7 +164,7 @@
       "image": "clinical",
       "imageAlt": "Actual structured clinical chart component rendered locally with blank fictional training inputs; not a live chart or signed record.",
       "steps": [
-        "Open the appointment and choose its Session note / clinical note action. Review client, provider, date, start/end, duration, service code and location/POS against the actual source.",
+        "Open the appointment and choose its Session note / clinical note action. Review client, provider, date, start/end, duration, service code and service location against the actual source.",
         "Write or dictate the source and open Note Workspace for the linked draft. Structured responses and generated narrative both require your clinical review. A generated phrase is not a finding you have assessed.",
         "In a fresh assessment, unassessed medication and MSE fields remain blank until you answer. Use the service’s correct documentation workflow; an H-code counseling note does not acquire an assessment MSE merely because another service has it.",
         "Save the draft, reload, and reopen the same linked note from My Work / Tasks or the appointment. Confirm your explicit answers persisted. Correct a source discrepancy through the appropriate workflow rather than silently changing historical saved metadata.",
@@ -172,7 +172,7 @@
       ],
       "practice": "On an approved synthetic appointment, enter explicit fictional answers, save/reload and open the same draft from two worklists. Never sign a clinical record for training.",
       "check": "The same draft ID and accurate appointment context remain visible; blank/unassessed fields and your explicit answers are correctly preserved.",
-      "pitfall": "Do not invent a missing historical code, POS or medication answer to make the screen look complete.",
+      "pitfall": "Do not invent a missing historical service, location or medication answer to make the screen look complete.",
       "sources": [
         "frontend/src/components/schedule/AppointmentClinicalPanel.vue",
         "frontend/src/components/clinical/NoteAidStructuredChartPanel.vue",

@@ -54,7 +54,7 @@ describe('eligibility import into billing profile',()=>{
   const insurance={primary:{},patient};const db={beginTransaction:vi.fn(),rollback:vi.fn(),commit:vi.fn(),release:vi.fn(),execute:vi.fn().mockResolvedValue([[{id:8}]])},writeInsurance=vi.fn();
   await applyEligibilityProfileResults({agencyId:2,clientId:8,expectedFingerprint:coverageFingerprint(insurance),results:[{slot:'primary',result:evidence()}],actorUserId:9},{db:{getConnection:async()=>db},readInsurance:async()=>insurance,writeInsurance});
   expect(db.execute).toHaveBeenCalledWith(expect.stringContaining('agency_id=? FOR UPDATE'),[8,2]);
-  expect(writeInsurance).toHaveBeenCalledWith(expect.objectContaining({agencyId:2,clientId:8,verifiedForClaims:false,queueEligibility:false,primary:expect.objectContaining({memberId:'SYNTHETIC'})}),db);
+  expect(writeInsurance).toHaveBeenCalledWith(expect.objectContaining({agencyId:2,clientId:8,verifiedForClaims:false,queueEligibility:false,primary:expect.objectContaining({memberId:'SYNTHETIC'})}),db,expect.objectContaining({eligibilityFieldSources:expect.any(Object)}));
  });
 });
 describe('complete the missing demographic and discover Medicaid',()=>{

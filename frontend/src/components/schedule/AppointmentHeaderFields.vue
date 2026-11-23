@@ -180,8 +180,9 @@
         </p>
 
         <div v-if="showLocation || showRoom || showOfficeRequestCta || officeRequestActive" class="ahf-location-stack">
-        <div v-if="showLocation" class="ahf-field ahf-field--full">
-          <span class="ahf-label">{{ modality === 'TELEHEALTH' ? 'Office location / room (optional)' : 'Location' }}</span>
+        <div v-if="showLocation && reservationLocationLabel" class="ahf-field ahf-field--full"><span class="ahf-label">Reserved location</span><p class="ahf-hint">{{ reservationLocationLabel }}</p><small>The building and room come from the linked office reservation.</small></div>
+        <div v-else-if="showLocation" class="ahf-field ahf-field--full">
+          <span class="ahf-label">{{ modality === 'TELEHEALTH' ? 'Client location during the online session' : 'Where will the session take place?' }}</span>
           <select
             v-if="locationOptions.length || bookSessionLayout"
             class="ahf-input"
@@ -190,7 +191,7 @@
             :disabled="disabled || !canEditLocation || locationOptionsLoading || !locationOptions.length"
             @change="emit('update:serviceLocationId', Number($event.target.value || 0))"
           >
-            <option :value="0">{{ locationOptionsLoading ? 'Loading locations…' : !locationOptions.length ? 'No configured locations available' : modality === 'TELEHEALTH' ? 'No office location' : 'Select location…' }}</option>
+            <option :value="0">{{ locationOptionsLoading ? 'Loading locations…' : !locationOptions.length ? 'No configured locations available' : modality === 'TELEHEALTH' ? 'Client location not selected' : 'Select location…' }}</option>
             <option
               v-for="loc in locationOptions"
               :key="`ahf-loc-${loc.id}`"
@@ -692,6 +693,7 @@ const props = defineProps({
   locationOptionsError: { type: String, default: '' },
   serviceLocationId: { type: Number, default: 0 },
   canEditLocation: { type: Boolean, default: true },
+  reservationLocationLabel: {type:String,default:''},
   showRoom: { type: Boolean, default: true },
   roomId: { type: Number, default: 0 },
   roomLabel: { type: String, default: '' },

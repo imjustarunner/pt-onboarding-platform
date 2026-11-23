@@ -10,7 +10,7 @@
         <label>Agenda time zone<input v-model="timeZone" type="text" placeholder="America/Denver" :disabled="busy" @input="invalidate" /></label>
         <label>Duration when no end time is pasted (minutes)<input v-model="defaults.durationMinutes" type="number" min="5" max="240" placeholder="Choose a duration" :disabled="busy" @input="invalidate" /></label>
         <label>Service for pasted rows<select v-model="defaults.tenantServiceId" :disabled="busy" @change="invalidate"><option value="">Choose a service</option><option v-for="service in options.services" :key="service.id" :value="service.id">{{ service.name }} · {{ service.serviceCode }}</option></select></label>
-        <label>Location for pasted rows<select v-model="defaults.serviceLocationId" :disabled="busy" @change="invalidate"><option value="">Choose a location</option><option v-for="location in options.locations" :key="location.id" :value="location.id">{{ location.name }} · POS {{ location.placeOfService }}</option></select></label>
+        <label>Location for pasted rows<select v-model="defaults.serviceLocationId" :disabled="busy" @change="invalidate"><option value="">Choose a location</option><option v-for="location in options.locations" :key="location.id" :value="location.id">{{ serviceLocationDisplay(location) }}</option></select></label>
         <label>Care setting<select v-model="defaults.modality" :disabled="busy" @change="invalidate"><option value="">Choose a setting</option><option value="IN_PERSON">In person</option><option value="TELEHEALTH">Telehealth</option></select></label>
         <label>Repeat pasted appointments<select v-model="defaults.recurrence" :disabled="busy" @change="invalidate"><option value="ONCE">Only this week</option><option value="WEEKLY">Weekly</option><option value="BIWEEKLY">Every two weeks</option></select></label>
         <label v-if="defaults.recurrence !== 'ONCE'">Total appointments per row<input v-model="defaults.occurrenceCount" type="number" min="1" max="52" placeholder="Choose a count" :disabled="busy" @input="invalidate" /></label>
@@ -58,6 +58,7 @@
 </template>
 
 <script setup>
+import {serviceLocationDisplay} from '../../utils/serviceLocationDisplay.js';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import api from '../../services/api';
 const props = defineProps({ agencyId: { type: [Number, String], required: true }, providerId: { type: [Number, String], required: true }, providerLabel: { type: String, default: '' } });

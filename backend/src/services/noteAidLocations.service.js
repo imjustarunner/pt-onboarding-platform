@@ -1,7 +1,7 @@
 const MODES = {
-  '02': 'Telehealth — outside patient home',
-  '10': 'Telehealth — patient home',
-  '12': "Patient’s residence"
+  '02': 'Online — client away from home',
+  '10': 'Online — client at home',
+  '12': "Client’s home"
 };
 const address = (row) => [row.street_address, row.city, row.state, row.postal_code].filter(Boolean).join(', ');
 
@@ -29,13 +29,13 @@ export function buildNoteAidLocationChoices({ locations = [], offices = [], offi
     const billingAddress = office ? address(office) : '';
     choices.set(key, {
       value: `service:${loc.id}`, name,
-      label: `${name}${mode && office ? ` — ${office.name}` : ''} (POS ${pos})${serviceAddress ? ` — ${serviceAddress}` : ''}`,
+      label: `${name}${serviceAddress ? ` — ${serviceAddress}` : ''}`,
       address: serviceAddress, billingAddress, billingOfficeName: office?.name || null,
       serviceLocationId: Number(loc.id), billingOfficeLocationId: office?.id || null,
       schoolOrganizationId:Number(loc.school_organization_id)||null,
       placeOfService: pos, defaultModifiers: loc.default_modifiers || null,
       aliases: [loc.name, ...(pos === '11' ? [office.name] : [])],
-      detail: mode ? `${pos === '12' ? 'Service address is the patient’s residence.' : 'Select according to the patient’s location during the session.'}${office ? ` Billing office: ${office.name}${billingAddress ? ` — ${billingAddress}` : ' (address not configured)'}.` : ''}`
+      detail: mode ? `${pos === '12' ? 'The session takes place at the client’s home.' : 'Choose according to the client’s actual location during the session.'}`
         : serviceAddress || 'Address not configured for this location.'
     });
   }
@@ -44,7 +44,7 @@ export function buildNoteAidLocationChoices({ locations = [], offices = [], offi
     if (choices.has(key)) continue;
     const street = address(office);
     choices.set(key, { value: `office:${office.id}`, name: office.name,
-      label: `${office.name} (POS 11)${street ? ` — ${street}` : ''}`,
+      label: `${office.name}${street ? ` — ${street}` : ''}`,
       address: street, billingAddress: street, billingOfficeName: office.name,
       serviceLocationId: null, billingOfficeLocationId: Number(office.id), placeOfService: '11',
       aliases: [office.name], detail: street || 'Address not configured for this location.' });

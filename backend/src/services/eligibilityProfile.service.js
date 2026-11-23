@@ -5,12 +5,10 @@ import { readClientInsurance, writeClientInsurance } from './clientInsurance.ser
 import { coverageFingerprint, summarizeEligibility, eligibilityIdentityMatches } from './coverageVerification.service.js';
 import { medicaidMemberIdNeedsDiscovery, clientSubscriber } from '../../../frontend/src/navigation/paperInsuranceReview.js';
 import { auditBilling } from './familyBillingPolicy.service.js';
+import {eligibilityPolicyFields,eligibilityPolicyDetails,otherInsuranceBenefit} from '../utils/eligibilityPolicyDetails.js';
+export {otherInsuranceBenefit} from '../utils/eligibilityPolicyDetails.js';
 
 const list = value => Array.isArray(value) ? value : value ? [value] : [];
-export const otherInsuranceBenefit = (benefit, payerId) =>
-  String(benefit.benefit_coverage_code) === 'R'
-  || (payerId === 'SKCO0' && String(benefit.benefit_coverage_code) === 'U')
-  || ['PRP', 'SEP', 'TTP'].includes(String(benefit.entity_code));
 
 /** Preserve every returned field. Unknown fields remain payer evidence, never
  * guessed member IDs, billing routes, or primary/secondary assignments. */
@@ -22,6 +20,7 @@ export function eligibilityProfileRecord(check, evidence, fingerprint=null) {
     checkedAt: check.completed_at || check.created_at, payerId: evidence?.eligibilityPayerId || '',
     status: summary?.status || check.status, identityMatches: evidence?.summary?.identityMatches ?? null,
     otherCoverageReported: !!(summary?.otherCoverageReported || evidence?.summary?.otherCoverageReported),
+    details:eligibilityPolicyDetails(evidence?.result,{payerId:evidence?.eligibilityPayerId}),
     otherInsurers: entries.flatMap(entry => list(entry.benefit).filter(benefit => otherInsuranceBenefit(benefit, evidence?.eligibilityPayerId))),
     // Include the complete response, including carrier-specific fields and errors.
     response: evidence?.result || null, reference: summary?.reference || null
@@ -50,14 +49,8 @@ export function enrichInsuranceFromEligibility(insurance, results) {
       &&!!child?.firstName&&!!child?.lastName&&!!child?.dateOfBirth
       &&eligibilityIdentityMatches({payerid:'SKCO0',ins_name_f:child.firstName,ins_name_l:child.lastName,ins_dob:child.dateOfBirth.replaceAll('-','')},result.result)===true;
     if(previous.memberId && String(previous.memberId).trim()!==String(entry.ins_number||'').trim()&&!childDiscovery)continue;
-    const fields = { memberId: entry.ins_number, groupNumber: entry.group_number,
-      subscriberFirstName: entry.ins_name_f, subscriberLastName: entry.ins_name_l,
-      subscriberDob: date(entry.ins_dob), subscriberSex: entry.ins_sex,
-      subscriberAddressLine1: entry.ins_addr_1, subscriberCity: entry.ins_city,
-      subscriberState: entry.ins_state, subscriberPostalCode: entry.ins_zip };
+    const fields = eligibilityPolicyFields(entry,result.eligibilityPayerId);
     // Ranged or ambiguous dates are retained in the response, not reinterpreted.
-    fields.effectiveDate = date(entry.plan_begin_date);
-    fields.terminationDate = date(entry.plan_end_date);
     const policy = { ...previous };
     if(childDiscovery) {
       policy.paperReportedMemberId ||= previous.memberId || '';
@@ -96,7 +89,8 @@ export async function applyEligibilityProfileResults({ agencyId, clientId, expec
     if (!insurance || coverageFingerprint(insurance) !== expectedFingerprint) { await db.rollback(); return false; }
     const enriched = enrichInsuranceFromEligibility(insurance, results);
     if (coverageFingerprint(enriched) === expectedFingerprint) { await db.rollback(); return false; }
-    const saved=await (deps.writeInsurance || writeClientInsurance)({ ...enriched, agencyId, clientId, verifiedForClaims: false, queueEligibility: false, preservePaperReview:true }, db);
+    const sources=eligibilityImportSources(insurance,enriched,results);
+    const saved=await (deps.writeInsurance || writeClientInsurance)({ ...enriched, agencyId, clientId, verifiedForClaims: false, queueEligibility: false, preservePaperReview:true }, db,{eligibilityFieldSources:sources});
     // These fields came from these exact responses. Keep that evidence usable
     // after importing it; do not spend another inquiry merely to verify the import.
     // The original request fingerprint remains in the immutable encrypted evidence.
@@ -107,4 +101,15 @@ export async function applyEligibilityProfileResults({ agencyId, clientId, expec
     await auditBilling({ agencyId, clientId, userId: actorUserId, action: 'insurance_fields_from_eligibility', objectId: results[0]?.result?.id }, db);
     await db.commit(); return true;
   } catch (error) { await db.rollback(); throw error; } finally { db.release(); }
+}
+
+export function eligibilityImportSources(previous,next,results) {
+ const sources={};
+ for(const {slot,result} of results) {
+  if(!result.id||result.summary?.identityMatches!==true)continue;
+  for(const [field,value] of Object.entries(next[slot]||{}))if(value&&value!==previous?.[slot]?.[field]) {
+   (sources[slot]||={})[field]={checkId:Number(result.id),serviceDate:result.serviceDate||null,checkedAt:result.checkedAt||null,source:'Claim.MD',value};
+  }
+ }
+ return sources;
 }

@@ -43,7 +43,7 @@ async function getInsurance(req,res,next,support=false) {
     const findings=!support || insurance?.paperReviewRequired ? await readEligibilityProfile({...c,fingerprint:coverageFingerprint(insurance)}) : [];
     const eligibilityStatus=await paperInsuranceStatus({...c,insurance,findings},pool);
     await auditBilling({...c,userId:req.user.id,action:'staff_view_insurance'});
-    res.set('Cache-Control','no-store').json({insurance:support?supportInsurance(insurance):insurance,policies,demographics,payers,paperCoverage,eligibilityStatus,...(support?{}:{missingClaimFields:claimInsuranceIssues(insurance?.primary),eligibilityFindings:findings})});
+    res.set('Cache-Control','no-store').json({insurance:support?supportInsurance(insurance):insurance,policies,demographics,payers,paperCoverage,eligibilityStatus,...(support?{}:{insuranceFingerprint:coverageFingerprint(insurance),missingClaimFields:claimInsuranceIssues(insurance?.primary),eligibilityFindings:findings})});
   } catch(e){next(e);}
 }
 async function saveInsurance(req,res,next,support=false) {
@@ -96,3 +96,11 @@ export const getClientInsurance = (req,res,next) => getInsurance(req,res,next);
 export const saveClientInsurance = (req,res,next) => saveInsurance(req,res,next);
 export const getSupportClientInsurance = (req,res,next) => getInsurance(req,res,next,true);
 export const saveSupportClientInsurance = (req,res,next) => saveInsurance(req,res,next,true);
+export async function importClientEligibilityPolicy(req,res,next) {
+ try {
+  const scope=await authorize(req,false);
+  const {importSavedEligibilityPolicy}=await import('../services/eligibilityPolicyImport.service.js');
+  const result=await importSavedEligibilityPolicy({...scope,checkId:positiveId(req.body.checkId),mode:req.body.mode,slot:req.body.slot,candidateId:req.body.candidateId,expectedFingerprint:req.body.insuranceFingerprint,actorUserId:req.user.id});
+  res.set('Cache-Control','no-store').json(result);
+ }catch(error){next(error);}
+}

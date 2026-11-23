@@ -1,5 +1,17 @@
 # Eligibility, other insurance, and secondary claims
 
+## November 22: policy imports and the client-profile workspace
+
+Identity-matched active responses fill missing member/group details, plan name/number, group name, subscriber details, unambiguous coverage dates and unambiguous payer contact details. Staff-entered values remain unchanged. Sources are kept with imported fields inside the encrypted insurance record; a manual field change removes its import attribution. Copays and other financial benefits keep their returned service, network, individual/family level and period rather than becoming an unconditional flat charge.
+
+The insurance workspace presents an overview, policy editing, benefits/other coverage, and dated verification separately. Saved responses can fill missing policy details without a new paid request. A named additional insurer can be added only to an empty primary or secondary draft. Its reported policy/reference number is distinct from a confirmed member ID; its entity identifier is not treated as a Claim.MD route. Staff confirm subscriber identity, dates, routing and payer order before verification. Unknown additional coverage is retained as a review finding. Nested payer entities and their reported roles are included. No absence-of-other-insurance conclusion is inferred from an empty finding.
+
+Providers without agency billing access see only insurer names and coverage categories on the client profile. That view uses `/clients/:id/care-insurance-labels`, which returns only those fields after client-record authorization. Full policy details, benefits, identifiers, verification, payment and editing tools use the existing financial permissions. A support-view prop does not unlock the full profile workspace.
+
+Provider-facing appointment, mobile booking and note-location choices use ordinary location names. Linked office visits show the actual reserved building/room. An office reservation never supplies the location for a school, home or online visit. Existing service-location IDs and billing place-of-service values remain in the underlying booking and claim workflows.
+
+No schema migration or live patient inquiry is required for this update. Historical payer response bodies remain intact; the readable summaries are derived on access.
+
 Prepared September 25, 2026. Implementation is local; this document does not certify payer enrollment or a successful live claim. No real eligibility request, claim transmission, or card charge was made during this change.
 
 ## TISI setup checklist

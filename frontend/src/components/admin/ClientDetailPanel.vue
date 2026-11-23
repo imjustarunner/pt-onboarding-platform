@@ -757,7 +757,7 @@
               </header>
               <div class="ov-card-body">
                 <ClientCareCoverageSummary compact v-if="roleNorm !== 'school_staff'" :client-id="client.id" />
-                <button v-if="canViewClientBillingImport || canSupportClientAccount" type="button" class="btn btn-secondary" @click="setChartNav('account','billing-settings')">Open billing &amp; insurance settings</button>
+                <button v-if="canViewClientBillingImport" type="button" class="btn btn-secondary" @click="setChartNav('account','billing-settings')">Open billing &amp; insurance settings</button>
                 <div v-if="false" class="ov-row">
                   <div class="ov-row-label">Ongoing paperwork</div>
                   <div class="ov-row-value">
@@ -892,7 +892,7 @@
               <header class="ov-card-header">
                 <h3>Care Team</h3>
                 <span class="muted" style="font-size: 12px;">
-                  Edit on the <strong>Assignments</strong> tab (providers, office &amp; POS defaults)
+                  Edit on the <strong>Assignments</strong> tab (providers, office and service location defaults)
                 </span>
               </header>
               <div class="ov-card-body">
@@ -1564,7 +1564,7 @@
           </div>
         </div>
 
-        <ClientBillingAccountSettings v-if="chartHub==='account' && effectiveHubSub==='billing-settings' && (canViewClientBillingImport || canSupportClientAccount)" :client-id="client.id" :agency-id="client.agency_id" :account-support="canSupportClientAccount" @manage-contacts="goChartSub('guardians')" />
+        <ClientBillingAccountSettings v-if="chartHub==='account' && effectiveHubSub==='billing-settings' && canViewClientBillingImport" :client-id="client.id" :agency-id="client.agency_id" :account-support="canSupportClientAccount" @manage-contacts="goChartSub('guardians')" />
 
         <!-- Learning Billing Tab -->
         <div v-if="showPanel('billing') && learningBillingEnabledForClient && !['provider', 'provider_plus'].includes(roleNorm)" class="detail-section">
@@ -2872,6 +2872,7 @@
 </template>
 
 <script setup>
+import {serviceSettingName} from '../../utils/serviceLocationDisplay.js';
 import ClientDisclosurePanel from './clientChart/ClientDisclosurePanel.vue';
 import { guardianPortalStatus } from '../../utils/guardianPortalStatus.js';
 import { useAgencyMemberships } from '../../composables/useAgencyMemberships.js';
@@ -3075,7 +3076,7 @@ const chartSubnav = computed(() => {
     return accountSubnav({
       isSchool: isSchoolClientType.value,
       canEditAccount: canEditAccount.value,
-      canViewBilling: canViewClientBillingImport.value || canSupportClientAccount.value
+      canViewBilling: canViewClientBillingImport.value
     });
   }
   if (hub === 'lifecycle') {
@@ -4335,7 +4336,7 @@ const lastSessionMeta = computed(() => {
   const row = lastSession.value;
   if (!row) return canViewMedicalRecord.value ? 'No sessions imported' : '—';
   const code = row.service_code ? `CPT ${row.service_code}` : '';
-  const pos = row.place_of_service === '03' ? 'In school' : row.place_of_service ? `POS ${row.place_of_service}` : '';
+  const pos = serviceSettingName(row.place_of_service);
   return [code, pos].filter(Boolean).join(' · ') || 'Imported session';
 });
 

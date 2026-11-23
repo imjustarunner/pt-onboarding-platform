@@ -20,7 +20,7 @@ import { listTreatmentFrequencies, addTreatmentFrequency, suggestObjectiveInterv
 import { getTreatmentPlanRenewalPolicy, saveTreatmentPlanRenewalPolicy } from '../controllers/medicalBilling.controller.js';
 import { getPlanApproval, signPlanProviderReview } from '../controllers/treatmentPlanApproval.controller.js';
 import { getClinicalMseHistory } from '../controllers/clinicalMseHistory.controller.js';
-import { getClientInsurance, saveClientInsurance } from '../controllers/clientInsurance.controller.js';
+import { getClientInsurance, saveClientInsurance,importClientEligibilityPolicy } from '../controllers/clientInsurance.controller.js';
 import { getDiscoveryWorkspace, createDiscovery, getDiscoveryResults, saveDiscoveryReview, reconcileDiscovery } from '../controllers/stediDiscovery.controller.js';
 import { getCoverageEvidence, checkClientCoverage, reviewClientCoverage } from '../controllers/coverageVerification.controller.js';
 import { getDocumentationReadiness, reviewDocumentationReadiness } from '../controllers/clientDocumentationReadiness.controller.js';
@@ -183,6 +183,7 @@ router.post('/clients/:clientId/insurance-discovery/:id/reconcile', ...masterGat
 router.get('/clients/:clientId/documentation-readiness', ...masterGate, requireMedicalBillingFinancialAccess, getDocumentationReadiness);
 router.post('/clients/:clientId/documentation-readiness', ...masterGate, requireMedicalBillingFinancialAccess, reviewDocumentationReadiness);
 router.put('/clients/:clientId/insurance', ...masterGate, requireMedicalBillingFinancialAccess, saveClientInsurance);
+router.post('/clients/:clientId/insurance/eligibility-import', ...masterGate, requireMedicalBillingFinancialAccess, importClientEligibilityPolicy);
 router.get('/clients/:clientId/coverage', ...masterGate, requireMedicalBillingFinancialAccess, getCoverageEvidence);
 router.post('/clients/:clientId/coverage/check', ...claimMdGate, checkClientCoverage);
 router.post('/clients/:clientId/coverage/review', ...masterGate, requireMedicalBillingFinancialAccess, reviewClientCoverage);

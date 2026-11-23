@@ -8,6 +8,23 @@ import { clientCareBillingSummary } from '../services/clientCareBillingSummary.s
 import { logClientAccess } from '../services/clientAccessLog.service.js';
 import { clientCoverageAdmission } from '../services/clientCoverageAdmission.service.js';
 import { hasSchedulingBillingAccess } from '../services/schedulingBillingAccess.service.js';
+// The client-profile provider view deliberately has its own narrow projection.
+// It never loads payment setup, benefits, verification history or balances.
+export async function getClientCareInsuranceLabels(req,res,next){try{
+ const client=await Client.findById(req.params.id);
+ if(!client)return res.status(404).json({error:{message:'Client not found'}});
+ const role=String(req.user.role||'').toLowerCase();
+ if(['school_staff','guardian','client_guardian','client'].includes(role))return res.status(403).json({error:{message:'Agency care-team access required'}});
+ const access=await resolveClientRecordAccess({userId:req.user.id,role,clientId:client.id,client});
+ if(!access.ok)return res.status(access.status).json({error:{message:access.message}});
+ const insurance=await readClientInsurance(client.id,client.agency_id);
+ const policies=['primary','secondary'].filter(slot=>insurance?.[slot]?.insurerName).map(slot=>{
+  const policy=insurance[slot],programType=['commercial','medicaid','tricare','medicare'].includes(policy.programType)?policy.programType:policyIsMedicaid(policy)?'medicaid':'unknown';
+  return {insurerName:policy.insurerName,programType};
+ });
+ await logClientAccess(req,client.id,'view_care_insurance_labels');
+ res.set('Cache-Control','no-store').json({policies});
+}catch(error){next(error);}}
 export async function getClientCoverageAdmission(req,res,next){try{
  const client=await Client.findById(req.params.id);
  if(!client)return res.status(404).json({error:{message:'Client not found'}});

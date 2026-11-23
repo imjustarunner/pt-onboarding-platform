@@ -17,6 +17,7 @@ export function mergePatientDefaults(patient = {}, demographics = {}) {
 }
 POLICY_TEXT_FIELDS.push('copay', 'lastEligibilityCheck', 'subscriberPhone', 'sourcePayerId');
 POLICY_TEXT_FIELDS.push('programType');
+POLICY_TEXT_FIELDS.push('planName','planNumber','groupName','payerPhone','payerAddressLine1','payerCity','payerState','payerPostalCode','reportedPolicyNumber');
 export function normalizePolicy(value = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw billingError(400, 'Insurance policy must be an object');
   const out = {};
@@ -33,6 +34,16 @@ export function normalizePolicy(value = {}) {
   if (out.relationshipToSubscriber && !['self','child','spouse','other'].includes(out.relationshipToSubscriber)) throw billingError(400, 'Invalid subscriber relationship');
   for (const key of ['subscriberDob', 'effectiveDate', 'terminationDate']) if (out[key] && (!/^\d{4}-\d{2}-\d{2}$/.test(out[key]) || !Number.isFinite(Date.parse(out[key])) || new Date(out[key]).toISOString().slice(0,10) !== out[key])) throw billingError(400, 'Use a valid YYYY-MM-DD insurance date');
   return out;
+}
+export function preserveEligibilityFieldSources(previous,value,additions={}) {
+ const sources={};
+ for(const slot of ['primary','secondary']) {
+  const policy=value[slot];if(!policy)continue;
+  const oldSlot=['primary','secondary'].find(old=>previous?.[old]&&['insurerName','payerId','memberId'].every(key=>(previous[old][key]||'')===(policy[key]||'')));
+  for(const [field,source] of Object.entries(previous?.eligibilityFieldSources?.[oldSlot]||{}))if(policy[field]&&policy[field]===previous[oldSlot][field])(sources[slot]||={})[field]=source;
+  for(const [field,source] of Object.entries(additions?.[slot]||{}))if(POLICY_TEXT_FIELDS.includes(field)&&policy[field]&&source.value===policy[field]&&Number.isSafeInteger(source.checkId)&&source.checkId>0)(sources[slot]||={})[field]=source;
+ }
+ return sources;
 }
 export function claimInsuranceIssues(primary = {}) {
   return [['insurerName','Insurance carrier'], ['payerId','Claim.MD payer ID'], ['memberId','Member ID'], ['subscriberFirstName','Subscriber legal first name'], ['subscriberLastName','Subscriber legal last name'], ['subscriberDob','Subscriber date of birth'], ['relationshipToSubscriber','Relationship to subscriber'], ['subscriberAddressLine1','Subscriber address'], ['subscriberCity','Subscriber city'], ['subscriberState','Subscriber state'], ['subscriberPostalCode','Subscriber postal code']].filter(([key]) => !String(primary[key] || '').trim()).map(([, label]) => `${label} is missing`);
@@ -53,7 +64,7 @@ export function insuranceForIntakeClient(info, clientIndex, clientCount) {
   if (clientCount > 1 && secondary?.isMedicaid && !(medicaid && info.medicaidPlanPosition === 'secondary') && !assignment?.secondary?.memberId) return null;
   return { primary, secondary, primaryCardFrontUrl: assignment?.primary ? (assignment.primary_front_url || null) : (info.primary_front_url || null), primaryCardBackUrl: assignment?.primary ? (assignment.primary_back_url || null) : (info.primary_back_url || null), secondaryCardFrontUrl: assignment?.primary ? (assignment.secondary_front_url || null) : (info.secondary_front_url || null), secondaryCardBackUrl: assignment?.primary ? (assignment.secondary_back_url || null) : (info.secondary_back_url || null), coverageScope: !assignment?.primary && info.coverageScope === 'account_holder' ? 'account_holder' : 'client', confirmed: !!assignment || clientCount === 1 || !!medicaid };
 }
-export async function writeClientInsurance({ clientId, agencyId, primary, secondary = null, profileId = null, coverageSources = null, confirmedBy = null, patient = null, verifiedForClaims = false, acceptAssignment = null, queueEligibility = true, paperSourceDocumentId=null, paperFinalization=null, preservePaperReview=false, paperReviewRequired=false }, db = pool) {
+export async function writeClientInsurance({ clientId, agencyId, primary, secondary = null, profileId = null, coverageSources = null, confirmedBy = null, patient = null, verifiedForClaims = false, acceptAssignment = null, queueEligibility = true, paperSourceDocumentId=null, paperFinalization=null, preservePaperReview=false, paperReviewRequired=false }, db = pool, serverOptions={}) {
   const previous = await readClientInsurance(clientId, agencyId, db);
   const patientFields = ['firstName','lastName','dateOfBirth','sex','addressLine1','addressLine2','city','state','postalCode'];
   const chartPatient = !patient && [primary,secondary].some(policy => policyIsMedicaid(policy) || policy?.relationshipToSubscriber === 'self') ? await insuranceDemographics(clientId,agencyId,db) : {};
@@ -64,6 +75,10 @@ export async function writeClientInsurance({ clientId, agencyId, primary, second
     Object.assign(patientValue,mergePatientDefaults(patientValue,demographics));
   }
   const value = { acceptAssignment, patient: patientValue, verifiedForClaims: verifiedForClaims === true, primary: normalizePolicy(selfSubscriberPolicy(primary,patientValue)), secondary: secondary ? normalizePolicy(selfSubscriberPolicy(secondary,patientValue)) : null, profileId, coverageSources, confirmedBy, updatedAt: new Date().toISOString() };
+  // Request bodies cannot supply provenance. Preserve it only for unchanged
+  // values on the same policy, including a staff-confirmed primary/secondary swap.
+  const sources=preserveEligibilityFieldSources(previous,value,serverOptions.eligibilityFieldSources);
+  if(Object.keys(sources).length)value.eligibilityFieldSources=sources;
   if(previous?.paperReviewRequired || paperReviewRequired || paperSourceDocumentId) {
     value.paperReviewRequired=true;
     value.paperSourceDocumentId=Number(paperSourceDocumentId || previous?.paperSourceDocumentId)||null;

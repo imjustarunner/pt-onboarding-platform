@@ -26,6 +26,7 @@
    <p v-else-if="check.evidence?.failure?.code==='CLAIM_MD_REQUEST_REJECTED'">The original Claim.MD error details were not retained for this older check. This entry alone cannot identify the cause.</p>
    <p v-if="check.evidence?.summary?.otherCoverageReported">Other coverage reported — investigate and resolve payer order before billing.</p>
    <p v-if="check.evidence?.summary?.identityMatches === false" role="alert">Reconcile the returned member identity with the saved insurance record before billing.</p>
+   <EligibilityBenefitsSummary v-if="check.evidence?.summary?.policyDetails" :details="check.evidence.summary.policyDetails" :check-id="check.id" :service-date="String(check.service_date || reviewDate).slice(0,10)" :checked-at="check.completed_at || check.created_at" :identity-matches="check.evidence.summary.identityMatches" :other-coverage-reported="check.evidence.summary.otherCoverageReported" />
    <p v-for="(payerError,index) in check.evidence?.summary?.payerErrors || []" :key="index" role="alert">{{ payerError.error_mesg }} ({{ payerError.error_code }})</p>
    <details v-if="check.evidence?.result"><summary>View payer response and benefits</summary><pre>{{ JSON.stringify(check.evidence.result,null,2) }}</pre></details>
   </article></details>
@@ -46,8 +47,9 @@
 import {ref,computed,watch,onMounted,onBeforeUnmount} from 'vue';
 import api from '../../services/api.js';
 import { formatBillingDate,formatBillingTimestamp } from '../../utils/billingReviewDisplay.js';
+import EligibilityBenefitsSummary from './EligibilityBenefitsSummary.vue';
 const props=defineProps({clientId:[Number,String],agencyId:[Number,String],serviceDate:String,billingOfficeId:[Number,String]});
-const emit=defineEmits(['saved']);
+const emit=defineEmits(['saved','checked']);
 const today=()=>new Date().toLocaleDateString('en-CA',{timeZone:'America/Denver'});
 const reviewDate=ref(props.serviceDate?.slice(0,10)||today()),officeId=ref(props.billingOfficeId||''),offices=ref([]),error=ref(''),notice=ref(''),evidence=ref({checks:[],blockers:[]});
 const coverageLoading=ref(false),coverageReady=ref(false),hasCoverageData=ref(false),officesLoading=ref(false),saving=ref(false),checkingSlot=ref('');
@@ -97,7 +99,7 @@ async function check(slot){
   const detail=e.response?.data?.error||{};
   if(detail.coverageCheckId){await load();if(current===context())historyOpen.value=true;}
   if(current===context())error.value=(detail.message||'Coverage could not be confirmed')+(detail.coverageCheckId?` Check #${detail.coverageCheckId}.`:'')+(detail.upstreamCodes?.length?` Claim.MD code: ${detail.upstreamCodes.join(', ')}.`:'');
- }finally{if(current===context()){saving.value=false;checkingSlot.value='';poll();}}
+ }finally{if(current===context()){saving.value=false;checkingSlot.value='';poll();emit('checked');}}
 }
 async function review(){
  if(busy.value||!coverageReady.value)return;

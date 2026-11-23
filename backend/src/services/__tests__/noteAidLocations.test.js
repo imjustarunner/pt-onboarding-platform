@@ -14,11 +14,14 @@ const locations = [
 test('uses assigned tenant offices, deduplicates POS templates, and retains billing identity', () => {
   const choices = buildNoteAidLocationChoices({ locations, offices, officeIds: [1, 99] });
   assert.equal(choices.length, 2);
-  assert.match(choices[0].label, /Assigned office.*POS 11.*100 Test St/);
+  assert.match(choices[0].label, /Assigned office.*100 Test St/);
+  assert.ok(choices.every(choice=>!choice.label.includes('POS')));
   assert.equal(choices[0].serviceLocationId, 10);
   assert.equal(choices[0].billingOfficeLocationId, 1);
   assert.equal(choices[1].address, '');
-  assert.match(choices[1].detail, /Billing office: Assigned office — 100 Test St/);
+  assert.match(choices[1].detail, /client’s actual location/);
+  assert.equal(choices[1].billingOfficeName, 'Assigned office');
+  assert.doesNotMatch(choices[1].detail, /Billing office/);
 });
 test('does not expose all offices when the provider has none assigned', () => {
   const choices = buildNoteAidLocationChoices({ locations, offices, officeIds: [] });

@@ -19,7 +19,7 @@ import { listClientNotificationHistory } from '../controllers/clientNotification
 import { listClientSecureMessages, getClientSecureMessage } from '../controllers/clientSecureMessages.controller.js';
 import express from 'express';
 import * as serviceEnrollments from '../controllers/clientServiceEnrollment.controller.js';
-import { getClientCareBillingSummary, getClientCoverageAdmission, getClientAfterHoursSelfPay, saveClientAfterHoursSelfPay } from '../controllers/clientCareBillingSummary.controller.js';
+import { getClientCareBillingSummary, getClientCareInsuranceLabels, getClientCoverageAdmission, getClientAfterHoursSelfPay, saveClientAfterHoursSelfPay } from '../controllers/clientCareBillingSummary.controller.js';
 import { previewClientPaymentFollowup, requestClientPaymentFollowup } from '../controllers/clientPaymentFollowup.controller.js';
 import { getClientAccountSupport, getClientOperationalStatus } from '../controllers/clientAccountSupport.controller.js';
 import {caseloadSessionDates,clientQuickViewTasks} from '../controllers/clientQuickView.controller.js';
@@ -298,6 +298,7 @@ router.put('/:id/clinical-responses', excludeSupportClinicalContent, updateClien
 
 // Insurance card images from intake (provider/admin) — streamed (decrypts if encrypted)
 router.get('/:id/care-billing-summary', getClientCareBillingSummary);
+router.get('/:id/care-insurance-labels', getClientCareInsuranceLabels);
 router.get('/:id/after-hours-self-pay', requireActiveStatus, getClientAfterHoursSelfPay);
 router.put('/:id/after-hours-self-pay', requireActiveStatus, saveClientAfterHoursSelfPay);
 router.get('/:id/coverage-readiness', getClientCoverageAdmission);

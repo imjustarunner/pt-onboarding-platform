@@ -1,9 +1,20 @@
 <template>
   <section v-if="canSeeBilling || accountSupport" class="client-insurance-editor">
-    <h4>{{ isPaper ? 'Insurance details' : assignmentReview ? 'Edit saved insurance details' : canSeeBilling ? 'Insurance and claim identity' : 'Insurance information' }}</h4>
+    <h4>{{ profileLayout ? 'Insurance and benefits' : isPaper ? 'Insurance details' : assignmentReview ? 'Edit saved insurance details' : canSeeBilling ? 'Insurance and claim identity' : 'Insurance information' }}</h4>
     <button v-if="!opened" class="btn btn-secondary" type="button" @click="load">Review private insurance details</button>
     <p v-if="error" role="alert">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p>
-    <form v-if="opened && draft" novalidate @submit.prevent="save">
+    <p v-if="insuranceLoading" role="status">Loading insurance and saved verification results…</p>
+    <template v-if="profileLayout && opened && draft">
+     <nav class="insurance-sections" aria-label="Insurance sections"><button v-for="panel in profilePanels" :key="panel.key" type="button" :aria-pressed="activePanel===panel.key" @click="activePanel=panel.key">{{ panel.label }}</button></nav>
+     <section v-if="activePanel==='overview'" class="insurance-overview" aria-label="Coverage overview">
+      <p v-if="draftDirty" role="status">You have unsaved insurance edits.</p>
+      <div class="coverage-cards"><article v-for="slot in ['primary','secondary']" :key="slot"><h5>{{ slot==='primary'?'Primary insurance':'Secondary insurance' }}</h5><strong>{{ draft[slot]?.insurerName || 'Not recorded' }}</strong><p>{{ coverageStatus(slot) }}</p><p v-if="draft[slot]?.insurerName">{{ draft[slot]?.memberId ? 'Member ID saved' : 'Member ID needed' }} · {{ draft[slot]?.payerId ? 'Payer route matched' : 'Payer route needed' }}</p><p v-if="draft[slot]?.planName">{{ draft[slot].planName }}</p></article></div>
+      <section class="next-action" aria-label="Next insurance action"><div><h5>Next step</h5><p>{{ nextAction.message }}</p></div><button type="button" @click="activePanel=nextAction.panel">{{ nextAction.label }}</button></section>
+      <p>Policy details, a returned coverage response, and billing approval are tracked separately. A successful coverage check does not finish payer-order review.</p>
+     </section>
+    </template>
+    <form v-if="opened && draft" v-show="!profileLayout || activePanel==='details'" novalidate @submit.prevent="save">
+      <fieldset class="insurance-edit-fields" :disabled="busy || insuranceLoading">
       <p class="insurance-help">Save partial information at any time. Review details copied from Demographics against the insurance card.<template v-if="canSeeBilling"> Missing claim fields prevent submission, not saving.</template><template v-else> The billing team reviews coverage before preparing claims.</template></p>
       <section v-if="isPaper" class="paper-policy-summary" aria-label="Current paper insurance details">
         <h5>{{ draftDirty ? 'Insurance draft — unsaved changes' : 'Saved insurance details' }}</h5>
@@ -18,7 +29,6 @@
           <label>Use submitted coverage as primary<select v-model="selectedSources.primary" @change="useSubmittedPolicy('primary')"><option value="">Keep or enter primary details manually</option><option v-for="policy in coverageChoices" :key="policy.key" :value="policy.key" :disabled="policy.key === selectedSources.secondary">{{ policy.label }}</option></select></label>
           <label>Use submitted coverage as secondary<select v-model="selectedSources.secondary" @change="useSubmittedPolicy('secondary')"><option value="">Keep or enter secondary details manually</option><option v-for="policy in coverageChoices" :key="policy.key" :value="policy.key" :disabled="policy.key === selectedSources.primary">{{ policy.label }}</option></select></label>
         </div>
-        <button v-if="hasSecondary" type="button" class="btn btn-secondary" @click="swapCoverage">Swap primary and secondary</button>
         <article v-for="policy in policies" :key="policy.id" class="coverage-evidence">
           <strong>{{ policy.submittedBy }} · {{ policy.primary.insurerName || 'Submitted policy' }}</strong>
           <p v-if="policy.secondary">Additional submitted coverage: {{ policy.secondary.insurerName }}</p>
@@ -30,38 +40,31 @@
         <summary>Original reader output — may contain errors</summary><p>Your corrected fields below are used when saving. This original read stays available for comparison with the PDF.</p>
         <article v-for="(policy,slot) in paperCoverage" :key="slot"><strong>{{ slot === 'primary' ? 'Primary' : 'Secondary' }}: {{ policy.insurerName || 'Carrier not read' }}</strong><p>Number read: {{ policy.memberId || 'Not read' }} · Holder written on packet: {{ policy.paperSubscriberName || 'Not read' }}</p></article>
       </details>
-      <details class="insurance-identity" :open="!isPaper"><summary>Client identity · {{ draft.patient.firstName }} {{ draft.patient.lastName }} · {{ draft.patient.dateOfBirth }}</summary><button type="button" class="btn btn-secondary" @click="useDemographics">Fill missing fields from Demographics</button><div class="identity-fields"><label v-for="field in patientFields" :key="field.key">{{ field.label }}<input v-model="draft.patient[field.key]" :type="field.type || 'text'" maxlength="255" /></label></div></details>
-      <h5>Primary coverage</h5><InsurancePolicyFields :scope-key="`client:${clientId}:primary`" v-model="draft.primary" :payers="payers" :patient="draft.patient" :paper-entry="isPaper" :require-complete="false" />
-      <label><input v-model="hasSecondary" type="checkbox" /> Secondary coverage</label><InsurancePolicyFields :scope-key="`client:${clientId}:secondary`" v-if="hasSecondary" v-model="draft.secondary" :payers="payers" :patient="draft.patient" :paper-entry="isPaper" :require-complete="false" />
+      <details class="insurance-identity" :open="!isPaper && !profileLayout"><summary>Client identity · {{ draft.patient.firstName }} {{ draft.patient.lastName }} · {{ draft.patient.dateOfBirth }}</summary><button type="button" class="btn btn-secondary" @click="useDemographics">Fill missing fields from Demographics</button><div class="identity-fields"><label v-for="field in patientFields" :key="field.key">{{ field.label }}<input v-model="draft.patient[field.key]" :type="field.type || 'text'" maxlength="255" /></label></div></details>
+      <h5>Primary coverage</h5><InsurancePolicyFields :scope-key="`client:${clientId}:primary`" v-model="draft.primary" :payers="payers" :patient="draft.patient" :field-sources="draftDirty ? {} : fieldSources.primary" :organized="profileLayout" :paper-entry="isPaper" :require-complete="false" />
+      <label><input v-model="hasSecondary" type="checkbox" /> Secondary coverage</label><InsurancePolicyFields :scope-key="`client:${clientId}:secondary`" v-if="hasSecondary" v-model="draft.secondary" :payers="payers" :patient="draft.patient" :field-sources="draftDirty ? {} : fieldSources.secondary" :organized="profileLayout" :paper-entry="isPaper" :require-complete="false" />
+      <button v-if="hasSecondary" type="button" class="btn btn-secondary" @click="swapCoverage">Swap primary and secondary</button>
       <section v-if="isPaper && paperEntryIssues.length" aria-label="Insurance details for staff follow-up">
         <p>Some insurance details need follow-up. Enter what is available; do not guess. Staff can look up the remaining information and billing must review coverage separately.</p>
         <ul><li v-for="issue in paperEntryIssues" :key="issue">{{ issue }}</li></ul>
         <p>Missing details stay with billing for follow-up.</p>
       </section>
-      <details v-if="canSeeBilling && eligibilityFindings.length" :open="!isPaper" aria-label="Information returned by insurers">
-        <summary>{{ isPaper ? 'Earlier verification attempts' : 'Information returned by insurers' }} ({{ eligibilityFindings.length }})</summary>
-        <p>Missing policy fields are filled when the returned identity matches. Reported other insurance stays here until its coverage and billing order are resolved. An insurer listed here is not automatically a secondary payer.</p>
-        <details v-for="finding in eligibilityFindings" :key="finding.id" class="coverage-evidence">
-          <summary>{{ finding.payerId || finding.slot }} · {{ finding.serviceDate?.slice(0,10) }} · {{ finding.status.replaceAll('_',' ') }}{{ finding.otherCoverageReported ? ' · Other insurance reported' : '' }}</summary>
-          <p v-if="finding.response && finding.identityMatches === false" role="alert">Returned identity needs reconciliation before these details can update the policy.</p>
-          <p v-else-if="finding.response && finding.identityMatches == null">The payer response did not confirm the complete client identity.</p>
-          <ul v-if="finding.otherInsurers.length"><li v-for="(insurer,index) in finding.otherInsurers" :key="index">{{ insurer.entity_name || 'Other insurer reported without a name' }}</li></ul>
-          <PayerResponseFields v-if="finding.response" :value="finding.response" />
-          <p v-else>No payer response was saved. This attempt does not verify coverage.</p>
-        </details>
-      </details>
+      <EligibilityPolicyFindings v-if="canSeeBilling && eligibilityFindings.length && !profileLayout" :findings="eligibilityFindings" :insurance="draft" :busy="busy" :dirty="draftDirty" @import-details="importDetails" @draft-policy="importReportedPolicy" />
       <ul v-if="issues.length"><li v-for="issue in issues" :key="issue">{{ issue }}</li></ul>
       <label v-if="canSeeBilling && !assignmentReview && !isPaper">Provider accepts assignment of insurance payment<select v-model="draft.acceptAssignment"><option :value="null">Select</option><option :value="true">Yes</option><option :value="false">No</option></select></label>
       <p v-if="canSeeBilling && !assignmentReview && !isPaper" class="insurance-review-state">{{ verified ? 'Insurance identity review is recorded for these details.' : 'Review the current details and check the confirmation below before saving them as verified.' }}</p>
       <label v-if="canSeeBilling && !assignmentReview && !isPaper"><input v-model="verified" type="checkbox" /> I reviewed this client’s identity and subscriber details against the policy and verified coverage for claim preparation.</label>
       <p v-if="isPaper && paperEntry">Draft saves send no payer request. Submitting the completed packet queues eligibility checks; billing handles missing details and coverage issues.</p>
       <p v-else-if="isPaper && !paperFinalizedAt">Eligibility begins after the completed packet is submitted.</p>
-      <div><button class="btn btn-secondary" :disabled="busy">{{ busy ? 'Saving…' : isPaper ? 'Save draft' : 'Save insurance information' }}</button> <button v-if="isPaper && !paperEntry && canSeeBilling && paperFinalizedAt" class="btn btn-primary" type="button" :disabled="busy" @click="save({checkCoverage:true})">Save corrections &amp; check coverage</button> <button v-if="!paperEntry" class="btn btn-secondary" type="button" @click="opened=false;draft=null">Close private details</button></div>
+      <div><button class="btn btn-secondary" :disabled="busy">{{ busy ? 'Saving…' : isPaper ? 'Save draft' : 'Save insurance information' }}</button> <button v-if="isPaper && !paperEntry && canSeeBilling && paperFinalizedAt" class="btn btn-primary" type="button" :disabled="busy" @click="save({checkCoverage:true})">Save corrections &amp; check coverage</button> <button v-if="!paperEntry && !profileLayout" class="btn btn-secondary" type="button" @click="opened=false;draft=null">Close private details</button></div>
+      </fieldset>
     </form>
-    <InsuranceDiscoveryPanel v-if="opened && canSeeBilling && !assignmentReview && [2,6,377].includes(Number(agencyId))" :client-id="clientId" :agency-id="agencyId" :service-date="serviceDate" :current-patient="draft?.patient" @use-policy="useDiscoveredPolicy" @saved="emit('saved')" />
-    <CoordinationOfBenefitsPanel v-if="opened && canSeeBilling && !assignmentReview && [2,6,377].includes(Number(agencyId))" :client-id="clientId" :agency-id="agencyId" :service-date="serviceDate" :current-insurance="draft" @use-policy="useDiscoveredPolicy" @saved="emit('saved')" />
-    <ClientCoverageVerification v-if="opened && canSeeBilling && !assignmentReview && showRelatedReviews" :client-id="clientId" :agency-id="agencyId" :service-date="serviceDate" @saved="load();emit('saved')" />
-    <ClientDocumentationReadiness v-if="opened && canSeeBilling && !assignmentReview && showRelatedReviews" :client-id="clientId" :agency-id="agencyId" :service-date="serviceDate" @saved="emit('saved')" />
+    <EligibilityPolicyFindings v-if="profileLayout && opened && draft && canSeeBilling && activePanel==='benefits'" :findings="eligibilityFindings" :insurance="draft" :busy="busy" :dirty="draftDirty" @import-details="importDetails" @draft-policy="importReportedPolicy" />
+    <div v-show="!profileLayout || activePanel==='verification'">
+     <ClientCoverageVerification v-if="opened && canSeeBilling && !assignmentReview && showRelatedReviews" :client-id="clientId" :agency-id="agencyId" :service-date="serviceDate" ref="coveragePanel" @checked="refreshVerification" @saved="refreshVerification();emit('saved')" />
+     <details v-if="opened && canSeeBilling && !assignmentReview && [2,6,377].includes(Number(agencyId))"><summary>Find missing insurance or investigate payer order</summary><p>Use these additional searches when the saved eligibility response does not resolve coverage.</p><InsuranceDiscoveryPanel :client-id="clientId" :agency-id="agencyId" :service-date="serviceDate" :current-patient="draft?.patient" @use-policy="useDiscoveredPolicy" @saved="emit('saved')" /><CoordinationOfBenefitsPanel :client-id="clientId" :agency-id="agencyId" :service-date="serviceDate" :current-insurance="draft" @use-policy="useDiscoveredPolicy" @saved="emit('saved')" /></details>
+     <details v-if="opened && canSeeBilling && !assignmentReview && showRelatedReviews"><summary>Supporting billing documents</summary><ClientDocumentationReadiness :client-id="clientId" :agency-id="agencyId" :service-date="serviceDate" @saved="emit('saved')" /></details>
+    </div>
   </section>
 </template>
 <script setup>
@@ -77,12 +80,13 @@ import ClientCoverageVerification from './ClientCoverageVerification.vue';
 import ClientDocumentationReadiness from './ClientDocumentationReadiness.vue';
 import InsuranceDiscoveryPanel from './InsuranceDiscoveryPanel.vue';
 import CoordinationOfBenefitsPanel from './CoordinationOfBenefitsPanel.vue';
-import PayerResponseFields from './PayerResponseFields.vue';
+import EligibilityPolicyFindings from './EligibilityPolicyFindings.vue';
+import {formatBillingDate} from '../../utils/billingReviewDisplay.js';
 import { matchConfiguredPayer, withConfiguredPayer } from '../../navigation/paperInsuranceReview.js';
 import {preparePacketDraft} from '../../navigation/paperInsuranceDraft.js';
 import {medicaidMemberIdNeedsDiscovery} from '../../navigation/paperInsuranceReview.js';
 import { paperInsuranceCompletionIssues } from '../../navigation/paperInsuranceCompletion.js';
-const props=defineProps({clientId:[String,Number],agencyId:[String,Number],accountSupport:Boolean,assignmentReview:Boolean,startOpen:Boolean,paperEntry:Boolean,paperDocumentId:[String,Number],showRelatedReviews:{type:Boolean,default:true},serviceDate:String});
+const props=defineProps({clientId:[String,Number],agencyId:[String,Number],accountSupport:Boolean,assignmentReview:Boolean,startOpen:Boolean,paperEntry:Boolean,paperDocumentId:[String,Number],showRelatedReviews:{type:Boolean,default:true},serviceDate:String,profileLayout:Boolean});
 const emit=defineEmits(['saved']);
 const insurancePath=computed(()=>canSeeBilling.value?`/medical-billing/clients/${props.clientId}/insurance`:`/clients/${props.clientId}/account-support/insurance`);
 const opened=ref(false),draft=ref(null),hasSecondary=ref(false),verified=ref(false),busy=ref(false),error=ref(''),notice=ref(''),issues=ref([]);
@@ -105,6 +109,27 @@ const patientFields=[{key:'firstName',label:'Legal first name'},{key:'lastName',
 const payers=ref([]),paperCoverage=ref(null);
 const policies=ref([]),selectedSources=ref({primary:'',secondary:''}),demographics=ref({});
 const eligibilityFindings=ref([]);
+const insuranceFingerprint=ref(''),fieldSources=ref({}),insuranceLoading=ref(false),activePanel=ref('overview'),coveragePanel=ref(null);
+const profilePanels=computed(()=>[{key:'overview',label:'Overview'},{key:'details',label:'Edit insurance'},...(canSeeBilling.value?[{key:'benefits',label:'Benefits & other coverage'},{key:'verification',label:'Verify coverage'}]:[])]);
+const latestFinding=slot=>eligibilityFindings.value.find(f=>f.slot===slot&&(!props.serviceDate||String(f.serviceDate).slice(0,10)===props.serviceDate.slice(0,10)));
+function coverageStatus(slot){
+ if(!draft.value?.[slot]?.insurerName)return slot==='secondary'?'Secondary insurance has not been recorded.':'Primary insurance details are needed.';
+ if(draftDirty.value)return 'Unsaved edits — coverage status needs review.';
+ const f=latestFinding(slot);
+ if(!f)return verificationLabel(slot).replace('Awaiting packet submission','No verification result saved');
+ if(f.isCurrent!==true)return 'Insurance changed — earlier verification is historical.';
+ if(f.status==='error')return 'Last check failed — review verification history.';
+ if(f.identityMatches!==true)return 'Returned identity needs review.';
+ return `${f.status==='active_reported'?'Active coverage reported':f.status==='inactive_reported'?'Inactive coverage reported':'Payer response needs review'} for ${formatBillingDate(f.serviceDate)}.`;
+}
+const nextAction=computed(()=>{
+ if(draftDirty.value)return {panel:'details',label:'Review and save edits',message:'Your insurance edits have not been saved.'};
+ const missing=activeSlots.value.some(slot=>!draft.value?.[slot]?.insurerName||!draft.value?.[slot]?.memberId||!draft.value?.[slot]?.payerId);
+ if(missing)return {panel:'details',label:'Complete insurance details',message:'A saved policy is missing its insurer, member ID or payer route.'};
+ if(!canSeeBilling.value)return {panel:'details',label:'Review insurance details',message:'Billing staff complete coverage verification and payer-order review.'};
+ if(eligibilityFindings.value.some(f=>f.isCurrent===true&&f.otherCoverageReported))return {panel:'benefits',label:'Review other coverage',message:'A payer reported additional insurance. Confirm its details and billing order.'};
+ return {panel:'verification',label:'Review coverage verification',message:'Check each recorded policy for the visit date, then resolve payer order and save the dated review.'};
+});
 const coverageChoices=computed(()=>policies.value.flatMap(policy=>['primary','secondary'].filter(slot=>policy[slot]).map(slot=>({key:`${policy.id}:${slot}`,profileId:policy.id,slot,coverage:policy[slot],label:`${policy.submittedBy} · ${policy[slot].insurerName || 'Policy'}${slot === 'secondary' ? ' (additional submitted policy)' : ''}`}))));
 const evidenceSlots=policy=>Object.entries(policy.cardEvidence || {}).filter(([,present])=>present).map(([slot])=>slot);
 function useDemographics(){if(!draft.value)return;for(const [key,value] of Object.entries(demographics.value))if(!draft.value.patient[key] && value)draft.value.patient[key]=value;verified.value=false;}
@@ -128,25 +153,38 @@ function installSavedDraft(value){
  hasSecondary.value=!!value.secondary;savedSnapshot.value=draftSnapshot();
 }
 async function load(){
- const n=++seq;clearTimeout(pollTimer);error.value='';notice.value='';
+ const n=++seq;clearTimeout(pollTimer);error.value='';notice.value='';insuranceLoading.value=true;
  try{
-  const res=await api.get(insurancePath.value,{params:{agencyId:props.agencyId,...(props.paperDocumentId?{paperDocumentId:props.paperDocumentId}:{})}});if(n!==seq)return;
-  const data=res.data,v=data.insurance || {};demographics.value=data.demographics || {};payers.value=data.payers || [];paperCoverage.value=data.paperCoverage || null;policies.value=data.policies || [];eligibilityFindings.value=data.eligibilityFindings || [];eligibilityStatus.value=data.eligibilityStatus || null;paperRequired.value=v.paperReviewRequired===true;paperSourceDocumentId.value=props.paperDocumentId || v.paperSourceDocumentId;paperFinalizedAt.value=v.paperFinalizedAt || null;
+  const res=await api.get(insurancePath.value,{params:{agencyId:props.agencyId,...(props.paperDocumentId?{paperDocumentId:props.paperDocumentId}:{})},skipGlobalLoading:true});if(n!==seq)return;
+  const data=res.data,v=data.insurance || {};insuranceFingerprint.value=data.insuranceFingerprint||'';fieldSources.value=v.eligibilityFieldSources||{};demographics.value=data.demographics || {};payers.value=data.payers || [];paperCoverage.value=data.paperCoverage || null;policies.value=data.policies || [];eligibilityFindings.value=data.eligibilityFindings || [];eligibilityStatus.value=data.eligibilityStatus || null;paperRequired.value=v.paperReviewRequired===true;paperSourceDocumentId.value=props.paperDocumentId || v.paperSourceDocumentId;paperFinalizedAt.value=v.paperFinalizedAt || null;
   selectedSources.value=Object.fromEntries(['primary','secondary'].map(slot=>[slot,v.coverageSources?.[slot]?`${v.coverageSources[slot].profileId}:${v.coverageSources[slot].slot}`:'']));
   installSavedDraft(v);const savedPatient=JSON.stringify(draft.value.patient);useDemographics();let paperAdded=false;
   if(isPaper.value){const prepared=preparePacketDraft(v,paperCoverage.value,payers.value,draft.value.patient);draft.value.primary=prepared.primary;draft.value.secondary=prepared.secondary || {};hasSecondary.value=!!prepared.secondary;paperOrderPrepared.value=prepared.reordered;if(prepared.reordered){draft.value.profileId=null;draft.value.coverageSources={};selectedSources.value={primary:'',secondary:''};}paperAdded=draftDirty.value;}
   else for(const slot of ['primary','secondary']){const policy=draft.value[slot],payer=matchConfiguredPayer(policy,payers.value);if(payer&&(!policy.payerId||!policy.eligibilityPayerId||!policy.payerCatalogId||payer.isMedicaid&&!policy.isMedicaid)){draft.value[slot]=withConfiguredPayer(policy,payer);paperAdded=true;}}
   verified.value=!paperAdded&&v.verifiedForClaims===true&&savedPatient===JSON.stringify(draft.value.patient);issues.value=data.missingClaimFields || [];opened.value=true;pollCount=0;
   if(['pending','processing'].includes(eligibilityStatus.value?.jobStatus))scheduleVerificationRefresh();
- }catch(e){if(n===seq)error.value=e.response?.data?.error?.message || 'Insurance could not be loaded';}
+ }catch(e){if(n===seq)error.value=e.response?.data?.error?.message || 'Insurance could not be loaded';}finally{if(n===seq)insuranceLoading.value=false;}
 }
 async function refreshVerification(poll=false){
- if(!opened.value||!isPaper.value)return;const n=seq;
+ if(!opened.value)return;const n=seq;
  try{const {data}=await api.get(insurancePath.value,{params:{agencyId:props.agencyId,...(paperSourceDocumentId.value?{paperDocumentId:paperSourceDocumentId.value}:{})},skipGlobalLoading:true});if(n!==seq)return;
-  const unchanged=!draftDirty.value;eligibilityStatus.value=data.eligibilityStatus || null;eligibilityFindings.value=data.eligibilityFindings || [];if(unchanged&&data.insurance){installSavedDraft(data.insurance);paperFinalizedAt.value=data.insurance.paperFinalizedAt || null;}
+  const unchanged=!draftDirty.value;eligibilityStatus.value=data.eligibilityStatus || null;eligibilityFindings.value=data.eligibilityFindings || [];if(unchanged&&data.insurance){installSavedDraft(data.insurance);insuranceFingerprint.value=data.insuranceFingerprint||'';fieldSources.value=data.insurance.eligibilityFieldSources||{};paperFinalizedAt.value=data.insurance.paperFinalizedAt || null;}
   if(['pending','processing'].includes(eligibilityStatus.value?.jobStatus))scheduleVerificationRefresh();
  }catch(e){if(n===seq&&!poll)error.value='Saved verification status could not refresh. Your edits are still here.';}
 }
+async function importSaved(finding,options={}){
+ if(busy.value||!canSeeBilling.value)return;
+ if(draftDirty.value){error.value='Save your current edits before importing verification details.';return;}
+ let own=seq;busy.value=true;error.value='';notice.value='';
+ try{
+  const {data}=await api.post(`${insurancePath.value}/eligibility-import`,{agencyId:props.agencyId,checkId:finding.id,insuranceFingerprint:insuranceFingerprint.value,mode:'fill_missing',...options},{skipGlobalLoading:true});
+  if(own!==seq)return;own++;await load();if(own!==seq)return;await coveragePanel.value?.refresh?.();if(own!==seq)return;
+  notice.value=`${data.message} Source: Claim.MD check #${finding.id}.`;if(options.mode==='reported_coverage')activePanel.value='details';emit('saved');
+ }catch(e){if(own===seq)error.value=e.response?.data?.error?.message||'Saved verification details could not be imported. Your insurance entries are preserved.';}
+ finally{if(own===seq)busy.value=false;}
+}
+const importDetails=finding=>importSaved(finding);
+const importReportedPolicy=({finding,candidateId,slot})=>importSaved(finding,{mode:'reported_coverage',candidateId,slot});
 async function downloadEvidence(profileId,slot){const n=seq;error.value='';try{const res=await api.get(`/clients/${props.clientId}/insurance-card`,{params:{profileId,slot},responseType:'blob'});if(n!==seq)return;const url=URL.createObjectURL(res.data);const anchor=document.createElement('a');anchor.href=url;anchor.download=`insurance-${slot}.${res.data.type==='application/pdf'?'pdf':res.data.type==='image/png'?'png':'jpg'}`;anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(e){if(n===seq)error.value='This card image could not be downloaded; it may not be on file.';}}
 
 async function save(options={}){
@@ -156,15 +194,15 @@ async function save(options={}){
  busy.value=true;const n=seq,submittedVerification=verified.value;
  try{
   const res=await api.put(insurancePath.value,{agencyId:props.agencyId,primary:draft.value.primary,secondary:hasSecondary.value?draft.value.secondary:null,patient:draft.value.patient,profileId:draft.value.profileId,coverageSources:draft.value.coverageSources,...(isPaper.value?{paperDocumentId:Number(paperSourceDocumentId.value)||null,paperReviewConfirmed:false,checkCoverage}:{}),...(canSeeBilling.value?{verifiedForClaims:isPaper.value?false:verified.value,acceptAssignment:draft.value.acceptAssignment}:{})});if(n!==seq)return false;
-  issues.value=res.data.missingClaimFields || [];if(res.data.insurance)installSavedDraft(res.data.insurance);else savedSnapshot.value=draftSnapshot();
+  issues.value=res.data.missingClaimFields || [];if(res.data.insurance){installSavedDraft(res.data.insurance);fieldSources.value=res.data.insurance.eligibilityFieldSources||{};}else savedSnapshot.value=draftSnapshot();
   paperOrderPrepared.value=false;verified.value=res.data.insurance?.verifiedForClaims ?? submittedVerification;paperFinalizedAt.value=res.data.insurance?.paperFinalizedAt || null;if(isPaper.value && res.data.insurance && !res.data.insurance.paperReview)eligibilityStatus.value=null;
   notice.value=res.data.eligibilityQueueWarning || automaticEligibilityNotice(res.data.automaticEligibility, paperFinalizedAt.value) || (isPaper.value?'Draft saved. No new payer request was sent.':!canSeeBilling.value?'Insurance information saved for billing review.':issues.value.length?`Insurance saved. ${issues.value.length} missing claim fields still need review before submission.`:'Insurance saved. Claim submission still requires its readiness review and approval.');
-  emit('saved',res.data);if(checkCoverage){pollCount=0;await refreshVerification();if(['queued','already_queued'].includes(res.data.automaticEligibility?.status))scheduleVerificationRefresh();}
+  emit('saved',res.data);if(checkCoverage){pollCount=0;await refreshVerification();if(['queued','already_queued'].includes(res.data.automaticEligibility?.status))scheduleVerificationRefresh();}else if(props.profileLayout&&canSeeBilling.value&&!isPaper.value){await refreshVerification();await coveragePanel.value?.refresh?.();}
   return options.paperEntry===true?{saved:true,followUpRequired:missing.length>0}:true;
  }catch(e){if(n===seq)error.value=e.response?.data?.error?.message || 'Insurance could not be saved';return false;}finally{if(n===seq)busy.value=false;}
 }
 
-watch(()=>[props.agencyId,props.clientId,canSeeBilling.value,props.accountSupport,props.paperDocumentId],()=>{seq++;clearTimeout(pollTimer);paperFinalizedAt.value=null;paperRequired.value=false;eligibilityStatus.value=null;opened.value=false;draft.value=null;policies.value=[];eligibilityFindings.value=[];selectedSources.value={primary:'',secondary:''};error.value='';notice.value='';demographics.value={};payers.value=[];paperCoverage.value=null;busy.value=false;});
+watch(()=>[props.agencyId,props.clientId,canSeeBilling.value,props.accountSupport,props.paperDocumentId],()=>{seq++;clearTimeout(pollTimer);paperFinalizedAt.value=null;paperRequired.value=false;eligibilityStatus.value=null;insuranceFingerprint.value='';fieldSources.value={};activePanel.value='overview';insuranceLoading.value=false;opened.value=false;draft.value=null;policies.value=[];eligibilityFindings.value=[];selectedSources.value={primary:'',secondary:''};error.value='';notice.value='';demographics.value={};payers.value=[];paperCoverage.value=null;busy.value=false;});
 async function refreshPaperCoverage(){const n=seq;try{const {data}=await api.get(insurancePath.value,{params:{agencyId:props.agencyId,...(props.paperDocumentId?{paperDocumentId:props.paperDocumentId}:{})}});if(n===seq){paperCoverage.value=data.paperCoverage || null;notice.value='Packet reading refreshed. Compare the updated proposal with the PDF; your unsaved policy edits are still here.';}}catch(e){if(n===seq)error.value='Packet details could not refresh. Your policy edits are still here.';}}
 defineExpose({ save, isOpen: opened, refreshPaperCoverage });
 onBeforeUnmount(()=>{seq++;clearTimeout(pollTimer);});
@@ -173,3 +211,7 @@ onMounted(()=>{if(props.startOpen && (canSeeBilling.value || props.accountSuppor
 <style scoped>.client-insurance-editor {padding:16px;border:1px solid var(--border);border-radius:10px;margin:16px 0}.client-insurance-editor form {display:grid;gap:16px}.identity-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}.identity-fields label{display:grid;gap:5px}input:not([type=checkbox]){padding:9px;border:1px solid var(--app-line, #94a3b8);border-radius:6px}p[role=alert]{color:var(--app-text-red, #b91c1c)}</style>
 
 <style scoped>.paper-policy-slots{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px}.paper-policy-slots article{padding:10px;border:1px solid var(--border,#cad8df);border-radius:8px;overflow-wrap:anywhere}.paper-policy-slots p{margin:6px 0}.paper-policy-slots span{font-size:12px}.paper-policy-summary h5{margin:0 0 8px}details>summary{cursor:pointer;font-weight:600}.paper-coverage{padding:9px;border:1px solid var(--border,#d6dfe3);border-radius:7px}.insurance-identity .identity-fields{margin-top:10px}</style>
+
+<style scoped>
+.insurance-edit-fields{border:0;padding:0;margin:0;min-width:0}.insurance-sections{display:flex;flex-wrap:wrap;gap:8px;border-bottom:1px solid var(--border,#dce5ed);padding-bottom:12px;margin:16px 0}.insurance-sections button,.next-action button{font:inherit;padding:10px 14px;border:1px solid var(--border,#bccbd9);border-radius:8px;background:var(--bg-primary,#fff);color:inherit;cursor:pointer}.insurance-sections [aria-pressed=true]{background:var(--primary,#245878);color:#fff;border-color:transparent}.coverage-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px}.coverage-cards article,.next-action{border:1px solid var(--border,#dce5ed);padding:18px;border-radius:10px}.coverage-cards h5,.next-action h5{font-size:1rem;margin:0 0 8px}.coverage-cards p{margin:8px 0;line-height:1.5}.next-action{display:flex;align-items:center;justify-content:space-between;gap:16px;background:var(--bg-secondary,#f4f7fb);margin:16px 0}.next-action p{margin:0}summary{cursor:pointer;font-weight:600}@media(max-width:600px){.next-action{align-items:stretch;flex-direction:column}.insurance-sections button{flex:1 1 45%}}
+</style>

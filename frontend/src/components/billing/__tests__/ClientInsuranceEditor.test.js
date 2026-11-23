@@ -2,7 +2,7 @@ import {mount,flushPromises} from '@vue/test-utils';
 import {it,expect,vi,beforeEach} from 'vitest';
 import ClientInsuranceEditor from '../ClientInsuranceEditor.vue';
 import api from '../../../services/api';
-vi.mock('../../../services/api',()=>({default:{get:vi.fn(),put:vi.fn()}}));
+vi.mock('../../../services/api',()=>({default:{get:vi.fn(),put:vi.fn(),post:vi.fn()}}));
 vi.mock('../../../store/auth',()=>({useAuthStore:()=>({user:{id:1,role:'staff'}})}));
 vi.mock('../../../config/medicalBillingAccess.js',()=>({canAccessMedicalBilling:vi.fn(()=>true)}));
 import { canAccessMedicalBilling } from '../../../config/medicalBillingAccess.js';
@@ -39,7 +39,7 @@ it('allows support insurance entry without mounting claim verification or billin
  canAccessMedicalBilling.mockReturnValue(false);
  const w=mount(ClientInsuranceEditor,{props:{clientId:5,agencyId:377,accountSupport:true},global:{stubs:{ClientCoverageVerification:true,ClientDocumentationReadiness:true}}});
  await w.find('button').trigger('click');await flushPromises();
- expect(api.get).toHaveBeenCalledWith('/clients/5/account-support/insurance',{params:{agencyId:377}});
+ expect(api.get).toHaveBeenCalledWith('/clients/5/account-support/insurance',{params:{agencyId:377},skipGlobalLoading:true});
  expect(w.find('client-coverage-verification-stub').exists()).toBe(false);
  expect(w.find('client-documentation-readiness-stub').exists()).toBe(false);
  expect(w.text()).not.toContain('verified coverage for claim preparation');
@@ -61,6 +61,24 @@ it('opens assignment corrections directly without separate claim, coverage or do
  expect(w.find('form').exists()).toBe(true);expect(w.find('client-coverage-verification-stub').exists()).toBe(false);expect(w.find('client-documentation-readiness-stub').exists()).toBe(false);
  expect(w.text()).not.toContain('verified coverage for claim preparation');expect(w.text()).not.toContain('Provider accepts assignment');
  await w.find('form').trigger('submit');await flushPromises();expect(w.emitted('saved')).toHaveLength(1);expect(api.put.mock.calls[0][1].verifiedForClaims).toBe(false);w.unmount();
+});
+function profileData(){return {insuranceFingerprint:'a'.repeat(64),insurance:{primary:{insurerName:'Existing payer',payerId:'TEST',memberId:'MEMBER',planName:'Saved plan'},patient:demographic},demographics:demographic,payers:[],eligibilityFindings:[{id:317,payerId:'TEST',slot:'primary',serviceDate:'2026-11-22',status:'active_reported',identityMatches:true,isCurrent:true,otherCoverageReported:true,otherInsurers:[],response:{elig:{ins_number:'MEMBER'}},details:{policies:[{memberIndex:0,planName:'Returned plan'}],benefits:[],otherCoverageReported:true,otherInsurance:[{id:'0:1:0',name:'Other payer',canDraft:true,policy:{insurerName:'Other payer'}}]}}]};}
+const profileStubs={ClientCoverageVerification:true,ClientDocumentationReadiness:true,InsuranceDiscoveryPanel:true,CoordinationOfBenefitsPanel:true};
+it('starts the billing profile with coverage and a next action, keeps editing separate, and preserves unsaved edits across sections',async()=>{
+ api.get.mockResolvedValue({data:profileData()});const w=mount(ClientInsuranceEditor,{props:{clientId:5,agencyId:377,profileLayout:true,startOpen:true},global:{stubs:profileStubs}});await flushPromises();
+ expect(w.get('[aria-label="Coverage overview"]').text()).toContain('Existing payer');expect(w.get('[aria-label="Next insurance action"]').text()).toContain('Review other coverage');expect(w.get('form').isVisible()).toBe(false);expect(w.find('[aria-label="Information returned by insurers"]').exists()).toBe(false);
+ await w.findAll('.insurance-sections button').find(b=>b.text()==='Edit insurance').trigger('click');expect(w.get('form').element.style.display).toBe('');
+ const plan=w.findAll('input').find(input=>input.element.value==='Saved plan');await plan.setValue('Keep my unsaved edit');
+ await w.findAll('.insurance-sections button').find(b=>b.text()==='Benefits & other coverage').trigger('click');await flushPromises();
+ expect(w.findAll('button').find(b=>b.text().startsWith('Fill missing policy')).attributes('disabled')).toBeDefined();
+ await w.findAll('.insurance-sections button').find(b=>b.text()==='Edit insurance').trigger('click');expect(plan.element.value).toBe('Keep my unsaved edit');expect(api.put).not.toHaveBeenCalled();expect(api.post).not.toHaveBeenCalled();w.unmount();
+});
+it('imports only a saved check reference and fingerprint, then opens a newly saved secondary draft for review',async()=>{
+ const data=profileData();api.get.mockImplementation(async()=>({data:structuredClone(data)}));api.post.mockImplementation(async(path,payload)=>{expect(path).toBe('/medical-billing/clients/5/insurance/eligibility-import');data.insurance.secondary={insurerName:'Other payer',reportedPolicyNumber:'REFERENCE'};return {data:{message:'Reported insurer saved as a secondary draft.'}};});
+ const w=mount(ClientInsuranceEditor,{props:{clientId:5,agencyId:377,profileLayout:true,startOpen:true},global:{stubs:profileStubs}});await flushPromises();await w.findAll('.insurance-sections button').find(b=>b.text()==='Benefits & other coverage').trigger('click');
+ await w.findAll('button').find(b=>b.text()==='Add as secondary draft').trigger('click');await flushPromises();
+ expect(api.post).toHaveBeenCalledWith('/medical-billing/clients/5/insurance/eligibility-import',{agencyId:377,checkId:317,insuranceFingerprint:'a'.repeat(64),mode:'reported_coverage',candidateId:'0:1:0',slot:'secondary'},{skipGlobalLoading:true});
+ expect(api.post.mock.calls[0][1]).not.toHaveProperty('policy');expect(api.post.mock.calls[0][1]).not.toHaveProperty('actorUserId');expect(w.get('form').isVisible()).toBe(true);expect(w.text()).toContain('Source: Claim.MD check #317');expect(w.findAll('input').some(input=>input.element.value==='REFERENCE')).toBe(true);w.unmount();
 });
 
 it('preserves a saved identity review when reopening unchanged insurance, but invalidates it after an edit',async()=>{
