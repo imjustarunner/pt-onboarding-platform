@@ -1,5 +1,10 @@
 import {it,expect} from 'vitest';
-import {serviceLocationDisplay,cleanServiceLocationLabel} from '../serviceLocationDisplay.js';
+import {serviceLocationDisplay,cleanServiceLocationLabel,linkedReservationLocation} from '../serviceLocationDisplay.js';
+it('resolves the exact linked reservation and never borrows a room from a different same-time booking',()=>{
+ const rows=[{officeEventId:1,buildingName:'Other building',roomLabel:'Wrong room'},{officeEventId:2,buildingName:'Windchime',roomNumber:'204',roomLabel:'North room'}];
+ expect(linkedReservationLocation(2,rows)).toEqual({buildingName:'Windchime',roomLabel:'Room 204 · North room'});expect(linkedReservationLocation(3,rows)).toBeNull();expect(linkedReservationLocation(0,rows)).toBeNull();
+ expect(linkedReservationLocation(2,[{officeEventId:2},...rows])).toEqual({buildingName:'Windchime',roomLabel:'Room 204 · North room'});
+});
 it('shows the actual building and reserved room without coding labels',()=>{
  expect(serviceLocationDisplay({name:'Office · POS 11',placeOfService:'11'},{buildingName:'Windchime',roomLabel:'Room 204',reservationLinked:true})).toBe('Windchime · Room 204');
  expect(cleanServiceLocationLabel('School (POS 03)')).toBe('School');

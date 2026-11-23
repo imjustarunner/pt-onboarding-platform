@@ -5976,7 +5976,7 @@
 </template>
 
 <script setup>
-import {serviceLocationDisplay} from '../../utils/serviceLocationDisplay.js';
+import {serviceLocationDisplay,linkedReservationLocation} from '../../utils/serviceLocationDisplay.js';
 import {tutoringMakeupSelection} from '../../utils/tutoringMakeupSelection.js';
 import {canPollWorkspace,useSessionPolling} from '../../composables/useSessionPolling';
 
@@ -15534,10 +15534,11 @@ const editorInfoLocationLabel = computed(() => {
   if (hit?.label) {
     const ctx=(isScheduleEventEditMode.value?scheduleEventEditForm.value:modalContext.value)||{};
     const reserved=Number(editorOfficeEventId.value)>0;
+    const linked=reserved?linkedReservationLocation(editorOfficeEventId.value,[...findProviderOfficeBookingsForEditorWindow(),editingScheduleStackItem.value,ctx].filter(Boolean)):null;
     const officeId=reserved?Number(ctx.officeLocationId||0):Number(hit.physicalOfficeLocationId||0);
     const office=officeLocations.value.find(row=>Number(row.id)===officeId);
-    const room=String(ctx.roomLabel||ctx.roomName||officeRooms.value.find(row=>Number(row.id)===Number(ctx.roomId))?.name||'').trim();
-    return serviceLocationDisplay(hit,{buildingName:office?.name||(reserved?(ctx.officeLocationName||ctx.buildingName):''),roomLabel:room,reservationLinked:reserved,showReservationStatus:String(hit.placeOfService)==='11'});
+    const room=String(linked?.roomLabel||ctx.roomLabel||ctx.roomName||officeRooms.value.find(row=>Number(row.id)===Number(ctx.roomId))?.name||'').trim();
+    return serviceLocationDisplay(hit,{buildingName:linked?.buildingName||office?.name||(reserved?(ctx.officeLocationName||ctx.buildingName):''),roomLabel:room,reservationLinked:reserved,showReservationStatus:String(hit.placeOfService)==='11'});
   }
   // A selected service site must never fall back to its billing office address.
   if (id) return 'Selected service location — details loading';
