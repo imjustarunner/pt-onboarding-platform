@@ -3,6 +3,7 @@ const m=vi.hoisted(()=>({execute:vi.fn(),reserve:vi.fn(),book:vi.fn(),actor:vi.f
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute}}));
 vi.mock('../../models/User.model.js',()=>({default:{findById:m.actor,getAgencies:m.agencies}}));
 vi.mock('../../models/OfficeLocation.model.js',()=>({default:{findById:m.office}}));
+vi.mock('../schedulingWorkerGate.js',()=>({canRunSchedulingMaintenance:async()=>false}));
 vi.mock('../ownedOfficeSession.service.js',()=>({findOwnedOfficeSessionReservation:m.reserve,bookSessionInOwnedOffice:m.book,ownedOfficeSessionBookingKey:()=> 'key'}));
 import {queueOwnedOfficeSession,readOwnedOfficeSessionJob,listOwnedOfficeSessionJobs,processOwnedOfficeSessionJobs} from '../ownedOfficeSessionJobs.service.js';
 let row;

@@ -20,8 +20,8 @@ it('adds, edits, previews and removes reminder choices before an appointment exi
 it('renders real controls in Customizable mode and explains scheduling note visibility',async()=>{
  wrapper=mount(Header,{props:{bookSessionLayout:true,agencyId:377,showNotifications:true,notificationMode:'customizable',showSchedulingNotes:true},global:{stubs:{ScheduleAgencyLogo:true}}});await flushPromises();
  expect(wrapper.findComponent(Editor).exists()).toBe(true);expect(wrapper.text()).not.toContain('Save the session, then open Notifications');
- expect(wrapper.get('[data-testid="scheduling-notes-visibility"]').text()).toContain('Synced calendar details');
- expect(wrapper.get('[data-testid="scheduling-notes-visibility"]').text()).toContain('family appointment list does not display');
+ expect(wrapper.get('[data-testid="scheduling-notes-visibility"]').text()).toContain('Client appointment notes are available to staff in AuricWell');
+ expect(wrapper.get('[data-testid="scheduling-notes-visibility"]').text()).toContain('Write treatment details in the session’s clinical note');
 });
 it('keeps added reminders visible through the real appointment editor shell',async()=>{
  wrapper=mount(Shell,{props:{title:'Book Session',bookSessionLayout:true,agencyId:377,showNotifications:true,notificationMode:'customizable',

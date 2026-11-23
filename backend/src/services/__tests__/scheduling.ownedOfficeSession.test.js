@@ -1,9 +1,9 @@
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 const m=vi.hoisted(()=>({execute:vi.fn(),create:vi.fn(),find:vi.fn(),bundle:vi.fn(),clients:vi.fn(),clinical:vi.fn(),window:vi.fn(),schedule:vi.fn(),notice:vi.fn(),materialize:vi.fn(),channels:vi.fn(),mirror:vi.fn()}));
-vi.mock('../../config/database.js',()=>({default:{execute:m.execute,getConnection:async()=>({execute:m.execute,release:vi.fn()})},onTableWrite:()=>()=>{}}));
+vi.mock('../../config/database.js',()=>({default:{execute:m.execute,getConnection:async()=>({execute:m.execute,release:vi.fn(),beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn()})},onTableWrite:()=>()=>{}}));
 vi.mock('../../models/OfficeEvent.model.js',()=>({default:{lockNameForSlot:({roomId})=>`office_room:${roomId}`,findById:async id=>events.find(row=>row.id===id)}}));
 vi.mock('../../models/Appointment.model.js',()=>({default:{findByOfficeEventId:m.find}}));
-vi.mock('../googleCalendar.service.js',()=>({default:{upsertBookedOfficeEvent:m.mirror}}));
+vi.mock('../providerAssignmentGoogleSync.service.js',()=>({queueOfficeEventGoogleSync:m.mirror}));
 vi.mock('../appointment.service.js',()=>({createAppointment:m.create,getAppointmentBundle:m.bundle}));
 vi.mock('../appointmentClinicalLink.service.js',()=>({assertAppointmentClients:m.clients,ensureAppointmentClinicalLink:m.clinical}));
 vi.mock('../clientSchedulingGuard.service.js',()=>({withClientSchedulingLock:async(ids,work)=>work()}));
@@ -24,7 +24,9 @@ beforeEach(()=>{
  m.execute.mockImplementation(async(sql,args=[])=>{
   if(sql.includes('GET_LOCK'))return [[{acquired:1}]];
   if(sql.startsWith('SELECT * FROM office_events'))return [events.filter(e=>e.start_at<=args[2]&&e.end_at>=args[3])];
-  if(sql.startsWith('UPDATE office_events SET client_id')){const e=events.find(e=>e.id===args[7]);e.client_id=args[0];e.session_context_json=JSON.parse(args[6]);}
+  if(sql.startsWith('UPDATE office_events SET start_at=')){const e=events.find(e=>e.id===args[2]);e.start_at=args[0];e.end_at=args[1];}
+ if(sql.startsWith('INSERT INTO office_events'))events.push({id:18510+events.length,office_location_id:args[0],room_id:args[1],start_at:args[2],end_at:args[3],standing_assignment_id:args[4],assigned_provider_id:args[6]});
+ if(sql.startsWith('UPDATE office_events SET client_id')){const e=events.find(e=>e.id===args[7]);e.client_id=args[0];e.session_context_json=JSON.parse(args[6]);}
   if(sql.startsWith('UPDATE office_events SET session_context_json=?'))events.find(e=>e.id===args[1]).session_context_json=JSON.parse(args[0]);
   if(sql.includes("'$.reservedSessionBookingComplete'"))events.find(e=>e.id===args[0]).session_context_json.reservedSessionBookingComplete=true;
   return [{affectedRows:1}];
@@ -88,7 +90,9 @@ it.each([['90832', 32, '39'], ['90791', 36, '43'], ['90791', 12, '19']])(
   expect(m.create.mock.calls.map(([row]) => [row.startAt, row.endAt])).toEqual([
     ['2026-11-26T22:07:00Z', `2026-11-26T22:${endMinute}:00Z`], ['2026-12-10T22:07:00Z', `2026-12-10T22:${endMinute}:00Z`]
   ]);
-  expect(events.map(row => [row.start_at.slice(11), row.end_at.slice(11)])).toEqual([['22:00:00', '23:00:00'], ['22:00:00', '23:00:00']]);
+  const parts = events.filter(row => row.start_at.startsWith('2026-11-26'))
+    .map(row => [row.start_at.slice(11), row.end_at.slice(11)]).sort();
+  expect(parts).toEqual([['22:00:00','22:07:00'], ['22:07:00',`22:${endMinute}:00`], [`22:${endMinute}:00`,'23:00:00']]);
   expect(events[0].session_context_json).toMatchObject({ sessionStartAt: '2026-11-26 22:07:00', sessionEndAt: `2026-11-26 22:${endMinute}:00` });
 });
 
@@ -98,4 +102,15 @@ it('uses the room’s active reservation owner even when the standing assignment
   expect(result).toMatchObject({ kind: 'auto_booked', officeEventId: 18510, appointmentIds: [100] });
   expect(events[0].assigned_provider_id).toBe(999);
   expect(m.create).toHaveBeenCalledWith(expect.objectContaining({ officeEventId: 18510, providerUserId: 501 }));
+});
+
+it('keeps the second half of a reserved hour available for a different client', async () => {
+  const first = await bookSessionInOwnedOffice({...input,recurrence:'ONCE',occurrenceCount:1,endAt:'2026-11-26 22:30:00'});
+  expect(first.appointmentIds).toEqual([100]);
+  expect(events.find(event=>event.id===18512)).toMatchObject({
+    start_at:'2026-11-26 22:30:00',end_at:'2026-11-26 23:00:00',assigned_provider_id:501,standing_assignment_id:283
+  });
+  const next = await bookSessionInOwnedOffice({...input,clientId:82,recurrence:'ONCE',occurrenceCount:1,startAt:'2026-11-26 22:30:00'});
+  expect(next.appointmentIds).toEqual([101]);
+  expect(next.officeEventId).toBe(18512);
 });

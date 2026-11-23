@@ -5,11 +5,11 @@ import { parseScheduleUtcInstant } from '../../utils/scheduleEventInstants';
 import api from '../../services/api';
 import { officeBookingProgressText } from '../../utils/ownedOfficeBooking.js';
 const props = defineProps({ actorUserId: { type: Number, default: 0 } });
-const emit = defineEmits(['completed', 'write-note']);
+const emit = defineEmits(['completed', 'appointments-saved', 'write-note']);
 const jobs = ref([]), error = ref('');
 const active = computed(() => jobs.value.filter(job => ['queued','processing'].includes(job.status)));
 let generation = 0, timer, busy = false;
-const completed = new Set(), dismissed = new Set(), receiptTimers = new Set();
+const completed = new Set(), dismissed = new Set(), receiptTimers = new Set(), projected = new Set(), labels = new Map();
 function canWriteNote(job) {
   const appointment = job.result?.appointment;
   const end = parseScheduleUtcInstant(appointment?.endAt);
@@ -21,9 +21,15 @@ function dismiss(id) {
   dismissed.add(id); jobs.value = jobs.value.filter(job => job.id !== id);
   try { localStorage.setItem(`schedule.booking-jobs.dismissed:${props.actorUserId}`, JSON.stringify([...dismissed].slice(-100))); } catch { /* optional persistence */ }
 }
-function track(job, { notify = true, restore = false } = {}) {
+function track(job, { notify = true, restore = false, clientLabel } = {}) {
   if (restore) { dismissed.delete(job?.id); completed.delete(job?.id); }
   if (!job?.id || dismissed.has(job.id)) return;
+  if (clientLabel) labels.set(job.id, clientLabel);
+  const appointments = job.result?.appointments?.length ? job.result.appointments
+    : job.result?.appointment ? [job.result.appointment] : [];
+  const newAppointments = appointments.filter(appointment => !projected.has(`${job.id}:${appointment.id}`));
+  for (const appointment of newAppointments) projected.add(`${job.id}:${appointment.id}`);
+  if (newAppointments.length) emit('appointments-saved', newAppointments, labels.get(job.id));
   jobs.value = [...jobs.value.filter(item => item.id !== job.id), job];
   if (job.status === 'completed' && !completed.has(job.id)) {
     completed.add(job.id); if (notify) emit('completed', job);
@@ -46,7 +52,7 @@ async function check() {
 }
 watch(() => props.actorUserId, async id => {
   const current = ++generation; clearInterval(timer); for (const receipt of receiptTimers) clearTimeout(receipt); receiptTimers.clear();
-  jobs.value = []; error.value = ''; busy = false; completed.clear(); dismissed.clear();
+  jobs.value = []; error.value = ''; busy = false; completed.clear(); dismissed.clear(); projected.clear(); labels.clear();
   if (!id) return;
   try { for (const key of JSON.parse(localStorage.getItem(`schedule.booking-jobs.dismissed:${id}`) || '[]')) dismissed.add(key); } catch { /* optional persistence */ }
   try {
@@ -54,7 +60,7 @@ watch(() => props.actorUserId, async id => {
     if (current !== generation) return;
     for (const job of data.jobs || []) track(job, { notify: false });
   } catch { /* A newly accepted booking is still tracked immediately. */ }
-  if (current === generation) timer = setInterval(check, 2000);
+  if (current === generation) timer = setInterval(check, 1500);
 }, { immediate: true });
 onBeforeUnmount(() => { generation++; clearInterval(timer); for (const receipt of receiptTimers) clearTimeout(receipt); });
 defineExpose({ track });
@@ -75,6 +81,6 @@ defineExpose({ track });
  </section>
 </template>
 <style scoped>
-.schedule-booking-jobs{margin:8px 12px;display:grid;gap:6px}.booking-job{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border:1px solid #c6dbea;background:#f2f8fc;border-radius:10px;color:#24445d;font-size:12px}.booking-job p{margin:3px 0 0;line-height:1.45}.booking-job progress{width:120px;flex-shrink:0;accent-color:#167b80}.booking-job--completed{background:#edf8f1;border-color:#a3d3b8;color:#17623e}.booking-job--failed{background:#fff6eb;border-color:#edc28d;color:#855017}.booking-job button{background:transparent;border:0;font:inherit;font-size:20px;cursor:pointer;color:inherit}.booking-job-error{font-size:12px;color:#855017}.booking-job-error button{font:inherit}@media(max-width:600px){.booking-job{flex-wrap:wrap}.booking-job progress{width:100%}}
+.schedule-booking-jobs{position:fixed;right:16px;bottom:16px;z-index:1800;width:min(460px,calc(100vw - 32px));max-height:38vh;overflow:auto;display:grid;gap:6px;box-shadow:0 8px 28px #17233a26;border-radius:10px}.booking-job{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border:1px solid #c6dbea;background:#f2f8fc;border-radius:10px;color:#24445d;font-size:12px}.booking-job p{margin:3px 0 0;line-height:1.45}.booking-job progress{width:120px;flex-shrink:0;accent-color:#167b80}.booking-job--completed{background:#edf8f1;border-color:#a3d3b8;color:#17623e}.booking-job--failed{background:#fff6eb;border-color:#edc28d;color:#855017}.booking-job button{background:transparent;border:0;font:inherit;font-size:20px;cursor:pointer;color:inherit}.booking-job-error{font-size:12px;color:#855017}.booking-job-error button{font:inherit}@media(max-width:600px){.booking-job{flex-wrap:wrap}.booking-job progress{width:100%}}
 .booking-job .booking-job-note{display:inline-flex;align-items:center;gap:6px;font:inherit;font-weight:650}.booking-job-note img{width:22px;height:22px}
 </style>

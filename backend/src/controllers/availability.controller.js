@@ -1255,7 +1255,21 @@ export const putMyVirtualWorkingHours = async (req, res, next) => {
     if (!Array.isArray(rows)) return res.status(400).json({ error: { message: 'rows must be an array' } });
     if (rows.length > 100) return res.status(400).json({ error: { message: 'Too many rows' } });
 
-    const normalized = ProviderVirtualWorkingHours.normalizeRows(await prepareAvailabilityServices(providerId,agencyId,rows));
+    // An unchanged legacy opening can be retained while publishing a different
+    // service. New and edited windows still require an active offering.
+    const existing = await ProviderVirtualWorkingHours.listForProvider({ agencyId, providerId });
+    const existingById = new Map(existing.map(row => [Number(row.id), row]));
+    const equivalent = row => JSON.stringify(ProviderVirtualWorkingHours.normalizeRows([row]));
+    const preservedIds = new Set();
+    const unchanged = rows.filter(row => {
+      const id = Number(row.id);
+      const old = existingById.get(id);
+      if (!old || preservedIds.has(id) || equivalent(row) !== equivalent(old)) return false;
+      preservedIds.add(id);
+      return true;
+    });
+    const changed = rows.filter(row => !unchanged.includes(row));
+    const normalized = ProviderVirtualWorkingHours.normalizeRows([...unchanged, ...await prepareAvailabilityServices(providerId, agencyId, changed)]);
     if (normalized.length !== rows.length) return res.status(400).json({error:{message:'Each window needs a valid day and time range. Choose a matching first date for one-time or alternating-week availability.'}});
 
     const saved = await ProviderVirtualWorkingHours.replaceForProvider({ agencyId, providerId, rows: normalized });

@@ -12,7 +12,7 @@ const props = defineProps({
   canCancel: { type: Boolean, default: false },
   canRequest: { type: Boolean, default: false }
 });
-const emit = defineEmits(['close', 'request-change', 'adjust-slots', 'changed', 'cancel-with-families']);
+const emit = defineEmits(['close', 'request-change', 'adjust-slots', 'changed', 'cancel-with-families', 'family-update']);
 
 const reason = ref('');
 const busy = ref(false);
@@ -75,6 +75,7 @@ async function cancelSchoolDay() {
         <button type="submit" :disabled="busy">{{ busy ? 'Saving…' : 'Cancel this school day' }}</button>
         <p class="hint">This marks No school for this school only. It does not email families or remove appointments.</p>
       </form>
+      <button v-if="canCancel" type="button" @click="emit('family-update')">Send family update</button>
       <button v-if="canCancel" type="button" class="school-rail-panel__families" :disabled="busy" @click="emit('cancel-with-families')">Cancel sessions and email families…</button>
       <p v-if="canCancel" class="hint">Review cancellations and family emails for this school only.</p>
       <p v-if="notice" role="status">{{ notice }}</p>

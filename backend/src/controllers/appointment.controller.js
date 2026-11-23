@@ -1,6 +1,7 @@
 import { appointmentHasStarted } from '../utils/appointmentVideoPolicy.js';
 import { bookingNoticePreferenceFacts, recurringBookingNoticeFacts } from '../utils/recurringBookingNotice.js';
 import { confirmSameDayServiceWarnings } from '../services/sameDayServiceWarning.service.js';
+import { reviewGroupSupervisionOverlap } from '../services/appointmentConflict.service.js';
 import { randomUUID } from 'node:crypto';
 import { tutoringSessionPriceBilling, canSetTutoringSessionPrice } from '../services/tutoringSessionPrice.service.js';
 import pool from '../config/database.js';
@@ -140,6 +141,19 @@ export const createAppointmentHandler = async (req, res, next) => {
     await assertBillingMutationAccess(req, agencyId);
     const createPse = req.body?.createProviderScheduleEvent !== false;
     const providerUserId = Number(req.body?.providerUserId || req.user?.id || 0) || null;
+    if (req.body?.buildingOnly === true) {
+      const officeId = Number(req.body?.officeLocationId);
+      const serviceLocationId = Number(req.body?.serviceLocationId);
+      const [[site]] = await pool.execute(`SELECT location.id FROM agency_service_locations location
+        JOIN office_locations office ON office.id=location.physical_office_location_id AND office.is_active=1
+        WHERE location.id=? AND location.agency_id=? AND office.id=? AND location.place_of_service='11'
+          AND (office.agency_id=? OR EXISTS (SELECT 1 FROM office_location_agencies affiliation
+            WHERE affiliation.office_location_id=office.id AND affiliation.agency_id=?))`,
+      [serviceLocationId || 0,agencyId,officeId || 0,agencyId,agencyId]);
+      if (!site || req.body?.modality !== 'IN_PERSON' || req.body?.roomId || req.body?.officeEventId) {
+        return res.status(400).json({ error: { message: 'Choose a service location tied to this building in the selected organization.' } });
+      }
+    }
     const individualPrice = await tutoringSessionPriceBilling({ actor: req.user, agencyId, providerId: providerUserId,
       tenantServiceId: req.body?.tenantServiceId, packageEntitlementId: req.body?.packageEntitlementId,
       price: req.body?.tutoringSessionPrice });
@@ -167,6 +181,10 @@ export const createAppointmentHandler = async (req, res, next) => {
       }
     }
     if (!await confirmSameDayServiceWarnings(req,res,{agencyId,tenantServiceId:req.body?.tenantServiceId||null,participants:req.body?.participants || [],occurrences,timeZone:req.body?.timeZone || 'America/Denver'})) return;
+    const acknowledgedGroupSupervision = await reviewGroupSupervisionOverlap(req, res, {
+      providerId: providerUserId, occurrences, timeZone: req.body?.timeZone || 'America/Denver'
+    });
+    if (acknowledgedGroupSupervision === null) return;
     const recurrenceSeriesId = occurrences.length > 1 ? randomUUID() : null;
     const createdAppointments = [];
     const calendarWarnings = [];
@@ -175,6 +193,7 @@ export const createAppointmentHandler = async (req, res, next) => {
       for (const [recurrenceIndex, occurrence] of occurrences.entries()) {
         const appointment = await createAppointment({
           deferScheduleNotice: true,
+          acknowledgedGroupSupervision,
           sendBookingNotice: req.body?.sendBookingNotice !== false,
           agencyId,
           parentAgencyId: req.body?.parentAgencyId || null,

@@ -1,3 +1,6 @@
+import { createHash } from 'node:crypto';
+import pool from '../config/database.js';
+import { utcDateToZonedYmd } from '../utils/zonedWallTime.util.js';
 import { readProviderCalendarBusy } from './providerCalendarBusy.service.js';
 import { withProviderSelectionLock } from './publicProviderHold.service.js';
 import { readPrivateReplacementSlots } from './privateReplacementSlots.service.js';
@@ -60,6 +63,30 @@ async function fail(db, row, activity, { overridable = false, plannedOut = false
     status: 409, code: 'PROVIDER_TIME_CONFLICT', overridable
   });
 }
+const ownGroupSupervision = `s.status='SCHEDULED' AND s.session_type='group'
+  AND (s.supervisor_user_id=? OR s.co_facilitator_user_id=?
+    OR EXISTS (SELECT 1 FROM supervision_session_attendees a WHERE a.session_id=s.id AND a.user_id=?
+      AND a.is_required=1 AND a.status NOT IN ('REMOVED','CANCELLED','WITHDRAWN')))`;
+
+export async function reviewGroupSupervisionOverlap(req, res, { providerId, occurrences, timeZone }) {
+  if (req.body?.reviewGroupSupervision !== true || !occurrences.length || Number(providerId) !== Number(req.user.id)) return [];
+  const windows = occurrences.map(occurrence => ({ start: +parseUtcDate(occurrence.startAt), end: +parseUtcDate(occurrence.endAt) }));
+  const [rows] = await pool.execute(`SELECT s.id,s.start_at,s.end_at FROM supervision_sessions s
+    WHERE ${ownGroupSupervision} AND s.start_at<? AND s.end_at>? ORDER BY s.start_at,s.id`,
+  [providerId, providerId, providerId, new Date(Math.max(...windows.map(window => window.end))), new Date(Math.min(...windows.map(window => window.start)))]);
+  const overlaps = rows.map(row => ({ id: Number(row.id), start: +parseUtcDate(row.start_at), end: +parseUtcDate(row.end_at) }))
+    .filter(row => windows.some(window => row.start < window.end && row.end > window.start));
+  if (!overlaps.length) return [];
+  const dates = [...new Set(windows.filter(window => overlaps.some(row => row.start < window.end && row.end > window.start))
+    .map(window => utcDateToZonedYmd(new Date(window.start), timeZone)))];
+  const review = createHash('sha256').update(JSON.stringify([providerId, windows, overlaps])).digest('hex');
+  if (req.body?.confirmedGroupSupervisionOverlap === review) return overlaps;
+  res.status(409).json({ error: { code: 'REVIEW_GROUP_SUPERVISION_OVERLAP',
+    message: 'This booking overlaps your group supervision. Review the dates before continuing.',
+    dates, review } });
+  return null;
+}
+
 export async function assertAppointmentWindowAvailable(db, row, appointmentId = null) {
   if (!row.providerUserId || !appointmentOccupiesTime(row.status)) return;
   let childcare=[];
@@ -104,12 +131,16 @@ export async function assertAppointmentWindowAvailable(db, row, appointmentId = 
     [row.providerUserId,row.providerUserId,row.endAt,row.startAt,row.officeEventId || null,row.officeEventId || null]);
   if (officeBookings.length) throw await fail(db, row, 'a client room reservation');
   const excludedSupervisionIds = (row.excludeSupervisionIds || []).map(Number).filter(id => Number.isSafeInteger(id) && id > 0);
+  const approvedGroups = (row.acknowledgedGroupSupervision || []).filter(group =>
+    Number.isSafeInteger(group.id) && Number.isFinite(group.start) && Number.isFinite(group.end));
+  const groupExclusion = approvedGroups.length ? `AND NOT (s.session_type='group' AND (${approvedGroups.map(() => '(s.id=? AND s.start_at=? AND s.end_at=?)').join(' OR ')}))` : '';
   const [supervision] = await db.execute(`SELECT s.id FROM supervision_sessions s WHERE s.status='SCHEDULED'
+    ${groupExclusion}
     AND (? IS NULL OR s.id<>?) ${excludedSupervisionIds.length ? `AND s.id NOT IN (${excludedSupervisionIds.map(()=>'?')})` : ''} AND s.start_at<? AND s.end_at>?
     AND (s.supervisor_user_id=? OR s.co_facilitator_user_id=? OR (s.session_type='individual' AND s.supervisee_user_id=?)
       OR EXISTS (SELECT 1 FROM supervision_session_attendees a WHERE a.session_id=s.id AND a.user_id=?
         AND a.is_required=1 AND a.status NOT IN ('REMOVED','CANCELLED','WITHDRAWN'))) LIMIT 1`,
-    [row.supervisionSessionId || null,row.supervisionSessionId || null,...excludedSupervisionIds,row.endAt,row.startAt,row.providerUserId,row.providerUserId,row.providerUserId,row.providerUserId]);
+    [...approvedGroups.flatMap(group => [group.id, new Date(group.start), new Date(group.end)]), row.supervisionSessionId || null,row.supervisionSessionId || null,...excludedSupervisionIds,row.endAt,row.startAt,row.providerUserId,row.providerUserId,row.providerUserId,row.providerUserId]);
   if (supervision.length) throw await fail(db, row, 'a supervision session');
   const busy = await readProviderCalendarBusy(db, { providerId: row.providerUserId, startAt: row.startAt, endAt: row.endAt,
     excludeEventId: row.providerScheduleEventId || null, timeZone: row.sourceTimezone || 'America/Denver', includeKind: true });

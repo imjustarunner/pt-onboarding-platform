@@ -6,7 +6,7 @@ const props=defineProps({learningOnly:Boolean,tutoring:Boolean});
 const root = ref(null); const open = ref(false);
 const panel = ref(null), trigger = ref(null), position = ref({}), portal = ref('body');
 const topics = [
-  ['Show weekends or change the layout', 'Open Calendar settings, then Display. Change visible days, row height, overlapping cards, and appointment colors, including the school day color.'],
+  ['Show weekends or change the layout', 'Open Calendar settings, then Display. Change visible days, row height, overlapping cards, and appointment colors. A weekend with scheduled activity stays visible.'],
   ['Jump to a date or change the time zone', 'Select the date range above the schedule to pick a date. Use Day, Agenda or Week to choose your view. Select Time Zone next to those buttons to change the calendar display.'],
   ['Connect a personal calendar', 'Open Calendar settings, then Connections. Use Connect a personal calendar for an Apple, Google or Outlook subscription. Client appointments appear as Client session on connected calendars.'],
   ['See when coworkers are busy', 'Open Calendar settings, then People, and turn on Peers (busy). The overlay shows busy times with client details hidden.'],
@@ -26,6 +26,8 @@ const topics = [
   ['Leave a schedule clip', 'Open the appointment and add a Schedule clip. It stays on the appointment. Choose “In this appointment and on the schedule” to flag it on the schedule face. Staff with full schedule access can see it; clients cannot.'],
   ['Link an existing office booking', 'Open the session’s Info tab and choose Link an existing office reservation. Select your reserved room. For a recurring series, choose this and future saved appointments. Each date needs an existing reservation; session notes and dates are preserved.'],
   ['Open part of a booked office block', 'Click an hour in the reserved office block. Choose Only this hour or Whole office block in the app. Back to calendar closes the choice without changing your selection or reservation.'],
+  ['Split an office hour between sessions', 'Edit the first appointment to shorten it. The unused time stays reserved to you. Open that part of the calendar to book the next session or use Find an open room.'],
+  ['Send a school family update', 'Click the school assignment to open its details, then choose Send family update. Review that school’s recipients before sending.'],
   ['Manage a room reservation', 'Open the room block. Confirm room use marks the time occupied. Mark vacant releases that date for coworkers and keeps the recurring reservation. Confirm room use to reclaim a vacant slot while it is still free. Forfeit room now and forward ends the reservation.'],
   ['Copy an appointment reference', 'Open a session or office booking, then click Reference at the bottom of its details to copy it. Each record keeps its own stable reference.'],
   ['Review notes and reminders', 'Session note holds your source text. Review its formatted draft and sign in Note Workspace. In Notifications, choose Organization default, My default, or Custom. Save as My default keeps your timing and channel choices for future bookings.'],

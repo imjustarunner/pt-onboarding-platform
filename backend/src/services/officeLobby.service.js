@@ -1,4 +1,4 @@
-import { kioskAppointmentSql } from '../utils/officeRoomOccupancy.js';
+import { buildingAppointmentKioskFilter, kioskAppointmentSql } from '../utils/officeRoomOccupancy.js';
 import pool from '../config/database.js';
 import OfficeLocation from '../models/OfficeLocation.model.js';
 import ProviderPublicProfile from '../models/ProviderPublicProfile.model.js';
@@ -40,7 +40,13 @@ export async function officeToday(location,{view='current',nextHour=false}={}){
  JOIN office_rooms r ON r.id=e.room_id AND r.is_active=1
  LEFT JOIN office_standing_assignments sa ON sa.id=e.standing_assignment_id LEFT JOIN clients c ON c.id=e.client_id
  WHERE e.office_location_id=? AND e.status<>'CANCELLED' AND COALESCE(e.slot_state,'')<>'COMPANY_HOLD' AND ap.start_at<? AND ap.end_at>? AND (e.booked_provider_id IS NOT NULL OR e.assigned_provider_id IS NOT NULL) ORDER BY e.start_at`,[location.id,bounds.endExclusive,bounds.startAt]);
- const [arrivals]=await pool.execute(`SELECT ci.provider_id,COALESCE(ci.slot_start_at,e.start_at) slot_start_at FROM office_event_checkins ci JOIN office_events e ON e.id=ci.event_id WHERE ci.office_location_id=? AND COALESCE(ci.slot_start_at,e.start_at)>=? AND COALESCE(ci.slot_start_at,e.start_at)<?`,[location.id,bounds.startAt,bounds.endExclusive]);
+ const [buildingOnly] = await pool.execute(`SELECT -CAST(ap.id AS SIGNED) AS event_id, ap.start_at, ap.end_at,
+   ap.provider_user_id AS booked_provider_id, ap.agency_id AS appointment_agency_id, 'BOOKED' AS status,
+   NULL AS room_name, NULL AS room_number
+   FROM appointments ap WHERE ${buildingAppointmentKioskFilter} AND ap.office_location_id=? AND ap.start_at<? AND ap.end_at>?
+   ORDER BY ap.start_at,ap.id`, [location.id,bounds.endExclusive,bounds.startAt]);
+ events.push(...buildingOnly);
+ const [arrivals]=await pool.execute(`SELECT ci.provider_id,COALESCE(ci.slot_start_at,e.start_at) slot_start_at FROM office_event_checkins ci LEFT JOIN office_events e ON e.id=ci.event_id WHERE ci.office_location_id=? AND COALESCE(ci.slot_start_at,e.start_at)>=? AND COALESCE(ci.slot_start_at,e.start_at)<?`,[location.id,bounds.startAt,bounds.endExclusive]);
  const checkedSlots=new Set(arrivals.map(a=>`${a.provider_id}:${parseUtcDate(a.slot_start_at).toISOString()}`));
  // A provider can work for several agencies in one building. Resolve each
  // booking once, by its own agency, rather than keeping only the building owner.

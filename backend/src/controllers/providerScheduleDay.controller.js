@@ -45,6 +45,12 @@ export const markProviderSchoolDayClosed = async (req, res, next) => {
   }
 };
 
+function parseDayNoteSchool(value) {
+  const id = Number(value);
+  if (!Number.isSafeInteger(id) || id < 1) throw Object.assign(new Error('Choose a school.'), { status: 400 });
+  return id;
+}
+
 export const previewProviderDayNote = async (req, res, next) => {
   try {
     const providerId = providerIdOf(req);
@@ -57,6 +63,7 @@ export const previewProviderDayNote = async (req, res, next) => {
       providerId,
       actorUserId: Number(req.user.id),
       date: req.query?.date,
+      schoolId: req.query?.schoolId == null ? null : parseDayNoteSchool(req.query.schoolId),
       timeZone: req.query?.timeZone || 'America/Denver'
     }));
   } catch (error) {
@@ -75,6 +82,7 @@ export const sendProviderDayNote = async (req, res, next) => {
       providerId,
       actorUserId: Number(req.user.id),
       date: req.body?.date,
+      schoolId: req.body?.schoolId == null ? null : parseDayNoteSchool(req.body.schoolId),
       timeZone: req.body?.timeZone || 'America/Denver',
       subject: req.body?.subject,
       text: req.body?.text

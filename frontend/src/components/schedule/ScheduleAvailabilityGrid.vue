@@ -26,12 +26,12 @@
       :agency-id="Number(cancelDaySchool?.agencyId || effectiveAgencyId || 0)" :school-id="cancelDaySchool?.schoolOrganizationId" :school-name="cancelDaySchool?.schoolName"
       @close="cancelDayDate = ''" @saved="onDayCancelled" />
     <ProviderDayNoteDialog v-if="dayNoteDate" :date="dayNoteDate" :time-zone="officeTimezoneIana" :provider-id="Number(userId || authStore.user?.id)"
-      :agency-ids="effectiveAgencyIds" @close="dayNoteDate = ''" />
+      :agency-ids="dayNoteSchool ? [dayNoteSchool.agencyId] : effectiveAgencyIds" :school-id="dayNoteSchool?.schoolOrganizationId" :school-name="dayNoteSchool?.schoolName" @close="dayNoteDate = ''" />
     <SchoolWeekdayEditor v-if="schoolWeekdayEditorAgency" :provider-id="Number(userId || authStore.user?.id)" :agency-id="schoolWeekdayEditorAgency"
       @close="schoolWeekdayEditorAgency = 0" @saved="loadSchoolWeekdays({ force: true })" />
     <SchoolAssignmentRailPanel v-if="schoolRailDetail" :detail="schoolRailDetail" :provider-id="Number(userId || authStore.user?.id)"
       :time-zone="officeTimezoneIana" :time-format="scheduleTimeFormat" :can-cancel="canBookFromGrid" :can-request="canRequestSchoolChange"
-      @close="schoolRailDetail = null" @request-change="openSchoolAssignmentRequest(false)" @adjust-slots="openSchoolAssignmentRequest(true)"
+      @close="schoolRailDetail = null" @request-change="openSchoolAssignmentRequest(false)" @adjust-slots="openSchoolAssignmentRequest(true)" @family-update="openSchoolFamilyUpdate"
       @changed="onSchoolDayClosed" @cancel-with-families="openSchoolFamilyCancellation" />
     <div v-if="scheduleChangeNotice" class="hint" role="status" style="padding:12px;border:1px solid currentColor;border-radius:8px;margin-bottom:12px;">
       {{ scheduleChangeNotice }} <button type="button" class="btn btn-secondary btn-sm" @click="scheduleChangeNotice=''">Dismiss</button>
@@ -49,7 +49,6 @@
         </div>
       </template>
     </dialog>
-    <AppointmentWaiverReviewQueue :agency-ids="effectiveAgencyIds" @reviewed="onAppointmentWaiverReviewed" />
     <ScheduledTrainingEditor v-if="trainingEditorOpen && canScheduleTraining(authStore.user)" :agency-id="Number(effectiveAgencyId)" @close="trainingEditorOpen=false" @saved="refreshScheduleSummaryInBackground()" />
     <Teleport to="body"><div v-if="selectedTrainingEventId" class="training-detail-backdrop" @click.self="selectedTrainingEventId=null"><section class="training-detail-dialog" role="dialog" aria-modal="true" aria-label="Scheduled training" @keydown.esc="selectedTrainingEventId=null"><button type="button" class="btn btn-secondary" @click="selectedTrainingEventId=null">Close</button><router-link v-if="selectedTrainingInvited" :to="`/join/team-meeting/${selectedTrainingEventId}`" class="btn btn-primary">Open training</router-link><ScheduledTrainingPanel :event-id="selectedTrainingEventId" @state="selectedTrainingInvited=$event.invited" /></section></div></Teleport>
     <div class="sched-toolbar" data-tour="my-schedule-toolbar">
@@ -109,7 +108,7 @@
               </button>
               <input ref="weekDateInput" class="sched-command__date-input" type="date" :value="weekJumpDateValue"
                 aria-label="Jump to date" data-tour="my-schedule-week-jump" @change="onWeekJumpDateChange" />
-              <span class="sched-command__today-label">Today {{ todayMmdd }}</span>
+              <span class="sched-command__today-label" :class="{ 'sched-today-label--away': !viewingCurrentWeek }">{{ viewingCurrentWeek ? `Today ${todayMmdd}` : `Viewing another week · Today ${todayMmdd}` }}</span>
             </div>
           </div>
 
@@ -118,6 +117,7 @@
           <div class="sched-command__nav" role="group" aria-label="Week navigation" data-tour="my-schedule-week-nav">
             <button
               class="sched-nav-btn"
+              :class="{ 'sched-today-jump--away': !viewingCurrentWeek }"
               type="button"
               :title="isDayOrAgendaSpan ? 'Jump to today' : 'Jump the grid to the week that contains today'"
               @click="goToTodayWeek"
@@ -134,12 +134,12 @@
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 18l6-6-6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
               </button>
             </div>
-            <button v-if="showScheduleShortcuts" type="button" class="sched-command__outline" @click="emit('open-schedule-window')">New window ↗</button>
-            <button type="button" class="sched-command__outline" data-tour="my-schedule-fullscreen"
+            <button v-if="showScheduleShortcuts" type="button" class="sched-command__outline sched-command--utility" @click="emit('open-schedule-window')">New window ↗</button>
+            <button type="button" class="sched-command__outline sched-command--utility" data-tour="my-schedule-fullscreen"
               :aria-pressed="fullscreenActive" :title="fullscreenActive ? 'Exit full screen (Escape)' : 'Expand the calendar to full screen'" @click="toggleFullscreen">
               <span aria-hidden="true">⛶</span> {{ fullscreenActive ? 'Exit full screen' : 'Full screen' }}
             </button>
-            <button v-if="showScheduleShortcuts" type="button" class="sched-command__outline" @click="emit('open-tasks')">Tasks</button>
+            <button v-if="showScheduleShortcuts" type="button" class="sched-command__outline sched-command--tasks" @click="emit('open-tasks')">Tasks</button>
             <button
               class="sched-nav-icon-btn"
               type="button"
@@ -156,7 +156,7 @@
           </div>
 
           <div class="sched-command__actions">
-            <button v-if="mode === 'self' && !teamCalendar && !hideOfficeAndCalendarIntegration" type="button" class="sched-command__outline"
+            <button v-if="mode === 'self' && !teamCalendar && !hideOfficeAndCalendarIntegration" type="button" class="sched-command__outline sched-command--people"
               :class="{ on: showPeerBusyOverlay }" :aria-expanded="showPeerBusyOverlay" aria-controls="schedule-peer-overlay" @click="togglePeerBusyOverlay">
               Peers busy
             </button>
@@ -175,7 +175,7 @@
             <button
               v-if="Number(effectiveAgencyId || 0) > 0 && !tutoringWorkspaceOnly"
               type="button"
-              class="sched-command__outline"
+              class="sched-command__outline sched-command--notes"
               title="Open Note Workspace"
               @click="openScheduleNoteAid"
             >
@@ -184,7 +184,7 @@
             <button
               v-if="canOpenMyRoomLobby && !tutoringWorkspaceOnly"
               type="button"
-              class="sched-command__outline"
+              class="sched-command__outline sched-command--room"
               title="Admit guests waiting in your My Room lobby"
               data-tour="my-schedule-my-room"
               @click="showMyRoomLobbyModal = true"
@@ -196,7 +196,7 @@
             <button
               v-if="!hideOfficeAndCalendarIntegration"
               type="button"
-              class="sched-command__outline"
+              class="sched-command__outline sched-command--room"
               :class="{ on: showAvailabilityEditor }"
               data-tour="my-schedule-availability-btn"
               title="Edit Availability Hours, split days, and Planned Out"
@@ -667,7 +667,7 @@
             role="switch"
             :aria-checked="String(!!hideWeekend && !weekendDaysWithScheduleItems.length)"
             :disabled="loading"
-            @click="hideWeekend = !hideWeekend"
+            @click="toggleHideWeekends"
             :title="weekendDaysWithScheduleItems.length
               ? 'Weekends are shown because you have Saturday/Sunday appointments this week.'
               : 'Hide Saturday and Sunday columns to focus on weekdays.'"
@@ -675,6 +675,7 @@
           >
             Hide weekends
           </button>
+          <p v-if="weekendDaysWithScheduleItems.length" class="hint sched-weekend-warning" :role="weekendHideAttempted ? 'alert' : undefined">Weekends stay visible when you have scheduled activity on {{ weekendDaysWithScheduleItems.join(' and ') }}.</p>
           <button
             type="button"
             class="sched-pill"
@@ -1058,7 +1059,7 @@
           </div>
         </div>
       </div>
-      <ScheduleBookingJobs ref="bookingJobs" :actor-user-id="Number(authStore.user?.id || 0)" @completed="onBackgroundBookingCompleted" @write-note="openBookedSessionNote" />
+      <ScheduleBookingJobs ref="bookingJobs" :actor-user-id="Number(authStore.user?.id || 0)" @completed="onBackgroundBookingCompleted" @appointments-saved="projectBackgroundBooking" @write-note="openBookedSessionNote" />
       <div v-for="job in appointmentChange.seriesJobs.value" :key="job.id" class="schedule-cancellation-progress" role="status">
         <div><strong>{{ job.status==='completed' ? 'Recurring visits canceled' : job.status==='failed' ? 'Cancellations need review' : 'Canceling recurring visits' }}</strong><span>{{ job.completed }} / {{ job.count }} completed · {{ job.officeReservationDisposition==='keep' ? 'Keep office reservations' : 'Release associated office time' }}</span><progress v-if="['queued','processing'].includes(job.status)" :value="job.completed" :max="job.count" aria-label="Appointment cancellation progress"></progress></div>
         <button type="button" class="btn btn-secondary btn-sm" @click="appointmentChange.openWizard({appointmentId:job.appointmentId})">View progress</button>
@@ -1080,8 +1081,8 @@
             <strong>{{ agendaDayTitle }}</strong>
             <span class="muted">{{ agendaDaySub }}</span>
             <ScheduleDayWeather :date="forecastDateForDay(agendaDayName)" :weather="scheduleWeather" />
-            <button v-if="canBookFromGrid" type="button" class="sched-day-email" @click="openDayNote(agendaDayName)">Email this day</button>
-            <button v-if="canBookFromGrid" type="button" class="sched-day-cancel" @click="openDayCancellation(agendaDayName)">Cancel day…</button>
+            <div v-if="canBookFromGrid" class="sched-day-actions"><button type="button" class="sched-day-email" @click="openDayNote(agendaDayName)">Email this day</button>
+            <button type="button" class="sched-day-cancel" @click="openDayCancellation(agendaDayName)">Cancel this day</button></div>
           </div>
           <button type="button" class="btn btn-secondary btn-sm" @click="shiftFocusedDay(1)">
             Next day →
@@ -1186,8 +1187,8 @@
         <div class="sched-day-timeline__title">
           {{ mobileTimelineDay }} · {{ dayDateLabel(mobileTimelineDay) }}
           <button type="button" class="sched-hours-toggle" :aria-pressed="showAllHours" @click="showAllHours = !showAllHours">{{ showAllHours ? 'Auto hours' : 'Show 24h' }}</button>
-          <button v-if="canBookFromGrid" type="button" class="sched-day-email" @click="openDayNote(mobileTimelineDay)">Email this day</button>
-          <button v-if="canBookFromGrid" type="button" class="sched-day-cancel" @click="openDayCancellation(mobileTimelineDay)">Cancel day…</button>
+          <div v-if="canBookFromGrid" class="sched-day-actions"><button type="button" class="sched-day-email" @click="openDayNote(mobileTimelineDay)">Email this day</button>
+          <button type="button" class="sched-day-cancel" @click="openDayCancellation(mobileTimelineDay)">Cancel this day</button></div>
         </div>
         <div v-if="untimedSchoolBlocksForDay(mobileTimelineDay).length" class="sched-mobile-untimed">
           <strong>Time not set</strong>
@@ -1346,10 +1347,10 @@
           <div class="sched-head-day">
             <div class="sched-head-dow">{{ d }} {{ dayDateLabel(d) }}</div>
             <ScheduleDayWeather :date="forecastDateForDay(d)" :weather="scheduleWeather" />
-            <button v-if="canBookFromGrid" type="button" class="sched-day-email" @click.stop="openDayNote(d)"
+            <div v-if="canBookFromGrid" class="sched-day-actions"><button type="button" class="sched-day-email" @click.stop="openDayNote(d)"
               @keydown.stop :aria-label="`Email clients on ${d} ${dayDateLabel(d)}`">Email this day</button>
-            <button v-if="canBookFromGrid" type="button" class="sched-day-cancel" @click.stop="openDayCancellation(d)"
-              @keydown.stop :aria-label="`Cancel appointments for ${d} ${dayDateLabel(d)}`">Cancel day…</button>
+            <button type="button" class="sched-day-cancel" @click.stop="openDayCancellation(d)"
+              @keydown.stop :aria-label="`Cancel appointments for ${d} ${dayDateLabel(d)}`">Cancel this day</button></div>
           </div>
         </div>
 
@@ -1518,7 +1519,7 @@
                   }
                 ]"
                 :aria-label="b.schoolRail ? `${b.schoolName} — open school details` : b.title"
-                :title="b.schoolRail ? `${b.schoolName} — click for school details` : undefined"
+                :title="b.schoolRail ? `${b.schoolName} — click for school details` : b.isOfficeBlock ? b.title : undefined"
                 :role="b.kind === 'school-soft' || b.schoolRail ? 'button' : undefined"
                 :tabindex="b.kind === 'school-soft' || b.schoolRail ? 0 : undefined"
                 @keydown.enter="(b.kind === 'school-soft' || b.schoolRail) && onCellBlockClick($event, b, d, slot.hour, slot.minute, true)"
@@ -2213,6 +2214,12 @@
               :can-book-group="canBookGroupSupervisionFromGrid"
               :disabled="submitting || scheduleEventSaving"
             />
+        <label v-if="editorUseBookSessionLayout && !isAppointmentEditMode && !isScheduleEventEditMode
+          && editorModality === 'IN_PERSON' && !editorHistoricalBooking && !editorNonOfficeSite
+          && Number(editorOfficeLocationId || selectedOfficeLocationId) > 0" class="nr-building-only">
+          <input type="checkbox" v-model="editorBuildingOnly" :disabled="submitting" />
+          Book at the building without reserving a room
+        </label>
           </template>
 
           <template #provider>
@@ -6149,7 +6156,6 @@ const ScheduleInterviewPanel = defineAsyncComponent(() => import('./ScheduleInte
 import VirtualSessionBookingConfirmation from './VirtualSessionBookingConfirmation.vue';
 import { isSchoolCareBridgeOnly } from '../../utils/schoolCareBridgeTenant.js';
 import { mergeSavedAppointmentCalendar, savedAppointmentAcknowledged } from '../../utils/savedAppointmentCalendar.js';
-import AppointmentWaiverReviewQueue from './AppointmentWaiverReviewQueue.vue';
 import AppointmentInfoPanel from './AppointmentInfoPanel.vue';
 import TutoringSessionPrice from './TutoringSessionPrice.vue';
 import AppointmentNoShowStatus from './AppointmentNoShowStatus.vue';
@@ -6589,6 +6595,14 @@ function openSchoolFamilyCancellation() {
   schoolRailDetail.value = null;
 }
 const dayNoteDate = ref('');
+const dayNoteSchool = ref(null);
+function openSchoolFamilyUpdate() {
+  const detail = schoolRailDetail.value;
+  if (!detail?.schoolOrganizationId || !detail.agencyId) return;
+  dayNoteSchool.value = detail;
+  dayNoteDate.value = detail.dateYmd;
+  schoolRailDetail.value = null;
+}
 const schoolRailDetail = ref(null);
 const schoolRequestFocusSlots = ref(false);
 const canRequestSchoolChange = computed(() => Number(scheduleActorUserId.value) === Number(authStore.user?.id));
@@ -6597,6 +6611,7 @@ const openDayCancellation = (day) => {
   cancelDayDate.value = addDaysYmd(summary.value?.weekStart || weekStart.value, dayIdxFromWeekStartMonday(day));
 };
 const openDayNote = (day) => {
+  dayNoteSchool.value = null;
   dayNoteDate.value = addDaysYmd(summary.value?.weekStart || weekStart.value, dayIdxFromWeekStartMonday(day));
 };
 function openSchoolRail(assignment, dayName = assignment?.dayName || assignment?.dayOfWeek) {
@@ -8387,6 +8402,18 @@ const weekendDaysWithScheduleItems = computed(() => {
   return ['Saturday', 'Sunday'].filter((d) => found.has(d));
 });
 
+const weekendHideAttempted = ref(false);
+function toggleHideWeekends() {
+  if (weekendDaysWithScheduleItems.value.length && !hideWeekend.value) {
+    weekendHideAttempted.value = true;
+    return;
+  }
+  weekendHideAttempted.value = false;
+  hideWeekend.value = !hideWeekend.value;
+}
+const viewingCurrentWeek = computed(() => todayLocalYmd.value >= weekStart.value
+  && todayLocalYmd.value < addDaysYmd(weekStart.value, 7));
+
 const focusableDays = computed(() => {
   if (!hideWeekend.value) return orderedDays.value.slice();
   const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
@@ -9567,6 +9594,7 @@ const openingServiceFilter=ref('all');
 const tutoringWorkspaceOnly = computed(() => serviceWorkspace(authStore.user, agencyStore.currentAgency || {}).learningOnly);
 const editorOpeningServiceType=ref('');
 const selectedProviderOfferings = ref(null);
+const publicAgencyServices = ref(null);
 const editorServiceChoices=computed(()=>{
  const workspace=serviceWorkspace(authStore.user,agencyStore.currentAgency||{});
  const offers = selectedProviderOfferings.value;
@@ -9614,6 +9642,7 @@ const refreshClientSessionBookingAccess = async () => {
     if (generation !== bookingAccessGeneration) return false;
     const access = providerAccess.data || {};
     selectedProviderOfferings.value = Array.isArray(access.serviceOfferings) ? access.serviceOfferings : null;
+    publicAgencyServices.value = access.enabledPublicationServices || null;
     bookingProviderBusinessTypes.value = Array.isArray(access.availableBusinessTypes) ? access.availableBusinessTypes
       : tutoringWorkspaceOnly.value && access.enabled ? ['tutoring'] : null;
     providerSessionBookingEnabled.value = access.enabled === true;
@@ -9640,6 +9669,7 @@ watch([clientSessionBookingAgencyId, scheduleActorUserId, tutoringWorkspaceOnly]
   providerSessionBookingEnabled.value = false;
   bookingProviderBusinessTypes.value = null;
   selectedProviderOfferings.value = null;
+  publicAgencyServices.value = null;
   bookingAccessReason.value = '';
   void refreshClientSessionBookingAccess();
 }, {immediate:true, flush:'sync'});
@@ -12329,6 +12359,9 @@ const buildCellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout 
 
   // Office assignment blocks: All offices, one building, or Off.
   const selectedOfficeId = Number(selectedOfficeLocationId.value || 0);
+  const sessionOfficeIds = new Set(scheduleEventsInCell(dayName, hour, minute)
+    .filter(event => !isScheduleEventTerminal(event) && Number(event.appointmentId) > 0)
+    .map(event => Number(event.officeEventId)).filter(Boolean));
   const officeHits = !showMyRooms.value || selectedOfficeId === OFFICE_SCOPE_OFF
     ? []
     : selectedOfficeId === OFFICE_SCOPE_ALL
@@ -12336,6 +12369,7 @@ const buildCellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout 
       : officeEventsInCell(dayName, hour, minute).filter((e) => Number(e?.buildingId || 0) === selectedOfficeId);
   const officeByKey = new Map();
   for (const e of officeHits) {
+    if (sessionOfficeIds.has(Number(e.id || e.eventId))) continue;
     if (e.appointmentId && /^(?:CANCELLED|CANCELED|RELEASED)$/i.test(e.status)) continue;
     if (officeCoveredBySession(e, scheduleEventsInCell(dayName,hour,minute))) continue;
     const aid = Number(e?._agencyId || 0) || null;
@@ -12446,7 +12480,9 @@ const buildCellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout 
         officeEmpty: true,
         officeRoomLabel,
         shortLabel: `${buildingPrefix}${assignedLabel}${intakeSuffix}`,
-        title: blocked ? `Blocked between sessions · ${officeTitle(dayName, hour, top)}` : officeTitle(dayName, hour, top),
+        title: blocked ? `Occupied between sessions · ${officeTitle(dayName, hour, top)}`
+          : staffUse ? `Occupied for a meeting or supervision · ${officeTitle(dayName, hour, top)}`
+            : officeTitle(dayName, hour, top),
         buildingId,
         agencyId,
         roomId
@@ -13340,15 +13376,35 @@ const officeBookingProgress = ref('');
 const scheduleWeather = useScheduleWeather(() => authStore.user?.id || authStore.user?.email, () => weekStart.value);
 const forecastDateForDay = day => addDaysYmd(summary.value?.weekStart || weekStart.value, dayIdxFromWeekStartMonday(day));
 const bookingJobs = ref(null);
-const onBackgroundBookingCompleted = job => {
-  const appointment = job?.result?.appointment;
-  if (appointment) projectSavedVirtualAppointments({ agencyId: appointment.agencyId, appointments: [appointment], timeZone: appointment.sourceTimezone });
+function projectBackgroundBooking(appointments, clientLabel) {
+  if (!appointments.length) return;
+  projectSavedVirtualAppointments({ agencyId: appointments[0].agencyId, appointments,
+    timeZone: appointments[0].sourceTimezone, clientLabel });
+}
+const onBackgroundBookingCompleted = () => {
   window.dispatchEvent(new Event('appointment-schedule-saved'));
   invalidateScheduleSummaryCacheForUser(props.userId);
   refreshScheduleSummaryInBackground();
   if (Number(selectedOfficeLocationId.value) > 0) void loadSelectedOfficeGrid().catch(() => {});
 };
-const postOfficeBooking = (payload, { background = false } = {}) => submitOfficeBooking(api, payload, { background, onProgress: message => { officeBookingProgress.value = message; } });
+async function withGroupSupervisionReview(payload, submit) {
+  try {
+    return await submit({ ...payload, reviewGroupSupervision: true });
+  } catch (error) {
+    const review = error.response?.data?.error;
+    if (review?.code !== 'REVIEW_GROUP_SUPERVISION_OVERLAP' || !review.review) throw error;
+    const dates = review.dates.map(date => formatEditorDisplayDate(date)).join(', ');
+    if (await confirmScheduleAction('Schedule during group supervision?',
+      `You have group supervision on ${dates}. Booking keeps both events on your calendar.`,
+      'Confirm overlap')) return submit({ ...payload, reviewGroupSupervision: true, confirmedGroupSupervisionOverlap: review.review });
+    throw new Error('Choose another time or confirm the group supervision overlap.');
+  }
+}
+const postOfficeBooking = (payload, { background = false } = {}) =>
+  withGroupSupervisionReview(payload, body => submitOfficeBooking(api, body,
+    { background, onProgress: message => { officeBookingProgress.value = message; } }));
+const postScheduledAppointments = payload =>
+  withGroupSupervisionReview(payload, body => api.post('/appointments', body, { skipGlobalLoading: true }));
 const SCHEDULE_EVENT_ACTIONS = new Set(['personal_event', 'schedule_hold', 'schedule_hold_all_day', 'indirect_services', 'agency_meeting', 'huddle']);
 const AGENCY_OPTIONAL_ACTIONS = new Set([
   'office',
@@ -14974,6 +15030,7 @@ const editorAcceptingNewClientsHint = computed(() => {
 const editorAttachOfficeRequest = ref(false);
 const editorOfficeLocationId = ref(0);
 const editorPreferredRoomId = ref(0);
+const editorBuildingOnly = ref(false);
 const editorRoomPreferenceAcknowledged = ref(false);
 watch([modalDay, modalHour, requestType], () => { editorRoomPreferenceAcknowledged.value = false; });
 const editorAdditionalPreferredRoomIds = ref([]);
@@ -16512,24 +16569,21 @@ function officeEventRoomLabel(ev) {
 function findProviderOfficeBookingsForEditorWindow() {
   const providerId = Number(bookingTargetUserId.value || props.userId || authStore.user?.id || 0);
   if (!providerId) return [];
-  const dayName = String(modalDay.value || dayNameForDateYmd(editorDateYmd.value) || '');
-  if (!dayName) return [];
-  const startH = Number(modalHour.value ?? modalStartHour.value ?? 0);
-  const endH = Number(modalEndHour.value || startH + 1);
-  const minute = Number(modalStartMinute.value || 0);
+  const zone = scheduleMeetingTimeZone();
+  const start = parseScheduleInstant(wallDatetimeLocalToSummaryIso(`${editorDateYmd.value}T${editorStartTime.value}`, zone));
+  const end = parseScheduleInstant(wallDatetimeLocalToSummaryIso(`${editorDateYmd.value}T${editorEndTime.value}`, zone));
+  if (!start || !end || end <= start) return [];
   const seen = new Map();
-  for (let h = startH; h < endH; h += 1) {
-    for (const ev of officeEventsInCell(dayName, h, minute)) {
-      const reservedFor = Number(ev?.bookedProviderId || ev?.assignedProviderId || 0);
-      if (reservedFor !== providerId) continue;
-      const st = String(ev?.slotState || '').toUpperCase();
-      if (!['ASSIGNED_BOOKED', 'ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY', 'BOOKED'].includes(st)) continue;
-      const roomId = Number(ev?.roomId || 0);
-      const buildingId = Number(ev?.buildingId || 0);
-      if (!roomId || !buildingId) continue;
-      const key = `${buildingId}|${roomId}`;
-      if (!seen.has(key)) seen.set(key, ev);
-    }
+  for (const ev of summary.value?.officeEvents || []) {
+    if (Number(ev.bookedProviderId || ev.assignedProviderId) !== providerId || ev.roomOccupancy === 'vacant') continue;
+    if (!['ASSIGNED_BOOKED', 'ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY', 'BOOKED'].includes(String(ev.slotState || '').toUpperCase())) continue;
+    if (isScheduleEventTerminal(ev)) continue;
+    const from = parseScheduleInstant(ev.startAt), to = parseScheduleInstant(ev.endAt);
+    if (!from || !to || from > start || to < end || !ev.roomId || !ev.buildingId) continue;
+    const occupiedByOtherSession = (ev.appointmentId || ev.clientId) && Number(ev.appointmentId) !== Number(editorAppointmentId.value);
+    if (occupiedByOtherSession) continue;
+    const key = `${ev.buildingId}|${ev.roomId}`;
+    if (!seen.has(key)) seen.set(key, ev);
   }
   return [...seen.values()];
 }
@@ -17137,12 +17191,6 @@ function openAppointmentChangeWizard() {
   });
 }
 
-function onAppointmentWaiverReviewed(appointmentId) {
-  if (appointmentChange.open.value && Number(appointmentChange.appointmentId.value) === Number(appointmentId)) {
-    void appointmentChange.openWizard({ appointmentId, context: { ...appointmentChange.context } });
-  }
-}
-
 function onAppointmentChangeCompleted(result) {
   if (!result?.pendingApproval) forgetRecentlySavedAppointment(result?.appointment?.id || appointmentChange.appointmentId.value);
   if (result?.rescheduled) {
@@ -17174,6 +17222,7 @@ function openAppointmentEditor({ mode = 'create', kind = '', id = 0, defaults = 
   const k = String(kind || '').trim();
   if (mode === 'create' && CLIENT_SESSION_CREATE_ACTIONS.has(k) && !clientSessionBookingEnabled.value) return;
   editorHydratingAppointment.value = true;
+  editorBuildingOnly.value = false;
   // Never treat a schedule-event / supervision id as an appointment id.
   editorAppointmentId.value = Number(defaults.appointmentId || 0) || 0;
   editorSavedSchedule.value = null;
@@ -19773,7 +19822,8 @@ const patchScheduleSummaryWithBookedEvent = ({
     }) : {}),
     ...(appointmentContext ? {
       clientName: appointmentContext.clientName || participant?.displayName || clientLabel
-        || (participant ? scheduleEventClientDisplayName(participant.clientId) : ''),
+        || scheduleEventClientDisplayName(appointmentContext.clientId || participant?.clientId),
+      recurrenceSeriesId: appointmentContext.recurrenceSeriesId || null,
       isClientSession: true, providerId: appointmentContext.providerUserId || props.userId, timeZone: appointmentContext.sourceTimezone || tz,
       canEdit: true, canReschedule: true
     } : {}),
@@ -22901,7 +22951,7 @@ const ensureVirtualWorkingHoursForRange = async ({
   availableForIntake = true,
   availableForSession = false
 } = {}) => {
-  const agencyId = Number(effectiveAgencyId.value || 0);
+  const agencyId = Number(editorAgencyId.value || effectiveAgencyId.value || 0);
   if (!agencyId) return;
   if (editingOpenSlot.value?.virtualHoursId) {
     if (agencyId !== Number(editingOpenSlot.value.agencyId)) throw new Error('This weekly series belongs to its original agency. Create a new open slot to publish for another agency.');
@@ -23152,12 +23202,13 @@ const projectSavedVirtualAppointments = (booking) => {
   if (!booking) return;
   ensureScheduleAgencyVisible(booking.agencyId);
   for (const appointment of booking.appointments || []) {
-    if ((rawSummary.value?.scheduleEvents || []).some(event => Number(event.appointmentId) === Number(appointment.id) && isClientSessionScheduleEvent(event))) continue;
+    if ((rawSummary.value?.scheduleEvents || []).some(event => Number(event.appointmentId) === Number(appointment.id)
+      && event.clientName && (!appointment.recurrenceSeriesId || event.recurrenceSeriesId))) continue;
     patchScheduleSummaryWithBookedEvent({ eventId: appointment.providerScheduleEventId || -Number(appointment.id),
       agencyId: booking.agencyId, title: appointment.title || booking.title,
       startAt: parseScheduleInstant(appointment.startAt)?.toISOString(),
       endAt: parseScheduleInstant(appointment.endAt)?.toISOString(),
-      wallTimeZone: booking.timeZone, appointmentContext: appointment, clientLabel: booking.clientLabel });
+      wallTimeZone: booking.timeZone, appointmentContext: { ...appointment, recurrenceSeriesId: appointment.recurrenceSeriesId || booking.recurrenceSeriesId }, clientLabel: booking.clientLabel });
   }
 };
 
@@ -23334,7 +23385,7 @@ const completePlatformVirtualSessionBooking = async ({
   let canonicalBooking = null;
   // Canonical appointment so reminders / service / clinical tools attach.
   try {
-    const apptRes = await api.post('/appointments', {
+    const apptRes = await postScheduledAppointments({
       agencyId,
       tenantServiceId: Number(editorTenantServiceId.value || 0) || undefined,
       providerUserId: uid,
@@ -23368,7 +23419,7 @@ const completePlatformVirtualSessionBooking = async ({
       notificationMode: editorStartedSingleBooking.value ? 'off' : editorNotificationMode.value,
       customReminders: !editorStartedSingleBooking.value && editorNotificationMode.value === 'customizable' ? editorCustomReminders.value : [],
       othersPresentNames: String(editorOthersPresentNames.value || '').trim() || undefined
-    }, { skipGlobalLoading: true });
+    });
     appointmentId = Number(apptRes?.data?.appointment?.id || apptRes?.data?.appointment?.appointment?.id || 0) || null;
     canonicalBooking = apptRes.data;
     if (!appointmentId) throw new Error('The booking response contained no appointment ID.');
@@ -24015,8 +24066,16 @@ const submitRequest = async () => {
         throw new Error('Select an office first.');
       }
 
+      const matchingRoom = findProviderOfficeBookingsForEditorWindow().find(room => Number(room.buildingId) === officeId);
+      const buildingOnly = modality === 'IN_PERSON' && !pastInPerson && !nonOfficeSite && officeId
+        && (editorBuildingOnly.value || (!matchingRoom && !editorRoomId.value && !editorPreferredRoomId.value && !selectedOfficeRoomId.value
+          && !editorAttachOfficeRequest.value && !sessionAlsoRequestOffice.value));
+      if (buildingOnly && !matchingRoom && !await confirmScheduleAction('Book without a room reservation?',
+        'You don’t have an available reservation for this time. The visit will be scheduled at the building, with kiosk check-in available. You can link a room later.',
+        'Book at this building')) return;
+
       // Record an ended visit at its actual service location without reserving a room.
-      if (pastInPerson || (requestType.value === 'individual_session' && modality === 'IN_PERSON' && nonOfficeSite)) {
+      if (pastInPerson || buildingOnly || (requestType.value === 'individual_session' && modality === 'IN_PERSON' && nonOfficeSite)) {
         if (showClinicalBookingFields.value && bookingClassificationInvalidReason.value) {
           throw new Error(bookingClassificationInvalidReason.value);
         }
@@ -24034,12 +24093,12 @@ const submitRequest = async () => {
         }
         const bookingSelection = normalizeBookingSelectionPayload();
         const titleParts = [schoolLoc ? 'School session' : 'In-person session'];
-        const clientIds = [...new Set([Number(primarySessionClientId.value), ...(pastInPerson ? virtualSessionSelectedClientIds.value : []).map(Number)].filter(id => id > 0))];
+        const clientIds = [...new Set([Number(primarySessionClientId.value), ...((pastInPerson || buildingOnly) ? virtualSessionSelectedClientIds.value : []).map(Number)].filter(id => id > 0))];
         if (!clientIds.length) throw new Error('Select a client for this session.');
         const clientLabel = clientIds.length > 1 ? `Group participants (${clientIds.length})` : primarySessionClientLabel.value;
         if (clientLabel) titleParts.push(clientLabel);
         if (bookingSelection.serviceCode) titleParts.push(bookingSelection.serviceCode);
-        const scheduleResp = await api.post('/appointments', {
+        const scheduleResp = await postScheduledAppointments({
           recurrence: String(scheduleEventRecurrence.value || 'ONCE'),
           occurrenceCount: Number(scheduleEventOccurrenceCount.value || 12),
           providerUserId: Number(scheduleActorUserId.value || props.userId || authStore.user?.id || 0),
@@ -24047,6 +24106,7 @@ const submitRequest = async () => {
           packageEntitlementId: Number(editorPackageEntitlementId.value || 0) || undefined,
           participants: clientIds.map((clientId, index) => ({ role: 'client', clientId, isBillingResponsible: index === 0 })),
           agencyId,
+          ...(buildingOnly ? { officeLocationId: officeId, buildingOnly: true } : {}),
           kind: 'PERSONAL_EVENT',
           title: titleParts.join(' · '),
           description: [
@@ -24064,7 +24124,7 @@ const submitRequest = async () => {
           isPrivate: false,
           allowLocalOnly: true,
           ...bookingSelection
-        }, { skipGlobalLoading: true });
+        });
         clearSelectedActionSlots();
         ensureScheduleAgencyVisible(agencyId);
         const savedAppointments = (scheduleResp.data?.appointments || [scheduleResp.data?.appointment]).filter(appointment => appointment?.id);
@@ -24075,7 +24135,7 @@ const submitRequest = async () => {
             agencyId, title: titleParts.join(' · '), kind: 'PERSONAL_EVENT',
             startAt: parseScheduleInstant(appointment.startAt)?.toISOString(),
             endAt: parseScheduleInstant(appointment.endAt)?.toISOString(),
-            appointmentContext: appointment, clientLabel
+            appointmentContext: { ...appointment, recurrenceSeriesId: scheduleResp.data?.recurrenceSeriesId }, clientLabel
           });
         }
         window.dispatchEvent(new Event('appointment-schedule-saved'));
@@ -24104,7 +24164,7 @@ const submitRequest = async () => {
       if (showClinicalBookingFields.value && bookingClassificationInvalidReason.value) {
         throw new Error(bookingClassificationInvalidReason.value);
       }
-      const roomId = Number(editorRoomId.value || selectedOfficeRoomId.value || 0) || null;
+      const roomId = Number(editorRoomId.value || selectedOfficeRoomId.value || matchingRoom?.roomId || 0) || null;
       const recurrence = String(scheduleEventRecurrence.value || officeBookingRecurrence.value || 'ONCE');
       const recurringRecurrences = [...RECURRING_FREQUENCIES];
       const occurrenceCount = recurringRecurrences.includes(recurrence)
@@ -24150,7 +24210,7 @@ const submitRequest = async () => {
         const bookingReqId = Number(r?.data?.request?.id || 0);
         if (bookingReqId) editorLastOfficeBookingRequestId.value = bookingReqId;
         if (r?.data?.kind === 'booking_job') {
-          bookingJobs.value?.track(r.data.job, { restore: true });
+          bookingJobs.value?.track(r.data.job, { restore: true, clientLabel: primarySessionClientLabel.value });
           ensureScheduleAgencyVisible(Number(editorAgencyId.value || effectiveAgencyId.value));
           refreshInBackground = true;
         } else if (r?.data?.kind === 'auto_booked') {
@@ -24179,7 +24239,13 @@ const submitRequest = async () => {
         // Office booking-request above already covers the room; no separate request needed.
       }
     } else if (requestType.value === 'portal_intake' || requestType.value === 'attach_open_for_booking') {
-      const agencyId = Number(effectiveAgencyId.value || 0);
+      const agencyId = Number(editorAgencyId.value || effectiveAgencyId.value || 0);
+      const type = editorOpeningServiceType.value;
+      if (selectedProviderOfferings.value && !selectedProviderOfferings.value.includes(type)) {
+        throw new Error(publicAgencyServices.value && !publicAgencyServices.value.includes(type)
+          ? 'Enable this service in the selected organization’s public booking setup first.'
+          : 'Enable this service for the selected provider in this organization before publishing.');
+      }
       if (!agencyId) throw new Error('Select an agency for portal availability.');
       if (endTotalMinutes <= startTotalMinutes) throw new Error('End time must be after start time.');
       const forIntake = editorAvailableForIntake.value !== false;
@@ -31187,7 +31253,19 @@ watch(editorClientSchoolLocationOptions, (schools, previous) => {
 .cell-staff-alert { position: absolute; right: 3px; top: 3px; z-index: 8; padding: 1px 4px; border-radius: 4px; background: #fef3c7; color: #92400e; font-size: 12px; line-height: 1.2; }
 .cell-staff-alert--inline { position: static; align-self: flex-start; }
 .sched-hours-toggle { border: 1px solid #cbd5e1; border-radius: 5px; background: #fff; color: #475569; padding: 4px; font-size: 11px; white-space: nowrap; cursor: pointer; }
-.sched-day-cancel, .sched-day-email { border: 0; background: transparent; color: #64748b; font-size: 10px; cursor: pointer; padding: 3px; }
+.sched-day-actions { display:flex; justify-content:center; align-items:center; gap:4px; flex-wrap:wrap; }
+.sched-day-cancel, .sched-day-email { border:1px solid #cbd5e1; border-radius:6px; background:#f8fafc; color:#334155; font-size:11px; cursor:pointer; padding:4px 6px; white-space:nowrap; }
+.sched-command :is(.sched-command__outline, .sched-command__book, .sched-command__settings, .sched-nav-btn, .sched-nav-icon-btn),
+.sched-command :deep(.schedule-help__trigger), .sched-command :deep(.calendar-time-zone > summary),
+.sched-command :deep(.schedule-color-legend__trigger) { min-height:36px; border-radius:8px; font:inherit; font-size:.85rem; font-weight:650; }
+.sched-command .sched-command--people { color:#3e397c; background:#f0edfb; border-color:#d7cdf4; }
+.sched-command .sched-command--tasks, .sched-command .sched-command--notes { color:#78450c; background:#fff5e2; border-color:#ebd2a8; }
+.sched-command .sched-command--room { color:#0e5260; background:#e7f6f7; border-color:#b9dce2; }
+.sched-command .sched-command--utility { color:#304262; background:#eef3fd; border-color:#cbd7ef; }
+.sched-command .sched-today-jump--away { border-color:#9c6309; background:#fff0cc; color:#633a07; }
+.sched-today-label--away { color:#7a4b0a; font-weight:700; }
+.sched-weekend-warning { color:#78450c; }
+.nr-building-only { display:flex;align-items:center;gap:8px;padding:8px 12px;font-size:.875rem; }
 .sched-day-cancel:hover { color: #b91c1c; text-decoration: underline; }
 .sched-day-email:hover { color: #1d4ed8; text-decoration: underline; }
 .cell-block-school-continuation { display: none !important; }

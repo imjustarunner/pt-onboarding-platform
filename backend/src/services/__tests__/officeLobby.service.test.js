@@ -10,18 +10,19 @@ import { officeToday, officePeople } from '../officeLobby.service.js';
 
 const location = { id: 1, name: 'Windchime', agency_id: 2, timezone: 'America/Denver' };
 const event = { event_id: 10, start_at: '2026-10-06 21:00:00', end_at: '2026-10-06 22:00:00', assigned_provider_id: 7, booked_provider_id: 7, status: 'BOOKED', slot_state: 'ASSIGNED_BOOKED', room_number: '4' };
-let events, people, arrivals;
+let events, people, arrivals, buildingAppointments;
 beforeEach(() => {
   vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-06T20:45:00Z'));
-  events = [{ ...event, session_context_json: '{"agencyId":6}' }]; arrivals = [];
+  events = [{ ...event, session_context_json: '{"agencyId":6}' }]; arrivals = []; buildingAppointments = [];
   people = [2, 6].map(agency_id => ({ id: 7, first_name: 'Jordan', last_name: 'Rivera', agency_id, sees_clients: 1, role: 'provider', office_booked: 1 }));
   mocks.execute.mockImplementation(async sql => {
     if (sql.includes('FROM agencies a')) return [[{ id: 2, name: 'ITSCO' }, { id: 6, name: 'Next Level Up' }]];
     if (sql.includes('FROM users u')) return [people];
+    if (sql.includes('FROM appointments ap WHERE ap.office_event_id IS NULL')) return [buildingAppointments];
     if (sql.includes('FROM office_event_checkins')) return [arrivals];
     if (sql.includes('FROM office_events e JOIN appointments ap')) {
       expect(sql).toContain('appointment_participants');
-      return [events];
+      return [[...events]];
     }
     throw new Error(`Unexpected query: ${sql}`);
   });
@@ -76,4 +77,14 @@ describe('app-owned multi-agency kiosk bookings', () => {
     arrivals = [{ provider_id: 7, slot_start_at: event.start_at }];
     expect((await officeToday(location)).providers[0].currentSlot.checkedIn).toBe(true);
   });
+});
+
+it('lists a building-only appointment as check-in eligible under its own agency without client details', async () => {
+  events = [];
+  buildingAppointments = [{ ...event, room_number: null, event_id: -31, appointment_agency_id: 6, client_id: 987 }];
+  const {providers} = await officeToday(location);
+  expect(providers).toHaveLength(1);
+  expect(providers[0]).toMatchObject({agencyId:6,currentSlot:{eventId:-31}});
+  expect(providers[0].currentSlot).not.toHaveProperty('client_id');
+  expect(providers[0].bookings[0]).not.toHaveProperty('client_id');
 });

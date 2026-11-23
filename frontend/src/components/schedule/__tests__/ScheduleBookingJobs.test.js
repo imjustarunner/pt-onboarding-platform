@@ -21,3 +21,11 @@ it('shows a worker failure distinctly and clears the previous actor’s jobs on 
  expect(wrapper.text()).toContain('needs attention');expect(wrapper.text()).toContain('no longer reserved');
  m.get.mockResolvedValue({data:{jobs:[]}});await wrapper.setProps({actorUserId:999});await flushPromises();expect(wrapper.text()).not.toContain('no longer reserved');
 });
+
+it('publishes saved occurrences once while a series is still processing', async () => {
+  wrapper=mount(Jobs,{props:{actorUserId:501}});await flushPromises();
+  const first = {id:81,agencyId:2}, second = {id:82,agencyId:2};
+  wrapper.vm.track({...job,result:{appointments:[first]}},{clientLabel:'Test client'});
+  wrapper.vm.track({...job,status:'completed',result:{appointments:[first,second]}});
+  expect(wrapper.emitted('appointments-saved')).toEqual([[[first],'Test client'],[[second],'Test client']]);
+});

@@ -1,4 +1,4 @@
-import { kioskAppointmentSql } from '../utils/officeRoomOccupancy.js';
+import { buildingAppointmentKioskFilter, kioskAppointmentSql } from '../utils/officeRoomOccupancy.js';
 import { lobbyLocation, officeToday } from '../services/officeLobby.service.js';
 import { canCheckIn, checkinClosesAt } from '../utils/officeCheckinWindow.js';
 import { assertCheckinClientAccess } from '../services/officeClientSubmissions.service.js';
@@ -138,6 +138,13 @@ export const listKioskEvents = async (req, res, next) => {
       JOIN users u ON u.id=ap.provider_user_id AND u.is_active=1
       WHERE e.office_location_id=? AND e.status<>'CANCELLED' AND ap.start_at<? AND ap.end_at>?
       ORDER BY ap.start_at, ap.id`, [Number(locationId), bounds.endExclusive, bounds.startAt]);
+    const [buildingOnly] = await pool.execute(`SELECT -CAST(ap.id AS SIGNED) AS id, ap.start_at, ap.end_at, ap.provider_user_id AS booked_provider_id,
+      'BOOKED' AS status, u.first_name AS booked_provider_first_name, u.last_name AS booked_provider_last_name
+      FROM appointments ap JOIN users u ON u.id=ap.provider_user_id AND u.is_active=1
+      WHERE ${buildingAppointmentKioskFilter} AND ap.office_location_id=? AND ap.start_at<? AND ap.end_at>?`,
+    [Number(locationId),bounds.endExclusive,bounds.startAt]);
+    events.push(...buildingOnly);
+    events.sort((a,b) => +parseUtcDate(a.start_at)-+parseUtcDate(b.start_at));
     const out = (events || []).map((e) => {
       const first = String(e.booked_provider_first_name || e.provider_first_name || '').trim();
       const li = String(e.booked_provider_last_name || e.provider_last_name || '').trim().slice(0, 1);
@@ -167,7 +174,7 @@ export const checkInToEvent = async (req, res, next) => {
     const locationId = Number(req.params.locationId);
     const eventId = Number(req.body?.eventId);
     const providerId = req.body?.providerId == null ? null : Number(req.body.providerId);
-    if (![locationId, eventId].every((id) => Number.isSafeInteger(id) && id > 0)
+    if (!Number.isSafeInteger(locationId) || locationId <= 0 || !Number.isSafeInteger(eventId) || eventId === 0
       || (providerId !== null && (!Number.isSafeInteger(providerId) || providerId <= 0))) {
       return res.status(400).json({ error: { message: 'A valid office, appointment, and provider are required.' } });
     }

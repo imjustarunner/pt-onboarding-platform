@@ -238,7 +238,7 @@ class NotificationDispatcherService {
     const exchangeLink=`${buildPublicAppUrl(agency,'client-exchange')}?agencyId=${Number(agencyId)}`;
     let safeDetails=context.appointmentReply;
     if(notification.type==='kiosk_checkin'){
-      const [[arrival]]=await pool.execute(`SELECT COALESCE(ci.slot_start_at,e.start_at) AS start_at,l.timezone FROM notifications n JOIN office_event_checkins ci ON ci.id=n.related_entity_id AND n.related_entity_type='office_event_checkin' JOIN office_events e ON e.id=ci.event_id JOIN office_locations l ON l.id=e.office_location_id WHERE n.id=? AND n.user_id=? AND n.agency_id=?`,[notification.id,userId,agencyId]);
+      const [[arrival]]=await pool.execute(`SELECT COALESCE(ci.slot_start_at,e.start_at) AS start_at,l.timezone FROM notifications n JOIN office_event_checkins ci ON ci.id=n.related_entity_id AND n.related_entity_type='office_event_checkin' LEFT JOIN office_events e ON e.id=ci.event_id JOIN office_locations l ON l.id=ci.office_location_id WHERE n.id=? AND n.user_id=? AND n.agency_id=?`,[notification.id,userId,agencyId]);
       if(arrival)safeDetails={startAt:arrival.start_at instanceof Date?arrival.start_at.toISOString():String(arrival.start_at).replace(' ','T').replace(/Z?$/,'Z'),timeZone:arrival.timezone};
       else {
         const [[legacy]]=await pool.execute(`SELECT DATE_FORMAT(ci.checkin_date,'%Y-%m-%d') AS date,ci.checkin_time,l.timezone FROM notifications n JOIN kiosk_checkins ci ON ci.id=n.related_entity_id AND n.related_entity_type='kiosk_checkin' AND ci.provider_id=n.user_id JOIN office_locations l ON l.id=ci.location_id WHERE n.id=? AND n.user_id=? AND n.agency_id=?`,[notification.id,userId,agencyId]);

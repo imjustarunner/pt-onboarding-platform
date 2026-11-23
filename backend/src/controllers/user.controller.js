@@ -4355,6 +4355,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
            e.id,
            e.office_location_id,
            e.session_context_json,
+           JSON_UNQUOTE(JSON_EXTRACT(e.session_context_json,'$.reservedSessionBookingFrequency')) AS reserved_session_frequency,
+           JSON_UNQUOTE(JSON_EXTRACT(e.session_context_json,'$.reservedSessionBookingKey')) AS reserved_session_key,
            e.google_provider_event_id,
            osa.booking_agency_id,
            e.standing_assignment_id,
@@ -4450,6 +4452,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
           && Number(r.booked_provider_id) !== providerId;
         return {
         borrowedAway,
+        recurrenceSeriesId: !borrowedAway && r.reserved_session_frequency && r.reserved_session_frequency !== 'ONCE'
+          && r.reserved_session_key ? `office-session:${r.reserved_session_key.slice(0,32)}` : null,
         roomOccupancy: borrowedAway ? 'borrowed' : Number(r.office_gap_blocked) ? 'occupied' : officeOccupancy(r),
         displayStatus: Number(r.office_gap_blocked) === 1 ? 'BLOCKED' : toDisplayStatus({ status: r.status, slotState: normalizedSlotState }),
         id: r.id,

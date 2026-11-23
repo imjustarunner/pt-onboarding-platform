@@ -249,6 +249,7 @@ async function createLockedAppointment({
   replacementOfferId = null,
   resumeReplacementAppointmentId = null,
   deferScheduleNotice = false,
+  acknowledgedGroupSupervision = [],
   sendBookingNotice = true
 } = {}) {
   const aid = Number(agencyId || 0);
@@ -430,6 +431,7 @@ async function createLockedAppointment({
   await assertTutoringStudentWindow(pool,{businessType,clientIds:bookingClients.map(c=>c.id),startAt:start,endAt:end,appointmentId:resuming?.id||null});
   const appt = resuming || await Appointment.create({
     replacementOfferId,
+    acknowledgedGroupSupervision,
     agencyId: aid,
     parentAgencyId,
     businessType,

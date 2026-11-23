@@ -1,4 +1,4 @@
-import { kioskAppointmentSql } from '../utils/officeRoomOccupancy.js';
+import { buildingAppointmentKioskFilter, kioskAppointmentSql } from '../utils/officeRoomOccupancy.js';
 import { beginClientSubmission, submissionTokenHash } from './officeClientSubmissions.service.js';
 import pool from '../config/database.js';
 import NotificationDispatcher from './notificationDispatcher.service.js';
@@ -21,7 +21,16 @@ export async function recordOfficeKioskCheckin({ locationId, eventId, providerId
   let alreadyCheckedIn = false;
   try {
     await conn.beginTransaction();
-    const [rows] = await conn.execute(
+    const buildingOnly = eventId < 0;
+    const [rows] = buildingOnly ? await conn.execute(`SELECT -CAST(ap.id AS SIGNED) AS id, ap.id AS appointment_id,
+      ap.office_location_id, ap.provider_user_id AS booked_provider_id, ap.agency_id AS appointment_agency_id,
+      ap.start_at, ap.end_at, 'BOOKED' AS status, l.name AS location_name, l.timezone, l.agency_id,
+      u.role, u.sees_clients, p.public_details_json AS service_details
+      FROM appointments ap JOIN office_locations l ON l.id=ap.office_location_id
+      JOIN users u ON u.id=ap.provider_user_id AND u.is_active=1 AND u.status='ACTIVE_EMPLOYEE'
+        AND u.terminated_at IS NULL AND COALESCE(u.is_archived,0)=0 AND COALESCE(u.is_demo,0)=0
+      LEFT JOIN provider_public_profiles p ON p.user_id=u.id
+      WHERE ${buildingAppointmentKioskFilter} AND ap.id=? AND ap.office_location_id=? FOR UPDATE`, [-eventId,locationId]) : await conn.execute(
       `SELECT e.id, e.office_location_id, e.room_id, (CASE WHEN e.status='BOOKED' OR e.slot_state='ASSIGNED_BOOKED' THEN COALESCE(e.booked_provider_id,e.assigned_provider_id) ELSE e.assigned_provider_id END) AS booked_provider_id, e.status, e.slot_state,
               ap.start_at, ap.end_at, ap.id AS appointment_id, e.client_id, e.clinical_session_id, ol.name AS location_name, ol.timezone, ol.agency_id,
               r.name AS room_name, r.room_number, u.email, u.work_email, u.role, u.sees_clients, p.public_details_json service_details,
@@ -74,12 +83,14 @@ export async function recordOfficeKioskCheckin({ locationId, eventId, providerId
     const slotStart=event.start_at.toISOString().slice(0,19).replace('T',' ');
     // During a rolling release an older instance can still write a null slot.
     // Adopt that arrival only for its original appointment, never a later hour.
-    await conn.execute('UPDATE office_event_checkins SET slot_start_at = ? WHERE event_id = ? AND slot_start_at IS NULL',[originalStart,eventId]);
+    if (!buildingOnly) await conn.execute('UPDATE office_event_checkins SET slot_start_at = ? WHERE event_id = ? AND slot_start_at IS NULL',[originalStart,eventId]);
     const [existing] = await conn.execute('SELECT id FROM office_event_checkins WHERE office_location_id = ? AND provider_id = ? AND slot_start_at = ?', [locationId,event.booked_provider_id,slotStart]);
     let checkinId = existing[0]?.id;
     alreadyCheckedIn = !!checkinId;
     if (!checkinId) {
-      const [insert] = await conn.execute(
+      const [insert] = buildingOnly ? await conn.execute(
+        `INSERT INTO office_event_checkins (appointment_id, office_location_id, provider_id, slot_start_at)
+         VALUES (?,?,?,?)`, [event.appointment_id, locationId, event.booked_provider_id, slotStart]) : await conn.execute(
         `INSERT INTO office_event_checkins (event_id, office_location_id, room_id, provider_id,slot_start_at)
          VALUES (?, ?, ?, ?,?)`, [eventId, locationId, event.room_id, event.booked_provider_id,slotStart]);
       checkinId = insert.insertId;
@@ -93,7 +104,7 @@ export async function recordOfficeKioskCheckin({ locationId, eventId, providerId
         hour: 'numeric', minute: '2-digit', timeZone: timezone, timeZoneName: 'short'
       });
       const room = event.room_number ? `Office ${event.room_number}` : event.room_name;
-      const message = `Your ${time} appointment has checked in at ${event.location_name}, ${room}. Your client is waiting in the lobby.${submissionKey ? ' Review this arrival in Clients → Recurring check-ins.' : ''}`;
+      const message = `Your ${time} appointment has checked in at ${event.location_name}${room ? `, ${room}` : ''}. Your client is waiting in the lobby.${submissionKey && !buildingOnly ? ' Review this arrival in Clients → Recurring check-ins.' : ''}`;
       const [insert] = await conn.execute(
         `INSERT INTO notifications (type, severity, title, message, user_id, agency_id,
           related_entity_type, related_entity_id, actor_source)
@@ -107,13 +118,13 @@ export async function recordOfficeKioskCheckin({ locationId, eventId, providerId
         [notification.id, notification.user_id, notification.agency_id]);
     }
     let resumeOwnReceipt = false;
-    if (submissionKey && alreadyCheckedIn) {
+    if (!buildingOnly && submissionKey && alreadyCheckedIn) {
       const [receipts] = await conn.execute('SELECT id FROM office_client_checkin_submissions WHERE token_hash=? AND event_id=? AND scheduled_start_at=?', [submissionTokenHash(submissionKey),eventId,slotStart]);
       resumeOwnReceipt = receipts.length > 0;
     }
     // A new browser cannot create another questionnaire receipt for an arrival
     // that already exists. Only the original opaque receipt can be resumed.
-    if (submissionKey && (!alreadyCheckedIn || resumeOwnReceipt)) {
+    if (!buildingOnly && submissionKey && (!alreadyCheckedIn || resumeOwnReceipt)) {
       const agencyId = notification?.agency_id || alerts[0]?.agency_id;
       if (!agencyId) throw reject(409,'Your provider’s office setup needs attention.');
       submission = await beginClientSubmission(conn,event,Number(agencyId),submissionKey,respondentType,serviceType);

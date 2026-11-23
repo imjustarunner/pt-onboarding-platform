@@ -6,7 +6,9 @@ const props = defineProps({
   providerId: { type: Number, required: true },
   date: { type: String, required: true },
   timeZone: { type: String, default: 'America/Denver' },
-  agencyIds: { type: Array, default: () => [] }
+  agencyIds: { type: Array, default: () => [] },
+  schoolId: Number,
+  schoolName: String
 });
 const emit = defineEmits(['close']);
 
@@ -28,7 +30,7 @@ async function load() {
   try {
     for (const agencyId of agencies) {
       const { data } = await api.get(`/users/${props.providerId}/day-note`, {
-        params: { agencyId, date: props.date, timeZone: props.timeZone },
+        params: { agencyId, date: props.date, timeZone: props.timeZone, schoolId: props.schoolId || undefined },
         skipGlobalLoading: true
       });
       if (data.fromEmail) senders.add(data.fromEmail);
@@ -64,6 +66,7 @@ async function send() {
           agencyId,
           date: props.date,
           timeZone: props.timeZone,
+          schoolId: props.schoolId || undefined,
           subject: subject.value,
           text: text.value
         }, { skipGlobalLoading: true });
@@ -98,7 +101,7 @@ onMounted(load);
   <div class="modal-backdrop modal-backdrop--request" @click.self="emit('close')">
     <div class="modal day-note" role="dialog" aria-modal="true" aria-labelledby="day-note-title">
       <div class="modal-head">
-        <h3 id="day-note-title">Email this day</h3>
+        <h3 id="day-note-title">{{ schoolName ? `Family update · ${schoolName}` : 'Email this day' }}</h3>
         <button class="btn btn-secondary" type="button" @click="emit('close')">Close</button>
       </div>
       <p v-if="loading">Loading the people on this day…</p>

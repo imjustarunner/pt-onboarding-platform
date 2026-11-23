@@ -254,7 +254,7 @@
                 :disabled="disabled"
                 @click="emit('request-office')"
               >
-                Request a room
+                {{ modality === 'IN_PERSON' && !multipleRoomPreferences ? 'Find an open room' : 'Request a room' }}
               </button>
             </template>
             <template v-else>
@@ -617,7 +617,7 @@
         <h4 class="ahf-section-title">Notes</h4>
       </header>
       <details class="ahf-hint" data-testid="scheduling-notes-visibility"><summary>Who can see these notes?</summary>
-        <p>Saved with the appointment or office request for staff with scheduling access. Synced calendar details can include these notes, including for people who can view that calendar. The family appointment list does not display this field. {{learning?'Tutoring session notes and family updates are written in the Learning workspace, with their own sharing controls.':'Write treatment details in the session’s clinical note.'}}</p>
+        <p>Saved with the appointment or office request for staff with scheduling access. Client appointment notes are available to staff in AuricWell. {{learning?'Tutoring session notes and family updates are written in the Learning workspace, with their own sharing controls.':'Write treatment details in the session’s clinical note.'}}</p>
       </details>
       <div class="ahf-notes-wrap">
         <textarea
@@ -931,7 +931,7 @@ const officeRoomHelpText = computed(() => {
   if (String(props.modality || '') === 'TELEHEALTH') {
     return 'Reserve a room if you’re taking the session from the office.';
   }
-  return 'Request a room for this appointment or series. In-person sessions use the booked room as the session location.';
+  return 'Choose a room or book at this building and link a room later.';
 });
 
 const pad2 = (n) => String(Math.max(0, Number(n) || 0)).padStart(2, '0');

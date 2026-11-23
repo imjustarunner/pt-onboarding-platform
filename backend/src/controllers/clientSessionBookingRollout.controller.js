@@ -1,6 +1,6 @@
 import ClinicalEligibilityService from '../services/clinicalEligibility.service.js';
 import { clientSessionBookingAccess, readClientSessionBookingRollout, sessionBookingProviders, saveClientSessionBookingRollout } from '../services/clientSessionBookingRollout.service.js';
-import { assignmentServicesForProviders } from '../services/providerServiceOfferings.service.js';
+import { readProviderServices } from '../services/providerServiceOfferings.service.js';
 const managers = new Set(['admin', 'super_admin']);
 async function scope(req, manage = false) {
   const agencyId = Number(req.body?.agencyId || req.query?.agencyId);
@@ -24,8 +24,9 @@ export async function getClientSessionBookingAccess(req, res, next) {
     // This response contains only a booking capability, never private provider data.
     const access = await clientSessionBookingAccess(agencyId, providerUserId, undefined, {businessType:req.query.businessType,actorUserId:req.user.id});
     if (req.query.includeOfferings === '1') {
-      const offerings = await assignmentServicesForProviders(agencyId, [providerUserId]);
-      access.serviceOfferings = offerings.get(providerUserId) || [];
+      const offerings = await readProviderServices(providerUserId, agencyId);
+      access.serviceOfferings = offerings.services.filter(service => service.offered).map(service => service.serviceType);
+      access.enabledPublicationServices = offerings.services.map(service => service.serviceType);
     }
     res.json(access);
   } catch (error) { next(error); }

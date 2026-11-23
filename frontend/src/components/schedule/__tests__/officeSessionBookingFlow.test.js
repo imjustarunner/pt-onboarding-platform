@@ -133,7 +133,7 @@ it('keeps appointment cadence separate and detects dates outside a biweekly rese
   mocks.post.mockResolvedValueOnce({data:{kind:'booking_job',job}});
   await s.submitRequest();
   expect(s.modalError).toBe('');
-  expect(s.showRequestModal).toBe(false);expect(track).toHaveBeenCalledWith(job,{restore:true});
+  expect(s.showRequestModal).toBe(false);expect(track).toHaveBeenCalledWith(job,{restore:true,clientLabel:'Client 81'});
   expect(mocks.get.mock.calls.some(([url])=>url.includes('/booking-jobs/job-26'))).toBe(false);
   expect(mocks.post).toHaveBeenCalledWith('/office-schedule/booking-requests', expect.objectContaining({
     agencyId: 2, clientId: 81, modality: 'IN_PERSON', serviceLocationId: 51,

@@ -18,6 +18,17 @@
         </div>
       </header>
 
+      <section class="cc-contact" aria-label="Primary contact">
+        <div>
+          <h4>{{ contactRole }}</h4>
+          <strong>{{ guardianName || (guardianLoading ? 'Loading contact…' : guardianError ? 'Contact information unavailable' : 'No contact on file') }}</strong>
+        </div>
+        <dl>
+          <div><dt>Phone</dt><dd><a v-if="contactPhone" :href="`tel:${contactPhone.replace(/[^+0-9]/g, '')}`">{{ contactPhone }}</a><span v-else>No phone on file</span></dd></div>
+          <div><dt>Email</dt><dd><a v-if="contactEmail" :href="`mailto:${contactEmail}`">{{ contactEmail }}</a><span v-else>No email on file</span></dd></div>
+        </dl>
+      </section>
+
       <section v-if="canLoadEssentials" aria-label="Client essentials">
         <p v-if="essentialsLoading" class="muted" role="status">Loading overview…</p>
         <p v-else-if="!essentials" class="muted">Client essentials are unavailable. <button type="button" class="cdp-text-link" @click="loadEssentials">Retry</button></p>
@@ -43,7 +54,7 @@
       </div>
 
       <details class="cc-overview-details">
-        <summary>Care activity, documents and contacts</summary>
+        <summary>Care activity, documents and team</summary>
         <slot v-if="canLoadEssentials" name="clinical-summary" />
         <ClientSupplementaryRecords v-if="canViewPrivateChart && client?.agency_id" :client-id="clientId" :agency-id="client.agency_id" :refresh-key="client" :linked-guardians="linkedGuardians" />
         <FamilyWelcomeWorkflowCard :agency-id="client?.agency_id" :client-id="clientId" />
@@ -81,13 +92,8 @@
       </section>
 
       <section>
-        <h3 class="cc-hub-section__title">Contacts &amp; relationships</h3>
+        <h3 class="cc-hub-section__title">Care team and organization</h3>
         <div class="cdp-contacts-grid">
-          <article class="cdp-contact-card">
-            <div class="cdp-contact-card__role">{{ contactRole }}</div>
-            <div class="cdp-contact-card__name">{{ guardianName || (guardianLoading ? 'Loading guardian…' : guardianError ? 'Guardian information unavailable' : 'No contact on file') }}</div>
-            <div class="cdp-glance-meta">{{ guardianMeta || '—' }}</div>
-          </article>
           <article class="cdp-contact-card">
             <div class="cdp-contact-card__role">Primary clinician</div>
             <button v-if="canEdit && glanceItems.some(item => item.assignable)" type="button" class="cdp-contact-card__name cc-provider-assign" @click="$emit('assign-provider')">{{ careTeamLabel }}</button>
@@ -151,7 +157,8 @@ const props = defineProps({
   guardianError: String,
   linkedGuardians: { type: Array, default: () => [] },
   contactRole: { type: String, default: 'Guardian' },
-  guardianMeta: { type: String, default: '' },
+  contactEmail: String,
+  contactPhone: String,
   organizationName: { type: String, default: '' }
 });
 
@@ -248,6 +255,11 @@ watch(() => props.clientId, loadDocs);
 
 <style scoped>
 .cc-hub--overview-only { grid-template-columns: minmax(0, 1fr); }
+.cc-contact { display:flex; align-items:flex-start; flex-wrap:wrap; gap:12px 32px; padding:14px 16px; border:1px solid var(--border,#dce4ee); border-radius:12px; }
+.cc-contact h4, .cc-contact dl { margin:0; }
+.cc-contact h4, .cc-contact dt { font-size:.825rem; color:var(--text-secondary,#52647a); margin-bottom:3px; }
+.cc-contact dl { display:flex; flex-wrap:wrap; gap:10px 28px; }
+.cc-contact dd { margin:0; overflow-wrap:anywhere; }
 .cc-essentials { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); margin: 0; border: 1px solid var(--border, #dce4ee); border-radius: 12px; padding: 8px 16px; gap: 4px 18px; }
 .cc-essentials > div { padding: 12px 0; min-width: 0; }
 .cc-essentials dt { font-size: .825rem; color: var(--text-secondary, #52647a); }

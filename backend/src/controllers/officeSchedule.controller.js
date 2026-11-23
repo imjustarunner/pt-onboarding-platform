@@ -23,6 +23,7 @@ import {listPendingOfficeBookingRequests as readPendingOfficeBookingRequests} fr
 import {readPreferredRooms} from '../services/officeRequestPreferences.service.js';
 import { withClientSchedulingLock } from '../services/clientSchedulingGuard.service.js';
 import {officeAvailabilityWindows} from '../services/officeAvailabilityWindow.service.js';
+import { reviewGroupSupervisionOverlap } from '../services/appointmentConflict.service.js';
 import { confirmSameDayServiceWarnings } from '../services/sameDayServiceWarning.service.js';
 import { expandAppointmentRecurrence } from '../utils/appointmentRecurrence.js';
 import { rescheduleStandingAssignment, rescheduleOfficeEvent } from './officeSlotActions.controller.js';
@@ -2712,12 +2713,17 @@ export const createOfficeBookingRequest = async (req, res, next) => {
     if (clientId) await assertAppointmentClients(policyAgencyId, [{ clientId }], {
       providerUserId: requestedProviderId, serviceLocationId: req.body?.serviceLocationId
     });
+    let acknowledgedGroupSupervision = [];
     if (clientId && !req.body?.appointmentId && !req.body?.appointmentSeriesId) {
       const occurrences = expandAppointmentRecurrence({ startAt: `${startAt.replace(' ', 'T')}Z`, endAt: `${endAt.replace(' ', 'T')}Z`,
         recurrence: normalizedRecurrence, occurrenceCount: bookedOccurrenceCount || 1, timeZone: loc.timezone || 'America/Denver' });
       if (!await confirmSameDayServiceWarnings(req,res,{ agencyId: Number(req.body?.agencyId || policyAgencyId),
         tenantServiceId: Number(req.body?.tenantServiceId || 0) || null,
         participants:[{role:'client',clientId}],occurrences,timeZone:loc.timezone || 'America/Denver' })) return;
+      acknowledgedGroupSupervision = await reviewGroupSupervisionOverlap(req, res, {
+        providerId: requestedProviderId, occurrences, timeZone: loc.timezone || 'America/Denver'
+      });
+      if (acknowledgedGroupSupervision === null) return;
     }
     const validatedSelection = {
       ...(await validateSchedulingSelection({ enforceSessionRollout: true, actorUserId: req.user.id,
@@ -2760,7 +2766,7 @@ export const createOfficeBookingRequest = async (req, res, next) => {
       ...validatedSelection, serviceLocationId: rawSelection.serviceLocationId || null, notes,
       tenantServiceId: Number(req.body?.tenantServiceId || 0) || null, packageEntitlementId: Number(req.body?.packageEntitlementId || 0) || null,
       appointmentId: req.body?.appointmentId, appointmentSeriesId: req.body?.appointmentSeriesId,
-      notificationMode, customReminders, sendBookingNotice, billing: individualPrice, othersPresentNames: String(req.body?.othersPresentNames || '').trim().slice(0, 500) || null };
+      notificationMode, customReminders, sendBookingNotice, acknowledgedGroupSupervision, billing: individualPrice, othersPresentNames: String(req.body?.othersPresentNames || '').trim().slice(0, 500) || null };
     const ownedBooking = await (req.body?.asyncOwnedSession === true ? queueOwnedOfficeSession : bookSessionInOwnedOffice)(ownedInput);
     if (ownedBooking) return res.status(ownedBooking.kind === 'booking_job' ? 202 : 201).json(await schedulingResponseForUser(req.user, policyAgencyId, ownedBooking));
     const immediateBooking=await bookImmediateTutoringOffice({...ownedInput,request:req,roomBlock});

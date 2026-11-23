@@ -19,7 +19,9 @@
         <p v-if="afterHoursError" role="alert">{{ afterHoursError }}</p>
         <p v-if="afterHoursSaved" role="status">{{ afterHoursSaved }}</p>
         <form v-if="afterHours" class="abp-after-hours" @submit.prevent="saveAfterHours">
-          <p v-if="!afterHours.eligible">{{ afterHours.reason }}</p>
+          <p v-if="!afterHours.eligible" role="status">{{ afterHours.reason }}</p>
+          <button v-if="!afterHours.eligible" type="button" class="btn btn-secondary btn-sm" :disabled="afterHoursBusy"
+            @click="openAfterHours">Recheck coverage</button>
           <label>Client preference
             <select v-model="afterHoursMode" :disabled="afterHoursBusy" @change="afterHoursAttested = false">
               <option value="off">Off</option>
@@ -31,6 +33,7 @@
             <label>Proposed amount per visit ($)
               <input v-model.number="afterHoursAmount" type="number" min="0.01" max="10000000" step="0.01" required @input="afterHoursAttested = false" />
             </label>
+            <button type="button" class="btn btn-secondary btn-sm" @click="afterHoursAmount = 30; afterHoursAttested = false">Use $30 for this client</button>
             <label class="abp-attestation">
               <input v-model="afterHoursAttested" type="checkbox" required />
               I explained the amount and when it could apply, and the client or authorized guardian confirmed they understood.

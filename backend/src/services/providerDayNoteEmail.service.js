@@ -19,7 +19,7 @@ export function createProviderDayNoteEmail({
   mailboxFor = resolveEmailSendMailbox,
   send = sendEmailFromIdentity
 } = {}) {
-  async function clientsForDay({ agencyId, providerId, date, timeZone = 'America/Denver' }) {
+  async function clientsForDay({ agencyId, providerId, date, timeZone = 'America/Denver', schoolId = null }) {
     const day = String(date || '').slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw fail('Choose a day.');
     const start = wallMysqlToUtcMysql(`${day} 00:00:00`, timeZone);
@@ -31,12 +31,15 @@ export function createProviderDayNoteEmail({
        FROM appointments a
        JOIN appointment_participants p ON p.appointment_id = a.id
        JOIN clients c ON c.id = p.client_id AND c.agency_id = a.agency_id
+       LEFT JOIN agency_service_locations location ON location.id = a.service_location_id AND location.agency_id = a.agency_id
        WHERE a.agency_id = ? AND a.provider_user_id = ? AND a.start_at >= ? AND a.start_at < ?
-         AND UPPER(a.status) NOT IN ('CANCELLED','CANCELED','LATE_CANCELED','LATE_CANCELLED','VOID','VOIDED')`,
-      [agencyId, providerId, start, end]
+         AND UPPER(a.status) NOT IN ('DRAFT','CANCELLED','CANCELED','CANCELED_BY_PROVIDER','CANCELED_BY_CLIENT','CANCELED_BY_GUARDIAN','CANCELED_BY_ORGANIZATION','LATE_CANCELED','LATE_CANCELLED','RESCHEDULED','VOID','VOIDED')
+         ${schoolId ? 'AND location.school_organization_id = ?' : ''}`,
+      [agencyId, providerId, start, end, ...(schoolId ? [schoolId] : [])]
     );
     const people = new Map();
     for (const row of soft || []) {
+      if (schoolId && Number(row.school_id) !== schoolId) continue;
       const clientId = Number(row.client_id);
       if (clientId) people.set(clientId, { clientId, clientName: row.client_name || row.client_initials || `Client #${clientId}`, source: 'school' });
     }
@@ -55,12 +58,12 @@ export function createProviderDayNoteEmail({
     return { date: String(input.date).slice(0, 10), count: clients.length, clients, fromEmail: mailbox?.fromEmail || null };
   }
 
-  async function sendNote({ agencyId, providerId, actorUserId, date, timeZone, subject, text }) {
+  async function sendNote({ agencyId, providerId, actorUserId, date, timeZone, schoolId, subject, text }) {
     const title = String(subject || '').trim();
     const body = String(text || '').trim();
     if (!title || title.length > 200 || /[\r\n]/.test(title)) throw fail('Write a subject of up to 200 characters.');
     if (!body || body.length > 4000) throw fail('Write a message of up to 4,000 characters.');
-    const clients = await clientsForDay({ agencyId, providerId, date, timeZone });
+    const clients = await clientsForDay({ agencyId, providerId, date, timeZone, schoolId });
     if (!clients.length) throw fail('No clients are on this day.', 404);
     const mailbox = await mailboxFor({ agencyId, userId: actorUserId });
     if (!mailbox?.identity?.id) throw fail('Configure your work mailbox before sending email.');

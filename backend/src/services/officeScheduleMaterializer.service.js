@@ -352,9 +352,11 @@ export class OfficeScheduleMaterializer {
           if ((existingEvents || []).some((ev) => {
             let context = ev.session_context_json || {};
             if (typeof context === 'string') { try { context = JSON.parse(context); } catch { context = {}; } }
-            return ev.client_id && String(ev.status).toUpperCase() === 'BOOKED'
-              && (context.appointmentId || context.appointmentSeriesId || !ev.standing_assignment_id)
-              && Number(ev.room_id) === Number(a.room_id)
+            const appVisit = ev.client_id && String(ev.status).toUpperCase() === 'BOOKED'
+              && (context.appointmentId || context.appointmentSeriesId || !ev.standing_assignment_id);
+            const segment = context.reservationSegment && String(ev.status).toUpperCase() !== 'CANCELLED'
+              && Number(ev.standing_assignment_id) === Number(a.id);
+            return (appVisit || segment) && Number(ev.room_id) === Number(a.room_id)
               && normalizeDateTime(ev.start_at) < endAt && normalizeDateTime(ev.end_at) > startAt;
           })) continue;
           const slotKey = `${Number(a.room_id || 0)}|${startAt}|${endAt}`;

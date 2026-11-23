@@ -67,7 +67,7 @@
         <PayerEftPanel v-if="['payers', 'payments'].includes(section) && scopedOrganization" :key="`eft-${scopeId}`" :agency-id="scopedOrganization.id" @updated="reload" />
         <ClaimMdWorkspace v-if="section === 'payers' && scopedOrganization" ref="payerTools" :key="`payers-${scopeId}`" :agency-id="scopedOrganization.id" :connection="scopedOrganization.connection || {}" section="payers" @updated="reload" @manage-billing-offices="setSection('settings')" />
 
-        <template v-if="section === 'payments'"><BankFeedPanel v-if="scopedOrganization && ['admin', 'super_admin'].includes(authStore.user?.role)" :key="`bank-${scopeId}`" :agency-id="scopedOrganization.id" :agency-name="scopedOrganization.name" />
+        <template v-if="section === 'payments'"><AppointmentWaiverReviewQueue :agency-ids="scopedOrganization ? [scopedOrganization.id] : organizations.map(org => org.id)" /><BankFeedPanel v-if="scopedOrganization && ['admin', 'super_admin'].includes(authStore.user?.role)" :key="`bank-${scopeId}`" :agency-id="scopedOrganization.id" :agency-name="scopedOrganization.name" />
           <RemittanceWorkspace v-if="scopedOrganization" :key="`era-${scopeId}`" :agency-id="scopedOrganization.id" :agency-name="scopedOrganization.name" />
           <section v-else class="panel empty-state"><h2>Select an organization</h2><p>Select a company above to import and reconcile its remittances and patient balances.</p></section>
         </template>
@@ -131,6 +131,7 @@ import InsuranceCardTasks from '../../components/billing/InsuranceCardTasks.vue'
 import CallBillingQueue from '../../components/admin/CallBillingQueue.vue';
 import PlannedBillingServices from '../../components/admin/PlannedBillingServices.vue';
 import RemittanceWorkspace from '../../components/billing/RemittanceWorkspace.vue';
+import AppointmentWaiverReviewQueue from '../../components/schedule/AppointmentWaiverReviewQueue.vue';
 import BankFeedPanel from '../../components/billing/BankFeedPanel.vue';
 import PayerEftPanel from '../../components/billing/PayerEftPanel.vue';
 import BillingCostPlanner from '../../components/billing/BillingCostPlanner.vue';

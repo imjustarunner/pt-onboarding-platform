@@ -13,6 +13,7 @@ beforeEach(() => {
   existing = []; alert = []; failNotification = false;
   mocks.channel.mockResolvedValue(false);
   mocks.execute.mockImplementation(async (sql) => {
+    if (sql.includes('FROM appointments ap JOIN office_locations')) return [[event].filter(Boolean)];
     if (sql.includes('FROM office_events')) return [[event].filter(Boolean)];
     if (sql.includes('SELECT id FROM office_event_checkins')) return [existing];
     if (sql.includes('SELECT id, agency_id FROM notifications')) return [alert];
@@ -128,4 +129,15 @@ it('does not create another feedback receipt when a different visitor retries an
  const result=await recordOfficeKioskCheckin({locationId:3,eventId:9,providerId:7,submissionKey:'1ccab28e-45d3-4409-9cef-083bdd1905cd',respondentType:'adult_self'});
  expect(result.alreadyCheckedIn).toBe(true);expect(result.submission).toBeUndefined();expect(mocks.execute.mock.calls.some(([sql])=>sql.includes('INSERT'))).toBe(false);
  expect(mocks.execute.mock.calls.find(([sql])=>sql.includes('SELECT id FROM office_event_checkins'))[1]).toEqual([3,7,'2026-09-30 01:00:00']);
+});
+
+it('records a building-only arrival and provider alert without a room or client profile', async () => {
+  event = {...event,id:-31,room_id:null,room_number:null,appointment_agency_id:2};
+  const result = await recordOfficeKioskCheckin({locationId:3,eventId:-31,providerId:7});
+  expect(result).toMatchObject({ok:true,eventId:-31,notification:{inApp:true}});
+  const write = mocks.execute.mock.calls.find(([sql])=>sql.includes('INSERT INTO office_event_checkins'));
+  expect(write[0]).toContain('(appointment_id, office_location_id, provider_id, slot_start_at)');
+  expect(write[1]).toEqual([31,3,7,'2026-09-30 01:00:00']);
+  expect(mocks.commit).toHaveBeenCalledOnce();
+  expect(mocks.execute.mock.calls.find(([sql])=>sql.includes('INSERT INTO notifications'))[1][0]).toContain('North Office. Your client is waiting');
 });

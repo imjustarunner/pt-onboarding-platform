@@ -1,3 +1,4 @@
+import { keepUnusedReservationSegments } from './officeReservationSegments.service.js';
 import { randomUUID } from 'node:crypto';
 import { shiftedAppointmentWindow } from '../utils/appointmentSeriesMove.js';
 import { pendingOfficeWindows,overlappingRequest } from './officeRoomAllocation.service.js';
@@ -87,21 +88,23 @@ async function moveOfficeOccurrenceInTransaction(conn, { event, newRoomId, start
   requireOwnReservation, actorUserId, detachedGroupId }) {
   const eventId = Number(event.id);
   if (!event || !['BOOKED', 'RELEASED'].includes(event.status)) throw fail('Only active office reservations can be moved');
+  const sameRoomContained = Number(newRoomId) === Number(event.room_id)
+    && utc(startAt) >= utc(event.start_at) && utc(endAt) <= utc(event.end_at);
   if (['COMPLETED', 'NO_SHOW', 'CANCELLED', 'CANCELED'].includes(String(event.status_outcome || '').toUpperCase())) throw fail('Completed and canceled sessions cannot be moved');
   const [appointments] = await conn.execute('SELECT id, status FROM appointments WHERE office_event_id = ? FOR UPDATE', [eventId]);
-  if (appointments.some((a) => !['scheduled', 'confirmed'].includes(a.status))) throw fail('Completed and canceled sessions cannot be moved');
+  if (appointments.some((a) => !['scheduled', 'confirmed', 'client_confirmed'].includes(a.status))) throw fail('Completed and canceled sessions cannot be moved');
   const [notes] = await clinicalPool.execute(`SELECT n.id FROM clinical_notes n JOIN clinical_sessions s ON s.id = n.clinical_session_id
     WHERE s.office_event_id = ? AND n.is_deleted = 0 AND n.provider_signed_at IS NOT NULL LIMIT 1`, [eventId]);
   if (notes.length) throw fail('A signed note is attached to this session. Preserve that record and book a new session.');
   const providerId = Number(event.booked_provider_id || event.assigned_provider_id);
   const localStart=utcToZonedMysqlWall(startAt,timeZone), localEnd=utcToZonedMysqlWall(endAt,timeZone);
-  if(held.some(p=>p.roomId===Number(newRoomId) && overlappingRequest({startDate:localStart.slice(0,10),startHour:Number(localStart.slice(11,13))+Number(localStart.slice(14,16))/60,endHour:Number(localEnd.slice(11,13))+Number(localEnd.slice(14,16))/60,recurrence:'ONCE'},p))) throw fail('The target office is held by a pending request. Resolve that request first.');
+  if(!sameRoomContained && held.some(p=>p.roomId===Number(newRoomId) && overlappingRequest({startDate:localStart.slice(0,10),startHour:Number(localStart.slice(11,13))+Number(localStart.slice(14,16))/60,endHour:Number(localEnd.slice(11,13))+Number(localEnd.slice(14,16))/60,recurrence:'ONCE'},p))) throw fail('The target office is held by a pending request. Resolve that request first.');
   const [roomConflicts] = await conn.execute(`SELECT e.*, EXISTS(SELECT 1 FROM appointments a WHERE a.office_event_id=e.id) AS has_appointment
     FROM office_events e WHERE room_id = ? AND start_at < ? AND end_at > ?
     AND (status IS NULL OR status <> 'CANCELLED') AND e.id <> ? FOR UPDATE`, [newRoomId, endAt, startAt, eventId]);
   const ownAvailability = roomConflicts.filter(e => isOwnEmptyReservation(e, providerId));
   if (roomConflicts.length !== ownAvailability.length) throw fail('This office is occupied or assigned to another provider. Request an available office before moving the session.');
-  if (requireOwnReservation && !ownReservationsCover(ownAvailability, providerId, startAt, endAt)) throw Object.assign(fail('Your room reservation changed. Check the available rooms again.'), { code: 'OFFICE_MOVE_NEEDS_RESERVATION' });
+  if (requireOwnReservation && !sameRoomContained && !ownReservationsCover(ownAvailability, providerId, startAt, endAt)) throw Object.assign(fail('Your room reservation changed. Check the available rooms again.'), { code: 'OFFICE_MOVE_NEEDS_RESERVATION' });
   const [providerConflicts] = await conn.execute(`SELECT id FROM appointments WHERE provider_user_id = ? AND start_at < ? AND end_at > ?
     AND status IN ('scheduled', 'confirmed') AND (office_event_id IS NULL OR office_event_id <> ?) LIMIT 1 FOR UPDATE`, [providerId, endAt, startAt, eventId]);
   if (providerConflicts.length) throw fail('The provider already has a session at that time');
@@ -109,6 +112,19 @@ async function moveOfficeOccurrenceInTransaction(conn, { event, newRoomId, start
     WHERE p.provider_id = ? AND p.start_at < ? AND p.end_at > ? AND p.status = 'ACTIVE'
     AND (a.office_event_id IS NULL OR a.office_event_id <> ?) LIMIT 1 FOR UPDATE`, [providerId, endAt, startAt, eventId]);
   if (calendarConflicts.length) throw fail('The provider has a calendar event at that time');
+  if (sameRoomContained && !roomConflicts.length) {
+    await keepUnusedReservationSegments(conn, event, startAt, endAt, actorUserId);
+    await conn.execute(`UPDATE office_events SET session_context_json=JSON_SET(COALESCE(session_context_json,JSON_OBJECT()),
+      '$.sessionStartAt',?,'$.sessionEndAt',?) WHERE id=?`, [startAt, endAt, eventId]);
+    for (const table of ['provider_virtual_slot_availability', 'provider_in_person_slot_availability']) {
+      await conn.execute(`UPDATE ${table} SET is_active=FALSE WHERE source_event_id=?`, [eventId]);
+    }
+    await conn.execute(`UPDATE provider_schedule_events p JOIN appointments a ON a.provider_schedule_event_id=p.id
+      SET p.start_at=?,p.end_at=?,p.updated_at=CURRENT_TIMESTAMP WHERE a.office_event_id=?`, [startAt, endAt, eventId]);
+    await conn.execute(`UPDATE appointments SET start_at=?,end_at=?,updated_by_user_id=?,updated_at=CURRENT_TIMESTAMP
+      WHERE office_event_id=?`, [startAt, endAt, actorUserId, eventId]);
+    return;
+  }
   for (const available of ownAvailability) {
     // Keep the unused edges of a longer room reservation available.
     for (const [from, to] of [[available.start_at, startAt], [endAt, available.end_at]]) {

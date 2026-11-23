@@ -29,5 +29,5 @@ const tooltip = computed(() => {
   </span>
 </template>
 <style scoped>
-.schedule-day-weather{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:2px 4px;font-size:10px;line-height:1.4;color:#526578;font-weight:400;cursor:help;padding:2px 3px;border-radius:5px;white-space:normal}.schedule-day-weather strong{font-size:11px;color:#233d58}.schedule-day-weather--snow{background:#edf5ff;color:#235e99}.schedule-day-weather:focus-visible{outline:2px solid #2974aa;outline-offset:2px}
+.schedule-day-weather{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:2px 4px;font-size:10px;line-height:1.4;color:#526578;font-weight:400;cursor:default;padding:2px 3px;border-radius:5px;white-space:normal}.schedule-day-weather strong{font-size:11px;color:#233d58}.schedule-day-weather--snow{background:#edf5ff;color:#235e99}.schedule-day-weather:focus-visible{outline:2px solid #2974aa;outline-offset:2px}
 </style>
