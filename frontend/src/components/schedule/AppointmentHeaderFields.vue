@@ -111,7 +111,7 @@
     <section v-if="showModality || showLocation || showOfficeRequestCta || officeRequestActive" class="ahf-section">
       <header class="ahf-section-head">
         <span class="ahf-section-icon" aria-hidden="true">📍</span>
-        <h4 class="ahf-section-title">Session type &amp; location</h4>
+        <h4 class="ahf-section-title">{{ showModality || showLocation ? "Session type & location" : "Office request" }}</h4>
       </header>
       <div class="ahf-details ahf-details--section">
         <div v-if="showModality" class="ahf-field ahf-field--modality">
@@ -153,11 +153,11 @@
             <span>An upcoming session is required to create a video link.</span>
           </template>
           <template v-else-if="!['tutoring', 'learning'].includes(appointmentType)">
-            <p v-if="videoRoomMode === 'google_meet'" class="ahf-hint">Create a secure private Google Meet link</p>
+            <p v-if="videoRoomMode === 'google_meet'" class="ahf-hint">Create a unique Google Meet link</p>
             <label v-else class="ahf-booking-notice">
               <input type="checkbox" :checked="videoRoomMode === 'google_meet'" :disabled="disabled"
                 @change="emit('update:videoRoomMode', $event.target.checked ? 'google_meet' : 'none')" />
-              Create a secure private Google Meet link
+              Create a unique Google Meet link
             </label>
             <p v-if="videoRoomMode === 'unique_session'" class="ahf-hint">This appointment uses its existing in-app video link.</p>
             <p v-if="videoRoomMode === 'google_meet' && recurrenceFrequency !== 'ONCE'" class="ahf-hint">Each upcoming session gets its own link.</p>

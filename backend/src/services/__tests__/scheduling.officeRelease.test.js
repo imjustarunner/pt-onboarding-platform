@@ -79,9 +79,10 @@ it('applies a reviewed release once and rejects stale ownership', async () => {
 
 it('opens a dated assignment already marked available but still exclusive to the assignee', async () => {
   event.status = 'RELEASED'; event.slot_state = 'ASSIGNED_AVAILABLE'; event.booked_provider_id = null;
+  event.session_context_json = { roomOccupancy: 'occupied' };
   await releaseOfficeReservation({ ...input, keepAssigned: true, reviewedOccurrence: {
     providerId: 9, standingAssignmentId: 10, startAt: event.start_at, endAt: event.end_at, now: new Date('2099-07-02T15:00:00Z')
   } });
-  expect(conn.execute).toHaveBeenCalledWith(expect.stringContaining("officeCancellationDisposition','release"), [20]);
+  expect(conn.execute).toHaveBeenCalledWith(expect.stringContaining("officeCancellationDisposition','release','$.roomOccupancy','vacant"), [20]);
   expect(conn.execute.mock.calls.some(([sql]) => sql.startsWith('UPDATE office_standing_assignments'))).toBe(false);
 });

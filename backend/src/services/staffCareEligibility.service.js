@@ -2,7 +2,7 @@ import pool from '../config/database.js';
 import { agencyAvailability } from '../utils/providerAgencyAvailability.js';
 import { deriveCredentialTier } from '../utils/clinicalServiceCodeEligibility.js';
 
-const CARE_ROLES = new Set(['provider', 'provider_plus', 'intern', 'intern_plus', 'facilitator', 'qbha', 'supervisor', 'admin', 'super_admin']);
+const CARE_ROLES = new Set(['provider', 'provider_plus', 'intern', 'intern_plus', 'facilitator', 'qbha', 'clinical_practice_assistant', 'supervisor', 'admin', 'super_admin']);
 const enabled = value => [true, 1, '1'].includes(value);
 export const isAdministrativeCareCandidate = person => ['admin', 'super_admin', 'superadmin'].includes(String(person?.role || '').trim().toLowerCase());
 

@@ -7,7 +7,7 @@ import { canonicalAppointmentWindow } from '../utils/canonicalAppointmentWindow.
 // An appointment remains visible if its optional calendar facet failed to save.
 // The negative display ID is never a provider_schedule_events primary key.
 export async function appointmentCalendarFallbacks({ providerId, agencyId, allAgencies = false, windowStart, windowEnd, canEdit = false, canSeePrivateTitle = false, existingEventIds = [], existingOfficeIds = [] }, db = pool) {
-  const [rows] = await db.execute(`SELECT a.id,a.agency_id,a.provider_user_id,a.start_at,a.end_at,a.source_timezone,a.title,a.notes,a.status,a.modality,a.business_type,a.learning_context_json,ls.status AS learning_status,ls.actual_started_at,ls.actual_ended_at,
+  const [rows] = await db.execute(`SELECT a.id,a.agency_id,a.provider_user_id,a.start_at,a.end_at,a.source_timezone,a.title,a.notes,a.status,a.modality,a.audio_only,a.video_room_mode,a.business_type,a.learning_context_json,ls.status AS learning_status,ls.actual_started_at,ls.actual_ended_at,
     a.clinical_session_id,a.service_code,a.tenant_service_id,a.service_location_id,a.office_event_id,a.office_location_id,a.room_id,a.provider_schedule_event_id,
     p.id AS calendar_event_id,p.is_private,p.start_at AS calendar_start_at,p.end_at AS calendar_end_at,
     o.start_at AS office_start_at,o.end_at AS office_end_at,
@@ -43,7 +43,7 @@ export async function appointmentCalendarFallbacks({ providerId, agencyId, allAg
     businessType:a.business_type,
     isMissed: outcome.status==='no_show',
     isCancelled: /^cancel|late_cancel/.test(outcome.status),
-    modality: a.modality, clinicalSessionId: Number(a.clinical_session_id) || null,
+    modality: a.modality, audioOnly: Number(a.audio_only) === 1, videoRoomMode: a.video_room_mode || null, clinicalSessionId: Number(a.clinical_session_id) || null,
     serviceCode: a.service_code || null, tenantServiceId: Number(a.tenant_service_id) || null,
     serviceLocationId: Number(a.service_location_id) || null, clientId: Number(a.client_id) || null,
     officeEventId:Number(a.office_event_id)||null,officeLocationId:Number(a.office_location_id)||null,roomId:Number(a.room_id)||null,

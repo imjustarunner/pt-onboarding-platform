@@ -15,6 +15,7 @@
         </span>
       </div>
     </details>
+    <span class="legend-hint">Req means an office request is pending. Stripes mark a pending request or a provisional item. Unconfirmed means the client hasn’t confirmed the appointment.</span>
     <span class="legend-hint">Change colors in Settings → Appointment colors.</span>
     </div>
   </details>

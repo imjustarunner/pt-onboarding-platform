@@ -408,7 +408,11 @@ export async function findOrCreateFromAppointment(req, res) {
     locked = Number(lock?.acquired) === 1;
     if (!locked) return res.status(409).json({ error: { message: 'This video room is being created; retry the same appointment' } });
     if (appointment.videoRoomMode === 'google_meet') {
-      const meetUrl = await prepareStaffAppointmentMeet(appointment, bookingLock);
+      const allowGuests = req.body?.allowGuests === true;
+      if (allowGuests && Number(req.user.id) !== providerUserId) {
+        return res.status(403).json({ error: { message: 'Only the assigned provider can change guest access.' } });
+      }
+      const meetUrl = await prepareStaffAppointmentMeet(appointment, bookingLock, { allowGuests });
       return res.json({ ok: true, meetingReady: true, ...(Number(req.user.id) === providerUserId ? { meetUrl } : {}) });
     }
     let session = await CounselingSession.findByAppointmentId(appointmentId);

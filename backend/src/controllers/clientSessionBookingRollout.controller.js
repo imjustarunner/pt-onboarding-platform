@@ -1,5 +1,6 @@
 import ClinicalEligibilityService from '../services/clinicalEligibility.service.js';
 import { clientSessionBookingAccess, readClientSessionBookingRollout, sessionBookingProviders, saveClientSessionBookingRollout } from '../services/clientSessionBookingRollout.service.js';
+import { assignmentServicesForProviders } from '../services/providerServiceOfferings.service.js';
 const managers = new Set(['admin', 'super_admin']);
 async function scope(req, manage = false) {
   const agencyId = Number(req.body?.agencyId || req.query?.agencyId);
@@ -21,7 +22,12 @@ export async function getClientSessionBookingAccess(req, res, next) {
     const providerUserId = Number(req.query?.providerUserId || req.user.id);
     if (!Number.isSafeInteger(providerUserId) || providerUserId < 1) return res.status(400).json({ error: { message: 'Choose a provider.' } });
     // This response contains only a booking capability, never private provider data.
-    res.json(await clientSessionBookingAccess(agencyId, providerUserId, undefined, {businessType:req.query.businessType,actorUserId:req.user.id}));
+    const access = await clientSessionBookingAccess(agencyId, providerUserId, undefined, {businessType:req.query.businessType,actorUserId:req.user.id});
+    if (req.query.includeOfferings === '1') {
+      const offerings = await assignmentServicesForProviders(agencyId, [providerUserId]);
+      access.serviceOfferings = offerings.get(providerUserId) || [];
+    }
+    res.json(access);
   } catch (error) { next(error); }
 }
 export async function getClientSessionBookingRollout(req, res, next) {

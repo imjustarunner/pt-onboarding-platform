@@ -3,7 +3,7 @@ import User from '../models/User.model.js';
 import Appointment from '../models/Appointment.model.js';
 import { appointmentHasStarted } from '../utils/appointmentVideoPolicy.js';
 import { googleSpaceConference } from '../utils/googleMeetingConference.js';
-import { createGoogleSession, readGoogleSession, retireGoogleSession } from './auricwell/sessionTransports.js';
+import { allowGoogleSessionGuests, createGoogleSession, readGoogleSession, retireGoogleSession } from './auricwell/sessionTransports.js';
 import { managedDomain } from './managedWorkspaceGroupPolicy.js';
 import { usesGoogleSchedule } from './scheduleCalendarPolicy.service.js';
 
@@ -24,7 +24,7 @@ async function providerMeetOrganizer(providerUserId, agencyId, db) {
 
 // The booking endpoint and a staff retry share the same lock. The retry route
 // can pass its already locked connection.
-export async function prepareStaffAppointmentMeet(appointment, lockedConnection = null) {
+export async function prepareStaffAppointmentMeet(appointment, lockedConnection = null, { allowGuests = false } = {}) {
   const db = lockedConnection || await pool.getConnection();
   const lockName = `counseling_appointment:${appointment.id}`;
   let acquired = false;
@@ -42,12 +42,19 @@ export async function prepareStaffAppointmentMeet(appointment, lockedConnection 
       throw conflict('This appointment cannot open a Google Meet link.');
     }
     const existingUrl = await savedStaffAppointmentMeet(current, db);
-    if (existingUrl) return existingUrl;
+    if (existingUrl) {
+      if (allowGuests) {
+        const organizer = await providerMeetOrganizer(current.providerUserId, current.agencyId, db);
+        if (!organizer) throw conflict('Google Meet is unavailable for this provider’s workspace.');
+        await allowGoogleSessionGuests({ organizer, meetingCode: meetingCode(existingUrl), expectedLink: existingUrl });
+      }
+      return existingUrl;
+    }
     const organizer = await providerMeetOrganizer(current.providerUserId, current.agencyId, db);
     if (!organizer) {
       throw conflict('Google Meet is unavailable for this provider’s workspace.');
     }
-    const room = await createGoogleSession(organizer, { privateAccess: true });
+    const room = await createGoogleSession(organizer, { privateAccess: true, guestAccess: true });
     try {
       const [updated] = await db.execute(
         `UPDATE appointments SET private_meet_url = ?

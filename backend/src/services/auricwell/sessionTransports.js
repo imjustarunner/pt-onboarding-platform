@@ -2,17 +2,18 @@ import { google } from '../../utils/googleApis.js';
 import { buildImpersonatedJwtClient } from '../googleWorkspaceAuth.service.js';
 import { fail } from './policy.js';
 
-export async function createGoogleSession(organizer, { privateAccess = false } = {}) {
+export async function createGoogleSession(organizer, { privateAccess = false, guestAccess = false } = {}) {
   try {
     const auth = await buildImpersonatedJwtClient({ subjectEmail: organizer,
       scopes: ['https://www.googleapis.com/auth/meetings.space.created'] });
+    const accessType = privateAccess && !guestAccess ? 'RESTRICTED' : 'OPEN';
     const { data } = await google.meet({ version: 'v2', auth }).spaces.create({ requestBody: { config: {
-      accessType: privateAccess ? 'RESTRICTED' : 'OPEN', entryPointAccess: 'ALL', moderation: privateAccess ? 'ON' : 'OFF',
+      accessType, entryPointAccess: 'ALL', moderation: privateAccess ? 'ON' : 'OFF',
       artifactConfig: { recordingConfig: { autoRecordingGeneration: 'OFF' },
         transcriptionConfig: { autoTranscriptionGeneration: 'OFF' }, smartNotesConfig: { autoSmartNotesGeneration: 'OFF' } },
     } } }, { timeout: 20000 });
     if (!/^https:\/\/meet\.google\.com\/[a-z]{3}-[a-z]{4}-[a-z]{3}$/.test(data.meetingUri || '')) throw new Error('Invalid meeting response');
-    if (privateAccess && data.config?.accessType !== 'RESTRICTED') throw new Error('Private meeting access was not confirmed');
+    if (privateAccess && data.config?.accessType !== accessType) throw new Error('Meeting access was not confirmed');
     return { spaceName: data.name, url: data.meetingUri, organizer };
   } catch {
     // Do not expose Google's request/config object, credentials, or meeting URLs in logs.
@@ -25,6 +26,21 @@ export async function readGoogleSession({ organizer, meetingCode }) {
   });
   const { data } = await google.meet({ version: 'v2', auth }).spaces.get({ name: `spaces/${meetingCode}` }, { timeout: 10000 });
   return data;
+}
+export async function allowGoogleSessionGuests({ organizer, meetingCode, expectedLink }) {
+  try {
+    const existing = await readGoogleSession({ organizer, meetingCode });
+    if (existing.meetingUri !== expectedLink || !/^spaces\/[a-zA-Z0-9_-]+$/.test(existing.name || '')) throw new Error('Meeting identity changed');
+    if (existing.config?.accessType === 'OPEN') return;
+    const auth = await buildImpersonatedJwtClient({
+      subjectEmail: organizer, scopes: ['https://www.googleapis.com/auth/meetings.space.created']
+    });
+    const { data } = await google.meet({ version: 'v2', auth }).spaces.patch({ name: existing.name,
+      updateMask: 'config.accessType', requestBody: { config: { accessType: 'OPEN' } } }, { timeout: 10000 });
+    if (data.config?.accessType !== 'OPEN') throw new Error('Guest entry was not confirmed');
+  } catch {
+    throw fail(503, 'Guest access could not be enabled. Check the Google Meet host controls.');
+  }
 }
 export async function retireGoogleSession(room) {
   try {

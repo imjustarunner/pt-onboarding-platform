@@ -6,6 +6,7 @@ import { publishOfficeAssignmentEvent } from './officeAssignmentBookingAvailabil
 import { officePlanHasClient, officeYearBoundary, withinOfficeRecordWindow } from '../utils/officeRecordWindow.js';
 import { officeBookingAgencyId } from '../utils/officeBookingAgency.js';
 import pool from '../config/database.js';
+import { officeOccupancy } from '../utils/officeRoomOccupancy.js';
 import { reservationContextAfterClientCancellation, isDetachedOfficeReservation } from '../utils/officeClientCancellation.js';
 import { attachOfficeSchedulingPolicies } from './officeSchedulingPolicy.service.js';
 import OfficeStandingAssignment from '../models/OfficeStandingAssignment.model.js';
@@ -359,7 +360,8 @@ export class OfficeScheduleMaterializer {
           const slotKey = `${Number(a.room_id || 0)}|${startAt}|${endAt}`;
           const existingRows = existingBySlot.get(slotKey) || [];
           // Explicit cancellation choices must not silently reattach the client or rebook a released hour.
-          if (existingRows.some(isDetachedOfficeReservation)) continue;
+          if (existingRows.some(event => isDetachedOfficeReservation(event)
+            || (event.status !== 'CANCELLED' && ['occupied', 'vacant', 'borrowed', 'staff'].includes(officeOccupancy(event))))) continue;
           // Patient bookings are changed by explicit booking/cancellation actions.
           // A plan refresh must never cancel clinical history or bypass package policy.
           if (existingRows.some((ev) => ev.client_id && String(ev.status).toUpperCase() === 'BOOKED')) continue;

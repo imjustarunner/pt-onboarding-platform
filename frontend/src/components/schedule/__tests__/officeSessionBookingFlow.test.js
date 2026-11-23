@@ -500,6 +500,23 @@ it.each([
   expect(mocks.post).toHaveBeenCalledExactlyOnceWith('/office-slots/8/events/40/'+path,payload);
 });
 
+it.each([['vacant','Canceled · Vacant'], ['occupied','Confirmed · Occupied']])('reopens a reservation with the saved %s state', async (usage, label) => {
+  mocks.user={id:7,role:'provider'};
+  wrapper=shallowMount(Grid,{props:{userId:7,agencyId:2},global:{stubs:{Teleport:true,RouterLink:true,ClinicalWorkspaceFrame:{template:'<div><slot /></div>'}}}});
+  await flushPromises();
+  const s=wrapper.vm.$.setupState;
+  s.modalDay='Thursday';s.modalStartHour=10;s.modalEndHour=11;s.modalHour=10;
+  s.modalContext=s.buildModalContext({dayName:'Thursday',hour:10,dateYmd:'2026-11-26',roomId:9,slot:{
+    agencyId:2,officeLocationId:8,officeEventId:40,roomId:9,assignedProviderId:7,
+    standingAssignmentId:19,slotState:'ASSIGNED_AVAILABLE',roomOccupancy:usage
+  }});
+  s.modalActionSource='office_block';s.showRequestModal=true;
+  await nextTick();
+  const card=wrapper.get('[data-testid="selected-office-reservation"]');
+  expect(card.classes()).toContain(`nr-selected-reservation--${usage}`);
+  expect(card.text()).toContain(label);
+});
+
 it('offers one publication action and preselects in-person for an office reservation', async () => {
   wrapper=shallowMount(Grid,{props:{userId:7,agencyId:2},global:{stubs:{Teleport:true,RouterLink:true}}});
   await flushPromises();

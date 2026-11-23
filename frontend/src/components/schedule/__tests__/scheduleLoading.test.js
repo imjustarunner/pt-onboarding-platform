@@ -254,7 +254,7 @@ it('toggles personal reservations independently of available-room counts and rem
   expect(restored.cellBlocks('Monday', 10).map(b => b.kind)).toEqual(expect.arrayContaining(['oa','ob']));
 });
 
-it('keeps usable actions ahead of a preferred but unavailable school action, including under More', async () => {
+it('hides an unavailable school action and restores it to its preferred position when allowed', async () => {
   const state = await mount();
   // This ordering fixture represents a provider whose session rollout is enabled.
   state.clientSessionBookingEnabled = true;
@@ -265,13 +265,12 @@ it('keeps usable actions ahead of a preferred but unavailable school action, inc
   expect(state.displayedChooserActions.map(a => a.id)).toEqual(expect.arrayContaining(['schedule_hold', 'personal_event']));
   expect(state.displayedChooserActions.every(a => !a.disabledReason)).toBe(true);
   expect(state.displayedChooserActions[0].id).toBe('schedule_hold');
-  expect(state.moreQuickActions.find(a => a.id === 'school')).toBeTruthy();
+  expect(state.moreQuickActions.some(a => a.id === 'school')).toBe(false);
   state.showMoreSlotActions = true;
   await flushPromises();
   const expanded = state.displayedChooserActions;
-  const firstDisabled = expanded.findIndex(a => a.disabledReason);
-  expect(firstDisabled).toBeGreaterThan(0);
-  expect(expanded.slice(firstDisabled).every(a => a.disabledReason)).toBe(true);
+  expect(expanded.every(a => !a.disabledReason)).toBe(true);
+  expect(expanded.some(a => a.id === 'school')).toBe(false);
   // Changing the selected time makes the action usable again and restores its preferred position.
   state.modalEndHour = 17;
   await flushPromises();
@@ -384,19 +383,32 @@ it('keeps a one-time room request unsent when the user cancels confirmation', as
  } finally { confirm.mockRestore(); }
 });
 
-it('keeps Book Session coming soon visible in the primary chooser and leaves nonclinical actions enabled', async () => {
+it('hides Book Session until rollout and keeps nonclinical actions available', async () => {
   const state=await mount();await wrapper.setProps({agencyId:2});await flushPromises();
   state.showRequestModal=true;state.modalActionSource='plus_or_blank';
   await flushPromises();
   const book=state.displayedChooserActions.find(action=>action.id==='individual_session');
-  expect(book).toMatchObject({label:'Book Session · Coming soon'});expect(book.disabledReason).toBeTruthy();
+  expect(book).toBeUndefined();
   for(const id of ['portal_intake','office_request_only','supervision'])expect(state.availableQuickActions.find(action=>action.id===id).disabledReason).toBe('');
-  const button=wrapper.findAll('button').find(button=>button.text().includes('Book session · Coming soon'));
-  expect(button?.attributes('disabled')).toBeDefined();
+  expect(wrapper.text()).not.toContain('Book session · Coming soon');
   state.onQuickActionSelect({id:'individual_session',disabledReason:''});expect(state.requestType).toBe('');
   state.openAppointmentEditor({mode:'create',kind:'group_session'});expect(state.requestType).toBe('');
 });
 
+it('preselects the next quarter hour in the agency timezone even before seven', async () => {
+  vi.setSystemTime(new Date('2026-10-13T10:08:00Z'));
+  const original = m.get.getMockImplementation();
+  m.get.mockImplementation(async (url, options) => url === '/appointments/booking-access'
+    ? { data: { enabled: true, serviceOfferings: ['counseling'] } } : original(url, options));
+  const state = await mount();
+  await wrapper.setProps({ agencyId: 2 });
+  await flushPromises();
+  state.openUnifiedBookingPanel();
+  await flushPromises();
+  expect(state.modalStartHour).toBe(4);
+  expect(state.modalStartMinute).toBe(15);
+  expect(state.showAllHours).toBe(true);
+});
 it('resolves a client-session deep link to the chooser when rollout is disabled', async () => {
   const state=await mount();await wrapper.setProps({agencyId:2});await flushPromises();
   await state.openSlotActionModal({dayName:'Tuesday',hour:10,dateYmd:'2026-10-13',initialRequestType:'individual_session',preserveSelectionRange:false});
@@ -418,7 +430,7 @@ it('uses the chosen action agency and provider, and ignores an earlier provider�
   state.bookingTargetUserId=8;expect(state.clientSessionBookingEnabled).toBe(false);await flushPromises();
   resolveOld({data:{enabled:true}});await flushPromises();expect(state.clientSessionBookingEnabled).toBe(false);
   state.selectedActionAgencyId=3;await flushPromises();
-  expect(m.get).toHaveBeenCalledWith('/appointments/booking-access',expect.objectContaining({params:{agencyId:3,providerUserId:8,businessType:'any'}}));
+  expect(m.get).toHaveBeenCalledWith('/appointments/booking-access',expect.objectContaining({params:{agencyId:3,providerUserId:8,businessType:'any',includeOfferings:'1'}}));
   expect(state.clientSessionBookingEnabled).toBe(true);
   state.bookingTargetUserId=9;expect(state.clientSessionBookingEnabled).toBe(false);await flushPromises();
 });

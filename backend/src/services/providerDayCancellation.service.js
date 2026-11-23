@@ -240,7 +240,8 @@ export function createDayCancellationService(overrides = {}) {
           WHERE COALESCE(e.booked_provider_id,e.assigned_provider_id)=?
             AND (e.status='BOOKED' OR (e.status='RELEASED' AND e.slot_state='ASSIGNED_AVAILABLE'
               AND e.standing_assignment_id IS NOT NULL AND e.booked_provider_id IS NULL
-              AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(e.session_context_json,'$.officeCancellationDisposition')),'')<>'release'))
+              AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(e.session_context_json,'$.roomOccupancy')),
+                IF(JSON_UNQUOTE(JSON_EXTRACT(e.session_context_json,'$.officeCancellationDisposition'))='release','vacant',''))<>'vacant'))
             AND e.start_at>=? AND e.end_at<=? AND e.start_at>?
             AND COALESCE(NULLIF(CAST(JSON_UNQUOTE(JSON_EXTRACT(e.session_context_json,'$.agencyId')) AS UNSIGNED),0),sa.booking_agency_id,l.agency_id)=?
             AND e.client_id IS NULL AND e.clinical_session_id IS NULL AND e.billing_context_id IS NULL AND e.note_context_id IS NULL

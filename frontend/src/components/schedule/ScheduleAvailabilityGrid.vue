@@ -149,7 +149,7 @@
               @click="openUnifiedBookingPanel()"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
-              {{ clientSessionBookingEnabled ? 'Book session' : 'Book session · Coming soon' }}
+              Book session
             </button>
             <button
               v-if="Number(effectiveAgencyId || 0) > 0 && !tutoringWorkspaceOnly"
@@ -268,14 +268,14 @@
             </svg>
           </button>
           <button
-            v-if="Number(effectiveAgencyId || 0) > 0"
+            v-if="Number(effectiveAgencyId || 0) > 0 && clientSessionBookingEnabled"
             class="sched-nav-btn"
             type="button"
-            title="Book a session with a client using unified tenant booking"
+            title="Book a session with a client"
             :disabled="loading || !effectiveAgencyId || !clientSessionBookingEnabled"
             @click="openUnifiedBookingPanel()"
           >
-            {{ clientSessionBookingEnabled ? 'Book session' : 'Book session · Coming soon' }}
+            Book session
           </button>
           <button
             v-if="Number(effectiveAgencyId || 0) > 0 && !tutoringWorkspaceOnly"
@@ -1108,6 +1108,7 @@
                   {{ agendaItemTitle(item) }}
                 </button>
               </div>
+              <div v-if="item.videoVisit" class="sched-agenda__meta"><span class="schedule-video-badge">Video</span> <button v-if="canJoinScheduleVideo(item)" type="button" class="btn btn-secondary btn-sm" @click.stop="joinScheduleVideo(item, agendaDayName, item.hour)">Join video</button></div>
               <div v-if="item.isOfficeBlock" class="sched-agenda__meta">{{ item.officeStatusLabel }}</div>
               <div v-else-if="item.kind === 'peerbusy'" class="sched-agenda__meta muted">Peer busy</div>
               <div v-else-if="item.schedulingNoteSnippet" class="sched-agenda__meta muted">{{ item.schedulingNoteSnippet }}</div>
@@ -1218,6 +1219,7 @@
                 <span v-if="staffAlertForBlock(b)" class="cell-staff-alert cell-staff-alert--inline" role="img" :aria-label="staffAlertFaceLabel(b)" :title="staffAlertFaceLabel(b)">⚑</span>
                 <div class="sched-day-card__body">
                   <div class="sched-day-card__title">
+                    <span v-if="b.videoVisit" class="schedule-video-badge">Video</span>
                     <span v-if="b.recurrenceSeriesId" role="img" aria-label="Recurring appointment">↻ </span>
                     <template v-if="b.kind === 'supv-signup'">
                       <span class="cell-block-signup-headline">OPEN GROUP SUPERVISION</span>
@@ -1251,6 +1253,7 @@
                   </div>
                 </div>
               </button>
+              <button v-if="canJoinScheduleVideo(b)" class="btn btn-secondary btn-sm" type="button" @click.stop="joinScheduleVideo(b, mobileTimelineDay, h)">Join video</button>
               <ScheduleQuickRsvp v-if="showQuickRsvp(b)" :event="b" @saved="onQuickRsvpSaved" />
               <SecureSessionCommentButton v-if="b.appointmentId && canUseSessionComments(authStore.user?.role)" class="sched-day-comment-shortcut" icon-only :appointment-id="b.appointmentId" :client-id="parseClientIdFromScheduleEvent(b)" />
               </div>
@@ -1580,6 +1583,7 @@
                 </span>
                 <span v-else-if="b.shortLabel && b.kind !== 'peerbusy'" class="cell-block-text">
                   <span v-if="b.viewerIsPresenter" class="cell-block-presenter-badge">PRESENTER</span>
+                  <span v-if="b.videoVisit" class="schedule-video-badge">Video</span>
                   <span
                     v-if="b.confirmationState === 'confirmed'"
                     class="cell-block-confirm-chip cell-block-confirm-chip--ok"
@@ -1903,13 +1907,16 @@
               :service-label="editorInfoServiceLabel"
               :location-label="editorInfoLocationLabel"
               :room-label="editorRoomLabel"
-              :virtual-link="editorVirtualLink || editorMeetLink"
+              :virtual-link="editorMeetLink || editorVirtualLink"
               :notes="editorInfoNotes"
               :show-notes="!editorIsSupervision"
               :show-virtual-link="!(editorIsMeeting && isAppointmentEditMode) && (!!editorVirtualLink || !!editorMeetLink)"
               :compact-virtual-link="editorIsSupervision || editorIsMeeting"
+              :copy-meeting-link="!!editorMeetLink && editorIsClinical && Number(editorAppointmentBaseline?.providerUserId) === Number(authStore.user?.id)"
+              :allow-guest-access="!!editorMeetLink && editorAppointmentBaseline?.videoRoomMode === 'google_meet' && Number(editorAppointmentBaseline?.providerUserId) === Number(authStore.user?.id) && Number(parseScheduleInstant(editorAppointmentBaseline?.endAt)) > Date.now()"
+              @allow-guests="enableAppointmentGuestAccess"
               :show-join-quick="false"
-              :join-busy="supvMeetOpening || supvAppVideoLoading"
+              :join-busy="supvMeetOpening || supvAppVideoLoading || editorPreparingMeet"
               :show-note-quick="editorIsSupervision"
               :show-edit-action="!editorOutcomeReadOnly && !isSelectedSupvReadOnlyView && (!editorIsSupervision || canSaveSelectedSupvSession)"
               :note-quick-label="isSelectedSupvPresenterView ? 'Presenter prep notes' : 'Supervision note'"
@@ -1987,7 +1994,7 @@
             class="nr-selected-reservation" aria-label="Room reservation for this session">
             <strong>{{ selectedOfficeReservationPlaceLabel }}</strong>
             <span>Reservation repeats {{ roomReservationFrequencyLabel.toLowerCase() }}. Set how often the appointment repeats below.</span>
-            <p v-if="uncoveredReservationDates.length" role="status">
+            <p v-if="uncoveredReservationDates.length">
               Your reservation does not cover {{ uncoveredReservationDates.slice(0, 3).map(formatEditorDisplayDate).join(', ') }}{{ uncoveredReservationDates.length > 3 ? ` and ${uncoveredReservationDates.length - 3} more dates` : '' }}.
               Choose dates that fit this reservation or request room time for the other dates separately.
             </p>
@@ -2053,14 +2060,14 @@
           :occurrence-count-label="editorOccurrenceCountLabel"
           :show-type="false"
           :show-status="!editorIsOpenSlot && !editorIsMeeting && !editorIsSupervision && (isAppointmentEditMode || isScheduleEventEditMode)"
-          :show-location="editorShowLocation && (!editorIsLearning || editorModality==='IN_PERSON')"
+          :show-location="requestType !== 'office_request_only' && editorShowLocation && (!editorIsLearning || editorModality==='IN_PERSON')"
           :location-address="editorLocationAddress"
           :location-options="editorIsLearning ? editorServiceLocationOptions.map(l=>({...l,label:String(l.name||l.label||'Location').replace(/\s*[·—-]?\s*POS\s*\d+/gi,'').replace(/Patient.s Residence/gi,'Student location')})) : editorServiceLocationOptions"
           :location-options-loading="bookingLocationsLoading"
           :location-options-error="bookingLocationsError"
           :service-location-id="Number(editorServiceLocationId || bookingServiceLocationId || 0)"
           :reservation-location-label="editorReservationLocationLabel"
-          :show-room="editorShowRoom"
+          :show-room="requestType !== 'office_request_only' && editorShowRoom"
           :room-id="Number(editorRoomId || 0)"
           :room-label="editorRoomLabel"
           :room-options="editorRoomOptions"
@@ -2805,11 +2812,11 @@
           :class="{ 'nr-slot-header--form': !showActionChooser }"
           data-testid="schedule-slot-editor"
         >
-          <section v-if="showInitialBookingContext && canEditBookingStrip" class="nr-selected-reservation" data-testid="selected-office-reservation">
+          <section v-if="showInitialBookingContext && canEditBookingStrip" class="nr-selected-reservation" :class="`nr-selected-reservation--${selectedRoomUsage}`" data-testid="selected-office-reservation">
             <span class="nr-info-label">Room reservation</span>
             <strong>{{ selectedOfficeReservationPlaceLabel }}</strong>
             <span>{{ selectedOfficeReservationDateLabel }} · {{ selectedOfficeReservationTimeLabel }} · {{ bookingTimezoneLabel }}</span>
-            <span v-if="roomOccupancyNotice" role="status">{{ roomOccupancyNotice }}</span>
+            <span class="room-usage-badge" role="status">{{ roomUsageLabels[selectedRoomUsage] }}</span>
             <span>{{ roomReservationFrequencyLabel }}<template v-if="roomReservationUntil"> · Reserved until {{ formatEditorDisplayDate(roomReservationUntil) }}</template></span>
             <div class="nr-reservation-actions">
               <button v-if="!editingRoomReservation" class="btn btn-primary btn-sm" type="button"
@@ -3258,7 +3265,7 @@
           <div class="nr-chooser-intro">
             <div>
               <div class="nr-chooser-title">What would you like to do?</div>
-              <p class="nr-chooser-help">Available actions come first, in your preferred order. Unavailable options stay under More Actions.</p>
+              <p class="nr-chooser-help">Choose an action or reorder your shortcuts.</p>
             </div>
             <button
               type="button"
@@ -3373,7 +3380,7 @@
             <div class="nr-sidebar-title">Actions</div>
             <div class="nr-action-list">
               <button
-                v-for="act in visibleQuickActions"
+                v-for="act in visibleQuickActions.filter(action => !action.disabledReason)"
                 :key="`act-${act.id}`"
                 type="button"
                 class="nr-action"
@@ -6284,20 +6291,14 @@ const buildUnifiedBookingWallTime = (dayName, hour, minute = 0) => {
 
 const openUnifiedBookingPanel = (dayName = null, hour = null) => {
   if (!clientSessionBookingEnabled.value) return;
-  const today = String(todayLocalYmd.value || '').slice(0, 10);
-  const dn = dayName
-    || (today ? dayNameForDateYmd(today) : null)
-    || modalDay.value
-    || visibleDays.value?.[0]
-    || 'Monday';
-  const h = hour != null ? Number(hour) : Math.max(7, Math.min(20, new Date().getHours() || 9));
-  const ymd = today && dayNameForDateYmd(today) === dn
-    ? today
-    : addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dn));
+  const current = currentScheduleSlot();
+  const selected = dayName || hour != null
+    ? { dayName: dayName || current.dayName, hour: Number(hour ?? current.hour), minute: 0,
+      dateYmd: dayName ? addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dayName)) : current.dateYmd }
+    : current;
+  if (selected.hour < gridMinHour.value || selected.hour >= gridMaxHour.value) showAllHours.value = true;
   openSlotActionModal({
-    dayName: dn,
-    hour: h,
-    dateYmd: ymd,
+    ...selected,
     initialRequestType: 'individual_session',
     actionSource: 'book_session',
     preserveSelectionRange: false
@@ -6544,7 +6545,7 @@ watch(() => props.userId, () => { selectedSchoolSoftBlock.value = null; });
 const schoolSoftBlocks = computed(() => schoolSoftScheduleBlocks(summary.value?.schoolSoftSessions || [], bookingTimezoneIana.value, scheduleTimeFormat.value).map(block => scheduleClientFace(block, Number(props.userId) === Number(authStore.user?.id) ? clientNameDisplay.value : 'hidden')));
 const untimedSchoolBlocksForDay = day => {
   const date = addDaysYmd(summary.value?.weekStart || weekStart.value, dayIdxFromWeekStartMonday(day));
-  return schoolSoftBlocks.value.filter(block => block.untimed && block.displayDate === date);
+  return schoolSoftBlocks.value.filter(block => block.untimed && block.displayDate === date && !block.isCancelled);
 };
 const hasVisibleUntimedSchoolItems = computed(() => visibleDays.value.some(day => untimedSchoolBlocksForDay(day).length));
 const cancelDayDate = ref('');
@@ -7870,6 +7871,15 @@ const formatBookingReceiptWhen = ({ dateYmd, startHour, startMinute = 0, endHour
 };
 
 /** Primary CTA: open office/room request (keeps slide toggle for navigation). */
+function currentScheduleSlot() {
+  const nearestQuarter = new Date(Math.ceil(Date.now() / 900000) * 900000);
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+    timeZone: scheduleMeetingTimeZone() || 'America/Denver', year:'numeric', month:'2-digit', day:'2-digit',
+    hour:'2-digit', minute:'2-digit', hourCycle:'h23'
+  }).formatToParts(nearestQuarter).map(({type,value}) => [type,value]));
+  const dateYmd = `${parts.year}-${parts.month}-${parts.day}`;
+  return { dateYmd, dayName: dayNameForDateYmd(dateYmd), hour: Number(parts.hour), minute: Number(parts.minute) };
+}
 const openQuickOfficeRoomRequest = async () => {
   if (props.hideOfficeAndCalendarIntegration) return;
   if (!canBookFromGrid.value) {
@@ -7887,15 +7897,8 @@ const openQuickOfficeRoomRequest = async () => {
     setTimeout(() => { officeReminderToast.value = ''; }, 6000);
     return;
   }
-  const futureDay=Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:scheduleMeetingTimeZone()||'America/Denver',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date(Date.now()+86400000)).filter(p=>p.type!=='literal').map(p=>[p.type,p.value]));
-  const ymd = makeup?`${futureDay.year}-${futureDay.month}-${futureDay.day}`:String(todayLocalYmd.value || weekStart.value || '').slice(0, 10);
-  const dayName = dayNameForDateYmd(ymd) || 'Monday';
-  const nowHour = new Date().getHours();
-  const hour = makeup?9:Math.max(7, Math.min(20, Number.isFinite(nowHour) ? nowHour : 9));
   openSlotActionModal({
-    dayName,
-    hour,
-    dateYmd: ymd,
+    ...currentScheduleSlot(),
     preserveSelectionRange: false,
     initialRequestType: 'office_request_only',
     actionSource: 'quick_office_cta'
@@ -7917,10 +7920,8 @@ const openQuickBook = async ({ virtual = false, makeup = null } = {}) => {
     viewMode.value = 'open_finder';
     await nextTick();
   }
-  const ymd = String(todayLocalYmd.value || weekStart.value || '').slice(0, 10);
-  const dayName = dayNameForDateYmd(ymd) || 'Monday';
-  const nowHour = new Date().getHours();
-  const hour = Math.max(7, Math.min(20, Number.isFinite(nowHour) ? nowHour : 9));
+  const slot = currentScheduleSlot();
+  if (slot.hour < gridMinHour.value || slot.hour >= gridMaxHour.value) showAllHours.value = true;
   const flags = effectiveAgencyFeatureFlags.value || {};
   const hasClinicalOrLearning = !!(flags.hasClinicalOrg || flags.hasLearningOrg);
   const hasOffice = isOfficeScopeSpecific.value || isOfficeScopeAll.value;
@@ -7936,26 +7937,13 @@ const openQuickBook = async ({ virtual = false, makeup = null } = {}) => {
     initialRequestType = 'individual_session';
   }
   await openSlotActionModal({
-    dayName,
-    hour,
-    dateYmd: ymd,
+    ...slot,
     preserveSelectionRange: false,
     initialRequestType: makeup ? 'individual_session' : initialRequestType,
     initialModality: makeup ? (virtual ? 'TELEHEALTH' : 'IN_PERSON') : (virtual || !hasOffice ? 'TELEHEALTH' : ''),
     actionSource: virtual ? 'overview_book_virtual' : 'overview_book'
   });
-  if (virtual) {
-    officeReminderToast.value = hasOffice
-      ? 'Virtual session selected — confirm time and submit (office is optional for telehealth).'
-      : 'Virtual session selected — no office required. Confirm time and submit.';
-    setTimeout(() => { officeReminderToast.value = ''; }, 5500);
-  } else if (!hasOffice && !props.hideOfficeAndCalendarIntegration) {
-    officeReminderToast.value = 'Choose Virtual for an office-free session, or pick an office for in-person.';
-    setTimeout(() => { officeReminderToast.value = ''; }, 6000);
-  } else {
-    officeReminderToast.value = 'Adjust the time if needed, then choose a booking type.';
-    setTimeout(() => { officeReminderToast.value = ''; }, 4500);
-  }
+
 };
 
 const clearScheduleActionQuery = () => {
@@ -9522,15 +9510,23 @@ onUnmounted(() => { schoolWeekdayGeneration++; window.removeEventListener('focus
 const openingServiceFilter=ref('all');
 const tutoringWorkspaceOnly = computed(() => serviceWorkspace(authStore.user, agencyStore.currentAgency || {}).learningOnly);
 const editorOpeningServiceType=ref('');
+const selectedProviderOfferings = ref(null);
 const editorServiceChoices=computed(()=>{
- const workspace=serviceWorkspace(authStore.user,agencyStore.currentAgency||{}),manager=['admin','super_admin'].includes(authStore.user?.role);
+ const workspace=serviceWorkspace(authStore.user,agencyStore.currentAgency||{});
+ const offers = selectedProviderOfferings.value;
+ const isSelf = Number(scheduleActorUserId.value) === Number(authStore.user?.id);
  const kind=String(agencyStore.currentAgency?.organization_type||'');
  if(['life_coach','consultant'].includes(kind))return [{value:kind==='life_coach'?'coaching':'consulting',label:kind==='life_coach'?'Coaching':'Consulting'}];
- return [...(workspace.canTutor||manager?[{value:'tutoring',label:'Tutoring'}]:[]),...(workspace.canClinical||manager?[{value:'counseling',label:'Counseling'}]:[]),...(workspace.canChildcare||manager?[{value:'childcare',label:'Childcare'}]:[])];
+ return [
+   ...((offers?.includes('tutoring') ?? (isSelf && workspace.canTutor)) ? [{value:'tutoring',label:'Tutoring'}] : []),
+   ...((offers?.includes('counseling') ?? (isSelf && workspace.canClinical)) ? [{value:'counseling',label:'Counseling'}] : []),
+   ...(isSelf && workspace.canChildcare ? [{value:'childcare',label:'Childcare'}] : [])
+ ];
 });
 const bookingProviderBusinessTypes = ref(null);
 const bookingAccessReason = ref('');
 const clientSessionCategories = ref(null);
+const clientBookingIssue = ref('');
 const editorBookServiceChoices = computed(() => editorTypeOptions.value.filter(option => {
   if (clientSessionCategories.value && !clientSessionCategories.value.includes(option.value)) return false;
   const offered = bookingProviderBusinessTypes.value;
@@ -9556,11 +9552,12 @@ const refreshClientSessionBookingAccess = async () => {
     const staffAgencyScope = (['admin','super_admin'].includes(authStore.user?.role) || (Number(agencyId)===2 && authStore.user?.role==='support'))
       && Number(providerUserId)===Number(authStore.user?.id);
     const bookingAccessConfig = {
-      params: { agencyId, providerUserId, businessType: tutoringWorkspaceOnly.value ? 'tutoring' : 'any' }, skipGlobalLoading: true
+      params: { agencyId, providerUserId, businessType: tutoringWorkspaceOnly.value ? 'tutoring' : 'any', includeOfferings: '1' }, skipGlobalLoading: true
     };
     const providerAccess = await api.get('/appointments/booking-access', bookingAccessConfig);
     if (generation !== bookingAccessGeneration) return false;
     const access = providerAccess.data || {};
+    selectedProviderOfferings.value = Array.isArray(access.serviceOfferings) ? access.serviceOfferings : null;
     bookingProviderBusinessTypes.value = Array.isArray(access.availableBusinessTypes) ? access.availableBusinessTypes
       : tutoringWorkspaceOnly.value && access.enabled ? ['tutoring'] : null;
     providerSessionBookingEnabled.value = access.enabled === true;
@@ -9575,6 +9572,7 @@ const refreshClientSessionBookingAccess = async () => {
   } catch {
     if (generation === bookingAccessGeneration) {
       bookingProviderBusinessTypes.value = [];
+      selectedProviderOfferings.value = [];
       providerSessionBookingEnabled.value = clientSessionBookingEnabled.value = false;
     }
     return false;
@@ -9585,6 +9583,7 @@ watch([clientSessionBookingAgencyId, scheduleActorUserId, tutoringWorkspaceOnly]
   clientSessionBookingEnabled.value = false;
   providerSessionBookingEnabled.value = false;
   bookingProviderBusinessTypes.value = null;
+  selectedProviderOfferings.value = null;
   bookingAccessReason.value = '';
   void refreshClientSessionBookingAccess();
 }, {immediate:true, flush:'sync'});
@@ -11315,6 +11314,30 @@ const findAppSupervisionForGoogleId = (googleEventId) => {
   }) || null;
 };
 
+function canJoinScheduleVideo(block) {
+  return block.videoVisit && Number(block.providerId) === Number(authStore.user?.id)
+    && Number(parseScheduleInstant(block.endAt)) > Date.now();
+}
+async function joinScheduleVideo(block, dayName, hour) {
+  if (block.videoRoomMode === 'google_meet') {
+    const tab = window.open('about:blank', '_blank');
+    if (tab) {
+      tab.opener = null;
+      try {
+        const { meetUrl } = await openCounselingFromAppointment({ agencyId: block.agencyId, appointmentId: block.appointmentId });
+        if (/^https:\/\/meet\.google\.com\/[a-z]{3}-[a-z]{4}-[a-z]{3}$/.test(meetUrl || '')) {
+          tab.location.href = meetUrl;
+          return;
+        }
+      } catch (error) {
+        flashScheduleToast(error.response?.data?.error?.message || 'The video link could not be opened.');
+      }
+      tab.close();
+    }
+  }
+  const event = summary.value?.scheduleEvents?.find(row => Number(row.appointmentId) === Number(block.appointmentId));
+  if (event) void openAppointmentEditInScheduleModal({ item: buildScheduleStackItemFromEvent(event), dayName, hour });
+}
 const scheduleEventsInCell = (dayName, hour, minute = 0) => {
   const s = summary.value;
   if (!s) return [];
@@ -12347,7 +12370,7 @@ const buildCellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout 
         key: `office-assigned-${blockKeySuffix}`,
         kind: 'oa',
         isOfficeBlock: true,
-        officeStatus: 'reserved',
+        officeStatus: occupied ? 'occupied' : top?.roomOccupancy === 'vacant' ? 'vacant' : 'reserved',
         officeStatusLabel: occupied ? 'Assigned available · Occupied' : top?.roomOccupancy === 'vacant' ? 'Assigned available · Vacant' : 'Assigned available',
         officeEmpty: true,
         officeRoomLabel,
@@ -12552,6 +12575,10 @@ const buildCellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout 
       kind: 'sevt',
       eventKind: String(ev?.kind || '').trim().toUpperCase(),
       meetingSubtype: normalizeMeetingSubtype(ev?.meetingSubtype),
+      videoRoomMode: ev.videoRoomMode,
+      providerId: Number(ev.providerId || props.userId) || null,
+      videoVisit: Number(ev.appointmentId) > 0 && !ev.audioOnly && ev.videoRoomMode !== 'none' && !isScheduleEventTerminal(ev)
+        && ['TELEHEALTH', 'VIRTUAL', 'VIDEO', 'ONLINE'].includes(String(ev.modality || '').toUpperCase()),
       meetingSettings: ev?.meetingSettings || null,
       allDay: !!ev?.allDay,
       shortLabel: [scheduleEventShortLabel(ev, 'start', { multiline: true }),locationLabel].filter(Boolean).join('\n'),
@@ -13837,8 +13864,7 @@ const availableQuickActions = computed(() => {
     },
     {
       id: 'individual_session',
-      label: !clientSessionBookingEnabled.value ? 'Book Session · Coming soon'
-        : hasAssignedOffice && isOwnAssignedSlot ? 'Book a session in this room' : 'Book Session',
+      label: hasAssignedOffice && isOwnAssignedSlot ? 'Book a session in this room' : 'Book Session',
       description: tutoringWorkspaceOnly.value ? 'Schedule tutoring with one of your assigned students' : hasOffice
         ? 'Schedule a client session — add more than one client to make it a group session'
         : 'Schedule a session (office optional). Add more than one client to make it a group session.',
@@ -13861,7 +13887,7 @@ const availableQuickActions = computed(() => {
       label: 'Open Slot for Booking',
       description: hasEvent && hasAssignedOffice ? 'Publish in-person or virtual openings for this time'
         : 'Publish service-specific openings for new or current clients',
-      disabledReason: '',
+      disabledReason: selectedProviderOfferings.value && !editorServiceChoices.value.length ? 'This provider has no services to publish in this agency.' : '',
       visible: !supervisionOnlyMode,
       tone: 'teal',
       chooserPriority: 20
@@ -14186,10 +14212,12 @@ const officeCancellationHelp = computed(() => {
   return 'Booked hours return to Assigned available. Selected assigned hours are released.';
 });
 const chooserCardActions = computed(() => visibleQuickActions.value.filter(
-  (action) => (!ownSlotForfeitAction.value || action.id !== 'forfeit_slot')
+  (action) => !action.disabledReason && (!ownSlotForfeitAction.value || action.id !== 'forfeit_slot')
     && (!canEditBookingStrip.value || action.id !== 'extend_assignment')
 ));
-const roomOccupancyNotice = ref('');
+const roomUsageLabels = { assigned: 'Assigned available', occupied: 'Confirmed · Occupied', vacant: 'Canceled · Vacant' };
+const selectedRoomUsage = computed(() => ['occupied', 'vacant'].includes(modalContext.value?.roomOccupancy)
+  ? modalContext.value.roomOccupancy : 'assigned');
 async function changeSelectedRoomReservation(action, usage) {
   if (submitting.value) return;
   const contexts = selectedActionContexts().filter(ctx => ctx?.officeLocationId && (ctx.officeEventId || ctx.standingAssignmentId));
@@ -14203,7 +14231,7 @@ async function changeSelectedRoomReservation(action, usage) {
         ? { usage, date: ctx.dateYmd } : { acknowledged: true, scope: 'future', date: ctx.dateYmd });
     }
     if (action === 'forfeit') closeModal();
-    else roomOccupancyNotice.value = usage === 'occupied' ? 'Assigned available · Occupied' : 'Assigned available · Vacant';
+    else modalContext.value = { ...modalContext.value, roomOccupancy: usage };
     invalidateScheduleSummaryCacheForUser(props.userId);
     await Promise.all([load({ forceRefresh: true }), loadSelectedOfficeGrid()]);
   } catch (error) {
@@ -14218,7 +14246,6 @@ async function forfeitFutureRoomReservation() {
   if (!(await confirmScheduleAction('Forfeit room now and forward?', 'This ends your room reservation beginning on the selected date. Resolve any attached appointments before forfeiting.', 'Forfeit reservation'))) return;
   await changeSelectedRoomReservation('forfeit');
 }
-watch(showRequestModal, () => { roomOccupancyNotice.value = ''; });
 const primaryQuickActions = computed(() => {
   const state = String(modalContext.value?.slotState || '').toUpperCase();
   const occupiedOffice = ['ASSIGNED_BOOKED', 'ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'].includes(state);
@@ -14908,6 +14935,20 @@ const editorMeetLink = computed(() => {
   return '';
 });
 const editorPreparingMeet = ref(false);
+async function enableAppointmentGuestAccess() {
+  const appointmentId = Number(editorAppointmentId.value);
+  if (!appointmentId || editorPreparingMeet.value) return;
+  if (!await confirmScheduleAction('Allow guests with this link?', 'Anyone who has this appointment’s link can join without asking. Share it only with the people expected in the session.', 'Allow guests')) return;
+  editorPreparingMeet.value = true;
+  try {
+    await openCounselingFromAppointment({ appointmentId, agencyId: Number(editorAgencyId.value), allowGuests: true });
+    flashScheduleToast('Guest access enabled for this Meet link.');
+  } catch (error) {
+    flashScheduleToast(error.response?.data?.error?.message || 'Guest access could not be enabled.');
+  } finally {
+    editorPreparingMeet.value = false;
+  }
+}
 const editorMeetError = ref('');
 const editorCanPrepareMeet = computed(() => {
   const saved = editorAppointmentBaseline.value;
@@ -16648,6 +16689,7 @@ async function loadEditorTenantServices() {
     if(request!==editorServicesRequest||aid!==Number(editorAgencyId.value||effectiveAgencyId.value||0))return;
     services = services.filter(service => practiceCategoryForBusinessType(service.businessType || service.business_type));
     clientSessionCategories.value = Array.isArray(r.data?.clientSessionCategories) ? r.data.clientSessionCategories : null;
+    clientBookingIssue.value = r.data?.clientBookingIssue || '';
     editorPackageEntitlements.value=r.data?.packagePreview?.entitlements||[];
     editorTutoringSubjects.value=r.data?.tutoringSubjects||[];
     if(!isAppointmentEditMode.value&&!isScheduleEventEditMode.value&&editorTutoringSubject.value!=='general'&&!editorTutoringSubjects.value.some(s=>s.key===editorTutoringSubject.value))editorTutoringSubject.value=editorTutoringSubjects.value[0]?.key||'general';
@@ -17230,13 +17272,15 @@ const requestSubmitBlockedReason = computed(() => {
   if(editorOutcomeReadOnly.value)return 'This appointment has an attendance outcome. Its schedule is read-only.';
   if (submitting.value) return submitBusyLabel.value;
   if (virtualSessionScheduledSessionKey.value.startsWith('external-appointment:')) return '';
-  if(editorIsOpenSlot.value&&((editorServiceChoices.value.length>0&&!editorOpeningServiceType.value)||editorOpeningServiceType.value==='childcare'))return 'Choose Tutoring or Counseling, or open Childcare scheduling.';
+  if(editorIsOpenSlot.value&&!editorServiceChoices.value.some(service => service.value === editorOpeningServiceType.value && service.value !== 'childcare'))return 'Choose Tutoring or Counseling, or open Childcare scheduling.';
   if(editorIsOpenSlot.value&&editorRecurrenceFrequency.value!=='ONCE'&&editorRecurrenceEndMode.value==='until'&&(!editorRecurrenceUntilDate.value||editorRecurrenceUntilDate.value<editorDateYmd.value))return 'Choose an end date on or after the first opening.';
   if(editorIsLearning.value&&!Number(editorTenantServiceId.value))return 'Choose the tutoring service for this session.';
   if(editorIsClinical.value&&mixedSessionServices.value&&!editorPracticeCategory.value)return 'Choose whether this session is tutoring or counseling.';
   if (uncoveredReservationDates.value.length) return 'Choose appointment dates covered by your room reservation.';
-  if (isSessionBookingRequestType.value && clientSessionCategories.value && !editorBookServiceChoices.value.length) {
-    return 'This client has no matching service with the selected provider.';
+  if (isSessionBookingRequestType.value && primarySessionClientId.value && editorServicesLoading.value) return 'Checking client service and provider access…';
+  if (isSessionBookingRequestType.value && primarySessionClientId.value && clientSessionCategories.value && !editorBookServiceChoices.value.length) {
+    return clientBookingIssue.value || bookingAccessReason.value
+      || 'The provider’s practice categories or service offerings do not match this client’s active service in this agency.';
   }
   if (!String(requestType.value || '').trim()) return 'Select an action to continue.';
   if (actionRequiresAgency.value && !effectiveAgencyId.value) return 'Select an agency for this action.';
@@ -20286,6 +20330,7 @@ const buildModalContext = ({ dayName, hour, roomId = 0, slot = null, dateYmd = n
     bookedFrequency: String(slot?.bookedFrequency || top?.bookedFrequency || '').toUpperCase() || null,
     frequencyLabel: String(slot?.frequencyLabel || top?.frequencyLabel || '').trim() || null,
     standingAssignmentId: Number(slot?.standingAssignmentId || top?.standingAssignmentId || 0) || null,
+    roomOccupancy: slot?.roomOccupancy || top?.roomOccupancy || null,
     bookingPlanId: Number(slot?.bookingPlanId || 0) || null,
     learningSessionId: Number(slot?.learningSessionId || 0) || null,
     clinicalSessionId: Number(slot?.clinicalSessionId || 0) || null,
@@ -23267,7 +23312,7 @@ const submitRequest = async () => {
     return;
   }
   if(editorOutcomeReadOnly.value){modalError.value='This appointment has a final or pending attendance outcome. Its schedule is read-only.';return;}
-  if(editorIsOpenSlot.value&&((editorServiceChoices.value.length>0&&!editorOpeningServiceType.value)||editorOpeningServiceType.value==='childcare')){modalError.value='Choose Tutoring or Counseling, or open Childcare to schedule a shift.';return;}
+  if(editorIsOpenSlot.value&&!editorServiceChoices.value.some(service => service.value === editorOpeningServiceType.value && service.value !== 'childcare')){modalError.value='Choose Tutoring or Counseling, or open Childcare to schedule a shift.';return;}
   bookingSubmitAttempted.value = true;
   if (uncoveredReservationDates.value.length) {
     modalError.value = 'Choose appointment dates covered by the room reservation.';
@@ -28878,6 +28923,11 @@ watch(editorClientSchoolLocationOptions, (schools, previous) => {
 .schedule-record-footer{display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:12px 16px;font-size:10px;color:#64748b}.schedule-record-footer button{border:0;background:transparent;color:inherit;font:11px ui-monospace,monospace;cursor:copy}
 
 .nr-selected-reservation { display: flex; flex-direction: column; gap: 5px; margin-bottom: 14px; padding: 16px 18px; background: #eef5ff; border: 1px solid #b6cbea; border-left: 4px solid #34629a; border-radius: 12px; color: #20354f; }
+.nr-selected-reservation--occupied, .cell-block-office.cell-block-office--occupied { background: #dcf7ed; border-color: #40856b; color: #193e33; }
+.nr-selected-reservation--vacant, .cell-block-office.cell-block-office--vacant { background: #fff0d2; border-color: #bb8629; color: #573910; }
+.room-usage-badge { align-self: flex-start; font-size: .83rem; font-weight: 700; border: 1px solid currentColor; border-radius: 999px; padding: 3px 9px; }
+.schedule-video-badge { display: inline-block; font-size: .73rem; font-weight: 650; border: 1px solid currentColor; border-radius: 6px; padding: 2px 5px; }
+.sched-span-switch button { min-height: 36px; min-width: 52px; font-size: .875rem; }
 .nr-selected-reservation strong { font-size: 17px; }
 .nr-personal-event { align-self: flex-start; margin-top: 6px; }
 .nr-reservation-scope { font-size: 13px; color: #4c617b; }

@@ -2,6 +2,10 @@ import {beforeEach,it,expect,vi} from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()},onTableWrite:vi.fn()}));
 import {googleMeetingConference,currentGoogleConference,googleDialInContent} from '../googleMeetingConference.service.js';
 import {optionalGoogleMeetingDialIn} from '../googleMeetingDialIn.service.js';
+const spaces = vi.hoisted(() => ({ create: vi.fn(), get: vi.fn(), patch: vi.fn() }));
+vi.mock('../../utils/googleApis.js', () => ({ google: { meet: () => ({ spaces }) } }));
+vi.mock('../googleWorkspaceAuth.service.js', () => ({ buildImpersonatedJwtClient: async () => ({}) }));
+import { allowGoogleSessionGuests, createGoogleSession } from '../auricwell/sessionTransports.js';
 const raw={conferenceData:{entryPoints:[{entryPointType:'video',uri:'https://meet.google.com/abc-defg-hij'},{entryPointType:'phone',uri:'tel:+1-555-555-0100',pin:'123 456 789',label:'US'}]}};
 it('keeps only Google-provided phone details attached to a valid Google Meet conference',()=>{
  const info=googleMeetingConference(raw);expect(info.phones[0]).toMatchObject({number:'+1-555-555-0100',pin:'123456789'});
@@ -30,4 +34,26 @@ it('includes Google phone details only for an opted-in Google meeting and an inv
  expect(await optionalGoogleMeetingDialIn({...event,platform_video_link:1},9,{db,conference,authorize})).toBeNull();
  expect(await optionalGoogleMeetingDialIn({...event,meeting_settings_json:{}},9,{db,conference,authorize})).toBeNull();
  expect(conference).not.toHaveBeenCalled();
+});
+
+it('creates one appointment space with open guest entry and automatic artifacts disabled', async () => {
+ const url = raw.conferenceData.entryPoints[0].uri;
+ spaces.create.mockResolvedValue({ data: { meetingUri: url, name: 'spaces/abc', config:{ accessType:'OPEN' } } });
+ await expect(createGoogleSession('provider@example.test',{privateAccess:true,guestAccess:true})).resolves.toMatchObject({url});
+ expect(spaces.create.mock.calls.at(-1)[0].requestBody.config).toMatchObject({
+  accessType:'OPEN', moderation:'ON',
+  artifactConfig:{recordingConfig:{autoRecordingGeneration:'OFF'},transcriptionConfig:{autoTranscriptionGeneration:'OFF'}}
+ });
+});
+
+it('opens an existing appointment space only if Google confirms the stored Meet link', async () => {
+ const expectedLink = raw.conferenceData.entryPoints[0].uri;
+ const request = {organizer:'provider@example.test', meetingCode:'abc-defg-hij', expectedLink};
+ spaces.get.mockResolvedValue({data:{meetingUri:expectedLink,name:'spaces/abc',config:{accessType:'RESTRICTED'}}});
+ spaces.patch.mockResolvedValue({data:{config:{accessType:'OPEN'}}});
+ await expect(allowGoogleSessionGuests(request)).resolves.toBeUndefined();
+ expect(spaces.patch).toHaveBeenCalledWith(expect.objectContaining({name:'spaces/abc',updateMask:'config.accessType'}),expect.anything());
+ spaces.patch.mockClear();
+ await expect(allowGoogleSessionGuests({...request,expectedLink:'https://meet.google.com/xyz-abcd-efg'})).rejects.toHaveProperty('status',503);
+ expect(spaces.patch).not.toHaveBeenCalled();
 });

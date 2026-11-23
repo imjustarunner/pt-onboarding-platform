@@ -143,8 +143,14 @@
       >
         <span class="aip-ico aip-ico--violet" aria-hidden="true">↗</span>
         <div>
-          <div class="aip-k">Join link</div>
-          <div v-if="compactVirtualLink" class="aip-v aip-inline-link">
+          <div class="aip-k">{{ copyMeetingLink ? 'Video session' : 'Join link' }}</div>
+          <div v-if="copyMeetingLink" class="aip-v aip-inline-link">
+            <a :href="virtualLink" target="_blank" rel="noopener noreferrer" class="aip-inline-btn aip-inline-btn--join">Join video</a>
+            <button type="button" class="aip-inline-btn" @click="copyVideoLink">{{ meetingLinkCopied ? 'Copied' : 'Copy link' }}</button>
+            <button v-if="allowGuestAccess" type="button" class="aip-inline-btn" :disabled="joinBusy" @click="emit('allow-guests')">Allow guests with link</button>
+            <span v-if="meetingLinkError" role="status">{{ meetingLinkError }}</span>
+          </div>
+          <div v-else-if="compactVirtualLink" class="aip-v aip-inline-link">
             <a
               :href="virtualLink"
               target="_blank"
@@ -279,6 +285,8 @@ const props = defineProps({
   notes: { type: String, default: '' },
   showNotes: { type: Boolean, default: true },
   showVirtualLink: { type: Boolean, default: true },
+  copyMeetingLink: Boolean,
+  allowGuestAccess: Boolean,
   compactVirtualLink: { type: Boolean, default: false },
   showJoinQuick: { type: Boolean, default: false },
   joinBusy: { type: Boolean, default: false },
@@ -293,7 +301,18 @@ const props = defineProps({
   clinicalNoteId: { type: [Number, String], default: 0 }
 });
 
-const emit = defineEmits(['edit', 'open-provider', 'open-client', 'open-billing', 'open-clinical', 'open-note', 'join']);
+const emit = defineEmits(['edit', 'open-provider', 'open-client', 'open-billing', 'open-clinical', 'open-note', 'join', 'allow-guests']);
+const meetingLinkCopied = ref(false);
+const meetingLinkError = ref('');
+async function copyVideoLink() {
+  meetingLinkError.value = '';
+  try {
+    await navigator.clipboard.writeText(props.virtualLink);
+    meetingLinkCopied.value = true;
+  } catch {
+    meetingLinkError.value = 'Could not copy. Use Copy Link from the join button’s menu.';
+  }
+}
 
 const participantsExpanded = ref(false);
 const guardianAccounts = ref([]), affiliatedAgencies = ref([]);

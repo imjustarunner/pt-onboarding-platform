@@ -52,7 +52,7 @@ export async function ensureAppointmentVideo(ctx, appointment, settings, adapter
     }
     let data;
     if (settings.videoProvider === 'google_meet') {
-      data = await (adapters.createGoogleSession || createGoogleSession)(settings.googleOrganizer, { privateAccess: true });
+      data = await (adapters.createGoogleSession || createGoogleSession)(settings.googleOrganizer, { privateAccess: true, guestAccess: true });
     } else {
       if (process.env.VONAGE_CLINICAL_VIDEO_APPROVED !== 'true') throw fail(409, 'Vonage clinical video readiness has not been enabled.');
       const { default: Video } = await import('../vonageVideo.service.js');

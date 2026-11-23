@@ -129,7 +129,7 @@ export async function releaseOfficeReservation({ assignmentId = null, eventId = 
         booked_provider_id = NULL, booking_plan_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id IN (${ph})`,
       [keepAssigned ? 'RELEASED' : 'CANCELLED', keepAssigned ? 'ASSIGNED_AVAILABLE' : null, keepAssigned, ...ids]);
       if (reviewedOccurrence && keepAssigned) {
-        await conn.execute("UPDATE office_events SET session_context_json=JSON_SET(COALESCE(session_context_json,JSON_OBJECT()),'$.officeCancellationDisposition','release') WHERE id=?", [event.id]);
+        await conn.execute("UPDATE office_events SET session_context_json=JSON_SET(COALESCE(session_context_json,JSON_OBJECT()),'$.officeCancellationDisposition','release','$.roomOccupancy','vacant') WHERE id=?", [event.id]);
       }
       for (const table of ['provider_virtual_slot_availability', 'provider_in_person_slot_availability']) {
         await conn.execute(`UPDATE ${table} SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP WHERE source_event_id IN (${ph})`, ids);

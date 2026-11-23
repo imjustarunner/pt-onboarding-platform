@@ -88,6 +88,7 @@ export async function resolveBookingOptions({
   const sessionCategory = { mental_health: 'mental_health', healthcare: 'mental_health', tutoring: 'tutoring',
     learning: 'tutoring', coaching: 'coaching', consulting: 'consulting' };
   let clientSessionCategories = null;
+  let clientBookingIssue = null;
   if (sessionOnly) {
     services = services.filter(service => sessionCategory[service.businessType] && !isStaffTimeCode(service.serviceCode));
     if (providerId) {
@@ -108,6 +109,13 @@ export async function resolveBookingOptions({
       const context = await readClientServiceContext({ agencyId: aid, clientId, providerId });
       const categories = { counseling: 'mental_health', tutoring: 'tutoring', coaching: 'coaching', consultation: 'consulting' };
       clientSessionCategories = context.serviceKinds.map(kind => categories[kind]).filter(Boolean);
+      if (!clientSessionCategories.length) {
+        const agencyContext = providerId && context.explicit
+          ? await readClientServiceContext({ agencyId: aid, clientId }) : context;
+        clientBookingIssue = agencyContext.serviceKinds.length
+          ? 'The client has an active service with a different provider. Review the assigned provider under Client Assignments.'
+          : 'The client has no active bookable service in this agency. Review Client Assignments.';
+      }
     }
   }
   services = await filterBookingServicesForClient(services, { agencyId: aid, clientId, providerId });
@@ -157,7 +165,7 @@ export async function resolveBookingOptions({
     providers,
     clientId: cid,
     packagePreview,
-    ...(sessionOnly ? { sessionOnly: true, clientSessionCategories } : {})
+    ...(sessionOnly ? { sessionOnly: true, clientSessionCategories, clientBookingIssue } : {})
   };
 }
 

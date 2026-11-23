@@ -94,7 +94,7 @@ function userMatchesAudience(user, audienceKey) {
       return (
         role === 'provider'
         || role === 'provider_plus'
-        || role === 'clinical_practice_assistant'
+        || ['clinical_practice_assistant', 'intern', 'intern_plus', 'qbha', 'facilitator'].includes(role)
         || isSupervisor
       );
     default:

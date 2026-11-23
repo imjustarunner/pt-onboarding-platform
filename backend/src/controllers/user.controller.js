@@ -5869,6 +5869,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
           if (!meta) return e;
           return { ...e, appointmentId: meta.id, appointmentAgencyId: meta.agencyId, clinicalSessionId: meta.clinicalSessionId,
             clientId: meta.clientId, clientName: meta.clientName, modality: meta.modality,
+            audioOnly: meta.audioOnly, videoRoomMode: meta.videoRoomMode,
             serviceLocationId: meta.serviceLocationId, appointmentStatus: meta.status,businessType:meta.businessType,learningContext:meta.learningContext,serviceCode:meta.serviceCode,tenantServiceId:meta.tenantServiceId,
             ...(['learning','tutoring'].includes(meta.businessType)?{title:appointmentServiceLabel(meta)}:{}),
             appointmentNotes: meta.notes, sourceTimezone: meta.sourceTimezone, appointmentStartAt:meta.startAt,appointmentEndAt:meta.endAt,
@@ -5886,7 +5887,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
             appointmentId,
             ...(typeof meta==='object'?{
               appointmentAgencyId:meta.agencyId,
-              modality:meta.modality,officeLocationId:meta.officeLocationId,roomId:meta.roomId,
+              modality:meta.modality,audioOnly:meta.audioOnly,videoRoomMode:meta.videoRoomMode,officeLocationId:meta.officeLocationId,roomId:meta.roomId,
               serviceLocationId:meta.serviceLocationId,schoolOrganizationId:meta.schoolOrganizationId,
               schoolName:meta.schoolName,locationLabel:meta.locationLabel,
               clinicalSessionId:meta.clinicalSessionId,serviceCode:meta.serviceCode,businessType:meta.businessType,learningContext:meta.learningContext,

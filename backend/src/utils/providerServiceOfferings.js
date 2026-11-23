@@ -16,7 +16,7 @@ export function validateProviderServices(selected, enabled) {
 /** Shared by individual settings and the staff roster so defaults stay identical. */
 export function providerServiceSettings(person, agencyId, types, enrollments) {
   const role = person?.agency_role || person?.role;
-  const counselingEligible = ['ACTIVE','ACTIVE_EMPLOYEE'].includes(String(person?.status || '').toUpperCase()) && (['provider','provider_plus','intern','intern_plus','facilitator','supervisor','admin','super_admin'].includes(role) || Boolean(person?.has_provider_access));
+  const counselingEligible = ['ACTIVE','ACTIVE_EMPLOYEE'].includes(String(person?.status || '').toUpperCase()) && (['provider','provider_plus','intern','intern_plus','facilitator','qbha','clinical_practice_assistant','supervisor','admin','super_admin'].includes(role) || Boolean(person?.has_provider_access));
   return types.map(type => {
     const enrollment = enrollments.find(e => e.service_type === type.service_type);
     return { serviceType: type.service_type, displayName: type.display_name || type.service_type,

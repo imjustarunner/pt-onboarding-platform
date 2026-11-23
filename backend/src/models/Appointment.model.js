@@ -202,7 +202,7 @@ class Appointment {
     if (!ids.length) return new Map();
     const placeholders = ids.map(() => '?').join(',');
     const [rows] = await pool.execute(
-      `SELECT ap.id, ap.agency_id AS appointment_agency_id, ap.${linkColumn} AS provider_schedule_event_id, ap.status, ap.notes, ap.modality,
+      `SELECT ap.id, ap.agency_id AS appointment_agency_id, ap.${linkColumn} AS provider_schedule_event_id, ap.status, ap.notes, ap.modality, ap.audio_only, ap.video_room_mode,
               ap.clinical_session_id, ap.service_code, ap.tenant_service_id, ap.office_event_id, ap.source_timezone,ap.business_type,ap.learning_context_json, ap.start_at, ap.end_at,
               (SELECT CASE WHEN COUNT(DISTINCT p.client_id)=1 THEN MIN(p.client_id) ELSE NULL END
                FROM appointment_participants p WHERE p.appointment_id=ap.id) AS client_id,
@@ -242,6 +242,7 @@ class Appointment {
           sourceTimezone:r.source_timezone || 'America/Denver',
           persistedSourceTimezone:r.source_timezone||null,
           startAt:utcMysqlToIso(r.start_at),endAt:utcMysqlToIso(r.end_at),
+          audioOnly: Number(r.audio_only) === 1, videoRoomMode: r.video_room_mode || null,
           modality:r.modality || null, officeLocationId:Number(r.office_location_id || 0) || null,
           roomId:Number(r.room_id || 0) || null, serviceLocationId:Number(r.service_location_id || 0) || null,
           schoolOrganizationId:Number(r.school_organization_id || 0) || null,
