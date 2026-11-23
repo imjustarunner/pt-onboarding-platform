@@ -12,7 +12,7 @@ import { invalidateScheduleSummaryCacheForUser } from '../../../utils/scheduleSu
 // Supervision fixtures are 10–11 AM Mountain (MDT), regardless of the host timezone.
 let wrapper;
 beforeEach(()=>{vi.clearAllMocks();invalidateScheduleSummaryCacheForUser(7);setActivePinia(createPinia());localStorage.clear();sessionStorage.clear();m.route=reactive({path:'/dashboard',params:{},query:{}});m.get.mockImplementation(async url=>({data:url.includes('supervision/providers')?{providers:[{id:8,firstName:'Supervisee'}],facilitators:[{id:7,firstName:'Supervisor'}]}:url.includes('agencies')?[]:{}}));m.post.mockResolvedValue({data:{session:{id:10}}});m.patch.mockResolvedValue({data:{ok:true}});});
-afterEach(async()=>{wrapper?.unmount();await flushPromises();invalidateScheduleSummaryCacheForUser(7);});
+afterEach(async()=>{wrapper?.unmount();await flushPromises();invalidateScheduleSummaryCacheForUser(7);vi.restoreAllMocks();});
 describe('My Schedule supervision controls',()=>{
  it('refreshes the supervisee balance immediately after an attendance correction',async()=>{
   wrapper=shallowMount(Grid,{props:{userId:7,agencyId:2},global:{stubs:{Teleport:false,RouterLink:true,ClinicalWorkspaceFrame:{template:'<div><slot /></div>'}}}});await flushPromises();
@@ -76,30 +76,36 @@ it('ignores Google-only overlaps but keeps simultaneous app conflicts',async()=>
  expect(m.get).toHaveBeenCalledWith('/users/8/schedule-summary',expect.objectContaining({params:expect.objectContaining({includeGoogleBusy:'false',includeGoogleEvents:'false'})}));
 });
 
+async function acceptPastEdit() {
+ const confirmation = new DOMWrapper(document.body).get('.schedule-confirm-card');
+ expect(confirmation.text()).toContain('This supervision session has already passed.');
+ await confirmation.findAll('button').find(button => button.text() === 'Update event').trigger('click');
+ await flushPromises();
+}
+
 for(const series of [false,'single','future']) it(series?`reloads the repeat label and saves the explicit ${series} edit scope`:'saves the repeat selection when converting an existing one-time session',async()=>{
  const fixture={weekStart:'2026-10-05',supervisionSessions:[{id:10,supervisorUserId:7,superviseeUserId:8,sessionType:'individual',recurrenceSeriesId:series?'weekly':null,recurrenceFrequency:series?'WEEKLY':null,recurrencePolicy:'INDEFINITE',startAt:'2026-10-05T16:00:00Z',endAt:'2026-10-05T17:00:00Z'}]};
  const defaultGet=m.get.getMockImplementation();
  m.get.mockImplementation(async(url,...args)=>url.includes('schedule-summary')?{data:fixture}:defaultGet(url,...args));
- const confirm=vi.spyOn(window,'confirm').mockReturnValue(true);
+ vi.spyOn(Date,'now').mockReturnValue(Date.parse('2026-10-06T16:00:00Z'));
  wrapper=shallowMount(Grid,{props:{userId:7,agencyId:2},global:{stubs:{Teleport:false,RouterLink:true,ClinicalWorkspaceFrame:{template:'<div><slot /></div>'}}}});await flushPromises();
  const s=wrapper.vm.$.setupState;s.summary=fixture;
  s.openSupervisionEditInScheduleModal('Monday',10,10);await flushPromises();
  expect(s.supervisionRecurrence).toBe(series?'WEEKLY':'ONCE');
  if(!series){s.supervisionRecurrence='BIWEEKLY';s.supervisionRecurrenceEndMode='indefinite';}
  s.supvStartIsoLocal='2026-10-05T11:00';s.supvEndIsoLocal='2026-10-05T12:00';s.supvChangeReason='Scheduling conflict';
- const saving=s.saveSupvSession();await flushPromises();
+ const saving=s.saveSupvSession();await flushPromises();await acceptPastEdit();
  if(series){expect(s.showSeriesEditScopeModal).toBe(true);expect(m.patch).not.toHaveBeenCalled();await s.confirmSeriesEditScope(series);}
  await saving;
  expect(m.patch).toHaveBeenCalledWith('/supervision/sessions/10',expect.objectContaining(series?{scope:series,startAt:'2026-10-05T11:00:00'}:{recurrenceFrequency:'BIWEEKLY',recurrencePolicy:'INDEFINITE'}));
  expect(m.patch).toHaveBeenCalledWith('/supervision/sessions/10',expect.objectContaining({changeReason:'Scheduling conflict'}));
  expect(m.post.mock.calls.filter(([url])=>url==='/supervision/sessions')).toHaveLength(0);
- confirm.mockRestore();
 });
 
 it('shows recurrence and outcome controls on Info, hides Join/status in Edit, and asks for a reason only after changing the time',async()=>{
  const fixture={weekStart:'2026-10-05',supervisionSessions:[{id:10,supervisorUserId:7,superviseeUserId:8,status:'SCHEDULED',role:'supervisor',modality:'virtual',sessionType:'individual',recurrenceSeriesId:'series',recurrenceFrequency:'WEEKLY',joinUrl:'/join/test',startAt:'2026-10-05T16:00:00Z',endAt:'2026-10-05T17:00:00Z'}]};
  const defaultGet=m.get.getMockImplementation();m.get.mockImplementation(async(url,...args)=>url.includes('schedule-summary')?{data:fixture}:defaultGet(url,...args));
- vi.spyOn(window,'confirm').mockReturnValue(true);
+ vi.spyOn(Date,'now').mockReturnValue(Date.parse('2026-10-06T16:00:00Z'));
  wrapper=shallowMount(Grid,{props:{userId:7,agencyId:2},global:{stubs:{Teleport:false,RouterLink:true,ClinicalWorkspaceFrame:{template:'<div><slot /></div>'}}}});await flushPromises();
  const s=wrapper.vm.$.setupState;s.summary=fixture;s.openSupervisionEditInScheduleModal('Monday',10,10);await flushPromises();
  s.editorWorkspaceTab='info';await flushPromises();
@@ -110,7 +116,8 @@ it('shows recurrence and outcome controls on Info, hides Join/status in Edit, an
  s.editorWorkspaceTab='edit';await flushPromises();
  expect(dialog.find('.nr-btn-join').exists()).toBe(false);
  const editor=wrapper.findComponent({name:'AppointmentEditorShell'});expect(editor.props('showStatus')).toBe(false);expect(editor.props('showVirtual')).toBe(false);
- s.supvStartIsoLocal='2026-10-05T11:00';s.supvEndIsoLocal='2026-10-05T12:00';await s.saveSupvSession();
+ s.supvStartIsoLocal='2026-10-05T11:00';s.supvEndIsoLocal='2026-10-05T12:00';
+ const saving = s.saveSupvSession();await flushPromises();await acceptPastEdit();await saving;
  expect(s.supervisionActionDraft.mode).toBe('change');expect(m.patch).not.toHaveBeenCalled();
  await s.confirmSupervisionAction({scope:'single',reason:'Scheduling conflict'});
  expect(m.patch).toHaveBeenCalledWith('/supervision/sessions/10',expect.objectContaining({scope:'single',changeReason:'Scheduling conflict'}));

@@ -38,8 +38,6 @@ beforeEach(() => {
   mocks.route = reactive({ path: '/dashboard', params: {}, query: {} });
   mocks.post.mockResolvedValue({ data: {} });
   mocks.patch.mockResolvedValue({ data: {} });
-  // Keep this date-selection regression independent of the day the suite runs.
-  vi.spyOn(window, 'confirm').mockReturnValue(true);
 });
 
 afterEach(async () => {
@@ -97,6 +95,13 @@ describe('rescheduling an existing meeting from the Edit tab', () => {
 
       await editor.get('.nr-btn-submit').trigger('click');
       await flushPromises();
+      const confirmation = new DOMWrapper(document.body).find('.schedule-confirm-card');
+      if (dateYmd === '2026-10-28') {
+        expect(confirmation.text()).toContain('This meeting has already passed.');
+        expect(mocks.patch).not.toHaveBeenCalled();
+        await confirmation.findAll('button').find(button => button.text() === 'Update event').trigger('click');
+        await flushPromises();
+      } else expect(confirmation.exists()).toBe(false);
       expect(state.scheduleEventEditError).toBe('');
       expect(mocks.patch).toHaveBeenCalledWith('/users/7/schedule-events/10', expect.objectContaining({
         startAt: `${dateYmd}T13:00:00`,
@@ -105,8 +110,5 @@ describe('rescheduling an existing meeting from the Edit tab', () => {
         attendeeUserIds: [8]
       }), { skipGlobalLoading: true });
       expect(state.showRequestModal).toBe(false);
-      if (dateYmd === '2026-10-28') {
-        expect(window.confirm).toHaveBeenCalledWith('This meeting has already passed. Are you sure you want to update it?');
-      }
     });
 });
