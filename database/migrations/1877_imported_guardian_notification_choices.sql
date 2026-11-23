@@ -1,0 +1,21 @@
+CREATE TABLE IF NOT EXISTS imported_guardian_notification_choices (
+ id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ agency_id INT NOT NULL,
+ client_id INT NOT NULL,
+ guardian_user_id INT NOT NULL,
+ affiliation_id INT NOT NULL,
+ email_hash CHAR(64) NOT NULL,
+ phone_hash CHAR(64) NULL,
+ email_enabled TINYINT(1) NOT NULL,
+ sms_enabled TINYINT(1) NOT NULL,
+ source_reminders VARCHAR(255) NOT NULL,
+ recorded_by_user_id INT NOT NULL,
+ activation_status VARCHAR(32) NOT NULL DEFAULT 'pending_portal',
+ confirmation_message_id VARCHAR(255) NULL,
+ confirmation_at DATETIME NULL,
+ last_error_code VARCHAR(100) NULL,
+ created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+ UNIQUE KEY uq_imported_guardian_choices (agency_id,client_id,guardian_user_id),
+ KEY idx_imported_guardian_activation (guardian_user_id,activation_status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -1,14 +1,26 @@
 vi.mock('../../services/coverageVerificationSummary.service.js',()=>({latestPayerResponses:vi.fn(async()=>({})),readCoverageVerificationSummary:vi.fn(async()=>({current:false,verifiedAt:null}))}));
 import { beforeEach, expect, it, vi } from 'vitest';
-const m = vi.hoisted(() => ({ access:vi.fn(), read:vi.fn(), save:vi.fn(), importSection:vi.fn(), insurance:vi.fn(), audit:vi.fn(),start:vi.fn(),finish:vi.fn() }));
+const m = vi.hoisted(() => ({ access:vi.fn(), read:vi.fn(), save:vi.fn(), importSection:vi.fn(), insurance:vi.fn(), audit:vi.fn(),start:vi.fn(),finish:vi.fn(),prepareContactGuardian:vi.fn() }));
+vi.mock('../../services/importedGuardianAccount.service.js',()=>({prepareImportedGuardianAccount:m.prepareContactGuardian}));
 vi.mock('../../services/clientChartImportProgress.service.js',()=>({beginClientChartImport:m.start,completeClientChartImport:m.finish}));
 vi.mock('../../services/clientChartImportAccess.service.js', () => ({ requireClientChartImportAccess:m.access }));
 vi.mock('../../services/clientChartImport.service.js', () => ({ chartSections:['demographics','intake','plan','insurance','contacts','comments','payer','billingComments'], readChartRecord:m.read, saveChartRecord:m.save, importSupplementaryChartSection:m.importSection }));
 vi.mock('../../services/clientInsurance.service.js', () => ({ readClientInsurance:m.insurance }));
 vi.mock('../../services/auditEvent.service.js', () => ({ logAuditEvent:m.audit }));
-import { getChartImportDraft, getChartImportDrafts, saveChartImportDraft, importChartSection, getChartSupplementaryRecords,startChartRecordsImport,finishChartRecordsImport } from '../clientChartImport.controller.js';
+import { getChartImportDraft, getChartImportDrafts, saveChartImportDraft, importChartSection, getChartSupplementaryRecords,startChartRecordsImport,finishChartRecordsImport,prepareChartContactGuardian } from '../clientChartImport.controller.js';
 const req = () => ({ user:{ id:10, role:'support' }, params:{ id:12, section:'comments' }, query:{}, body:{ text:'Patient Comments\nSynthetic comment', revision:0, agencyId:999, userId:999 }, get:()=>'2' });
 const res = () => ({ set:vi.fn().mockReturnThis(), json:vi.fn() });
+it('prepares the second guardian only from the authorized chart and audit actor',async()=>{
+ const request=req();request.params.affiliationId='51';request.body={actorUserId:999,guardianUserId:999,email:'ignore@example.test'};const response=res(),next=vi.fn();
+ m.prepareContactGuardian.mockResolvedValue({portalAccount:{prepared:true,userId:40,invitationSent:false}});
+ await prepareChartContactGuardian(request,response,next);
+ expect(next).not.toHaveBeenCalled();expect(m.prepareContactGuardian).toHaveBeenCalledExactlyOnceWith({clientId:12,agencyId:2},51,10);
+ expect(m.audit).toHaveBeenCalledWith(request,expect.objectContaining({actionType:'client_imported_guardian_account_prepared',metadata:{affiliationId:51,guardianUserId:40,invitationSent:false,accessGranted:false}}));
+});
+it('does not allow provider or out-of-agency account preparation',async()=>{
+ const request=req();request.params.affiliationId='51';request.user.role='provider';let next=vi.fn();await prepareChartContactGuardian(request,res(),next);expect(next).toHaveBeenCalledWith(expect.objectContaining({status:403}));expect(m.prepareContactGuardian).not.toHaveBeenCalled();
+ request.user.role='support';m.access.mockRejectedValue(Object.assign(new Error('Outside agency'),{status:403}));next=vi.fn();await prepareChartContactGuardian(request,res(),next);expect(next).toHaveBeenCalledWith(expect.objectContaining({status:403}));expect(m.prepareContactGuardian).not.toHaveBeenCalled();
+});
 beforeEach(() => { vi.resetAllMocks(); m.access.mockResolvedValue({ clientId:12, agencyId:2 }); m.read.mockResolvedValue({ value:null, revision:0 }); m.save.mockResolvedValue({ revision:1 }); m.importSection.mockResolvedValue({ message:'Synthetic comment' }); m.insurance.mockResolvedValue(null); });
 it('loads drafts only for the authenticated user and authorized chart', async () => {
   const response=res(); await getChartImportDrafts(req(),response,vi.fn());

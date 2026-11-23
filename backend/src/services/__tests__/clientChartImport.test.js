@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+const notificationImport=vi.hoisted(()=>vi.fn());
+vi.mock('../importedGuardianNotifications.service.js',()=>({seedImportedGuardianNotifications:notificationImport}));
 const m=vi.hoisted(()=>({execute:vi.fn(),getConnection:vi.fn(),readInsurance:vi.fn(),writeInsurance:vi.fn(),contacts:vi.fn(),upsert:vi.fn(),client:vi.fn(),prepareGuardian:vi.fn(),links:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute,getConnection:m.getConnection}}));
 vi.mock('../clientInsurance.service.js',()=>({readClientInsurance:m.readInsurance,writeClientInsurance:m.writeInsurance}));
@@ -13,6 +15,7 @@ const scope={clientId:12,agencyId:2};
 let db, stored;
 beforeEach(()=>{
  vi.resetAllMocks();vi.stubEnv('CLIENT_PHI_ENCRYPTION_KEY_BASE64',Buffer.alloc(32,7).toString('base64'));
+ notificationImport.mockResolvedValue(null);
  stored=new Map();db={beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn(),execute:m.execute};m.getConnection.mockResolvedValue(db);
  m.execute.mockImplementation(async(sql,args)=>{
    if(sql.startsWith('SELECT payload_enc'))return [[stored.get(args.join(':'))].filter(Boolean)];
@@ -108,13 +111,17 @@ it('inherits legacy patient reminders only for matching channels on the already-
  const [contact]=await importSupplementaryChartSection(scope,'contacts',paste,10,{syncGuardianReminders:true});
  expect(contact.appointmentReminders).toContain('Text (SMS) and Email');
  expect(m.prepareGuardian).not.toHaveBeenCalled();
- const operation=m.execute.mock.calls.find(([sql])=>sql.includes('INSERT INTO client_session_notification_preferences'));
- expect(operation[1].slice(0,3)).toEqual([2,12,95]);
- expect(JSON.parse(operation[1][3])).toMatchObject({email:true,sms:true});
- expect(operation[0]).toContain('ON DUPLICATE KEY UPDATE guardian_user_id=VALUES(guardian_user_id)');
+ expect(notificationImport).toHaveBeenCalledWith(expect.objectContaining({agencyId:2,clientId:12,guardianUserId:95,contact:expect.objectContaining({appointmentReminders:'Text (SMS) and Email'})}));
  m.links.mockResolvedValue([{guardian_user_id:95,email:sourceContact.email,phone:'720-555-0199',relationship_type:'guardian'}]);
  const [changed]=await importSupplementaryChartSection(scope,'contacts',paste,10,{syncGuardianReminders:true});
  expect(changed.appointmentReminders).toBe('Email');
+});
+it('keeps both parents’ imported reminder choices with their own guardian accounts',async()=>{
+ m.client.mockResolvedValue({id:12,agency_id:2,email:'primary@example.test'});m.links.mockResolvedValue([]);
+ m.prepareGuardian.mockImplementation(async({profile})=>({prepared:true,userId:profile.email==='primary@example.test'?40:41,invitationSent:false}));
+ m.upsert.mockImplementation(async({fullName})=>({affiliation:{id:fullName==='Primary Parent'?50:51,agencyContactId:fullName==='Primary Parent'?60:61}}));
+ await importSupplementaryChartSection(scope,'contacts','Edit\nPrimary Parent\nEmail\nprimary@example.test\nRelationship\nMother\nAppt Reminders\nEmail\nEdit\nSecond Parent\nMobile Phone\n720-555-0102\nEmail\nsecond@example.test\nRelationship\nFather\nAppt Reminders\nText (SMS) and Email',10,{preparePrimaryGuardian:true,guardianContactNames:['Second Parent'],syncGuardianReminders:true});
+ expect(notificationImport.mock.calls.map(([v])=>[v.guardianUserId,v.contact.appointmentReminders])).toEqual([[40,'Email'],[41,'Text (SMS) and Email']]);
 });
 
 it('automatically links only a unique matching agency route and queues eligibility', async()=>{

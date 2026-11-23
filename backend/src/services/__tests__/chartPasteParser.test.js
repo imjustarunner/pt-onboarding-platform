@@ -55,6 +55,9 @@ it('retains every contact field, separate phone numbers, and multiline comments'
 it('supports a copied tabular contact list', () => {
   expect(parseChartContacts('Name\tCompany\tWork Phone\tMobile Phone\nAlex Example\tClinic\t555-111-2222\t555-111-3333')[0]).toMatchObject({ fullName:'Alex Example', company:'Clinic', workPhone:'555-111-2222', mobilePhone:'555-111-3333' });
 });
+it('keeps an Email-only reminder value distinct from the contact email label',()=>{
+ expect(parseChartContacts('Edit\nExample Parent\nEmail\nparent@example.test\nRelationship\nMother\nAppt Reminders\nEmail')[0]).toMatchObject({email:'parent@example.test',appointmentReminders:'Email'});
+});
 it.each(['Edit\n', ''])('keeps separate-line parent cards intact with control %j', control => {
   const contacts = parseChartContacts(`Contacts\n+ New Contact\n${control}Jordan Example\nMobile Phone\n(303) 555-0101\nEmail\nfather@example.test\nRelationship\nFather\nAppt Reminders\nNo Reminders\n${control}Taylor Example\nMobile Phone\n(720) 555-0102\nEmail\nmother@example.test\nRelationship\nMother\nAppt Reminders\nText (SMS) and Email`);
   expect(contacts).toHaveLength(2);

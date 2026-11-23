@@ -11,6 +11,7 @@ import Client from '../models/Client.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import { normalizeSmsPhone } from '../utils/smsThreadIdentity.js';
 import { prepareGuardianAccount } from './guardianAccountPreparation.service.js';
+import {seedImportedGuardianNotifications} from './importedGuardianNotifications.service.js';
 
 export const chartSections = ['demographics', 'intake', 'plan', 'insurance', 'contacts', 'comments', 'payer', 'billingComments'];
 export {readChartRecord} from './clientChartRecordRead.service.js';
@@ -157,12 +158,13 @@ export async function importSupplementaryChartSection(scope, section, text, acto
         if (link && (channels.email || channels.sms)) {
           imported[id].sourceContactReminders = contact.appointmentReminders || null;
           imported[id].appointmentReminders = [channels.sms && 'Text (SMS)', channels.email && 'Email'].filter(Boolean).join(' and ');
-          // Seed only a missing recipient preference. Delivery still checks live consent and suppression.
-          await pool.execute(`INSERT INTO client_session_notification_preferences
-            (agency_id, client_id, guardian_user_id, channels_json, optional_reminders_enabled, confirmation_requests_enabled, provider_pushed_updates_enabled, scheduling_changes_enabled)
-            VALUES (?, ?, ?, ?, 1, 1, 1, 1) ON DUPLICATE KEY UPDATE guardian_user_id=VALUES(guardian_user_id)`,
-          [scope.agencyId, scope.clientId, link.guardian_user_id, JSON.stringify({in_app:true, phone:false, ...channels})]);
         }
+      }
+      if(syncGuardianReminders||preparePrimaryGuardian||requestedAccounts.size){
+        const links=await ClientGuardian.listForClient(scope.clientId)||[];
+        const linked=links.filter(link=>link.relationship_type!=='self'&&String(link.email||'').trim().toLowerCase()===String(contact.email||'').trim().toLowerCase()&&contact.email);
+        const guardianUserId=imported[id].portalAccount?.prepared?imported[id].portalAccount.userId:linked.length===1?Number(linked[0].guardian_user_id):null;
+        if(guardianUserId){const notificationImport=await seedImportedGuardianNotifications({...scope,guardianUserId,affiliationId:id,contact:imported[id],actorUserId:actorId});if(notificationImport)imported[id].notificationImport=notificationImport;}
       }
       // Persist each contact so retries preserve completed work after a partial failure.
       await saveChartRecord(scope, section, 0, { [id]: imported[id] }, actorId);

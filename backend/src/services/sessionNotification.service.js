@@ -415,12 +415,14 @@ export async function loadClientConsent(clientId, agencyId, recipientGuardianUse
     const emailAddress = signed && cp.recipientEmail ? cp.recipientEmail : recipientGuardianUserId ? recipientGuardian.email : c.email || c.guardian_email || null;
     const {latestFamilyEmailSchedulingChoice}=await import('./familyNotificationChoices.service.js');
     const emailChoice=await latestFamilyEmailSchedulingChoice({agencyId,clientId,to:emailAddress,after:cp?.signedAt||cp?.submittedAt});
+    const {importedGuardianEmailChoice}=await import('./importedGuardianNotifications.service.js');
+    const importedEmail=recipientGuardianUserId?await importedGuardianEmailChoice({agencyId,clientId,guardianUserId:recipientGuardianUserId,email:emailAddress}):null;
     const guardianUserId = recipientGuardianUserId || emailChoice?.guardianUserId || (signed ? cp.guardianUserId : null) || (matchingGuardians.length === 1 ? matchingGuardians[0].guardian_user_id : null);
     return {
       guardianUserId,
       intakeChoice: cp?.smsPreference || null,
-      smsStartOptIn: recorded?.source === 'inbound_start',
-      email: emailChoice ? emailChoice.email : cp?.emailPreference === 'no' ? false : recipientGuardianUserId && cp?.emailPreference ? true : c.session_email_opt_in == null ? true : Number(c.session_email_opt_in) === 1,
+      smsStartOptIn: ['inbound_start','prior_ehr_contact'].includes(recorded?.source),
+      email: emailChoice ? emailChoice.email : cp?.emailPreference === 'no' ? false : recipientGuardianUserId && cp?.emailPreference ? true : importedEmail?importedEmail.email:c.session_email_opt_in == null ? true : Number(c.session_email_opt_in) === 1,
       sms: !!recorded && (cp?.smsPreference !== 'no' || !!laterReviewedConsent),
       phone: Number(c.session_phone_opt_in) === 1,
       emailAddress,

@@ -150,6 +150,10 @@ export const getGuardianPortalOverview = async (req, res, next) => {
       });
     }
 
+    if(['client_guardian','guardian','client'].includes(String(req.user.role||'').toLowerCase())){
+      try{const {activateImportedGuardianNotifications}=await import('../services/importedGuardianNotifications.service.js');await activateImportedGuardianNotifications(uid);}
+      catch(error){console.warn('Imported guardian notification activation deferred',{code:error.code||'activation_unavailable'});}
+    }
     const [linkedClients, explicitOrgsRaw, eventVisibleClients, documentVisibleClients] = await Promise.all([
       ClientGuardian.listClientsForGuardian({ guardianUserId: uid }),
       User.getAgencies(uid),

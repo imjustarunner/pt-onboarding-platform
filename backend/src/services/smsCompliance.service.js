@@ -236,6 +236,10 @@ export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, co
   );
   if (!permissions.length) throw smsPolicyError('sms_consent_required', 'Recorded recipient consent for this SMS purpose is required');
   const evidence = permissions[0].evidence_json ? json(permissions[0].evidence_json) : null;
+  if(evidence?.source==='prior_ehr_contact'){
+    const {importedGuardianSmsAllowed}=await import('./importedGuardianNotifications.service.js');
+    if(!await importedGuardianSmsAllowed({evidence,agencyId:sender.agency_id,clientId,recipientUserId,phone:recipient,purpose,allowConfirmation:notificationCategory==='imported_opt_in_confirmation'}))throw smsPolicyError('sms_imported_recipient_changed','The imported text choice no longer matches an active guardian and phone.');
+  }
   if (purpose === 'care' && evidence?.source === 'inbound_conversation' &&
       (requireConfirmedCare || Number(evidence.numberId) !== Number(sender.id))) {
     throw smsPolicyError('sms_consent_required', 'The recipient must confirm provider texting before you can start a new text.');
@@ -316,6 +320,11 @@ export async function recordedReminderConsent(agencyId, phone, { requireActive =
   if (evidence?.source === 'inbound_start') {
     if (await isSmsSuppressed(sender, normalized)) return null;
     return await clientSmsStartAllowed({ sender, phone: normalized, purpose: 'reminders', evidence, ...context }) ? evidence : null;
+  }
+  if(evidence?.source==='prior_ehr_contact'){
+    const {importedGuardianSmsAllowed}=await import('./importedGuardianNotifications.service.js');
+    if(await isSmsSuppressed(sender,normalized))return null;
+    return await importedGuardianSmsAllowed({evidence,agencyId,phone:normalized,...context})?evidence:null;
   }
   if(evidence?.source==='staff_verbal'){
     if(!verbalReminderProgramReady(sender.registration))return null;

@@ -22,9 +22,16 @@ function labeledTokens(text, fields, { compact = false } = {}) {
   const anchor = new RegExp(`^([ \\t]*)(${alternatives})(?=[:\\t(]|[A-Za-z0-9]|[ \\t]*$)[:\\t ]*`, 'i');
   const inline = new RegExp(`(?<![-_])(${alternatives})(?=[:\\t(]|[A-Za-z0-9]|$)[:\\t ]*`, 'g');
   // Browser copies can concatenate values and the next label without whitespace.
+  let awaitingReminderChoice=false;
   const marked = text.split('\n').map(line => {
+    if(compact&&awaitingReminderChoice&&line.trim()){
+      awaitingReminderChoice=false;
+      // "Email" here is a reminder choice, rather than another email field.
+      if(/^(?:e-?mail|text(?:\s*\(SMS\))?|no reminders?|none|off)$/i.test(line.trim()))return line;
+    }
     const match = line.match(anchor);
     if (!match) return line;
+    awaitingReminderChoice=compact&&lookup[match[2].toLowerCase()]==='appointmentReminders'&&!line.slice(match[0].length).trim();
     if (compact && ['appointmentReminders','comments'].includes(lookup[match[2].toLowerCase()])) return line.replace(anchor, (_, space, label) => `\n@@${lookup[label.toLowerCase()]}@@`);
     if (!compact) return line.replace(anchor, (_, space, label) => `\n@@${lookup[label.toLowerCase()]}@@`);
     const canonicalLine = `${canonical[match[2].toLowerCase()]}:${line.slice(match[0].length)}`;

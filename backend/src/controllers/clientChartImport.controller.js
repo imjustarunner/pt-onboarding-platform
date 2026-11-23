@@ -4,6 +4,7 @@ import { chartSections, readChartRecord, saveChartRecord, importSupplementaryCha
 import { readClientInsurance } from '../services/clientInsurance.service.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
 import {beginClientChartImport,completeClientChartImport} from '../services/clientChartImportProgress.service.js';
+import {prepareImportedGuardianAccount} from '../services/importedGuardianAccount.service.js';
 
 function sectionOf(req, allowWorkingDraft = false) {
   const section = req.params.section;
@@ -112,3 +113,11 @@ export async function getChartSupplementaryRecords(req, res, next) {
     res.set('Cache-Control', 'no-store').json({ verification, payerResponses, contacts: Object.values(contacts.value || {}), administrativeNote: comments.value?.message || '', insurance: insurance ? { primary: policyForViewer(insurance.primary), secondary: policyForViewer(insurance.secondary) } : null, payer: payer?.value || null, billingComments: billingComments?.value?.message || '', accountAccess });
   } catch (error) { next(error); }
 }
+
+export async function prepareChartContactGuardian(req,res,next){try{
+ if(!canManageAccount(req))throw Object.assign(new Error('Account support access is required to add a guardian account.'),{status:403});
+ const scope=await scopeOf(req),affiliationId=Number(req.params.affiliationId);
+ const result=await prepareImportedGuardianAccount(scope,affiliationId,Number(req.user.id));
+ await logAuditEvent(req,{actionType:'client_imported_guardian_account_prepared',agencyId:scope.agencyId,targetType:'client',targetId:scope.clientId,metadata:{affiliationId,guardianUserId:result.portalAccount.userId,invitationSent:false,accessGranted:false}});
+ res.set('Cache-Control','no-store').json({result});
+}catch(error){next(error);}}

@@ -36,15 +36,14 @@
         <p v-if="section.hint && (section.key!=='insurance'||coverageMode==='insurance')" class="ehr-muted">{{ section.hint }}</p>
         <label v-if="section.key === 'demographics'" class="ehr-label">The phone and email in this patient information belong to<select v-model="contactOwner" :disabled="busy"><option value="guardian">Parent / guardian — use their contact card and portal account</option><option value="client">Client — use the client’s own contact details</option></select></label>
         <template v-if="section.key === 'contacts'">
-          <label v-if="canPrepareAccounts" class="ehr-label"><span><input v-model="preparePrimaryGuardian" type="checkbox" :disabled="busy" /> Prepare the primary parent’s portal account when their phone or email matches the patient information.</span></label>
-          <p class="ehr-muted">Other people remain contacts. Choose additional accounts below after import. Review portal access and send the invitation at the bottom.</p>
+          <label v-if="canPrepareAccounts" class="ehr-label"><span><input v-model="preparePrimaryGuardian" type="checkbox" :disabled="busy" /> Prepare Parent / Guardian 1 when their phone or email matches the patient information.</span></label>
+          <p class="ehr-muted">Import both parents’ contact cards. Add Parent / Guardian 2 below using their own email address, then review each parent’s portal access and invitation.</p>
           <div v-for="contact in importedContacts" :key="contact.affiliationId" class="ehr-contact">
             <strong>{{ contact.fullName }}</strong> · {{ contact.relationshipType || 'Contact' }}
             <span v-if="contact.portalAccount?.prepared"> · {{contact.portalAccount.created?'Portal account prepared':'Existing portal account linked — same login for this family'}}{{ contact.portalAccount.requiresAccessReview ? ' — review this child’s access below' : '' }}</span>
-            <label v-else-if="canPrepareAccounts" class="ehr-label"><span><input v-model="guardianContactNames" type="checkbox" :value="contact.fullName" :disabled="busy" /> Prepare a portal account for this contact</span></label>
             <p v-if="contact.portalAccount?.reason" class="ehr-muted">{{ contact.portalAccount.reason }}</p>
           </div>
-          <button v-if="guardianContactNames.length" type="button" class="ehr-btn-ghost" :disabled="busy" @click="prepareAdditionalAccounts">Prepare selected portal accounts</button>
+          <ClientImportGuardianAccounts v-if="canPrepareAccounts && importedContacts.length" :client-id="clientId" :agency-id="agencyId" :contacts="importedContacts" :disabled="busy" @busy="guardianPreparing=$event" @prepared="transitionRefreshKey++" />
         </template>
         <label v-if="section.key === 'intake'" class="ehr-label">Intake type<select v-model="intakeServiceCode" data-intake-service :disabled="busy || drafts.state.loading"><option value="">Choose intake type</option><option value="H0031">H0031</option><option value="90791">90791</option></select></label>
         <div v-if="historicalImport && section.key === 'intake'" class="ehr-source-fields">
@@ -125,6 +124,7 @@ import ClientMedicalHistory from './ClientMedicalHistory.vue';
 import ClientTransitionInvitation from '../../clients/ClientTransitionInvitation.vue';
 import ClientUpdateAssignments from './ClientUpdateAssignments.vue';
 import ClientImportSelfPayFields from './ClientImportSelfPayFields.vue';
+import ClientImportGuardianAccounts from './ClientImportGuardianAccounts.vue';
 import {
   DEFAULT_MEASUREMENT_METHOD,
   inferScaleDirection,
@@ -170,7 +170,7 @@ let importedIntakeDraft = null;
 const reviewPending = reactive({ intake: false, plan: false });
 const planText = ref('');
 const insuranceText = ref(''), contactsText = ref(''), commentsText = ref(''), payerText = ref(''), billingCommentsText = ref('');
-const contactOwner = ref(props.initialContactOwner), preparePrimaryGuardian = ref(true), importedContacts = ref([]), guardianContactNames = ref([]);
+const contactOwner = ref(props.initialContactOwner), preparePrimaryGuardian = ref(true), importedContacts = ref([]), guardianPreparing=ref(false);
 let contactImportRevision = 0;
 const sectionTexts = reactive({ demographics: demographicsText, intake: intakeText, plan: planText, insurance: insuranceText, contacts: contactsText, comments: commentsText, payer: payerText, billingComments: billingCommentsText });
 const sections = CLIENT_RECORD_SECTIONS;
@@ -214,7 +214,7 @@ const status = reactive({
 const hasAnyPaste = computed(
   () => visibleSections.value.some(section => sectionTexts[section.key].trim()) || (!props.historicalImport && hasCoveragePaste.value)
 );
-const networkBusy = computed(() => importing.value || markingDone.value || invitationBusy.value || historyBusy.value || payerBusy.value || assignmentsBusy.value || progressBusy.value || drafts.state.loading);
+const networkBusy = computed(() => importing.value || markingDone.value || invitationBusy.value || historyBusy.value || payerBusy.value || assignmentsBusy.value || guardianPreparing.value || progressBusy.value || drafts.state.loading);
 const busy=computed(()=>networkBusy.value||completionPreparing.value);
 const filledSections=()=>visibleSections.value.filter(section=>sectionTexts[section.key].trim()||(section.key==='insurance'&&hasCoveragePaste.value)).map(section=>section.key);
 const creationPendingReasons=computed(()=>[
@@ -306,7 +306,7 @@ watch(
     hydratingDrafts = true;
     payerPosition.value = 'primary';
     for (const position of ['primary', 'secondary']) Object.assign(coverageDrafts[position], { text: '', imported: false });
-    importedContacts.value = []; guardianContactNames.value = []; preparePrimaryGuardian.value = true; contactOwner.value = props.initialContactOwner;
+    importedContacts.value = []; preparePrimaryGuardian.value = true; contactOwner.value = props.initialContactOwner;
     for (const section of sections) { sectionTexts[section.key] = props.initialTexts[section.key] || ''; status[section.key] = props.recordStatus?.[section.key] || 'missing'; }
     error.value = ''; successMessage.value = ''; stepLog.value = [];
     importedIntakeDraft = null;completionReview.value=false;keepBlankConfirmed.value=false;Object.keys(unlocked).forEach(key=>delete unlocked[key]);
@@ -566,12 +566,12 @@ defineExpose({ prepareLeave,importAll,reloadAssignments });
 
 async function importSupplementary(key) {
   const result = await api.post(`/clients/${props.clientId}/chart-import/sections/${key}`, { text: sectionTexts[key], ...(['insurance','payer'].includes(key) ? { position: payerPosition.value } : {}),
-    ...(key === 'contacts' ? { preparePrimaryGuardian: canPrepareAccounts.value && preparePrimaryGuardian.value && contactOwner.value === 'guardian', guardianContactNames: guardianContactNames.value } : {}) }, { skipGlobalLoading: true, headers: agencyHeaders() });
+    ...(key === 'contacts' ? { preparePrimaryGuardian: canPrepareAccounts.value && preparePrimaryGuardian.value && contactOwner.value === 'guardian' } : {}) }, { skipGlobalLoading: true, headers: agencyHeaders() });
   assertScope();
   if (key === 'insurance') coverageDrafts[payerPosition.value].imported = true;
   status[key] = 'imported';
   transitionRefreshKey.value++;
-  if (key === 'contacts') { contactImportRevision++; importedContacts.value = Array.isArray(result.data?.result) ? result.data.result : []; guardianContactNames.value = []; }
+  if (key === 'contacts') { contactImportRevision++; importedContacts.value = Array.isArray(result.data?.result) ? result.data.result : []; }
   if (['insurance', 'payer'].includes(key)) { payerReady.value = false; payerRefreshKey.value++; }
   const messages = { comments: 'Patient comments saved to Administrative note', insurance: 'Insurance imported for billing review', payer: 'Payer information imported', billingComments: 'Billing comments imported', contacts: 'Additional contacts imported' };
   const eligibility = key === 'insurance' && result.data?.result;
@@ -613,11 +613,6 @@ async function importCoverage() {
     drafts.schedule('insurance', draftValue('insurance'));
   }
 }
-async function prepareAdditionalAccounts() {
-  status.contacts = 'missing';
-  await importAll('contacts');
-}
-
 async function importAll(onlySection = null) {
   if (!hasAnyPaste.value || importing.value || drafts.state.loading) return;
   importScopeGeneration = scopeGeneration;
