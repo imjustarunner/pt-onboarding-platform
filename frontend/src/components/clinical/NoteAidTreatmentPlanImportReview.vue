@@ -219,7 +219,7 @@
                 </label>
                 <label class="na-check"><input v-model="o.skipScale" type="checkbox" @change="o.reviewed=false" /> Use an alternate measure for this objective</label>
                 <label v-if="o.skipScale" class="na-label">Alternate measure and reason
-                  <input v-model="o.scaleExemption" class="na-input" maxlength="350" @input="o.reviewed=false" />
+                  <input v-model="o.scaleExemption" class="na-input" maxlength="230" @input="o.reviewed=false" />
                 </label>
               </div>
               <div v-if="!o.skipScale" class="na-import-scale">

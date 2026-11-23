@@ -25,7 +25,7 @@ export function normalizeNarrivaPlanDraft(input, { finalize = false } = {}) {
   const draft = {
     effectiveDate,
     presentingProblem: bounded(input.presentingProblem, 16000),
-    prescribedFrequency: bounded(input.prescribedFrequency, 2000),
+    prescribedFrequency: bounded(input.prescribedFrequency, 255),
     dischargePlan: bounded(input.dischargePlan, 16000),
     diagnosticJustification: bounded(input.diagnosticJustification, 16000),
     diagnoses: (Array.isArray(input.diagnoses) ? input.diagnoses : []).slice(0,20).filter(row=>row && bounded(row.icd10Code,16)).map(row=>({
@@ -36,7 +36,7 @@ export function normalizeNarrivaPlanDraft(input, { finalize = false } = {}) {
       projectedCompletion: date(goal.projectedCompletion), reviewed:goal.reviewed===true,
       objectives: goal.objectives.map((objective, oi) => {
         if (!objective) throw planError('Each objective must include its plan details.');
-        const scaleExemption = bounded(objective.scaleExemption, 350);
+        const scaleExemption = bounded(objective.scaleExemption, 230);
         const skipScale=objective.skipScale===true || !!scaleExemption;
         const current = skipScale ? null : safeScale(objective.scaleCurrent);
         const target = skipScale ? null : safeScale(objective.scaleTarget);
