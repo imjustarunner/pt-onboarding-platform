@@ -36,7 +36,7 @@ describe('appointment clinical linkage', () => {
     await ensureAppointmentClinicalLink(3, 9);
     const [sql, values] = clinicalPool.execute.mock.calls[0];
     expect(sql).toContain('claim_blocked_reason');
-    expect(values.at(-1)).toMatch(/^SELF_PAY_ONLY:/);
+    expect(values.at(-2)).toMatch(/^SELF_PAY_ONLY:/);
     expect(sql.match(/\?/g).length).toBe(values.length);
     expect(Appointment.update).toHaveBeenCalledWith(3, { clinicalSessionId: 22 });
   });
@@ -54,7 +54,7 @@ describe('appointment clinical linkage', () => {
     Appointment.getBilling.mockResolvedValue({ settlementMode: 'package' });
     await ensureAppointmentClinicalLink(3, 9);
     expect(Appointment.update).toHaveBeenCalledWith(3, { clinicalSessionId: 22 });
-    expect(clinicalPool.execute.mock.calls[0][1].at(-1)).toMatch(/Prepaid package/);
+    expect(clinicalPool.execute.mock.calls[0][1].at(-2)).toMatch(/Prepaid package/);
   });
   it('creates separate client contexts for a group', async () => {
     Appointment.listParticipants.mockResolvedValue([{ clientId: 2, role: 'client' }, { clientId: 4, role: 'client' }]);
@@ -67,8 +67,18 @@ describe('appointment clinical linkage', () => {
     await ensureAppointmentClinicalLink(3, 9);
     const [sql, values] = clinicalPool.execute.mock.calls[0];
     expect(values[5]).toBe('America/Chicago');
-    expect(values.slice(-4)).toEqual([6, 7, '03', null]);
+    expect(values.slice(-5)).toEqual([6, 7, '03', null, 0]);
     expect(sql.match(/\?/g).length).toBe(values.length);
+  });
+  it('carries scheduled audio-only delivery into a new or refreshed clinical note', async () => {
+    const appointment = await Appointment.findById();
+    Appointment.findById.mockResolvedValue({ ...appointment, audioOnly: true, serviceLocationId: 6 });
+    AgencyServiceLocation.findById.mockResolvedValue({ id: 6, agency_id: 1, place_of_service: '10', billing_office_location_id: 7 });
+    await ensureAppointmentClinicalLink(3, 9);
+    const [sql, values] = clinicalPool.execute.mock.calls[0];
+    expect(JSON.parse(values[12])).toMatchObject({ scheduledAudioOnly: true });
+    expect(sql).toContain("'$.scheduledAudioOnly', ?");
+    expect(values.slice(-5)).toEqual([6, 7, '10', null, 1]);
   });
   it('rejects a location belonging to another agency', async () => {
     const appointment = await Appointment.findById();
