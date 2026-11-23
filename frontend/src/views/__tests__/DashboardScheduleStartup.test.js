@@ -44,10 +44,14 @@ it('lets an ordinary provider view a coworker without mounting schedule editing 
   const state = wrapper.vm.$.setupState;
   expect(m.get).toHaveBeenCalledWith('/staff/directory', expect.objectContaining({ params: { agencyId: 2, activeOnly:true } }));
   state.onScheduleModalChangeUser(8); await flushPromises();
-  expect(wrapper.find('team-availability-calendar-stub').exists()).toBe(true);
-  expect(wrapper.find('schedule-availability-grid-stub').exists()).toBe(false);
+  const coworkerGrid=wrapper.findComponent({name:'ScheduleAvailabilityGrid'});
+  expect(coworkerGrid.props('userId')).toBe(8);
+  expect(coworkerGrid.props('teamCalendar')).toBe(true);
+  expect(coworkerGrid.props('teamAvailabilityOnly')).toBe(true);
   state.clearMyScheduleViewAs(); await flushPromises();
-  expect(wrapper.find('schedule-availability-grid-stub').exists()).toBe(true);
+  const ownGrid=wrapper.findComponent({name:'ScheduleAvailabilityGrid'});
+  expect(ownGrid.props('userId')).toBe(7);
+  expect(ownGrid.props('teamAvailabilityOnly')).toBe(false);
 });
 it('uses the active agency staff directory for administrator employee calendar choices too',async()=>{
   m.get.mockImplementation(async url=>({data:url==='/staff/directory'?{staff:[{id:8,displayName:'Active Employee',workEmail:'staff@example.test'}]}:[]}));
