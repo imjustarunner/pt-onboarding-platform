@@ -4,14 +4,13 @@ import clinicalPool from '../../config/clinicalDatabase.js';
 import { fingerprintPlanText } from './ClinicalTreatmentObjectiveRating.model.js';
 
 function parseInterventionsField(raw) {
-  if (Array.isArray(raw)) {
-    return [...new Set(raw.map((s) => String(s || '').trim()).filter(Boolean))];
-  }
   if (!raw) return [];
   try {
     const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
     if (!Array.isArray(parsed)) return [];
-    return [...new Set(parsed.map((s) => String(s || '').trim()).filter(Boolean))];
+    return [...new Set(parsed.map(value => String(value || '')
+      .replace(/^[\s]*(?:estimated|projected)\s+completion\s*:.*$/i, '')
+      .split(/\s*[;|·]\s*(?:estimated|projected)\s+completion\s*:/i)[0].trim()).filter(Boolean))];
   } catch {
     return [];
   }
@@ -250,7 +249,7 @@ class ClinicalTreatmentPlan {
     const [goals] = await database.execute(
       `SELECT * FROM clinical_treatment_plan_goals
        WHERE treatment_plan_id = ?
-       ORDER BY goal_index ASC`,
+       ORDER BY goal_index ASC, id ASC`,
       [id]
     );
     const outGoals = [];
@@ -258,7 +257,7 @@ class ClinicalTreatmentPlan {
       const [objs] = await database.execute(
         `SELECT * FROM clinical_treatment_plan_objectives
          WHERE goal_id = ?
-         ORDER BY objective_index ASC`,
+         ORDER BY objective_index ASC, id ASC`,
         [g.id]
       );
       outGoals.push({

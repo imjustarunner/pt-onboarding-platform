@@ -51,3 +51,13 @@ it('shows the sign-in readiness gap and a real account-review link without prete
   api.get.mockResolvedValue({data:{policy:{revision:3,entries:[{providerUserId:1,enabled:true}]},providers:[{id:1,name:'Provider',accountConversionPending:true}]}});
   const w=mount(ClientSessionBookingRollout,{props:{agencyId:2}});await flushPromises();expect(w.text()).toContain('0 enabled · 1 coming soon');w.unmount();
  });
+
+it('reports the provider’s self-scheduling blocker when staff can still book for them', async () => {
+ api.get.mockResolvedValueOnce({ data }).mockResolvedValueOnce({data:{enabled:true,providerSelfSchedulingEnabled:false,providerSelfSchedulingReason:'Finish individual account verification.'}});
+ const w=mount(ClientSessionBookingRollout,{props:{agencyId:2}});await flushPromises();
+ await w.find('.rollout-access-check').trigger('click');await flushPromises();
+ expect(api.get).toHaveBeenLastCalledWith('/appointments/booking-access',{params:{agencyId:2,providerUserId:1}});
+ expect(w.text()).toContain('Ryn Test · Finish individual account verification.');
+ expect(api.put).not.toHaveBeenCalled();
+ w.unmount();
+});

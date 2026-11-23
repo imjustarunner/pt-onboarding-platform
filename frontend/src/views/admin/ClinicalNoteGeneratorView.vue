@@ -1529,6 +1529,8 @@
       :initial-plan="planDraftInitialPlan"
       :renewal-reason="planUpdaterRenewalReason"
       :progress-excerpt="planUpdaterProgressExcerpt"
+      :return-to-chart="!!clientProfileHref && !embedded"
+      @return-to-chart="returnToTreatmentPlanChart"
       @close="closePlanDraftEditor"
       @saved="onPlanImportSaved"
     />
@@ -1968,6 +1970,15 @@ const clientProfileHref = computed(() => {
   const slug = agencyStore.currentAgency?.slug || agencyStore.currentAgency?.organization_slug || route.params?.organizationSlug;
   return slug ? `/${slug}/admin/clients/${cid}` : `/admin/clients/${cid}`;
 });
+
+function returnToTreatmentPlanChart() {
+  if (!clientProfileHref.value) return;
+  const target = new URL(clientProfileHref.value, window.location.origin);
+  const query = { ...Object.fromEntries(target.searchParams), tab: 'treatment-plans', agencyId: chartAgencyIdForSave.value };
+  showPlanImportReview.value = false;
+  const path = isAuricWell.value ? `/${route.params.organizationSlug}/clients` : target.pathname;
+  return router.push({ path, query });
+}
 
 const demographicsOnFile = computed(() => {
   const c = selectedClient.value;
@@ -7318,20 +7329,25 @@ const bootstrapWorkspace = async ({ resetForm = false } = {}) => {
       await loadClientTreatmentPlan(qClient);
       await loadClientIntakeSummary(qClient);
     }
-    if (qPlanId) {
-      planDraftEditorId.value = qPlanId;
-      planDraftEditorMode.value = 'draft';
-      planDraftInitialPlan.value =
-        Number(latestTreatmentPlan.value?.id) === qPlanId ? latestTreatmentPlan.value : null;
-      showPlanImportReview.value = true;
-    } else if (
-      latestTreatmentPlan.value?.id
-      && ['draft', 'active'].includes(String(latestTreatmentPlan.value?.status || '').toLowerCase())
-    ) {
-      planDraftEditorId.value = latestTreatmentPlan.value.id;
-      planDraftEditorMode.value =
-        String(latestTreatmentPlan.value?.status || '').toLowerCase() === 'draft' ? 'draft' : 'import';
-      planDraftInitialPlan.value = latestTreatmentPlan.value;
+    const selectedPlanId = qPlanId || Number(latestTreatmentPlan.value?.id || 0);
+    if (selectedPlanId) {
+      const knownPlan = Number(latestTreatmentPlan.value?.id) === selectedPlanId ? latestTreatmentPlan.value : null;
+      let selectedPlan = knownPlan;
+      if (!knownPlan || knownPlan.status === 'draft' && !knownPlan.chartDraft) {
+        try {
+          const response = await api.get(`/medical-billing/treatment-plans/${selectedPlanId}`, {
+            params: { agencyId: chartAgencyIdForSave.value, clientId: qClient || effectiveClientId.value },
+            skipGlobalLoading: true
+          });
+          selectedPlan = response.data?.plan || knownPlan;
+        } catch { /* The plan editor will display a load error if the record remains unavailable. */ }
+      }
+      const isRevision = route.query.revision === '1' || (selectedPlan && (selectedPlan.status !== 'draft' || selectedPlan.providerApproved));
+      planDraftEditorId.value = selectedPlanId;
+      planDraftEditorMode.value = isRevision ? 'update' : 'draft';
+      planDraftInitialPlan.value = selectedPlan;
+      planUpdaterRenewalReason.value = isRevision && route.query.revision === '1'
+        ? 'Review the documented progress and recommend revisions to the existing goals and objectives.' : '';
       showPlanImportReview.value = true;
     } else {
       await openTreatmentPlanUpdater({
@@ -7905,6 +7921,10 @@ const onPlanImportSaved = async (plan) => {
   // from the launch URL showed the old text even though the save succeeded.
   const planLaunch = String(route.query?.noteAid || route.query?.note_aid || '') === 'psychotherapy_plan'
     || String(route.query?.launchIntent || route.query?.launch_intent || '') === 'update_treatment_plan';
+  if (plan?.id && planLaunch && route.query.revision === '1') {
+    await returnToTreatmentPlanChart();
+    return;
+  }
   if (plan?.id && planLaunch) {
     const query={...route.query,planId:String(plan.id)};
     delete query.plan_id;
@@ -7947,6 +7967,10 @@ const closePlanDraftEditor = async () => {
     } catch {
       // best-effort refresh
     }
+  }
+  if (route.query.revision === '1' && !props.embedded) {
+    await returnToTreatmentPlanChart();
+    return;
   }
   reopenClientSetupIfNeeded();
 };

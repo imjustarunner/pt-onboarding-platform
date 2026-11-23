@@ -181,7 +181,7 @@
         <section v-if="chartHub==='schedule' && canScheduleClient" class="detail-section"><ClientSchedulePanel :key="`${client.id}:${activeChartAgencyId}`" :client="{...client,agency_id:activeChartAgencyId}" /></section>
         <section v-if="chartHub==='bring-up-to-date' && showRecordsImportTab" class="detail-section">
           <p v-if="!canFinishChartSetup || !recordsImportSetup" role="status">Loading this client’s saved import…</p>
-          <ClientEhrBringUpToDatePanel v-else ref="recordsImportPanel" :key="`records-import-${client.id}`" embedded open :client-id="client.id" :agency-id="client.agency_id" :client-label="client.full_name || ''" :record-status="recordsImportSectionStatus" :only-sections="recordsImportSetup.recordsImportSelectedSections||null" @section-imported="onChartSetupUpdated" :personal-account-only="!showDependentFields && !clientIsMinor" review-intake-link @review-intake="goChartSub('intake-note')" @done="onRecordsImportDone" />
+          <ClientEhrBringUpToDatePanel v-else ref="recordsImportPanel" :key="`records-import-${client.id}`" embedded open :client-id="client.id" :agency-id="client.agency_id" :client-label="client.full_name || ''" :record-status="recordsImportSectionStatus" :only-sections="recordsImportSetup.recordsImportSelectedSections||null" @section-imported="onChartSetupUpdated" :personal-account-only="!showDependentFields && !clientIsMinor" review-plan-link @review-plan="goChartSub('treatment-plans')" review-intake-link @review-intake="goChartSub('intake-note')" @done="onRecordsImportDone" />
         </section>
 
         <div

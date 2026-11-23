@@ -1,8 +1,9 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { defineComponent } from 'vue';
 import { mount, flushPromises } from '@vue/test-utils';
-const m=vi.hoisted(()=>({get:vi.fn(),leave:vi.fn()}));
+const m=vi.hoisted(()=>({get:vi.fn(),leave:vi.fn(),push:vi.fn()}));
 vi.mock('../../../../store/auth',()=>({useAuthStore:()=>({user:{id:10,role:'support'}})}));
+vi.mock('vue-router',()=>({useRoute:()=>({params:{organizationSlug:'example'}}),useRouter:()=>({push:m.push})}));
 vi.mock('../../../../services/api',()=>({default:{get:m.get}}));
 import Modal from '../ClientChartUpdateModal.vue';
 const Panel=defineComponent({ name:'ClientEhrBringUpToDatePanel',props:['clientId','agencyId'],setup(props,{expose}){ expose({prepareLeave:m.leave});return{};},template:'<div data-panel :data-client="clientId" :data-agency="agencyId" />' });
@@ -45,4 +46,17 @@ it.each([true,false])('skips native office submissions in selected and fetched q
  m.get.mockResolvedValue({data:rows});
  const wrapper=mount(Modal,{props:{initialClient:client,...(selected?{selectedClients:rows}:{})},global:{stubs:{ClientEhrBringUpToDatePanel:Panel}}});await flushPromises();
  expect(wrapper.vm.queue.map(client=>client.id)).toEqual([12,20]);wrapper.unmount();
+});
+
+it('flushes drafts and returns to the chart for the currently selected client',async()=>{
+ const panel=mount(Modal,{props:{initialClient:client},global:{stubs:{ClientEhrBringUpToDatePanel:Panel,Teleport:true}}});
+ await flushPromises();
+ await panel.findAll('button').find(button=>button.text()==='Next client →').trigger('click');
+ await flushPromises();
+ await panel.findAll('button').find(button=>button.text()==='Open client chart').trigger('click');
+ await flushPromises();
+ expect(m.leave).toHaveBeenLastCalledWith({confirmPending:false});
+ expect(m.push).toHaveBeenCalledWith({path:'/example/admin/clients/13',query:{tab:'bring-up-to-date',agencyId:3}});
+ expect(panel.emitted('close')).toHaveLength(1);
+ panel.unmount();
 });

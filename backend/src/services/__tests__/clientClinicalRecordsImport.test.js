@@ -5,7 +5,7 @@ vi.mock('../clinicalNoteCrypto.service.js', () => ({ maybeEncryptNotePayload: va
 vi.mock('../ehrHistoricalImportLock.service.js', () => ({ withHistoricalImportLock: vi.fn((_a,_c,_k,work) => work()) }));
 vi.mock('../clientChartImport.service.js', () => ({ saveChartRecord: vi.fn() }));
 import { saveChartRecord } from '../clientChartImport.service.js';
-import { importRecordsIntake, importRecordsTreatmentPlan } from '../clientClinicalRecordsImport.service.js';
+import { applyImportedPlanRatingReview, importRecordsIntake, importRecordsTreatmentPlan } from '../clientClinicalRecordsImport.service.js';
 import { intakeDraftChartSummary } from '../intakeDraftReview.service.js';
 import { parseScalePair as backendScale } from '../treatmentPlanImport.service.js';
 let drafts, plans;
@@ -62,4 +62,18 @@ it('reads the documented narrative scale without taking the 1–10 anchors as th
   const text='Progress will be measured on a scale of 1–10, with 10 representing sustained attention. The client is currently functioning at a 3, demonstrating difficulty maintaining focus. The goal is to achieve a 7 by improving attention.';
   expect(backendScale(text)).toEqual({scaleCurrent:3,scaleTarget:7});
   expect(backendScale('Within 3 months, work on 7 coping strategies on a scale of 1–10.')).toEqual({scaleCurrent:null,scaleTarget:null});
+});
+
+it('preserves imported goal order and reads a stated score instead of scale endpoints', async () => {
+  const narrative = 'Use a scale from 1 to 10, where 1 reflects difficulty and 10 reflects confidence. The client currently rates their communication at a 6/10. A 10/10 would indicate clear requests.';
+  const text = ['Diagnosis', 'F41.1 Anxiety', 'Treatment Goal 1','Improve communication', 'Objective 1.1', narrative, 'Treatment Strategy / Intervention', 'Role play; Estimated Completion: 3 months (1/19/2027)', 'Objective 1.2', 'Practice active listening.', 'Treatment Goal 2', 'Improve coping', 'Objective 2.1', 'Practice grounding.'].join('\n');
+  const {plan} = await importRecordsTreatmentPlan({...scope,input:{recordsImport:{text}}},{plans});
+  expect(plan.goals).toMatchObject([
+    {goalIndex:1,objectives:[{objectiveIndex:1,scaleCurrent:6,scaleTarget:10,interventions:['Role play']},{objectiveIndex:2}]},
+    {goalIndex:2,objectives:[{objectiveIndex:1}]}
+  ]);
+  const legacy = {status:'draft', goals:[{goal_text:'Improve communication',objectives:[{objective_text:narrative,scale_current:1,scale_start:1,scale_target:10}]}]};
+  applyImportedPlanRatingReview(legacy,{text:text.split('Objective 1.2')[0]});
+  expect(legacy.goals[0].objectives[0]).toMatchObject({scale_current:6,scale_start:6,scale_target:10});
+  expect(backendScale('Use a scale from 1 to 10 to track progress.')).toEqual({scaleCurrent:null,scaleTarget:null});
 });

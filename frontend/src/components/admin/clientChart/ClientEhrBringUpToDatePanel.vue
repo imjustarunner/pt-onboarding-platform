@@ -31,6 +31,8 @@
         <p v-if="status[section.key] === 'imported'" class="ehr-imported" role="status">✓ {{section.key==='insurance'&&coverageMode==='self_pay'?'Self-pay and client rate saved.':section.key==='insurance'&&coverageMode==='no_policy'?'No policy to import.':section.label+' imported and saved.'}} <button type="button" class="ehr-link" :disabled="busy" @click="unlocked[section.key]=true">Edit imported section</button></p>
         <button v-if="section.key === 'intake' && status.intake === 'imported' && !historicalImport && reviewIntakeLink"
           type="button" class="ehr-link" @click="$emit('review-intake')">Review intake and confirm diagnosis</button>
+        <button v-if="section.key === 'plan' && status.plan === 'imported' && !historicalImport && reviewPlanLink"
+          type="button" class="ehr-link" :disabled="busy" @click="reviewPlan">Review treatment plan in chart</button>
         <p v-if="section.hint && (section.key!=='insurance'||coverageMode==='insurance')" class="ehr-muted">{{ section.hint }}</p>
         <label v-if="section.key === 'demographics'" class="ehr-label">The phone and email in this patient information belong to<select v-model="contactOwner" :disabled="busy"><option value="guardian">Parent / guardian — use their contact card and portal account</option><option value="client">Client — use the client’s own contact details</option></select></label>
         <template v-if="section.key === 'contacts'">
@@ -131,6 +133,7 @@ import {
 } from '../../../utils/treatmentPlanDuration.js';
 
 const props = defineProps({
+  reviewPlanLink: Boolean,
   reviewIntakeLink: Boolean,
   personalAccountOnly: Boolean,
   open: { type: Boolean, default: false },
@@ -156,7 +159,7 @@ const props = defineProps({
   recordStatus: { type: Object, default: () => ({}) }
 });
 
-const emit = defineEmits(['close', 'done', 'imported', 'busy', 'drafts-saved', 'section-imported', 'review-intake', 'sections-imported']);
+const emit = defineEmits(['close', 'done', 'imported', 'busy', 'drafts-saved', 'section-imported', 'review-intake', 'review-plan', 'sections-imported']);
 const auth = getActivePinia() ? useAuthStore() : null;
 const canPrepareAccounts = computed(() => ['super_admin','admin','support'].includes(auth?.user?.role));
 
@@ -552,6 +555,10 @@ async function prepareLeave({confirmPending=true,fromCompletion=false}={}) {
   emit('drafts-saved');
   return true;
 }
+async function reviewPlan() {
+  if (await prepareLeave({ confirmPending: false })) emit('review-plan');
+}
+
 async function reloadAssignments(){await assignmentsPanel.value?.refresh?.();return true;}
 defineExpose({ prepareLeave,importAll,reloadAssignments });
 

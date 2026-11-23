@@ -4,7 +4,6 @@
     <header class="cin-header">
       <div class="cin-header__title-row">
         <h3 class="cin-title">Intake Note</h3>
-        <span v-if="copyFlash" class="cin-copy-flash">{{ copyFlash }}</span>
       </div>
       <div class="cin-header__actions">
         <button v-if="canRemoveImported" type="button" class="cdp-btn-soft" :disabled="busy" @click="removeImported">Remove imported copy</button>
@@ -45,14 +44,6 @@
             >
               {{ draft?.status === 'final' ? 'Replace / re-import intake' : 'Import pasted intake' }}
             </button>
-            <button
-              v-if="draft?.sections?.length"
-              type="button"
-              role="menuitem"
-              @click="runMoreAction('copy')"
-            >
-              Copy all sections
-            </button>
           </div>
         </div>
       </div>
@@ -60,7 +51,7 @@
 
     <div v-if="phiBanner" class="phi-warning cin-phi">
       <strong>PHI access</strong>
-      <span class="muted"> Chart demographics stay on this page for copy — they are never sent to the note writer.</span>
+      <span class="muted"> Chart demographics stay on this page.</span>
     </div>
 
     <div v-if="isHistoricalView" class="cin-history-banner">
@@ -174,7 +165,6 @@
           <section v-for="sec in draft.sections" :key="sec.key" :ref="el => setSectionRef(sec.key, el)" class="cin-panel cin-note-section">
             <div class="cin-panel__head">
               <h4>{{ sec.label }}</h4>
-              <button type="button" class="cdp-text-link" @click="copyText(sec.body, sec.label)">Copy</button>
             </div>
             <pre class="cin-section__body">{{ sec.body || '—' }}</pre>
           </section>
@@ -210,7 +200,6 @@
             <div v-for="(goal, idx) in (treatmentPlan.goals || [])" :key="idx" class="cin-section cin-section--static">
               <div class="cin-section__head">
                 <strong>Goal {{ idx + 1 }}</strong>
-                <button type="button" class="cdp-text-link" @click="copyText(formatGoal(goal), `Goal ${idx + 1}`)">Copy</button>
               </div>
               <pre class="cin-section__body">{{ formatGoal(goal) }}</pre>
             </div>
@@ -255,14 +244,6 @@
 
           <!-- Sidebar actions -->
           <div class="cin-sidebar__actions">
-            <button
-              v-if="draft.sections?.length"
-              type="button"
-              class="cdp-btn-soft cin-sidebar__btn"
-              @click="copyAll"
-            >
-              Copy All
-            </button>
 
             <button
               v-if="treatmentPlan || draft.status === 'final'"
@@ -364,7 +345,6 @@ const showRationale = ref(false);
 const sourceCompared = ref(false), appointmentReviewed = ref(false);
 const appointmentOptions = ref([]), selectedClinicalSessionId = ref(''), appointmentOptionsUnavailable = ref(false);
 const dxEdit = ref({ code: '', description: '', justification: '', comment: '' });
-const copyFlash = ref('');
 const sectionRefs = ref({});
 
 const statusLabel = computed(() => {
@@ -689,24 +669,6 @@ function formatGoal(goal) {
   return parts.map((p) => (typeof p === 'string' ? p : JSON.stringify(p))).join('\n');
 }
 
-let copyFlashTimer = null;
-async function copyText(text, label) {
-  try {
-    await navigator.clipboard.writeText(String(text || ''));
-    copyFlash.value = `${label || 'Copied'} copied`;
-    if (copyFlashTimer) clearTimeout(copyFlashTimer);
-    copyFlashTimer = setTimeout(() => { copyFlash.value = ''; }, 2200);
-  } catch {
-    /* ignore */
-  }
-}
-
-function copyAll() {
-  showMoreMenu.value = false;
-  const parts = (draft.value?.sections || []).map((s) => `## ${s.label}\n${s.body || ''}`);
-  copyText(parts.join('\n\n'), 'All sections');
-}
-
 async function onImportFinalized() {
   showImport.value = false;
   viewingHistoryId.value = null;
@@ -717,7 +679,6 @@ function runMoreAction(action) {
   showMoreMenu.value = false;
   if (action === 'generate') generateDraft();
   else if (action === 'import') showImport.value = true;
-  else if (action === 'copy') copyAll();
 }
 
 function dateOnly(raw) {
@@ -786,7 +747,6 @@ onMounted(() => {
 });
 onBeforeUnmount(() => {
   document.removeEventListener('click', onDocumentClick);
-  if (copyFlashTimer) clearTimeout(copyFlashTimer);
 });
 watch(() => [props.clientId,props.initialDraftId], () => {
   viewingHistoryId.value = null;
@@ -832,11 +792,6 @@ watch(() => [props.clientId,props.initialDraftId], () => {
   background: color-mix(in srgb, var(--cin-primary) 14%, transparent);
   color: var(--cin-primary);
   border: 1px solid color-mix(in srgb, var(--cin-primary) 28%, transparent);
-}
-.cin-copy-flash {
-  font-size: 12px;
-  font-weight: 650;
-  color: var(--cin-primary);
 }
 .cin-header__actions {
   display: flex;

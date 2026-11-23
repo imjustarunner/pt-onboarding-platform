@@ -70,7 +70,7 @@ export async function clientSessionBookingAccess(agencyId, providerUserId, db = 
     if (!(await canStaffScheduleBeforeProviderActivation(agencyId,providerUserId,actorUserId,db))) return review;
     const care = await readStaffCareEligibility(providerUserId,agencyId,db);
     return care.canProvideCare
-      ? {...review,enabled:true,reason:null,staffScheduling:true,providerSelfSchedulingEnabled:false}
+      ? {...review,enabled:true,reason:null,staffScheduling:true,providerSelfSchedulingEnabled:false,providerSelfSchedulingReason:review.reason}
       : {...review,reason:care.reason};
   }
   const care = await readStaffCareEligibility(providerUserId, agencyId, db);

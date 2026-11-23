@@ -392,6 +392,10 @@ export const getTreatmentPlanById = async (req, res, next) => {
         const { getTreatmentPlanApproval }=await import('../services/treatmentPlanApproval.service.js');
         plan.providerApproved=(await getTreatmentPlanApproval(plan)).providerApproved;
         plan.chartDraft=await readChartRecord({agencyId,clientId},`plan_edit_${planId}`,0);
+        if (plan.recordsImportSource && !plan.providerApproved && !plan.chartDraft.value) {
+          const { applyImportedPlanRatingReview } = await import('../services/clientClinicalRecordsImport.service.js');
+          applyImportedPlanRatingReview(plan, plan.recordsImportSource);
+        }
       }
     }
     await logNoteAidChartEvent(req, { clientId, agencyId, action: 'clinical_treatment_plan_viewed', metadata: { treatmentPlanId: plan.id } });

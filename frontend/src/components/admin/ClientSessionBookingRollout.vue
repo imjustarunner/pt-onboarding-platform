@@ -16,10 +16,11 @@
     <div class="rollout-list" aria-label="Providers for session booking rollout">
       <label v-for="provider in filteredProviders" :key="provider.id" class="rollout-provider">
         <input v-model="selected" type="checkbox" :value="provider.id" :disabled="busy || (!selected.includes(provider.id) && selected.length >= 10)" />
-        <span>{{ provider.name }} <a :href="`/admin/users/${provider.id}?tab=account&section=workspace-security`" @click.stop>Review account &amp; sign-in</a> <a v-if="agencyId === 2" href="#provider-conversion" @click.prevent.stop="openConversion(provider)">Individual account conversion</a></span><span class="rollout-status">{{ enabled(provider.id) ? 'Enabled' : 'Coming soon' }}</span>
+        <span>{{ provider.name }} <a :href="`/admin/users/${provider.id}?tab=account&section=workspace-security`" @click.stop>Review account &amp; sign-in</a> <button type="button" class="rollout-access-check" @click.prevent.stop="checkBookingAccess(provider)">Check booking access</button> <a v-if="agencyId === 2" href="#provider-conversion" @click.prevent.stop="openConversion(provider)">Individual account conversion</a></span><span class="rollout-status">{{ enabled(provider.id) ? 'Enabled' : 'Coming soon' }}</span>
       </label>
       <p v-if="loaded && !filteredProviders.length">No matching active client-facing providers.</p>
     </div>
+    <p v-if="accessCheck" role="status"><strong>{{ accessCheck.name }}</strong> · {{ accessCheck.message }}</p>
     <section v-if="conversionProvider" id="provider-conversion" class="account-conversion" aria-label="Individual provider account conversion">
       <h3>{{ conversionProvider.name }} · individual account conversion</h3>
       <p>Keep their current work address as a Google Group. Their original Workspace user and data are preserved. This app never suspends, renames or deletes that user.</p>
@@ -65,6 +66,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import api from '../../services/api';
 const props = defineProps({ agencyId: { type: Number, required: true } });
 const busy=ref(false), loaded=ref(false), error=ref(''), notice=ref(''), providers=ref([]), policy=ref({ revision:0, entries:[] });
+const accessCheck=ref(null);
 const selected=ref([]), search=ref(''), filter=ref('all'), action=ref('enable'), note=ref(''), reviewed=ref(false);
 const conversionProvider=ref(null),conversionData=ref(null),conversionBusy=ref(false),conversionError=ref(''),originalGoogleId=ref(''),recoveryConfirmation=ref(''),conversionConfirmed=ref(false),deliveryConfirmed=ref(false),passwordAccessConfirmed=ref(false),deliveryEvidence=ref('');
 const conversionReady=computed(()=>!conversionBusy.value && conversionConfirmed.value && recoveryConfirmation.value.trim().toLowerCase()===conversionData.value?.recoveryEmail);
@@ -72,6 +74,21 @@ let conversionRequest=0;
 async function openConversion(provider){conversionProvider.value=provider;conversionData.value=null;originalGoogleId.value='';recoveryConfirmation.value='';conversionConfirmed.value=false;deliveryConfirmed.value=false;passwordAccessConfirmed.value=false;deliveryEvidence.value='';await refreshConversion();}
 async function refreshConversion(){if(!conversionProvider.value)return;const ticket=++conversionRequest;conversionBusy.value=true;conversionError.value='';try{const {data}=await api.get(`/appointments/booking-rollout/providers/${conversionProvider.value.id}/conversion`,{params:{agencyId:props.agencyId}});if(ticket!==conversionRequest)return;conversionData.value=data;if(data.originalWorkspace?.id)originalGoogleId.value=data.originalWorkspace.id;}catch(e){if(ticket===conversionRequest)conversionError.value=e.response?.data?.error?.message || 'Account readiness could not be verified.';}finally{if(ticket===conversionRequest)conversionBusy.value=false;}}
 async function conversionAction(stage){if(!conversionReady.value)return;const ticket=++conversionRequest,providerId=conversionProvider.value.id;conversionBusy.value=true;conversionError.value='';try{const {data}=await api.post(`/appointments/booking-rollout/providers/${providerId}/conversion/${stage}`,{agencyId:props.agencyId,revision:conversionData.value?.conversion?.revision,originalWorkspaceUserId:originalGoogleId.value,originalIdentityReviewed:conversionConfirmed.value,confirmRecoveryEmail:recoveryConfirmation.value,confirmed:conversionConfirmed.value,deliveryConfirmed:deliveryConfirmed.value,passwordAccessConfirmed:passwordAccessConfirmed.value,deliveryEvidence:deliveryEvidence.value});if(ticket!==conversionRequest)return;conversionData.value=data;conversionConfirmed.value=false;if(stage==='activate')await load();}catch(e){if(ticket===conversionRequest)conversionError.value=e.response?.data?.error?.message || 'Conversion did not finish. Scheduling remains protected; refresh readiness before retrying.';}finally{if(ticket===conversionRequest)conversionBusy.value=false;}}
+let accessCheckRequest = 0;
+async function checkBookingAccess(provider) {
+  const generation = ++accessCheckRequest, agencyId = props.agencyId;
+  accessCheck.value = { name: provider.name, message: 'Checking clinical self-scheduling…' };
+  try {
+    const { data } = await api.get('/appointments/booking-access', { params: { agencyId, providerUserId: provider.id } });
+    if (generation !== accessCheckRequest || agencyId !== props.agencyId) return;
+    accessCheck.value.message = data.providerSelfSchedulingReason || data.reason ||
+      (data.enabled ? 'Clinical self-scheduling is enabled.' : 'Clinical self-scheduling is unavailable.');
+  } catch (error) {
+    if (generation === accessCheckRequest && agencyId === props.agencyId) {
+      accessCheck.value.message = error.response?.data?.error?.message || 'Booking access could not be verified. Try again.';
+    }
+  }
+}
 let request=0;
 const enabled = id => { if(providers.value.find(provider=>provider.id===id)?.accountConversionPending)return false;const entry=policy.value.entries.find(entry => Number(entry.providerUserId)===id); return entry ? entry.enabled===true : policy.value.enabledForAllProviders===true; };
 const enabledCount=computed(()=>providers.value.filter(provider=>enabled(provider.id)).length);
@@ -92,9 +109,11 @@ async function save() {
   catch(e){if(ticket===request)error.value=e.response?.data?.error?.message || 'Unable to update session booking rollout.';}
   finally{if(ticket===request)busy.value=false;}
 }
+watch(()=>props.agencyId,()=>{accessCheckRequest++;accessCheck.value=null;});
 watch(()=>props.agencyId,()=>{conversionRequest++;conversionProvider.value=null;conversionData.value=null;loaded.value=false;providers.value=[];policy.value={revision:0,entries:[]};notice.value='';note.value='';void load();},{immediate:true});
 onBeforeUnmount(()=>{request++;conversionRequest++;});
 </script>
 <style scoped>
+.rollout-access-check { padding:2px 4px; border:0; border-radius:4px; background:#eff5fc; color:#1f4976; font:inherit; cursor:pointer; }
 .booking-rollout{border:1px solid var(--border,#d7dfeb);padding:18px;border-radius:12px;margin:16px 0;background:var(--bg-primary,#fff)}.booking-rollout h2{margin:0 0 8px}.rollout-toolbar{display:flex;flex-wrap:wrap;align-items:end;gap:12px}.booking-rollout label{display:grid;gap:6px}.booking-rollout input,.booking-rollout select,.booking-rollout textarea{font:inherit;padding:8px}.rollout-list{max-height:320px;overflow:auto;border:1px solid var(--border,#d7dfeb);border-radius:8px;margin:12px 0}.rollout-provider{display:flex!important;align-items:center;padding:10px;gap:10px;border-bottom:1px solid var(--border,#d7dfeb)}.rollout-status{margin-left:auto;font-size:.85em;font-weight:600}.booking-rollout form{display:grid;gap:12px;max-width:740px}.rollout-confirm{display:flex!important;align-items:start;gap:8px}.booking-rollout [role=alert]{color:var(--danger,#b42318)}
 </style>

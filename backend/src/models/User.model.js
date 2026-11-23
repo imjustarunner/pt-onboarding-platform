@@ -2286,7 +2286,7 @@ class User {
       for (const r of inherited) {
         const id = parseInt(r?.id, 10);
         if (!id) continue;
-        if (!byId.has(id)) byId.set(id, r);
+        if (!byId.has(id)) byId.set(id, { ...r, is_direct_membership: false });
       }
       return Array.from(byId.values());
     } catch {

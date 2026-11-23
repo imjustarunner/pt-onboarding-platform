@@ -107,7 +107,227 @@
         : 'This recurring series starts in the past. Past occurrences will be recorded silently.' }}
     </p>
 
-    <!-- Section 2: Session type & location -->
+    <!-- Section 2: Service & clients -->
+    <section
+      v-if="showType || showService || showPrimaryServiceCode || showParticipant || showAddonServiceCodes || showStatus || showOccurrenceCount || showBookedUntil"
+      class="ahf-section"
+    >
+      <header class="ahf-section-head">
+        <span class="ahf-section-icon" aria-hidden="true">👥</span>
+        <h4 class="ahf-section-title">{{ showVirtualOptions ? 'Participants' : learning ? 'Tutoring & student' : 'Service & clients' }}</h4>
+      </header>
+      <div class="ahf-details ahf-details--section ahf-service-client-fields">
+        <div v-if="showType && typeOptions.length > 1" class="ahf-field">
+          <span class="ahf-label">Type</span>
+          <select
+            class="ahf-input"
+            :value="appointmentType"
+            :disabled="disabled || !canEditType"
+            @change="emit('update:appointmentType', String($event.target.value || ''))"
+          >
+            <option v-for="opt in typeOptions" :key="`ahf-type-${opt.value}`" :value="opt.value">
+              {{ opt.value === 'ONCE' ? 'One time only' : opt.label }}
+            </option>
+          </select>
+        </div>
+
+        <div v-if="showService" class="ahf-field ahf-field--grow">
+          <span class="ahf-label">Service</span>
+          <select
+            class="ahf-input"
+            :value="tenantServiceId"
+            :disabled="disabled || servicesLoading || !serviceOptions.length"
+            @change="emit('update:tenantServiceId', Number($event.target.value || 0))"
+          >
+            <option :value="0">{{ serviceOptions.length ? 'Select service…' : 'No services for this type' }}</option>
+            <option
+              v-for="svc in serviceOptions"
+              :key="`ahf-svc-${svc.id}`"
+              :value="Number(svc.id)"
+            >
+              {{ svc.label || svc.name }}
+            </option>
+          </select>
+        </div>
+
+        <div v-if="showPrimaryServiceCode" class="ahf-field ahf-field--grow">
+          <span class="ahf-label">Service code <span class="ahf-req">*</span></span>
+          <div class="ahf-service-code-control">
+          <select
+            class="ahf-input"
+            :value="primaryServiceCode"
+            aria-label="Service code"
+            :disabled="disabled || !primaryServiceCodeOptions.length"
+            @change="emit('update:primaryServiceCode', String($event.target.value || ''))"
+          >
+            <option value="">Select service code…</option>
+            <option v-if="primaryServiceCode && !primaryServiceCodeOptions.some(option => option.code === primaryServiceCode)" :value="primaryServiceCode">{{ primaryServiceCode }}</option>
+            <option
+              v-for="opt in visiblePrimaryServiceCodeOptions"
+              :key="`ahf-psc-${opt.code}`"
+              :value="opt.code"
+            >
+              {{ formatCodeLabel(opt) }}
+            </option>
+          </select>
+            <ServiceInformation presentation="button" :service-code="primaryServiceCode" :agency-id="agencyId" :service-info="primaryServiceCodeOptions.find(option => String(option.code).toUpperCase() === String(primaryServiceCode).toUpperCase())?.serviceInfo || null" />
+          </div>
+          <button v-if="hasMorePrimaryServices" type="button" class="ahf-more-services" :aria-expanded="moreServices" :disabled="disabled" @click="moreServices=!moreServices">{{ moreServices?'Show common services':'Looking for more services?' }}</button>
+          <p v-if="selectedServiceDuration" class="ahf-hint">Default duration · {{ selectedServiceDuration }} min</p>
+          <p v-if="serviceCodeMessage" class="ahf-hint" role="status">{{serviceCodeMessage}}</p>
+          <p v-if="adminCatalogLinks" class="ahf-admin-link-wrap">
+            <a class="ahf-admin-link" :href="adminCatalogLinks.serviceCodes" target="_blank" rel="noopener">Update service codes ↗</a>
+          </p>
+        </div>
+
+        <div
+          v-if="showParticipant"
+          class="ahf-field ahf-field--client"
+          :class="{ 'ahf-field--participant-open': participantTrayOpen, 'ahf-field--grow': bookSessionLayout }"
+        >
+          <span class="ahf-label">{{ participantLabel }} <span v-if="bookSessionLayout" class="ahf-req">*</span></span>
+          <slot name="participant">
+            <span class="ahf-value">{{ participantSummary || '—' }}</span>
+          </slot>
+        </div>
+
+        <div v-if="bookSessionLayout && showParticipant" class="ahf-field ahf-field--attendance">
+          <span class="ahf-label">{{ learning ? 'Who will attend' : 'Attendance' }}</span>
+          <slot name="attendance">
+            <span class="ahf-value">{{learning?'Student only':'Client Only'}}</span>
+          </slot>
+        </div>
+
+        <div v-if="showOthersPresent" class="ahf-field ahf-field--full">
+          <span class="ahf-label">Others attending</span>
+          <div class="ahf-other-attendees">
+          <slot name="other-attendees" />
+          <input
+            class="ahf-input"
+            type="text"
+            maxlength="500"
+            :value="othersPresentNames"
+            :disabled="disabled"
+            aria-label="Other attendees’ names"
+            placeholder="Enter names…"
+            @input="emit('update:othersPresentNames', String($event.target.value || ''))"
+          />
+          </div>
+        </div>
+
+        <div v-if="showGroupClientsButton && !showGroupClients" class="ahf-field ahf-field--action">
+          <span class="ahf-label">{{learning?'Additional students':'Additional clients'}}</span>
+          <button
+            type="button"
+            class="ahf-action-btn"
+            :disabled="disabled"
+            @click="emit('scroll-to-group-clients')"
+          >
+            {{learning?'+ Add students':'+ Add clients'}}
+          </button>
+        </div>
+
+        <div v-if="showStatus" class="ahf-field">
+          <span class="ahf-label">Status</span>
+          <select
+            v-if="statusOptions.length"
+            class="ahf-input"
+            :value="status"
+            :disabled="disabled || !canEditStatus"
+            @change="emit('update:status', String($event.target.value || ''))"
+          >
+            <option v-for="opt in statusOptions" :key="`ahf-st-${opt.value}`" :value="opt.value" :disabled="opt.value==='in_progress'">
+              {{ opt.value === 'ONCE' ? 'One time only' : opt.label }}
+            </option>
+          </select>
+          <span v-else class="ahf-value">{{ status || 'Scheduled' }}</span>
+        </div>
+
+        <div v-if="showOccurrenceCount" class="ahf-field">
+          <span class="ahf-label">Booked</span>
+          <span class="ahf-value">{{ occurrenceCountLabel }}</span>
+        </div>
+
+        <div v-if="showBookedUntil" class="ahf-field">
+          <span class="ahf-label">Ends on (optional)</span>
+          <input
+            v-if="canEditBookedUntil"
+            class="ahf-input"
+            type="date"
+            :value="bookedUntil"
+            title="Leave blank for no end date"
+            :disabled="disabled"
+            @change="emit('update:bookedUntil', String($event.target.value || ''))"
+          />
+          <span v-else class="ahf-value">{{ bookedUntilLabel || bookedUntil || '—' }}</span>
+        </div>
+
+        <div v-if="showAddonServiceCodes && addonServiceCodeOptions.length" class="ahf-field ahf-field--full ahf-addons">
+          <span class="ahf-label">Add-on service codes</span>
+          <div class="ahf-addon-list">
+            <label
+              v-for="opt in addonServiceCodeOptions"
+              :key="`ahf-addon-${opt.code}`"
+              class="ahf-check ahf-check--addon"
+            >
+              <input
+                type="checkbox"
+                :checked="addonCodeSet.has(String(opt.code || '').toUpperCase())"
+                :disabled="disabled"
+                @change="toggleAddon(opt.code)"
+              />
+              <span>{{ formatCodeLabel(opt) }}</span>
+            </label>
+          </div>
+          <p v-if="adminCatalogLinks" class="ahf-admin-link-wrap">
+            <a class="ahf-admin-link" :href="adminCatalogLinks.addons" target="_blank" rel="noopener">Update add-ons ↗</a>
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Additional clients (own section for Book Session / clinical) -->
+    <section v-if="showGroupClients" id="ahf-group-clients" class="ahf-section">
+      <header class="ahf-section-head">
+        <span class="ahf-section-icon" aria-hidden="true">➕</span>
+        <h4 class="ahf-section-title">{{learning?'Additional students':'Additional clients'}}</h4>
+      </header>
+      <p class="ahf-hint ahf-hint--section">Optional — add more clients to make this a group session.</p>
+      <div class="ahf-group-toolbar">
+        <button
+          type="button"
+          class="ahf-action-btn ahf-action-btn--inline"
+          :disabled="disabled"
+          @click="groupExpanded = !groupExpanded"
+        >
+          {{ groupExpanded ? 'Hide list' : learning ? '+ Add students' : '+ Add clients' }}
+        </button>
+        <span v-if="extraClientCount" class="ahf-hint">{{ extraClientCount }} selected</span>
+      </div>
+      <div v-if="groupExpanded" class="ahf-group-list ahf-group-list--section">
+        <label
+          v-for="c in groupClientOptions"
+          :key="`ahf-gc-${c.id}`"
+          class="ahf-check"
+        >
+          <input
+            type="checkbox"
+            :checked="selectedClientIdSet.has(Number(c.id))"
+            :disabled="disabled || groupClientsLoading"
+            @change="toggleGroupClient(Number(c.id))"
+          />
+          <span>{{ c.displayName || c.fullName || `Client #${c.id}` }}</span>
+        </label>
+        <p v-if="groupClientsLoading" class="ahf-hint">Loading clients…</p>
+        <p v-else-if="!groupClientOptions.length" class="ahf-hint">No other clients available to add for this provider.</p>
+      </div>
+    </section>
+
+    <div v-if="showParticipant && participantTrayOpen && $slots['participant-tray']" class="ahf-participant-tray">
+      <slot name="participant-tray" />
+    </div>
+
+    <!-- Section 3: Session type & location -->
     <section v-if="showModality || showLocation || showOfficeRequestCta || officeRequestActive" class="ahf-section">
       <header class="ahf-section-head">
         <span class="ahf-section-icon" aria-hidden="true">📍</span>
@@ -366,226 +586,6 @@
       </div>
       <p v-if="modalityPosWarning" class="ahf-soft-warn" role="status">{{ modalityPosWarning }}</p>
     </section>
-
-    <!-- Section 3: Service & clients -->
-    <section
-      v-if="showType || showService || showPrimaryServiceCode || showParticipant || showAddonServiceCodes || showStatus || showOccurrenceCount || showBookedUntil"
-      class="ahf-section"
-    >
-      <header class="ahf-section-head">
-        <span class="ahf-section-icon" aria-hidden="true">👥</span>
-        <h4 class="ahf-section-title">{{ showVirtualOptions ? 'Participants' : learning ? 'Tutoring & student' : 'Service & clients' }}</h4>
-      </header>
-      <div class="ahf-details ahf-details--section ahf-service-client-fields">
-        <div v-if="showType && typeOptions.length > 1" class="ahf-field">
-          <span class="ahf-label">Type</span>
-          <select
-            class="ahf-input"
-            :value="appointmentType"
-            :disabled="disabled || !canEditType"
-            @change="emit('update:appointmentType', String($event.target.value || ''))"
-          >
-            <option v-for="opt in typeOptions" :key="`ahf-type-${opt.value}`" :value="opt.value">
-              {{ opt.value === 'ONCE' ? 'One time only' : opt.label }}
-            </option>
-          </select>
-        </div>
-
-        <div v-if="showService" class="ahf-field ahf-field--grow">
-          <span class="ahf-label">Service</span>
-          <select
-            class="ahf-input"
-            :value="tenantServiceId"
-            :disabled="disabled || servicesLoading || !serviceOptions.length"
-            @change="emit('update:tenantServiceId', Number($event.target.value || 0))"
-          >
-            <option :value="0">{{ serviceOptions.length ? 'Select service…' : 'No services for this type' }}</option>
-            <option
-              v-for="svc in serviceOptions"
-              :key="`ahf-svc-${svc.id}`"
-              :value="Number(svc.id)"
-            >
-              {{ svc.label || svc.name }}
-            </option>
-          </select>
-        </div>
-
-        <div v-if="showPrimaryServiceCode" class="ahf-field ahf-field--grow">
-          <span class="ahf-label">Service code <span class="ahf-req">*</span></span>
-          <div class="ahf-service-code-control">
-          <select
-            class="ahf-input"
-            :value="primaryServiceCode"
-            aria-label="Service code"
-            :disabled="disabled || !primaryServiceCodeOptions.length"
-            @change="emit('update:primaryServiceCode', String($event.target.value || ''))"
-          >
-            <option value="">Select service code…</option>
-            <option v-if="primaryServiceCode && !primaryServiceCodeOptions.some(option => option.code === primaryServiceCode)" :value="primaryServiceCode">{{ primaryServiceCode }}</option>
-            <option
-              v-for="opt in visiblePrimaryServiceCodeOptions"
-              :key="`ahf-psc-${opt.code}`"
-              :value="opt.code"
-            >
-              {{ formatCodeLabel(opt) }}
-            </option>
-          </select>
-            <ServiceInformation presentation="button" :service-code="primaryServiceCode" :agency-id="agencyId" :service-info="primaryServiceCodeOptions.find(option => String(option.code).toUpperCase() === String(primaryServiceCode).toUpperCase())?.serviceInfo || null" />
-          </div>
-          <button v-if="hasMorePrimaryServices" type="button" class="ahf-more-services" :aria-expanded="moreServices" :disabled="disabled" @click="moreServices=!moreServices">{{ moreServices?'Show common services':'Looking for more services?' }}</button>
-          <p v-if="selectedServiceDuration" class="ahf-hint">Default duration · {{ selectedServiceDuration }} min</p>
-          <p v-if="serviceCodeMessage" class="ahf-hint" role="status">{{serviceCodeMessage}}</p>
-          <p v-if="adminCatalogLinks" class="ahf-admin-link-wrap">
-            <a class="ahf-admin-link" :href="adminCatalogLinks.serviceCodes" target="_blank" rel="noopener">Update service codes ↗</a>
-          </p>
-        </div>
-
-        <div
-          v-if="showParticipant"
-          class="ahf-field ahf-field--client"
-          :class="{ 'ahf-field--participant-open': participantTrayOpen, 'ahf-field--grow': bookSessionLayout }"
-        >
-          <span class="ahf-label">{{ participantLabel }} <span v-if="bookSessionLayout" class="ahf-req">*</span></span>
-          <slot name="participant">
-            <span class="ahf-value">{{ participantSummary || '—' }}</span>
-          </slot>
-        </div>
-
-        <div v-if="bookSessionLayout && showParticipant" class="ahf-field ahf-field--attendance">
-          <span class="ahf-label">{{ learning ? 'Who will attend' : 'Attendance' }}</span>
-          <slot name="attendance">
-            <span class="ahf-value">{{learning?'Student only':'Client Only'}}</span>
-          </slot>
-        </div>
-
-        <div v-if="showOthersPresent" class="ahf-field ahf-field--full">
-          <span class="ahf-label">Others attending</span>
-          <div class="ahf-other-attendees">
-          <slot name="other-attendees" />
-          <input
-            class="ahf-input"
-            type="text"
-            maxlength="500"
-            :value="othersPresentNames"
-            :disabled="disabled"
-            aria-label="Other attendees’ names"
-            placeholder="Enter names…"
-            @input="emit('update:othersPresentNames', String($event.target.value || ''))"
-          />
-          </div>
-        </div>
-
-        <div v-if="showGroupClientsButton && !showGroupClients" class="ahf-field ahf-field--action">
-          <span class="ahf-label">{{learning?'Additional students':'Additional clients'}}</span>
-          <button
-            type="button"
-            class="ahf-action-btn"
-            :disabled="disabled"
-            @click="emit('scroll-to-group-clients')"
-          >
-            {{learning?'+ Add students':'+ Add clients'}}
-          </button>
-        </div>
-
-        <div v-if="showStatus" class="ahf-field">
-          <span class="ahf-label">Status</span>
-          <select
-            v-if="statusOptions.length"
-            class="ahf-input"
-            :value="status"
-            :disabled="disabled || !canEditStatus"
-            @change="emit('update:status', String($event.target.value || ''))"
-          >
-            <option v-for="opt in statusOptions" :key="`ahf-st-${opt.value}`" :value="opt.value" :disabled="opt.value==='in_progress'">
-              {{ opt.value === 'ONCE' ? 'One time only' : opt.label }}
-            </option>
-          </select>
-          <span v-else class="ahf-value">{{ status || 'Scheduled' }}</span>
-        </div>
-
-        <div v-if="showOccurrenceCount" class="ahf-field">
-          <span class="ahf-label">Booked</span>
-          <span class="ahf-value">{{ occurrenceCountLabel }}</span>
-        </div>
-
-        <div v-if="showBookedUntil" class="ahf-field">
-          <span class="ahf-label">Ends on (optional)</span>
-          <input
-            v-if="canEditBookedUntil"
-            class="ahf-input"
-            type="date"
-            :value="bookedUntil"
-            title="Leave blank for no end date"
-            :disabled="disabled"
-            @change="emit('update:bookedUntil', String($event.target.value || ''))"
-          />
-          <span v-else class="ahf-value">{{ bookedUntilLabel || bookedUntil || '—' }}</span>
-        </div>
-
-        <div v-if="showAddonServiceCodes && addonServiceCodeOptions.length" class="ahf-field ahf-field--full ahf-addons">
-          <span class="ahf-label">Add-on service codes</span>
-          <div class="ahf-addon-list">
-            <label
-              v-for="opt in addonServiceCodeOptions"
-              :key="`ahf-addon-${opt.code}`"
-              class="ahf-check ahf-check--addon"
-            >
-              <input
-                type="checkbox"
-                :checked="addonCodeSet.has(String(opt.code || '').toUpperCase())"
-                :disabled="disabled"
-                @change="toggleAddon(opt.code)"
-              />
-              <span>{{ formatCodeLabel(opt) }}</span>
-            </label>
-          </div>
-          <p v-if="adminCatalogLinks" class="ahf-admin-link-wrap">
-            <a class="ahf-admin-link" :href="adminCatalogLinks.addons" target="_blank" rel="noopener">Update add-ons ↗</a>
-          </p>
-        </div>
-      </div>
-    </section>
-
-    <!-- Additional clients (own section for Book Session / clinical) -->
-    <section v-if="showGroupClients" id="ahf-group-clients" class="ahf-section">
-      <header class="ahf-section-head">
-        <span class="ahf-section-icon" aria-hidden="true">➕</span>
-        <h4 class="ahf-section-title">{{learning?'Additional students':'Additional clients'}}</h4>
-      </header>
-      <p class="ahf-hint ahf-hint--section">Optional — add more clients to make this a group session.</p>
-      <div class="ahf-group-toolbar">
-        <button
-          type="button"
-          class="ahf-action-btn ahf-action-btn--inline"
-          :disabled="disabled"
-          @click="groupExpanded = !groupExpanded"
-        >
-          {{ groupExpanded ? 'Hide list' : learning ? '+ Add students' : '+ Add clients' }}
-        </button>
-        <span v-if="extraClientCount" class="ahf-hint">{{ extraClientCount }} selected</span>
-      </div>
-      <div v-if="groupExpanded" class="ahf-group-list ahf-group-list--section">
-        <label
-          v-for="c in groupClientOptions"
-          :key="`ahf-gc-${c.id}`"
-          class="ahf-check"
-        >
-          <input
-            type="checkbox"
-            :checked="selectedClientIdSet.has(Number(c.id))"
-            :disabled="disabled || groupClientsLoading"
-            @change="toggleGroupClient(Number(c.id))"
-          />
-          <span>{{ c.displayName || c.fullName || `Client #${c.id}` }}</span>
-        </label>
-        <p v-if="groupClientsLoading" class="ahf-hint">Loading clients…</p>
-        <p v-else-if="!groupClientOptions.length" class="ahf-hint">No other clients available to add for this provider.</p>
-      </div>
-    </section>
-
-    <div v-if="showParticipant && participantTrayOpen && $slots['participant-tray']" class="ahf-participant-tray">
-      <slot name="participant-tray" />
-    </div>
 
     <!-- Section 4: Notifications -->
     <section v-if="showNotifications" class="ahf-section">

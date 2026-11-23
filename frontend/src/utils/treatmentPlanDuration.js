@@ -78,6 +78,14 @@ export const DEFAULT_MEASUREMENT_METHOD = '1–10 scale (client self-report)';
 export function parseScalePair(text) {
   const s = String(text || '');
 
+  const selfRating = s.match(/\bcurrently\s+(?:self[- ]rates?|rates?|reports?)\b[^\d.!?]{0,100}?\b(?:as|at)\s+(?:an?\s+)?(10|[1-9])\s*(?:\/\s*10|out\s+of\s+10)\b/i);
+  if (selfRating) {
+    const target = s.slice(selfRating.index + selfRating[0].length).match(
+      /\b(?:target(?:ing)?|aim(?:ing)?\s+for|goal\s+of)\s+(?:an?\s+)?(10|[1-9])\s*\/\s*10\b|(?:^|[.!?])\s*(?:an?\s+)?(10|[1-9])\s*\/\s*10\s+would\s+(?:indicate|mean|represent)\b/i
+    );
+    return { scaleCurrent: Number(selfRating[1]), scaleTarget: target ? Number(target[1] || target[2]) : null };
+  }
+
   const narrativeCurrent = s.match(/\bcurrently\s+(?:functioning|functions|performing|operating)\s+at\s+(?:an?\s+)?(\d{1,2})\b/i);
   const narrativeTarget = s.match(/\b(?:goal|target)\s+is\s+to\s+(?:achieve|reach|attain)\s+(?:an?\s+)?(\d{1,2})\b/i);
   if (/\bscale\s+(?:of\s+)?1\s*[-–—]\s*10\b/i.test(s) && narrativeCurrent && narrativeTarget) {
@@ -168,7 +176,8 @@ export function parseScalePair(text) {
     }
   }
 
-  const arrow = s.match(/(\d{1,2})\s*(?:→|->|\bto\b)\s*(?:a\s+)?(\d{1,2})/i);
+  const arrow = s.replace(/\bscale\s+(?:(?:of|from)\s+)?1\s*(?:to|[-–—])\s*10\b/gi, '')
+    .match(/\b(\d{1,2})\s*(?:→|->|\bto\b)\s*(?:a\s+)?(\d{1,2})\b/i);
   if (arrow) {
     const current = Number(arrow[1]);
     const target = Number(arrow[2]);

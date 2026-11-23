@@ -55,7 +55,7 @@
           <div><span class="muted">Last updated</span> <strong>{{ formatWhen(detailPlan.updated_at || detailPlan.created_at) }}</strong></div>
           <div v-if="primaryDxLabel"><span class="muted">Primary diagnosis</span> <strong>{{ primaryDxLabel }}</strong></div>
           <div v-if="detailPlan.client_ack_status">
-            <span class="muted">Client ack</span>
+            <span class="muted">Acknowledgement status</span>
             <strong>{{ String(detailPlan.client_ack_status).replace(/_/g, ' ') }}</strong>
           </div>
         </div>
@@ -91,7 +91,7 @@
 
         <NoteAidTreatmentPlanImportReview v-if="editingDraft && detailPlan" :key="`draft-${detailPlan.id}`"
           open embedded mode="draft" :plan-id="detailPlan.id" :agency-id="agencyId" :client-id="clientId"
-          :initial-plan="editablePlan" @close="editingDraft=false" @saved="onDraftPrepared" />
+          :initial-plan="editablePlan" @close="editingDraft=false" @draft-updated="applyChartDraft" @saved="onDraftPrepared" />
 
         <div v-else-if="detailPlan" class="ctp-detail">
           <div class="ctp-detail__head">
@@ -109,8 +109,8 @@
               Share via kiosk
             </label>
             <button v-if="isEditingEligible" type="button" class="cdp-btn-primary" @click="editingDraft=true">Edit draft in chart</button>
-            <button v-else type="button" class="cdp-btn-primary ctp-revision-button" @click="openNoteAidUpdater">
-              <img :src="NARRIVA_BRAND.icon" alt="" /> {{ isLearning ? 'Update learning plan' : 'Start a plan revision' }}
+            <button v-else type="button" class="ctp-revision-button" @click="openNoteAidUpdater">
+              <img :src="NARRIVA_BRAND.icon" alt="" /> {{ isLearning ? 'Update learning plan' : 'Revise plan with Narriva' }}
             </button>
             <button
               v-if="isDiscardableDraft(detailPlan)"
@@ -170,13 +170,13 @@
           </details>
           <div v-if="structuredGoals.length" class="ctp-goals">
             <article
-              v-for="g in structuredGoals"
+              v-for="(g, gi) in structuredGoals"
               :key="g.id"
               class="ctp-goal"
               :class="{ 'ctp-goal--collapsed': !isGoalOpen(g.id) }"
             >
               <header @click="toggleGoal(g.id)">
-                <span class="ctp-pill">G{{ g.goal_index }}</span>
+                <span class="ctp-pill">G{{ gi + 1 }}</span>
                 <strong>{{ stripPlanHeadingPrefix(g.goal_text) || g.goal_text }}</strong>
                 <span class="ctp-badge ctp-badge--ok">{{ goalProgressLabel(g.status) }}</span>
                 <span class="ctp-chevron">{{ isGoalOpen(g.id) ? '▾' : '▸' }}</span>
@@ -193,12 +193,12 @@
                 </form>
                 <p v-if="g.projected_completion" class="muted tiny">Timeframe: {{ g.projected_completion }}</p>
                 <div
-                  v-for="o in g.objectives || []"
+                  v-for="(o, oi) in g.objectives || []"
                   :key="o.id"
                   class="ctp-obj"
                 >
                   <div class="ctp-obj__text">
-                    <span class="ctp-pill ctp-pill--obj">O{{ g.goal_index }}.{{ o.objective_index }}</span>
+                    <span class="ctp-pill ctp-pill--obj">O{{ gi + 1 }}.{{ oi + 1 }}</span>
                     <span>{{ stripPlanHeadingPrefix(o.objective_text) || o.objective_text }}</span>
                   </div>
                   <div v-if="!String(o.measurement_method || '').startsWith('Alternate measure:')" class="ctp-obj__scale">
@@ -417,7 +417,29 @@ async function onDraftPrepared(plan) {
   await load();
   emit('updated');
 }
-const structuredGoals = computed(() => activePlanGoals(detailPlan.value));
+function applyChartDraft(chartDraft) {
+  applyPlanToState({ ...detailPlan.value, chartDraft });
+}
+
+const structuredGoals = computed(() => {
+  const plan = detailPlan.value;
+  const saved = plan?.status === 'draft' && plan.chartDraft?.value;
+  const goals = activePlanGoals(plan);
+  if (!saved) return goals;
+  return saved.goals.map((goal, gi) => ({
+    id: goals[gi]?.id || `draft-goal-${gi}`,
+    goal_text: goal.goalText,
+    projected_completion: goal.projectedCompletion,
+    objectives: goal.objectives.map((objective, oi) => ({
+      id: `draft-objective-${gi}-${oi}`,
+      objective_text: objective.objectiveText,
+      scale_start: objective.scaleCurrent, scale_current: objective.scaleCurrent,
+      scale_target: objective.scaleTarget, scale_direction: objective.scaleDirection,
+      measurement_method: objective.measurementMethod, projected_completion: objective.projectedCompletion,
+      interventions: objective.interventions
+    }))
+  }));
+});
 
 const currentPlans = computed(() => {
   const list = plans.value || [];
@@ -470,28 +492,21 @@ const activeDiagnoses = computed(() =>
 );
 
 const planDiagnosesDisplay = computed(() => {
-  const fromPlan = Array.isArray(detailPlan.value?.planDiagnoses)
-    ? detailPlan.value.planDiagnoses
-    : [];
-  if (fromPlan.length) {
-    return fromPlan.map((d) => ({
-      id: d.id || d.diagnosis_id,
-      icd10_code: d.icd10_code,
-      description: d.description,
-      is_primary: d.is_primary,
-      justification: d.justification
-    }));
-  }
-  const imported = detailPlan.value?.chartDraft?.value?.diagnoses || detailPlan.value?.recordsImportSource?.parsed?.diagnoses;
-  if (Array.isArray(imported) && imported.length) return imported.map(d=>({
-    icd10_code:d.icd10Code || d.icd10_code || d.code, description:d.description, is_primary:d.isPrimary, imported:true
+  const plan = detailPlan.value;
+  const working = plan?.chartDraft?.value;
+  const normalizeDraftDiagnoses = rows => (rows || []).map(d => ({
+    icd10_code: d.icd10Code || d.icd10_code || d.code,
+    description: d.description, is_primary: d.isPrimary, imported: !working
   }));
-  return activeDiagnoses.value;
+  if (working) return normalizeDraftDiagnoses(working.diagnoses);
+  if (plan?.planDiagnoses?.length) return plan.planDiagnoses;
+  const imported = plan?.recordsImportSource?.parsed?.diagnoses;
+  return imported?.length ? normalizeDraftDiagnoses(imported) : activeDiagnoses.value;
 });
 
 const planSharedJustification = computed(() => {
   const planJust = String(
-    detailPlan.value?.diagnostic_justification || detailPlan.value?.diagnosticJustification || ''
+    detailPlan.value?.chartDraft?.value?.diagnosticJustification ?? (detailPlan.value?.diagnostic_justification || detailPlan.value?.diagnosticJustification || '')
   ).trim();
   if (planJust) return planJust;
   const rows = planDiagnosesDisplay.value || [];
@@ -635,7 +650,9 @@ async function selectPlan(id) {
     selectedFullPlan.value = null;
     return;
   }
-  if (latestPlan.value && Number(latestPlan.value.id) === planId && latestPlan.value.goals) {
+  const latest = latestPlan.value;
+  const needsDetailedPlan = isDiscardableDraft(latest) || String(latest?.source_tool_id || '').startsWith('client_records_import:');
+  if (latest && Number(latest.id) === planId && latest.goals && (!needsDetailedPlan || latest.chartDraft || latest.recordsImportSource)) {
     selectedFullPlan.value = latestPlan.value;
     return;
   }
@@ -647,9 +664,11 @@ async function selectPlan(id) {
       params: { agencyId, clientId },
       skipGlobalLoading: true
     });
+    if (Number(selectedId.value) !== planId || Number(props.clientId) !== clientId || Number(props.agencyId) !== agencyId) return;
     selectedFullPlan.value = res?.data?.plan || null;
   } catch {
-    selectedFullPlan.value = (plans.value || []).find((p) => Number(p.id) === planId) || null;
+    if (Number(selectedId.value) !== planId || Number(props.clientId) !== clientId || Number(props.agencyId) !== agencyId) return;
+    selectedFullPlan.value = Number(latest?.id) === planId ? latest : (plans.value || []).find(p => Number(p.id) === planId) || null;
   }
 }
 
@@ -664,6 +683,7 @@ function openNoteAidUpdater() {
     // Never pass a psychotherapy CPT — treatment plan writer is sessionless / non-billable.
     serviceCode: null
   });
+  if (usable && (!isDiscardableDraft(detailPlan.value) || detailPlan.value?.providerApproved)) query.revision = '1';
   router.push({ path: noteAidPath({ organizationSlug: slug }), query });
 }
 
@@ -775,11 +795,14 @@ async function verifyQuestion(objective, field) {
   } catch (e) { error.value = e.response?.data?.error?.message || 'Unable to verify the question.'; }
   finally { kioskBusy.value = false; }
 }
+let loadGeneration = 0;
 async function load() {
+  const generation = ++loadGeneration;
   const clientId = Number(props.clientId || 0);
   const agencyId = Number(props.agencyId || 0);
   if (!clientId || !agencyId) {
     plans.value = [];
+    loading.value = false;
     error.value = agencyId ? '' : 'Agency context is required to load treatment plans.';
     return;
   }
@@ -790,6 +813,7 @@ async function load() {
       params: { agencyId },
       skipGlobalLoading: true
     });
+    if (generation !== loadGeneration) return;
     renewalPolicy.value = res.data?.treatmentPlanRenewalPolicy || { ...DEFAULT_RENEWAL_POLICY };
     plans.value = Array.isArray(res.data?.plans) ? res.data.plans : [];
     latestPlan.value = res.data?.latestPlan || null;
@@ -805,10 +829,10 @@ async function load() {
       selectedFullPlan.value = latestPlan.value && Number(latestPlan.value.id) === preferredId
         ? latestPlan.value
         : null;
-      if (!selectedFullPlan.value || isDiscardableDraft(selectedFullPlan.value)) await selectPlan(preferredId);
+      if (!selectedFullPlan.value || isDiscardableDraft(selectedFullPlan.value) || String(selectedFullPlan.value.source_tool_id || '').startsWith('client_records_import:')) await selectPlan(preferredId);
     } else if (selectedId.value && latestPlan.value && Number(latestPlan.value.id) === Number(selectedId.value)) {
       selectedFullPlan.value = latestPlan.value;
-      if (isDiscardableDraft(latestPlan.value) && !editingDraft.value) await selectPlan(selectedId.value);
+      if (!editingDraft.value && (isDiscardableDraft(latestPlan.value) || String(latestPlan.value.source_tool_id || '').startsWith('client_records_import:'))) await selectPlan(selectedId.value);
     } else if (selectedId.value) {
       const stillThere = (plans.value || []).some((p) => Number(p.id) === Number(selectedId.value));
       if (!stillThere && preferredId) {
@@ -817,18 +841,19 @@ async function load() {
       }
     }
   } catch (e) {
+    if (generation !== loadGeneration) return;
     plans.value = [];
     latestPlan.value = null;
     diagnoses.value = [];
     objectiveRatings.value = [];
     error.value = e?.response?.data?.error?.message || 'Unable to load treatment plans.';
   } finally {
-    loading.value = false;
+    if (generation === loadGeneration) loading.value = false;
   }
 }
 
 onMounted(load);
-watch(() => [props.clientId, props.agencyId], () => { goalProgressHistory.value = []; goalProgressHistoryError.value = ''; goalProgressNotice.value = ''; Object.keys(goalProgressChoices).forEach((key) => delete goalProgressChoices[key]); load(); });
+watch(() => [props.clientId, props.agencyId], () => { editingDraft.value=false; selectedId.value=null; selectedFullPlan.value=null; plans.value=[]; latestPlan.value=null; goalProgressHistory.value = []; goalProgressHistoryError.value = ''; goalProgressNotice.value = ''; Object.keys(goalProgressChoices).forEach((key) => delete goalProgressChoices[key]); load(); });
 watch(selectedId, () => { goalProgressHistory.value = []; goalProgressHistoryError.value = ''; });
 </script>
 
@@ -1146,6 +1171,7 @@ watch(selectedId, () => { goalProgressHistory.value = []; goalProgressHistoryErr
 .ctp-detail { background:#fff; padding:clamp(16px,3vw,32px); border:1px solid #d9e3ed; border-radius:14px; }
 .ctp-detail .ctp-goal,.ctp-detail .ctp-dx,.ctp-detail .ctp-obj { background:transparent; border-radius:0; border:0; border-bottom:1px solid #dce5ee; padding:12px 0; }
 .ctp-detail .ctp-obj { border-bottom:0; border-left:2px solid #cedded; padding-left:16px; }
-.ctp-revision-button { display:inline-flex; align-items:center; gap:8px; }
+.ctp-revision-button { display:inline-flex; align-items:center; justify-content:center; gap:8px; padding:8px 14px; background:#183d66; border:1px solid #183d66; border-radius:8px; color:white; font:inherit; font-weight:700; cursor:pointer; }
+.ctp-revision-button:hover { background:#235580; }
 .ctp-revision-button img { width:22px; height:22px; object-fit:contain; background:white; border-radius:4px; padding:2px; }
 </style>

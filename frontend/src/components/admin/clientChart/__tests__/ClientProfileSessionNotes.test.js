@@ -9,7 +9,7 @@ import Overview from '../ClientRecordsOverview.vue';
 let wrapper;
 afterEach(()=>{wrapper?.unmount();vi.clearAllMocks();});
 const empty=()=>({data:{notes:[],sessions:[],plans:[],artifacts:[]}});
-async function feed(){m.get.mockImplementation(async()=>empty());wrapper=mount(Feed,{props:{clientId:4,agencyId:2,organizationSlug:'itsco'},global:{stubs:{NoteAidDocumentationQueue:true,ClientChartCompletedNote:true,ClientManualNoteForm:true,AppointmentChangeWizard:true}}});await flushPromises();return wrapper;}
+async function feed(chart = empty()){m.get.mockImplementation(async()=>chart);wrapper=mount(Feed,{props:{clientId:4,agencyId:2,organizationSlug:'itsco'},global:{stubs:{NoteAidDocumentationQueue:true,ClientChartCompletedNote:true,ClientManualNoteForm:true,AppointmentChangeWizard:true}}});await flushPromises();return wrapper;}
 
 it.each([{}, {isLearning:true},{isTutoring:true}])('limits profile writing to contact and miscellaneous notes for %j',props=>{
   wrapper=mount(Picker,{props});
@@ -50,4 +50,16 @@ it('routes the overview to the client to-do list instead of guessing the latest 
   await wrapper.findAll('button').find(button=>button.text()==='Open client’s to-do list').trigger('click');
   expect(wrapper.emitted('navigate')).toContainEqual(['notes']);
   expect(m.push).not.toHaveBeenCalled();expect(m.post).not.toHaveBeenCalled();
+});
+
+it('opens the whole contact note in the chart and returns to the notes list',async()=>{
+ const message='Contacted: authorized contact\nMethod: Phone call\n\n'+('Confirmed appointment details and recorded the conversation. '.repeat(6))+'Final recorded detail';
+ const w=await feed({data:{...empty().data,contactNotes:[{id:21,message,author_name:'Example Author',created_at:'2026-11-15T17:00:00Z'}]}});
+ await w.get('.ccnf-row-open').trigger('click');
+ const paper=w.get('.ccnf-contact-paper');
+ expect(paper.text()).toContain('Example Author');
+ expect(paper.get('.ccnf-contact-body').element.textContent).toBe(message);
+ await w.get('.ccnf-back').trigger('click');
+ expect(w.find('.ccnf-contact-paper').exists()).toBe(false);
+ expect(w.get('.ccnf-row-open').text()).toContain('Contact note');
 });

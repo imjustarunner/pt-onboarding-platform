@@ -1548,7 +1548,12 @@ async function refreshSchoolAffiliatedClientIds() {
 const loadSchools = async () => {
   const version=rosterLoadVersion,providerId=currentUserId.value;
   if (!currentUserId.value) return;
-  const scopes=caseloadAgencies.value;
+  // /users/me/agencies also returns parent navigation entries inferred from
+  // child organizations. Those rows do not have a staff practice membership.
+  const scopes = !props.profileEmbed && serverMemberships.value !== null
+    ? caseloadAgencies.value.filter(agency => ![false, 0, '0'].includes(agency.is_direct_membership)
+      && ![false, 0, '0'].includes(agency.membership_is_active))
+    : caseloadAgencies.value;
   const results=await Promise.allSettled(scopes.map(async agency=>{
     const params={agencyId:Number(agency.id)},config={params,skipGlobalLoading:true,headers:{'X-Agency-Id':String(agency.id)}};
     const r=props.profileEmbed?await api.get(`/payroll/users/${currentUserId.value}/assigned-schools`,config):await api.get('/payroll/me/assigned-schools',config);
@@ -1556,7 +1561,13 @@ const loadSchools = async () => {
   }));
   if(version!==rosterLoadVersion||providerId!==currentUserId.value)return;
   schools.value=[...new Map(results.filter(r=>r.status==='fulfilled').flatMap(r=>r.value).map(school=>[Number(school.schoolOrganizationId),school])).values()];
-  if(results.some(r=>r.status==='rejected'))error.value='Some agency school assignments could not be loaded. Refresh to retry.';
+  const failures = results.flatMap((result, index) => result.status === 'rejected' ? [{ error: result.reason, agency: scopes[index] }] : []);
+  if (failures.some(item => item.error?.response?.status === 423)) {
+    error.value = 'Unlock your session, then refresh to load school assignments.';
+  } else if (failures.length) {
+    const names = failures.map(({ agency }) => agency.name || `agency #${agency.id}`).join(', ');
+    error.value = `School assignments could not be loaded for ${names}. Refresh to retry.`;
+  }
   applySchoolQuery();
 };
 

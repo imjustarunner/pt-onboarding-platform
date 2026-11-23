@@ -41,8 +41,18 @@
         >Open in Note Workspace</a>
       </header>
 
+      <article v-if="workspace.mode === 'contact-note'" class="ccnf-contact-paper">
+        <h4>Contact note</h4>
+        <dl v-if="workspace.note.author_name || workspace.note.created_at || workspace.note.updated_at">
+          <div v-if="workspace.note.author_name"><dt>Recorded by</dt><dd>{{ workspace.note.author_name }}</dd></div>
+          <div v-if="workspace.note.created_at"><dt>Recorded</dt><dd>{{ contactNoteDate(workspace.note.created_at) }}</dd></div>
+          <div v-if="workspace.note.updated_at && workspace.note.updated_at !== workspace.note.created_at"><dt>Updated</dt><dd>{{ contactNoteDate(workspace.note.updated_at) }}</dd></div>
+        </dl>
+        <p class="ccnf-contact-body">{{ workspace.note.message || 'No details were recorded for this contact.' }}</p>
+      </article>
+
       <ClientNoteTypePicker
-        v-if="workspace.mode === 'pick-type'"
+        v-else-if="workspace.mode === 'pick-type'"
         :is-learning="isLearning"
         @select="onNoteTypeSelected"
       />
@@ -422,8 +432,7 @@ const rows = computed(() => {
       providerSigned: false,
       supervisorSigned: false,
       isActivePlan: false,
-      contactNoteId: cn.id,
-      contactPreview: String(cn.message || '').slice(0, 160),
+      contactNote: cn,
       openMode: 'contact-note'
     });
   }
@@ -576,6 +585,7 @@ const workspaceTitle = computed(() => {
   const ws = workspace.value;
   if (!ws) return '';
   if (ws.mode === 'view') return 'Completed note';
+  if (ws.mode === 'contact-note') return 'Contact history';
   if (ws.mode === 'pick-type') return 'Write note';
   if (ws.mode === 'appointment-change-pick') return 'Missed appointment';
   if (ws.mode === 'treatment-plan-choice') return 'Treatment plan';
@@ -599,6 +609,10 @@ const workspaceKey = computed(() => {
   return `new-${ws.initialKind || 'aid'}-${ws.launchIntent || 'x'}-${props.clientId}`;
 });
 
+function contactNoteDate(value) {
+  const date = new Date(value);
+  return Number.isFinite(+date) ? date.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : formatDate(value);
+}
 function closeWorkspace() {
   workspace.value = null;
 }
@@ -694,8 +708,7 @@ function openRow(row) {
     return;
   }
   if (row.openMode === 'contact-note') {
-    const preview = String(row.contactPreview || '').trim();
-    window.alert(preview || 'Contact note (email chain) — open Messages for the full thread.');
+    workspace.value = { mode: 'contact-note', note: row.contactNote };
     return;
   }
   if (row.openMode === 'clinical-note') {
@@ -715,6 +728,13 @@ defineExpose({
 </script>
 
 <style scoped>
+.ccnf-contact-paper { max-width: 800px; margin: 16px auto; padding: clamp(16px, 4vw, 30px); border: 1px solid #dbe4ef; border-radius: 12px; background: white; }
+.ccnf-contact-paper h4 { margin: 0 0 16px; font-size: 1.2rem; }
+.ccnf-contact-paper dl { display: flex; flex-wrap: wrap; gap: 12px 24px; background: #f5f8fc; border-radius: 8px; padding: 12px; margin: 0 0 20px; }
+.ccnf-contact-paper dt { font-size: .8rem; font-weight: 700; color: #4b6078; }
+.ccnf-contact-paper dd { margin: 4px 0 0; }
+.ccnf-contact-body { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.65; margin: 0; }
+
 .ccnf {
   border: 1px solid #e2e8f0;
   border-radius: 14px;

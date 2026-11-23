@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import ClientIntakeNoteDraft from '../models/ClientIntakeNoteDraft.model.js';
 import ClinicalTreatmentPlan from '../models/clinical/ClinicalTreatmentPlan.model.js';
 import { parseIntakeSections } from './intakeImport.service.js';
-import { parseTreatmentPlanText } from './treatmentPlanImport.service.js';
+import { parseScalePair, parseTreatmentPlanText, inferScaleDirection } from './treatmentPlanImport.service.js';
 import { maybeEncryptNotePayload, maybeDecryptNotePayload } from './clinicalNoteCrypto.service.js';
 import { intakeDraftContext } from './intakeDraftReview.service.js';
 import { withHistoricalImportLock } from './ehrHistoricalImportLock.service.js';
@@ -65,16 +65,40 @@ export async function importRecordsTreatmentPlan({ agencyId, clientId, actorId, 
   return (deps.lock || withHistoricalImportLock)(agencyId, clientId, 'plan', async () => {
     const existing = await plans.listByClient({ agencyId, clientId });
     const same = existing.find(plan => plan.source_tool_id === sourceToolId && !['discarded','inactive'].includes(plan.status));
-    const parsed = parseTreatmentPlanText(text);
+    const parsed = parseTreatmentPlanText(text, { preserveGrouping: true });
     const plan = same ? await plans.findById(same.id) : await plans.create({ agencyId, clientId, createdByUserId: actorId,
       title: 'Imported Treatment Plan — provider finalization required', status: 'draft', sourceToolId,
       clinicalSessionId: null, clinicalNoteId: null, effectiveDate: parsed.effectiveDate || null,
       presentingProblem: parsed.presentingProblem || null, prescribedFrequency: parsed.prescribedFrequency || null,
       dischargePlan: parsed.dischargePlan || null,
-      diagnosticJustification: parsed.diagnosticJustification || null, goals: parsed.goals || [] });
+      diagnosticJustification: parsed.diagnosticJustification || null,
+      goals: parsed.goals.map((goal, goalIndex) => ({
+        ...goal, goalIndex: goalIndex + 1,
+        objectives: goal.objectives.map((objective, objectiveIndex) => ({ ...objective, objectiveIndex: objectiveIndex + 1 }))
+      })) });
     // Keep the complete source encrypted, separate from editable discharge criteria.
     // Retry also repairs source persistence if the first response failed after creation.
     await (deps.saveSource || saveChartRecord)({ agencyId,clientId }, `plan_source_${plan.id}`, 0, { text,parsed }, actorId);
     return { plan, reused: !!same };
   });
+}
+
+// Correct the parser's old 1→10 placeholder when the retained import documents
+// a rating. The source and persisted rows remain intact until clinical review.
+export function applyImportedPlanRatingReview(plan, source) {
+  if (plan.status !== 'draft' || !source?.text) return;
+  const goals = parseTreatmentPlanText(source.text).goals;
+  for (const goal of plan.goals || []) {
+    const match = goals.find(item => item.goalText === goal.goal_text);
+    for (const objective of goal.objectives || []) {
+      if (!match?.objectives.some(item => item.objectiveText === objective.objective_text)) continue;
+      if (objective.scale_current != null && !(Number(objective.scale_current) === 1 && Number(objective.scale_target) === 10)) continue;
+      const scores = parseScalePair(objective.objective_text);
+      objective.scale_current = scores.scaleCurrent;
+      objective.scale_start = scores.scaleCurrent;
+      objective.scale_target = scores.scaleTarget;
+      objective.scale_direction = scores.scaleCurrent != null && scores.scaleTarget != null
+        ? inferScaleDirection(scores.scaleCurrent, scores.scaleTarget) : null;
+    }
+  }
 }

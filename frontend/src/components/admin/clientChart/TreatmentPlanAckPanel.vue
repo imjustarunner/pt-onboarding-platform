@@ -25,7 +25,7 @@
           <div class="tp-ack-v">{{ planSummary.title || `Plan #${planId}` }}</div>
         </div>
         <div class="tp-ack-status-card">
-          <div class="tp-ack-k">Ack status</div>
+          <div class="tp-ack-k">Acknowledgement status</div>
           <div class="tp-ack-v">
             <span class="tp-ack-badge" :class="planAckBadgeClass">{{ planAckLabel }}</span>
           </div>

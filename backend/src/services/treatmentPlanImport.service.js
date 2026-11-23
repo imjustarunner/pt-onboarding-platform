@@ -23,7 +23,7 @@ export function parseInterventionNameFromStrategyLine(line) {
   if (!t) return '';
   if (/^treatment\s+strategy/i.test(t)) return '';
   if (/^estimated\s+completion\b/i.test(t)) return '';
-  const before = t.split(/;\s*Modality\s*:/i)[0].trim();
+  const before = t.split(/\s*[;|·]\s*(?:modality|frequency|estimated\s+completion|projected\s+completion)\s*:/i)[0].trim();
   if (!before || before.length > 80) return '';
   return before;
 }
@@ -36,11 +36,11 @@ function looksLikeInterventionCatalogLine(line) {
   const t = String(line || '').trim();
   if (!t) return false;
   if (isTreatmentStrategyHeader(t)) return true;
-  return /;\s*Modality\s*:/i.test(t);
+  return /;\s*(?:modality|estimated\s+completion|projected\s+completion)\s*:/i.test(t);
 }
 
 function pushObjectiveIntervention(currentGoal, name) {
-  const label = String(name || '').trim();
+  const label = parseInterventionNameFromStrategyLine(name);
   if (!label || !currentGoal) return;
   const lastObj = currentGoal.objectives?.[currentGoal.objectives.length - 1];
   if (!lastObj) return;
@@ -72,6 +72,14 @@ function isBoilerplateOnlyLine(text) {
 
 export function parseScalePair(text) {
   const s = String(text || '');
+
+  const selfRating = s.match(/\bcurrently\s+(?:self[- ]rates?|rates?|reports?)\b[^\d.!?]{0,100}?\b(?:as|at)\s+(?:an?\s+)?(10|[1-9])\s*(?:\/\s*10|out\s+of\s+10)\b/i);
+  if (selfRating) {
+    const target = s.slice(selfRating.index + selfRating[0].length).match(
+      /\b(?:target(?:ing)?|aim(?:ing)?\s+for|goal\s+of)\s+(?:an?\s+)?(10|[1-9])\s*\/\s*10\b|(?:^|[.!?])\s*(?:an?\s+)?(10|[1-9])\s*\/\s*10\s+would\s+(?:indicate|mean|represent)\b/i
+    );
+    return { scaleCurrent: Number(selfRating[1]), scaleTarget: target ? Number(target[1] || target[2]) : null };
+  }
 
   const narrativeCurrent = s.match(/\bcurrently\s+(?:functioning|functions|performing|operating)\s+at\s+(?:an?\s+)?(\d{1,2})\b/i);
   const narrativeTarget = s.match(/\b(?:goal|target)\s+is\s+to\s+(?:achieve|reach|attain)\s+(?:an?\s+)?(\d{1,2})\b/i);
@@ -167,7 +175,8 @@ export function parseScalePair(text) {
   }
 
   // "4 → 8", "4->8", "(4 to 8)" — word boundary on to (avoids matching "to" inside "out")
-  const arrow = s.match(/(\d{1,2})\s*(?:→|->|\bto\b)\s*(?:a\s+)?(\d{1,2})/i);
+  const arrow = s.replace(/\bscale\s+(?:(?:of|from)\s+)?1\s*(?:to|[-–—])\s*10\b/gi, '')
+    .match(/\b(\d{1,2})\s*(?:→|->|\bto\b)\s*(?:a\s+)?(\d{1,2})\b/i);
   if (arrow) {
     const current = Number(arrow[1]);
     const target = Number(arrow[2]);
@@ -455,7 +464,7 @@ function parseObjectiveMajorMinor(trimmed) {
  *   goals: Array<{goalText:string, projectedCompletion:string|null, objectives:Array}>
  * }}
  */
-export function parseTreatmentPlanText(rawText) {
+export function parseTreatmentPlanText(rawText, { preserveGrouping = false } = {}) {
   const raw = String(rawText || '').replace(/\r\n/g, '\n').trim();
   const empty = {
     effectiveDate: null,
@@ -659,7 +668,7 @@ export function parseTreatmentPlanText(rawText) {
       flushJustification();
       flushPresenting();
       mode = 'interventions';
-      for (const name of numberedInterventions[1].split(/[,;]/)) pushObjectiveIntervention(currentGoal, name);
+      for (const name of numberedInterventions[1].replace(/;\s*(?:modality|frequency|estimated completion|projected completion)\s*:[^,;]*/gi, '').split(/[,;]/)) pushObjectiveIntervention(currentGoal, name);
       continue;
     }
 
@@ -866,7 +875,7 @@ export function parseTreatmentPlanText(rawText) {
     }
   }
 
-  const expandedGoals = expandGoalsOnePerObjective(goals).filter(
+  const structuredGoals = (preserveGrouping ? goals : expandGoalsOnePerObjective(goals)).filter(
     (g) => String(g.goalText || '').trim() || (g.objectives || []).some((o) => String(o.objectiveText || '').trim())
   );
 
@@ -889,7 +898,7 @@ export function parseTreatmentPlanText(rawText) {
     presentingProblem: presentingProblem ? String(presentingProblem).trim() : null,
     prescribedFrequency: prescribedFrequency ? String(prescribedFrequency).trim() : null,
     dischargePlan: dischargePlan ? String(dischargePlan).trim() : null,
-    goals: expandedGoals
+    goals: structuredGoals
   };
 }
 

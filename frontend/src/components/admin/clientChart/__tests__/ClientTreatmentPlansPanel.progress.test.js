@@ -32,6 +32,23 @@ it('keeps clinical progress controls out of support and learning-plan views', as
 
 it('opens the selected client plan in its own agency instead of a stale NLU selection',async()=>{
  state.agency={currentAgency:{id:453,slug:'nlu-qa-demo'},userAgencies:[{id:450,slug:'auricwell-qa-demo'},{id:453,slug:'nlu-qa-demo'}]};
- const w=mount(Panel,{props:{clientId:2449,agencyId:450,clientType:'clinical'}});await flushPromises();await w.findAll('button').find(b=>b.text()==='Start a plan revision').trigger('click');
- expect(state.push).toHaveBeenCalledWith(expect.objectContaining({path:'/auricwell-qa-demo/note-aid'}));w.unmount();
+ const w=mount(Panel,{props:{clientId:2449,agencyId:450,clientType:'clinical'}});await flushPromises();await w.findAll('button').find(b=>b.text()==='Revise plan with Narriva').trigger('click');
+ expect(state.push).toHaveBeenCalledWith(expect.objectContaining({path:'/auricwell-qa-demo/note-aid',query:expect.objectContaining({planId:'51',revision:'1'})}));w.unmount();
+});
+
+it('loads imported plan details for the chart summary and numbers legacy rows by their order', async () => {
+ const row={id:51,status:'draft',source_tool_id:'client_records_import:legacy',goals:[
+  {id:71,goal_index:1,goal_text:'First goal',objectives:[{id:81,objective_index:1,objective_text:'First objective',scale_current:6,scale_target:10}]},
+  {id:72,goal_index:1,goal_text:'Second goal',objectives:[{id:82,objective_index:1,objective_text:'Second objective'}]}
+ ]};
+ state.get.mockResolvedValueOnce({data:{plans:[row],latestPlan:row}})
+   .mockResolvedValueOnce({data:{plan:{...row,chartDraft:{revision:0},recordsImportSource:{parsed:{diagnoses:[{icd10Code:'F41.1',description:'Example diagnosis'}]}}}}});
+ const w=mount(Panel,{props:{clientId:2449,agencyId:450,clientType:'clinical'}});
+ await flushPromises();
+ expect(state.get).toHaveBeenCalledWith('/medical-billing/treatment-plans/51',expect.anything());
+ expect(w.text()).toContain('F41.1');
+ expect(w.text()).toContain('Current 6');
+ expect(w.text()).toContain('O2.1');
+ expect(w.text()).toContain('Edit draft in chart');
+ w.unmount();
 });

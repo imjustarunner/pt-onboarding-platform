@@ -4967,6 +4967,10 @@
         </div>
         <div v-else-if="!showActionChooser && !isAppointmentEditMode && !intakeConfirmStep && requestType !== 'admin_assign' && requestType !== 'cancel_booking' && requestType !== 'slot_details'" class="nr-footer">
           <div v-if="modalError" class="error nr-footer__error" role="alert">{{ modalError }}</div>
+          <button v-if="isSessionBookingRequestType && !providerSessionBookingEnabled && bookingAccessReason"
+            type="button" class="btn btn-secondary" :disabled="checkingBookingAccess" @click="recheckBookingAccess">
+            {{ checkingBookingAccess ? 'Checking booking access…' : 'Check booking access again' }}
+          </button>
           <div v-if="submitting && officeBookingProgress" role="status" aria-live="polite" style="flex: 1 1 100%; margin-bottom: 8px;">{{ officeBookingProgress }}</div>
           <div v-if="showRequestSubmitBlockedBanner && !submitting" class="nr-blocked-reason" style="flex: 1 1 100%; margin-bottom: 8px;">
             {{ requestSubmitBlockedReason }}
@@ -9616,6 +9620,7 @@ const editorServiceChoices=computed(()=>{
 });
 const bookingProviderBusinessTypes = ref(null);
 const bookingAccessReason = ref('');
+const checkingBookingAccess = ref(false);
 const clientSessionCategories = ref(null);
 const clientBookingIssue = ref('');
 const editorBookServiceChoices = computed(() => editorTypeOptions.value.filter(option => {
@@ -9661,8 +9666,11 @@ const refreshClientSessionBookingAccess = async () => {
     if (generation !== bookingAccessGeneration) return false;
     clientSessionBookingEnabled.value = result.data?.enabled === true;
     return clientSessionBookingEnabled.value;
-  } catch {
+  } catch (error) {
     if (generation === bookingAccessGeneration) {
+      bookingAccessReason.value = error.response?.status === 423
+        ? 'Unlock your session, then try scheduling again.'
+        : 'Booking access could not be verified for this provider. Try scheduling again.';
       bookingProviderBusinessTypes.value = [];
       selectedProviderOfferings.value = [];
       providerSessionBookingEnabled.value = clientSessionBookingEnabled.value = false;
@@ -9670,6 +9678,16 @@ const refreshClientSessionBookingAccess = async () => {
     return false;
   }
 };
+async function recheckBookingAccess() {
+  if (checkingBookingAccess.value) return;
+  checkingBookingAccess.value = true;
+  try {
+    await refreshClientSessionBookingAccess();
+    modalError.value = providerSessionBookingEnabled.value ? '' : bookingAccessReason.value;
+  } finally {
+    checkingBookingAccess.value = false;
+  }
+}
 watch([clientSessionBookingAgencyId, scheduleActorUserId, tutoringWorkspaceOnly], () => {
   // Revoke the previous provider/agency capability synchronously, before another click.
   clientSessionBookingEnabled.value = false;
@@ -23533,7 +23551,7 @@ const submitRequest = async () => {
     return;
   }
   if (CLIENT_SESSION_CREATE_ACTIONS.has(requestType.value) && !providerSessionBookingEnabled.value) {
-    modalError.value = bookingAccessReason.value || 'Client session booking is coming soon for this provider. Ask your practice administrator about their rollout.';
+    modalError.value = bookingAccessReason.value || 'Booking access could not be verified for this provider. Try scheduling again.';
     return;
   }
   if (actionRequiresAgency.value && !effectiveAgencyId.value) {

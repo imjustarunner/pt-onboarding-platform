@@ -8367,7 +8367,7 @@ export const getUserAgencies = async (req, res, next) => {
         for (const row of parentRows || []) {
           const id = Number(row?.id || 0);
           if (!id || existingIds.has(id)) continue;
-          agencies.push(row);
+          agencies.push({ ...row, is_direct_membership: false });
           existingIds.add(id);
         }
         await attachAffiliationMeta(agencies);

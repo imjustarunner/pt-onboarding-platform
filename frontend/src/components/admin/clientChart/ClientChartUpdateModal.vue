@@ -4,7 +4,10 @@
       <div ref="dialog" class="chart-update-modal" role="dialog" aria-modal="true" aria-labelledby="chart-update-title" tabindex="-1">
         <header>
           <div><h2 id="chart-update-title">Bring up to date</h2><p>{{ current?.agency_name || 'Client Management' }} · {{ current?.full_name || current?.initials || 'Select a client' }}</p></div>
-          <button type="button" class="chart-button" :disabled="busy || moving" @click="leave()">Close</button>
+          <div class="chart-header-actions">
+            <button v-if="current" type="button" class="chart-button" :disabled="busy || moving" @click="openClientChart()">Open client chart</button>
+            <button type="button" class="chart-button" :disabled="busy || moving" @click="leave()">Close</button>
+          </div>
         </header>
         <nav aria-label="Client navigation">
           <button type="button" class="chart-button" :disabled="busy || moving || index <= 0" @click="move(index - 1)">Previous client</button>
@@ -33,7 +36,7 @@
         </section>
         <p v-if="loading" role="status">Loading clients…</p>
         <p v-if="error" class="error" role="alert">{{ error }}</p>
-        <div class="chart-content"><ClientEhrBringUpToDatePanel v-if="current" :key="`${current.agency_id}:${current.id}`" ref="panel" embedded open :client-id="current.id" :agency-id="current.agency_id" :client-label="current.full_name || current.initials" @busy="busy = $event" @imported="emit('updated')" @section-imported="emit('updated')" @done="emit('updated')" /></div>
+        <div class="chart-content"><ClientEhrBringUpToDatePanel v-if="current" :key="`${current.agency_id}:${current.id}`" ref="panel" embedded open review-plan-link @review-plan="openClientChart('treatment-plans', true)" :client-id="current.id" :agency-id="current.agency_id" :client-label="current.full_name || current.initials" @busy="busy = $event" @imported="emit('updated')" @section-imported="emit('updated')" @done="emit('updated')" /></div>
       </div>
     </div>
   </Teleport>
@@ -41,6 +44,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { chartOrganizationLabel } from '../../../utils/clientRosterContext.js';
+import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../../store/auth';
 import { useModalFocus } from '../../../composables/useModalFocus';
 import api from '../../../services/api';
@@ -49,6 +53,7 @@ import { requiresClientRecordImport } from '../../../utils/clientRecordImport.js
 const props = defineProps({ initialClient: { type: Object, required: true }, agencyId: { type: [Number,String], default: null }, selectedClients: { type: Array, default: null } });
 const emit = defineEmits(['close', 'updated']);
 const auth = useAuthStore();
+const route = useRoute(), router = useRouter();
 const queue = ref([props.initialClient].filter(requiresClientRecordImport)), current = ref(props.initialClient), busy = ref(false), moving = ref(false), loading = ref(false), error = ref(''), panel = ref(null), dialog = ref(null), pickerOpen = ref(false), search = ref('');
 const filters = reactive({ agency:'',status:'',assignment:'',provider:'',school:'',demo:'',sort:'full_name' });
 const preferenceKey = `chart-update-filters-v1:${auth.user?.id || 'anon'}`;
@@ -81,6 +86,20 @@ async function leave() {
   moving.value=true;
   try { if (await panel.value?.prepareLeave() !== false) emit('close'); }
   finally { moving.value=false; }
+}
+async function openClientChart(tab = 'bring-up-to-date', alreadySaved = false) {
+  if (!current.value || busy.value || moving.value) return;
+  const client = current.value;
+  moving.value = true;
+  try {
+    if (!alreadySaved && await panel.value?.prepareLeave({ confirmPending: false }) === false) return;
+    const slug = route.params.organizationSlug;
+    const path = `${slug ? '/' + slug : ''}/admin/clients/${Number(client.id)}`;
+    emit('close');
+    await router.push({ path, query: { tab, agencyId: client.agency_id } });
+  } finally {
+    moving.value = false;
+  }
 }
 useModalFocus(dialog,leave);
 onMounted(async () => {
@@ -118,6 +137,7 @@ onMounted(async () => {
 onBeforeUnmount(()=>{alive=false;});
 </script>
 <style scoped>
+.chart-header-actions {display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}
 .chart-update-backdrop { position:fixed; inset:0; background:#0f172a80; z-index:10200; display:flex; justify-content:center; padding:18px; box-sizing:border-box; }
 .chart-update-modal { width:min(1420px,100%); height:100%; display:flex; flex-direction:column; overflow:hidden; background:#fff; border-radius:14px; padding:18px; box-sizing:border-box; color:#17345c; }
 header { display:flex; align-items:start; justify-content:space-between; gap:12px; } h2 { margin:0;font-size:1.3rem; } header p { color:#526777; margin:6px 0 10px; }

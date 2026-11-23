@@ -93,3 +93,12 @@ it('keeps the task host mounted when creating follow-up work dismisses the hover
  expect(wrapper.findComponent({name:'ClientQuickView'}).exists()).toBe(false);
  expect(wrapper.find('[data-follow-up-host]').exists()).toBe(true);expect(m.openTask).toHaveBeenCalledWith(expect.objectContaining({id:20,agency_id:2}));
 });
+
+it('skips school assignment calls for navigation-only and inactive memberships',async()=>{
+ const original=m.get.getMockImplementation();
+ m.get.mockImplementation((url, config)=>url==='/users/me/agencies'
+  ? Promise.resolve({data:[{...agencies[0],is_direct_membership:true},{...agencies[1],is_direct_membership:false},{id:12,organization_type:'agency',is_direct_membership:true,membership_is_active:0}]})
+  : original(url, config));
+ await render();
+ expect(m.get.mock.calls.filter(([url])=>url.endsWith('/assigned-schools')).map(([,config])=>config.params.agencyId)).toEqual([2]);
+});
