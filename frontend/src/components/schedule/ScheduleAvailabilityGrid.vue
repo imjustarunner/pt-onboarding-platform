@@ -6043,9 +6043,16 @@
         @keydown.esc.stop.prevent="resolveScheduleConfirmation(false)" @keydown.tab.prevent="cycleScheduleConfirmFocus">
         <strong id="schedule-confirm-title">{{ scheduleConfirmation.title }}</strong>
         <p id="schedule-confirm-message">{{ scheduleConfirmation.message }}</p>
+        <ul v-if="scheduleConfirmation.conflicts" class="schedule-conflict-dates">
+          <li v-for="conflict in scheduleConfirmation.conflicts" :key="conflict.date">
+            <strong>{{ formatEditorDisplayDate(conflict.date) }}</strong> · {{ conflict.reasons.join(', ') }}
+          </li>
+        </ul>
         <div>
           <button type="button" class="btn btn-secondary" :ref="focusScheduleConfirm" @click="resolveScheduleConfirmation(false)">Go back</button>
-          <button type="button" class="btn btn-primary" @click="resolveScheduleConfirmation(true)">{{ scheduleConfirmation.acceptLabel }}</button>
+          <button v-for="choice in scheduleConfirmation.choices || []" :key="choice.value" type="button" class="btn btn-primary"
+            @click="resolveScheduleConfirmation(choice.value)">{{ choice.label }}</button>
+          <button v-if="!scheduleConfirmation.choices" type="button" class="btn btn-primary" @click="resolveScheduleConfirmation(true)">{{ scheduleConfirmation.acceptLabel }}</button>
         </div>
       </div>
     </div>
@@ -13387,24 +13394,50 @@ const onBackgroundBookingCompleted = () => {
   refreshScheduleSummaryInBackground();
   if (Number(selectedOfficeLocationId.value) > 0) void loadSelectedOfficeGrid().catch(() => {});
 };
-async function withGroupSupervisionReview(payload, submit) {
-  try {
-    return await submit({ ...payload, reviewGroupSupervision: true });
-  } catch (error) {
-    const review = error.response?.data?.error;
-    if (review?.code !== 'REVIEW_GROUP_SUPERVISION_OVERLAP' || !review.review) throw error;
-    const dates = review.dates.map(date => formatEditorDisplayDate(date)).join(', ');
-    if (await confirmScheduleAction('Schedule during group supervision?',
-      `You have group supervision on ${dates}. Booking keeps both events on your calendar.`,
-      'Confirm overlap')) return submit({ ...payload, reviewGroupSupervision: true, confirmedGroupSupervisionOverlap: review.review });
-    throw new Error('Choose another time or confirm the group supervision overlap.');
+async function withBookingConflictReview(payload, submit) {
+  let request = { ...payload, reviewBookingConflicts: true };
+  // A new conflict can arrive while the dialog is open. Ask for the updated
+  // dates before retrying, and preserve the caller's original cadence.
+  while (true) {
+    try {
+      const response = await submit(request);
+      if (response.data?.skippedDates?.length) {
+        scheduleChangeNotice.value = `Booked ${response.data.appointments?.length || response.data.appointmentIds?.length || 'available'} dates. Skipped ${response.data.skippedDates.map(item => formatEditorDisplayDate(item.date)).join(', ')}.`;
+      }
+      return response;
+    } catch (error) {
+      const review = error.response?.data?.error;
+      if (review?.code !== 'REVIEW_BOOKING_CONFLICTS' || !review.review) throw error;
+      const choice = await chooseBookingConflicts(review);
+      if (!choice) throw new Error('Booking canceled. Choose another time to continue.');
+      request = { ...request, bookingConflictChoice: choice, bookingConflictReview: review.review };
+    }
   }
 }
+function chooseBookingConflicts(review) {
+  if (scheduleConfirmation.value) return Promise.resolve(false);
+  scheduleConfirmReturnFocus = document.activeElement;
+  return new Promise(resolve => {
+    scheduleConfirmation.value = {
+      title: 'Review overlapping dates',
+      message: review.canBookAvailable
+        ? `${review.availableCount} of ${review.requestedCount} dates are available. You can book those dates and skip the conflicts below.`
+        : review.canOverlap ? 'Review these commitments before booking an overlap.'
+          : 'Every date has a conflict. Choose another time to continue.',
+      conflicts: review.conflicts,
+      choices: [
+        ...(review.canBookAvailable ? [{ value:'available', label:'Book all available dates' }] : []),
+        ...(review.canOverlap ? [{ value:'overlap', label:review.requestedCount > 1 ? 'Book all dates with overlaps' : 'Confirm overlap & book' }] : [])
+      ],
+      resolve
+    };
+  });
+}
 const postOfficeBooking = (payload, { background = false } = {}) =>
-  withGroupSupervisionReview(payload, body => submitOfficeBooking(api, body,
+  withBookingConflictReview({ ...payload, reviewReservedRoom: !!sessionReservationContext.value }, body => submitOfficeBooking(api, body,
     { background, onProgress: message => { officeBookingProgress.value = message; } }));
 const postScheduledAppointments = payload =>
-  withGroupSupervisionReview(payload, body => api.post('/appointments', body, { skipGlobalLoading: true }));
+  withBookingConflictReview(payload, body => api.post('/appointments', body, { skipGlobalLoading: true }));
 const SCHEDULE_EVENT_ACTIONS = new Set(['personal_event', 'schedule_hold', 'schedule_hold_all_day', 'indirect_services', 'agency_meeting', 'huddle']);
 const AGENCY_OPTIONAL_ACTIONS = new Set([
   'office',
@@ -23424,7 +23457,7 @@ const completePlatformVirtualSessionBooking = async ({
     canonicalBooking = apptRes.data;
     if (!appointmentId) throw new Error('The booking response contained no appointment ID.');
     virtualSessionBookingResult.value = { ...bookingSnapshot, appointments: (canonicalBooking.appointments || [canonicalBooking.appointment]).filter(a => Number(a?.id) > 0),
-      recurrenceSeriesId: canonicalBooking.recurrenceSeriesId || null, googleCalendarWarning: canonicalBooking.googleCalendarWarning || '' };
+      skippedDates: canonicalBooking.skippedDates || [], recurrenceSeriesId: canonicalBooking.recurrenceSeriesId || null, googleCalendarWarning: canonicalBooking.googleCalendarWarning || '' };
     projectSavedVirtualAppointments(virtualSessionBookingResult.value);
     window.dispatchEvent(new Event('appointment-schedule-saved'));
   } catch (error) {
@@ -34637,5 +34670,6 @@ watch(editorClientSchoolLocationOptions, (schools, previous) => {
 .schedule-confirm-card { display: grid; gap: .85rem; background: white; color: #15253b; width: min(100%, 28rem); padding: 1.25rem; border-radius: .85rem; box-shadow: 0 16px 42px #15253b40; }
 .nr-reservation-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
 .schedule-confirm-card p { margin: 0; }
-.schedule-confirm-card > div { display: flex; justify-content: flex-end; gap: .6rem; }
+.schedule-conflict-dates { max-height:40vh;overflow:auto;padding-left:20px;margin:0;line-height:1.6; }
+.schedule-confirm-card > div { display: flex; flex-wrap:wrap; justify-content: flex-end; gap: .6rem; }
 </style>

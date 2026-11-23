@@ -13,6 +13,7 @@ const topics = [
   ['Record a past session', 'Choose the date and time, then Book Session. For an in-person visit, choose where it took place. A past visit can be recorded without a room reservation.'],
   ['Use full screen', 'Choose Full screen beside the date controls to give your calendar more room. Choose Exit full screen or press Escape to return.'],
   ['Understand the colors', 'Open Color key to see the appointment types. Select Color key again to collapse it.'],
+  ['Book around conflicts', 'When dates overlap a vacation, meeting, supervision or another appointment, review the listed dates. Choose Book all available dates to keep the selected cadence and skip those dates. Confirm overlap keeps the commitments and books the reviewed dates.'],
   ['Schedule an appointment', 'Click an empty hour, choose a quarter-hour from the + control, or drag across a time range. Choose Book Session, select the client, and review before saving.'],
   ['Enable client session booking', 'An administrator can enable each provider under Settings → Provider Scheduling → Client session booking. ITSCO account readiness is reviewed through Individual account conversion.'],
   ['Join or share a video session', 'Open a Video appointment and select Join video. Use Copy link for an expected participant. The assigned provider can allow guests with the link on an older Meet room.'],

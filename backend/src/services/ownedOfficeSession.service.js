@@ -25,19 +25,36 @@ const fail = (message, extra = {}) => Object.assign(new Error(message), { status
 const owned = (event, providerId) => event && Number(event.booked_provider_id || event.assigned_provider_id) === Number(providerId)
   && event.slot_state !== 'COMPANY_HOLD';
 
-export function ownedOfficeSessionOccurrences({ startAt, endAt, timeZone, recurrence, occurrenceCount }) {
+export function ownedOfficeSessionOccurrences({ startAt, endAt, timeZone, recurrence, occurrenceCount, occurrenceStarts }) {
   return expandAppointmentRecurrence({ startAt: utcMysqlToIso(startAt), endAt: utcMysqlToIso(endAt), timeZone,
     recurrence, occurrenceCount: occurrenceCount || 1 }).map(row => {
       const start = clientScheduleInstantToUtcMysql(row.startAt, timeZone);
       const end = clientScheduleInstantToUtcMysql(row.endAt, timeZone);
       return { date: utcDateToZonedYmd(utcMysqlToIso(start), timeZone), startAt: start, endAt: end };
-    });
+    }).filter(row => !occurrenceStarts || occurrenceStarts.includes(row.startAt));
 }
 async function reservationFor(db, input, occurrence) {
   const [events] = await db.execute(`SELECT * FROM office_events WHERE office_location_id=? AND room_id=?
     AND start_at<=? AND end_at>=? AND (status IS NULL OR status<>'CANCELLED') ORDER BY id`,
   [input.office.id, input.roomId, occurrence.startAt, occurrence.endAt]);
   return events.length === 1 ? events[0] : null;
+}
+
+export async function reviewOwnedOfficeRoom(input, occurrence) {
+  let event = await reservationFor(pool, input, occurrence);
+  if (!event) {
+    const zone = input.office.timezone || 'America/Denver';
+    const block = roomBlockForSession(occurrence.startAt, occurrence.endAt, zone);
+    await OfficeScheduleMaterializer.materializeWeek({ officeLocationId: input.office.id,
+      weekStartRaw: utcDateToZonedYmd(utcMysqlToIso(occurrence.startAt),zone), createdByUserId: input.actorUserId,
+      reservationWindow: { date: utcDateToZonedYmd(utcMysqlToIso(occurrence.startAt),zone),
+        startAt: block.startAt, endAt: block.endAt, roomId: input.roomId } });
+    event = await reservationFor(pool,input,occurrence);
+  }
+  if (owned(event,input.providerId) && !event.client_id && !event.clinical_session_id
+      && !await Appointment.findByOfficeEventId(event.id)) return null;
+  return { key: `room:${event?.id || 0}:${occurrence.startAt}`,
+    reason: 'the selected room is unavailable', allowOverlap: false };
 }
 
 export function ownedOfficeSessionBookingKey(input) {
@@ -103,7 +120,8 @@ export async function bookSessionInOwnedOffice(input) {
             || !['scheduled', 'confirmed', 'client_confirmed'].includes(appointment.status))) throw fail('The existing session changed. Open it before retrying.');
         await assertAppointmentWindowAvailable(db, { agencyId: input.agencyId, providerUserId: input.providerId,
           startAt: occurrence.startAt, endAt: occurrence.endAt, officeEventId: event.id,
-          acknowledgedGroupSupervision: input.acknowledgedGroupSupervision, status: 'scheduled', sourceTimezone: timeZone }, appointment?.id || null);
+          acknowledgedGroupSupervision: input.acknowledgedGroupSupervision,
+          acknowledgedTimeConflicts: input.acknowledgedTimeConflicts, status: 'scheduled', sourceTimezone: timeZone }, appointment?.id || null);
         selected.push({ occurrence, event, context, appointment });
         await progress('checking', selected.length);
       }
@@ -123,6 +141,7 @@ export async function bookSessionInOwnedOffice(input) {
           await progress('saving', linked.length, linked); continue;
         }
         const context = { ...row.context, agencyId: input.agencyId, clientId: input.clientId, bookingSource: 'reserved_office_session',
+          schedulingConflictDecision:input.schedulingConflictDecision || null,
           reservedSessionBookingKey: key, reservedSessionBookingFrequency: input.recurrence || 'ONCE', schedulingNotes: input.notes || null, notificationMode: input.notificationMode || 'default', customReminders,
           tenantServiceId: input.tenantServiceId || null, packageEntitlementId: input.packageEntitlementId || null,
           ...(sqlTime(event.start_at) !== occurrence.startAt || sqlTime(event.end_at) !== occurrence.endAt
@@ -144,7 +163,7 @@ export async function bookSessionInOwnedOffice(input) {
           title: 'Client session', notes: input.notes, othersPresentNames: input.othersPresentNames, notificationMode: input.notificationMode || 'default', customReminders,
           source: bookingSource, createdByUserId: input.actorUserId, makeupForAppointmentId:input.makeupForAppointmentId ?? null, learningSubjectKey:input.learningSubjectKey ?? null, billing: input.billing || null,
           participants: [{ role: 'client', clientId: input.clientId, isBillingResponsible: true, receivesReminders: true }],
-          ensureContext: false, deferScheduleNotice: true, acknowledgedGroupSupervision: input.acknowledgedGroupSupervision });
+          ensureContext: false, deferScheduleNotice: true, acknowledgedGroupSupervision: input.acknowledgedGroupSupervision, acknowledgedTimeConflicts: input.acknowledgedTimeConflicts });
         linked.push(appointment);
         context.appointmentId = appointment.id;
         // Keep the standing owner, plan, room and time. Only the clinical occurrence gets its selected agency.
@@ -161,14 +180,14 @@ export async function bookSessionInOwnedOffice(input) {
         if (row.context.reservedSessionBookingComplete) { await progress('finishing', index + 1); continue; }
         const appointment = linked.find(a => Number(a.officeEventId) === Number(row.event.id));
         await scheduleSessionNotifications(appointment.id, { replace: true });
-        await appointmentScheduleNotices.queue(appointment.id, { eventType: 'created', facts: { ...recurringBookingNoticeFacts(key, linked), ...bookingNoticePreferenceFacts(input.sendBookingNotice) }, actorUserId: input.actorUserId });
+        await appointmentScheduleNotices.queue(appointment.id, { eventType: 'created', facts: { ...recurringBookingNoticeFacts(key, linked), ...bookingNoticePreferenceFacts(input.sendBookingNotice), schedulingConflictDecision: input.schedulingConflictDecision || null }, actorUserId: input.actorUserId });
         await queueOfficeEventGoogleSync(row.event.id);
         await pool.execute("UPDATE office_events SET session_context_json=JSON_SET(session_context_json,'$.reservedSessionBookingComplete',TRUE) WHERE id=?", [row.event.id]);
         await progress('finishing', index + 1);
       }
       OfficeScheduleMaterializer.invalidateOffice(input.office.id);
       return { ok: true, kind: 'auto_booked', officeEventId: selected[0].event.id,
-        event: await OfficeEvent.findById(selected[0].event.id), appointment: await getAppointmentBundle(linked[0].id), appointmentIds: linked.map(a => a.id) };
+        event: await OfficeEvent.findById(selected[0].event.id), appointment: await getAppointmentBundle(linked[0].id), appointmentIds: linked.map(a => a.id), skippedDates: input.skippedDates || [] };
     } catch (error) {
       // A dependency can fail after the canonical appointment was inserted. Keep its retry identity.
       for (const row of selected) {

@@ -41,13 +41,13 @@ it('keeps released client assignments available even under legacy automatic-book
  expect(appointmentMode({transition_date:null,client_booking_released_at:'2026-10-10 01:00:00'},'2026-10-09')).toBe(true); // same office-local evening
 });
 it('does not write an extension over an existing provider appointment',async()=>{
- const base=db.execute.getMockImplementation();db.execute.mockImplementation(async(sql,...args)=>sql.startsWith('SELECT id FROM appointments')?[[{id:1}]]:base(sql,...args));
+ const base=db.execute.getMockImplementation();db.execute.mockImplementation(async(sql,...args)=>sql.startsWith('SELECT id,start_at,end_at,updated_at FROM appointments')?[[{id:1}]]:base(sql,...args));
  const save=vi.fn();
  await expect(withMeetingWindow({userIds:[9],startAt:'2027-01-01 16:00:00',endAt:'2027-01-01 17:00:00'},save)).rejects.toMatchObject({code:'PROVIDER_TIME_CONFLICT'});
  expect(save).not.toHaveBeenCalled();expect(db.release).toHaveBeenCalled();
 });
 it('does not write a meeting over required supervision attendance',async()=>{
- const base=db.execute.getMockImplementation();db.execute.mockImplementation(async(sql,...args)=>sql.startsWith('SELECT s.id FROM supervision_sessions')?[[{id:1}]]:base(sql,...args));
+ const base=db.execute.getMockImplementation();db.execute.mockImplementation(async(sql,...args)=>sql.startsWith('SELECT s.id,s.start_at,s.end_at,s.session_type FROM supervision_sessions')?[[{id:1}]]:base(sql,...args));
  await expect(withMeetingWindow({userIds:[9],startAt:'2027-01-01 16:00:00',endAt:'2027-01-01 17:00:00'},vi.fn())).rejects.toMatchObject({code:'PROVIDER_TIME_CONFLICT'});
 });
 it('shares a reentrant client lock across plan/context/appointment creation and releases it on failure',async()=>{

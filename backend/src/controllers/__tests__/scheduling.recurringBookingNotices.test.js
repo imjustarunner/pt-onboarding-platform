@@ -1,5 +1,6 @@
 import {beforeEach,afterEach,it,expect,vi} from 'vitest';
-const m=vi.hoisted(()=>({create:vi.fn(),bundle:vi.fn(),link:vi.fn(),queue:vi.fn(),reminders:vi.fn(),event:vi.fn()}));
+const m=vi.hoisted(()=>({create:vi.fn(),bundle:vi.fn(),link:vi.fn(),queue:vi.fn(),reminders:vi.fn(),event:vi.fn(),review:vi.fn()}));
+vi.mock('../../services/bookingConflictReview.service.js',()=>({reviewBookingConflicts:m.review}));
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn(async()=>[[]])}}));
 vi.mock('../../models/User.model.js',()=>({default:{getAgencies:vi.fn(async()=>[{id:2}]),findById:vi.fn(async()=>({id:5}))}}));
 vi.mock('../../models/Appointment.model.js',()=>({default:{}}));
@@ -15,6 +16,7 @@ vi.mock('../../services/sessionNotification.service.js',()=>({scheduleSessionNot
 import {createAppointmentHandler} from '../appointment.controller.js';
 let saved;
 beforeEach(()=>{vi.clearAllMocks();vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(new Date('2029-12-01T00:00:00Z'));saved=[];
+ m.review.mockImplementation(async(_req,_res,{occurrences})=>({occurrences,acknowledgedTimeConflicts:[],skippedDates:[]}));
  m.create.mockImplementation(async data=>{const row={...data,id:saved.length+1,status:'scheduled'};saved.push(row);return row;});m.bundle.mockImplementation(async id=>saved.find(a=>a.id===id));m.event.mockImplementation(async()=>({id:saved.length+100}));});
 afterEach(()=>vi.useRealTimers());
 const request=()=>({user:{id:5,role:'provider'},body:{agencyId:2,providerUserId:5,startAt:'2030-01-02T17:00:00Z',endAt:'2030-01-02T18:00:00Z',timeZone:'UTC',recurrence:'WEEKLY',occurrenceCount:3,participants:[{clientId:8,role:'client'}]}});
@@ -28,6 +30,17 @@ it('finishes and links the full series before releasing the one next-session con
 it('keeps partial recurring bookings quiet when a later calendar link fails',async()=>{
  m.event.mockRejectedValueOnce(Error('Calendar facet unavailable'));const res=response();await createAppointmentHandler(request(),res,vi.fn());
  expect(res.status).toHaveBeenCalledWith(500);expect(m.queue).not.toHaveBeenCalled();expect(m.create.mock.calls[0][0].deferScheduleNotice).toBe(true);
+});
+it('keeps the original series and occurrence position when only one date is available',async()=>{
+ const skippedDates=[{date:'2030-01-02',reasons:['planned out']},{date:'2030-01-09',reasons:['a team meeting']}];
+ const decision={choice:'available',actorUserId:5,skippedDates:skippedDates.map(row=>row.date)};
+ m.review.mockImplementation(async(_req,_res,{occurrences})=>({occurrences:[occurrences[2]],acknowledgedTimeConflicts:[],skippedDates,decision}));
+ const res=response();await createAppointmentHandler(request(),res,vi.fn());
+ expect(res.status).toHaveBeenCalledWith(201);expect(m.create).toHaveBeenCalledOnce();
+ expect(m.create.mock.calls[0][0].startAt).toBe('2030-01-16 17:00:00');
+ expect(m.event.mock.calls[0][0]).toMatchObject({recurrenceSeriesId:expect.any(String),recurrenceIndex:2,recurrenceFrequency:'WEEKLY'});
+ expect(res.json.mock.calls[0][0]).toMatchObject({skippedDates,recurrenceSeriesId:expect.any(String)});
+ expect(m.queue.mock.calls[0][1].facts.schedulingConflictDecision).toEqual(decision);
 });
 
 it('carries the booking-confirmation choice through a fully saved series independently of reminders', async () => {

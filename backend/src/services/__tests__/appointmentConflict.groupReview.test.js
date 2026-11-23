@@ -23,7 +23,7 @@ it('reviews all affected dates and invalidates consent when a supervision sessio
   expect(await reviewGroupSupervisionOverlap(req,res,{...context,providerId:99})).toEqual([]);
   rows[0].end_at='2026-11-30 17:50:00';
   expect(await reviewGroupSupervisionOverlap(req,res,context)).toBeNull();
-  const db = {execute:vi.fn(async query => [/SELECT id FROM appointments/.test(query) ? [{id:111}] : []])};
+  const db = {execute:vi.fn(async query => [/SELECT id,start_at,end_at,updated_at FROM appointments/.test(query) ? [{id:111}] : []])};
   const request = {providerUserId:9,startAt:occurrences[0].startAt,endAt:occurrences[0].endAt,acknowledgedGroupSupervision:reviewed};
   await expect(assertAppointmentWindowAvailable(db,request)).rejects.toMatchObject({code:'PROVIDER_TIME_CONFLICT'});
 });

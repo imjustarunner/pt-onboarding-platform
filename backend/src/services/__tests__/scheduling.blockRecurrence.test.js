@@ -59,7 +59,7 @@ it('does not renew finite or stopped blocks, or recreate an individually cancell
 });
 it('defers a block extension over an app appointment',async()=>{
  rows=[block()];const base=m.execute.getMockImplementation();
- m.execute.mockImplementation(async(sql,...args)=>sql.startsWith('SELECT id FROM appointments')?[[{id:90}]]:base(sql,...args));
+ m.execute.mockImplementation(async(sql,...args)=>sql.startsWith('SELECT id,start_at,end_at,updated_at FROM appointments')?[[{id:90}]]:base(sql,...args));
  expect(await maintainRecurringScheduleWindow({now:new Date('2026-10-13T18:00:00Z')})).toMatchObject({added:0,deferred:1});
  expect(inserts()).toEqual([]);expect(m.rollback).toHaveBeenCalled();
 });

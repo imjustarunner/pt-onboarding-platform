@@ -1,6 +1,7 @@
 import { appointmentHasStarted } from '../utils/appointmentVideoPolicy.js';
 import { bookingNoticePreferenceFacts, recurringBookingNoticeFacts } from '../utils/recurringBookingNotice.js';
 import { confirmSameDayServiceWarnings } from '../services/sameDayServiceWarning.service.js';
+import { reviewBookingConflicts } from '../services/bookingConflictReview.service.js';
 import { reviewGroupSupervisionOverlap } from '../services/appointmentConflict.service.js';
 import { randomUUID } from 'node:crypto';
 import { tutoringSessionPriceBilling, canSetTutoringSessionPrice } from '../services/tutoringSessionPrice.service.js';
@@ -169,10 +170,17 @@ export const createAppointmentHandler = async (req, res, next) => {
         notes = [notes, `Quick note:\n${quickNote}`].filter(Boolean).join('\n\n');
       }
     }
-    const occurrences = expandAppointmentRecurrence({ ...req.body, timeZone: req.body?.timeZone || 'America/Denver' });
+    const requestedOccurrences = expandAppointmentRecurrence({ ...req.body, timeZone: req.body?.timeZone || 'America/Denver' });
+    let occurrences = requestedOccurrences;
     if (occurrences.length > 1 && (!createPse || req.body?.officeEventId || req.body?.officeBookingRequestId)) {
       return res.status(400).json({ error: { message: 'Use office booking plans for recurring room bookings; calendar session series require calendar events' } });
     }
+    const conflictReview = await reviewBookingConflicts(req, res, {
+      agencyId, providerId: providerUserId, occurrences, timeZone: req.body?.timeZone || 'America/Denver',
+      officeEventId: req.body?.officeEventId || null
+    });
+    if (!conflictReview) return;
+    occurrences = conflictReview.occurrences;
     const packageId = Number(req.body?.packageEntitlementId || req.body?.package_entitlement_id || 0);
     if (packageId && occurrences.length > 1) {
       const entitlement = await BookingPackage.findEntitlementById(packageId, agencyId);
@@ -185,15 +193,17 @@ export const createAppointmentHandler = async (req, res, next) => {
       providerId: providerUserId, occurrences, timeZone: req.body?.timeZone || 'America/Denver'
     });
     if (acknowledgedGroupSupervision === null) return;
-    const recurrenceSeriesId = occurrences.length > 1 ? randomUUID() : null;
+    const recurrenceSeriesId = requestedOccurrences.length > 1 ? randomUUID() : null;
     const createdAppointments = [];
     const calendarWarnings = [];
     const provider = providerUserId ? await User.findById(providerUserId) : null;
     try {
-      for (const [recurrenceIndex, occurrence] of occurrences.entries()) {
+      for (const occurrence of occurrences) {
+        const recurrenceIndex = requestedOccurrences.indexOf(occurrence);
         const appointment = await createAppointment({
           deferScheduleNotice: true,
           acknowledgedGroupSupervision,
+          acknowledgedTimeConflicts: conflictReview.acknowledgedTimeConflicts,
           sendBookingNotice: req.body?.sendBookingNotice !== false,
           agencyId,
           parentAgencyId: req.body?.parentAgencyId || null,
@@ -311,6 +321,7 @@ export const createAppointmentHandler = async (req, res, next) => {
     }
     if (createdAppointments.length) {
       const facts = {
+        schedulingConflictDecision: conflictReview.decision || null,
         ...(recurrenceSeriesId ? recurringBookingNoticeFacts(recurrenceSeriesId, createdAppointments) : {}),
         ...bookingNoticePreferenceFacts(req.body?.sendBookingNotice)
       };
@@ -322,6 +333,7 @@ export const createAppointmentHandler = async (req, res, next) => {
       }
     }
     res.status(201).json(await schedulingResponseForUser(req.user, agencyId, {
+      skippedDates: conflictReview.skippedDates,
       ok: true, appointment: createdAppointments[0], appointments: createdAppointments, recurrenceSeriesId,
       googleCalendarWarning: calendarWarnings.join(' ')
     }));

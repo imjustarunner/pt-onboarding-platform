@@ -30,13 +30,24 @@ export async function listOwnedOfficeSessionJobs(actorUserId) {
   return rows.map(describe);
 }
 
+export async function existingOwnedOfficeSessionJob(input) {
+  const key = ownedOfficeSessionBookingKey(input);
+  const [[row]] = await pool.execute(`SELECT id,status,phase,completed_count,total_count,error_message,result_json,input_json
+    FROM owned_office_session_jobs WHERE agency_id=? AND created_by_user_id=? AND booking_key=?
+    AND status IN ('queued','processing','completed','failed')`, [input.agencyId,input.actorUserId,key]);
+  // A retry must retain the previously reviewed subset, including any dates
+  // already saved. Current conflicts are still rechecked by the booking worker.
+  if (row?.status === 'failed' && row.input_json) return queueOwnedOfficeSession(parse(row.input_json));
+  return row ? { ok:true,kind:'booking_job',job:describe(row) } : null;
+}
+
 export async function queueOwnedOfficeSession(input) {
   if (!await findOwnedOfficeSessionReservation(input)) return null;
   const key = ownedOfficeSessionBookingKey(input);
   await pool.execute(`INSERT INTO owned_office_session_jobs
     (id,agency_id,provider_user_id,created_by_user_id,booking_key,total_count,input_json)
     VALUES (?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE id=id`,
-  [randomUUID(), input.agencyId, input.providerId, input.actorUserId, key, input.occurrenceCount || 1, JSON.stringify(input)]);
+  [randomUUID(), input.agencyId, input.providerId, input.actorUserId, key, input.occurrenceStarts?.length || input.occurrenceCount || 1, JSON.stringify(input)]);
   // An explicit retry resumes the same appointments; it never starts a second series.
   await pool.execute(`UPDATE owned_office_session_jobs SET status='queued',phase='preparing',attempts=0,
     error_message=NULL,input_json=?,available_at=UTC_TIMESTAMP() WHERE agency_id=? AND created_by_user_id=? AND booking_key=? AND status='failed'`,
@@ -73,16 +84,16 @@ export async function processOwnedOfficeSessionJobs() {
       if (!office) throw Object.assign(new Error('Office no longer available.'), { status: 409 });
       let appointments = parse(job.result_json)?.appointments || [];
       const result = await bookSessionInOwnedOffice({ ...input, office, onProgress: async ({ phase, completed, total, appointments: linked }) => {
-        if (linked) appointments = linked.map(saved => appointmentReceipt(saved, input, job.booking_key, total > 1));
+        if (linked) appointments = linked.map(saved => appointmentReceipt(saved, input, job.booking_key, input.occurrenceCount > 1));
         const [saved] = await pool.execute(`UPDATE owned_office_session_jobs SET phase=?,completed_count=?,total_count=?,
           result_json=COALESCE(?,result_json), lease_until=DATE_ADD(UTC_TIMESTAMP(),INTERVAL 15 MINUTE)
-          WHERE lease_token=? AND status='processing'`, [phase, completed, total, linked ? JSON.stringify({appointments, appointmentIds:appointments.map(row => row.id)}) : null, token]);
+          WHERE lease_token=? AND status='processing'`, [phase, completed, total, linked ? JSON.stringify({appointments, appointmentIds:appointments.map(row => row.id), skippedDates:input.skippedDates || []}) : null, token]);
         if (!saved.affectedRows) throw new Error('Booking worker lease changed.');
       } });
       if (!result) throw Object.assign(new Error('Your room reservation changed. Refresh the schedule before booking.'), { status: 409 });
       const saved = result.appointment;
-      const appointment = saved && appointmentReceipt(saved, input, job.booking_key, result.appointmentIds.length > 1);
-      const receipt = { ok: true, kind: 'auto_booked', officeEventId: result.officeEventId,
+      const appointment = saved && appointmentReceipt(saved, input, job.booking_key, input.occurrenceCount > 1);
+      const receipt = { ok: true, kind: 'auto_booked', skippedDates: input.skippedDates || [], officeEventId: result.officeEventId,
         appointmentIds: result.appointmentIds, agencyId: input.agencyId, appointment, appointments };
       await pool.execute(`UPDATE owned_office_session_jobs SET status='completed',phase='complete',completed_count=total_count,
         result_json=?,input_json=NULL,error_message=NULL,lease_token=NULL,lease_until=NULL WHERE lease_token=?`, [JSON.stringify(receipt), token]);

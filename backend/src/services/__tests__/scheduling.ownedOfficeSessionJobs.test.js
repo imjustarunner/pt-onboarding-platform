@@ -5,11 +5,11 @@ vi.mock('../../models/User.model.js',()=>({default:{findById:m.actor,getAgencies
 vi.mock('../../models/OfficeLocation.model.js',()=>({default:{findById:m.office}}));
 vi.mock('../schedulingWorkerGate.js',()=>({canRunSchedulingMaintenance:async()=>false}));
 vi.mock('../ownedOfficeSession.service.js',()=>({findOwnedOfficeSessionReservation:m.reserve,bookSessionInOwnedOffice:m.book,ownedOfficeSessionBookingKey:()=> 'key'}));
-import {queueOwnedOfficeSession,readOwnedOfficeSessionJob,listOwnedOfficeSessionJobs,processOwnedOfficeSessionJobs} from '../ownedOfficeSessionJobs.service.js';
+import {queueOwnedOfficeSession,readOwnedOfficeSessionJob,listOwnedOfficeSessionJobs,processOwnedOfficeSessionJobs,existingOwnedOfficeSessionJob} from '../ownedOfficeSessionJobs.service.js';
 let row;
 const input={office:{id:1},agencyId:377,actorUserId:501,providerId:501,occurrenceCount:26};
 beforeEach(()=>{
- vi.resetAllMocks();row={id:'job-1',agency_id:377,created_by_user_id:501,status:'queued',phase:'preparing',completed_count:0,total_count:26,input_json:input,attempts:1};
+ vi.resetAllMocks();row={id:'job-1',booking_key:'key',agency_id:377,created_by_user_id:501,status:'queued',phase:'preparing',completed_count:0,total_count:26,input_json:input,attempts:1};
  m.reserve.mockResolvedValue({id:18510});m.actor.mockResolvedValue({id:501,role:'provider'});m.agencies.mockResolvedValue([{id:377}]);m.office.mockResolvedValue({id:1});
  m.book.mockImplementation(async args=>{await args.onProgress({phase:'saving',completed:7,total:26});return {officeEventId:18510,appointmentIds:[264,265]};});
  m.execute.mockImplementation(async(sql,args)=>{
@@ -44,4 +44,18 @@ it('rechecks agency access before a queued booking can mutate appointments',asyn
 it('retains interrupted work for retry without exposing an internal error',async()=>{
  m.book.mockRejectedValue(new Error('sensitive database failure'));await processOwnedOfficeSessionJobs();
  expect(m.execute.mock.calls.some(([sql,args])=>sql.includes('error_message=?')&&args[0]==='queued'&&args[1].includes('continue safely'))).toBe(true);
+});
+it('resumes the saved reviewed subset instead of treating its own appointments as new conflicts',async()=>{
+ row.status='failed';row.input_json={...input,occurrenceStarts:['2026-12-10 22:00:00'],skippedDates:[{date:'2026-11-26',reasons:['planned out']}],acknowledgedTimeConflicts:['saved-review']};
+ await existingOwnedOfficeSessionJob({...input,occurrenceStarts:['untrusted-change']});
+ const retry=m.execute.mock.calls.find(([sql])=>sql.includes("AND status='failed'"));
+ expect(JSON.parse(retry[1][0])).toMatchObject({occurrenceStarts:['2026-12-10 22:00:00'],acknowledgedTimeConflicts:['saved-review']});
+ expect(m.book).not.toHaveBeenCalled();
+});
+it('keeps the series marker and skipped-date receipt when only one requested date could be booked',async()=>{
+ row.input_json={...input,occurrenceStarts:['2026-12-10 22:00:00'],skippedDates:[{date:'2026-11-26',reasons:['planned out']}]};
+ m.book.mockImplementation(async args=>{const saved={id:264,providerUserId:501};await args.onProgress({phase:'saving',completed:1,total:1,appointments:[saved]});return {officeEventId:18510,appointmentIds:[264],appointment:saved};});
+ await processOwnedOfficeSessionJobs();
+ const done=m.execute.mock.calls.find(([sql])=>sql.includes("status='completed'"));
+ expect(JSON.parse(done[1][0])).toMatchObject({skippedDates:row.input_json.skippedDates,appointment:{recurrenceSeriesId:expect.any(String)},appointments:[{recurrenceSeriesId:expect.any(String)}]});
 });

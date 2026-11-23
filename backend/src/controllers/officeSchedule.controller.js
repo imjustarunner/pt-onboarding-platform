@@ -1,3 +1,4 @@
+import { reviewBookingConflicts } from '../services/bookingConflictReview.service.js';
 import { officeOccupancy } from '../utils/officeRoomOccupancy.js';
 import { isAvailableOfficeRelease } from '../utils/officeClientCancellation.js';
 import { randomUUID } from 'node:crypto';
@@ -8,9 +9,9 @@ import { resolvePolicyRuleForServiceCode } from '../services/billingPolicy.servi
 import { clinicalBookingContextIssue } from '../services/clientServiceContext.service.js';
 import { queueOfficeEventGoogleSync } from '../services/providerAssignmentGoogleSync.service.js';
 import { schedulingResponseForUser } from '../services/schedulingBillingAccess.service.js';
-import { bookSessionInOwnedOffice } from '../services/ownedOfficeSession.service.js';
+import { bookSessionInOwnedOffice, reviewOwnedOfficeRoom } from '../services/ownedOfficeSession.service.js';
 import {bookImmediateTutoringOffice} from '../services/immediateTutoringOffice.service.js';
-import { queueOwnedOfficeSession } from '../services/ownedOfficeSessionJobs.service.js';
+import { queueOwnedOfficeSession, existingOwnedOfficeSessionJob } from '../services/ownedOfficeSessionJobs.service.js';
 import { normalizeCustomSessionReminders, validateCustomReminderChannels } from '../services/appointmentNotificationCustomization.service.js';
 import { runOfficeDecision } from './officeApprovalWorkflow.controller.js';
 import { bookingServiceDuration } from '../utils/bookingServiceDuration.js';
@@ -2713,10 +2714,31 @@ export const createOfficeBookingRequest = async (req, res, next) => {
     if (clientId) await assertAppointmentClients(policyAgencyId, [{ clientId }], {
       providerUserId: requestedProviderId, serviceLocationId: req.body?.serviceLocationId
     });
+    if (req.body?.reviewBookingConflicts === true && req.body?.asyncOwnedSession === true
+      && clientId && roomId && !req.body?.appointmentId && !req.body?.appointmentSeriesId) {
+      const previous = await existingOwnedOfficeSessionJob({
+        agencyId:policyAgencyId,actorUserId:req.user.id,providerId:requestedProviderId,clientId,roomId,
+        startAt,endAt,recurrence:normalizedRecurrence,occurrenceCount:bookedOccurrenceCount || 1
+      });
+      if (previous) return res.status(202).json(await schedulingResponseForUser(req.user,policyAgencyId,previous));
+    }
     let acknowledgedGroupSupervision = [];
+    let conflictReview = null;
     if (clientId && !req.body?.appointmentId && !req.body?.appointmentSeriesId) {
-      const occurrences = expandAppointmentRecurrence({ startAt: `${startAt.replace(' ', 'T')}Z`, endAt: `${endAt.replace(' ', 'T')}Z`,
+      let occurrences = expandAppointmentRecurrence({ startAt: `${startAt.replace(' ', 'T')}Z`, endAt: `${endAt.replace(' ', 'T')}Z`,
         recurrence: normalizedRecurrence, occurrenceCount: bookedOccurrenceCount || 1, timeZone: loc.timezone || 'America/Denver' });
+      conflictReview = await reviewBookingConflicts(req,res,{
+        providerId: requestedProviderId, agencyId: policyAgencyId, occurrences,
+        timeZone: loc.timezone || 'America/Denver',
+        // A new room request is still subject to the office approval workflow.
+        // Only book a subset here when using an existing room reservation.
+        allowAvailableDates: req.body?.reviewReservedRoom === true,
+        checkRoom: roomId && req.body?.reviewReservedRoom === true ? occurrence => reviewOwnedOfficeRoom({
+          office:loc,roomId,providerId:requestedProviderId,actorUserId:req.user.id
+        },occurrence) : undefined
+      });
+      if (!conflictReview) return;
+      occurrences = conflictReview.occurrences;
       if (!await confirmSameDayServiceWarnings(req,res,{ agencyId: Number(req.body?.agencyId || policyAgencyId),
         tenantServiceId: Number(req.body?.tenantServiceId || 0) || null,
         participants:[{role:'client',clientId}],occurrences,timeZone:loc.timezone || 'America/Denver' })) return;
@@ -2766,9 +2788,15 @@ export const createOfficeBookingRequest = async (req, res, next) => {
       ...validatedSelection, serviceLocationId: rawSelection.serviceLocationId || null, notes,
       tenantServiceId: Number(req.body?.tenantServiceId || 0) || null, packageEntitlementId: Number(req.body?.packageEntitlementId || 0) || null,
       appointmentId: req.body?.appointmentId, appointmentSeriesId: req.body?.appointmentSeriesId,
+      occurrenceStarts: conflictReview && conflictReview.skippedDates.length ? conflictReview.occurrences.map(row =>
+        clientScheduleInstantToUtcMysql(row.startAt,loc.timezone || 'America/Denver')) : undefined,
+      skippedDates: conflictReview?.skippedDates || [],
+      schedulingConflictDecision: conflictReview?.decision || null,
+      acknowledgedTimeConflicts: conflictReview?.acknowledgedTimeConflicts || [],
       notificationMode, customReminders, sendBookingNotice, acknowledgedGroupSupervision, billing: individualPrice, othersPresentNames: String(req.body?.othersPresentNames || '').trim().slice(0, 500) || null };
     const ownedBooking = await (req.body?.asyncOwnedSession === true ? queueOwnedOfficeSession : bookSessionInOwnedOffice)(ownedInput);
     if (ownedBooking) return res.status(ownedBooking.kind === 'booking_job' ? 202 : 201).json(await schedulingResponseForUser(req.user, policyAgencyId, ownedBooking));
+    if (ownedInput.occurrenceStarts) return res.status(409).json({error:{message:'The room reservation changed. Review the available dates again.'}});
     const immediateBooking=await bookImmediateTutoringOffice({...ownedInput,request:req,roomBlock});
     if(immediateBooking)return res.status(201).json(await schedulingResponseForUser(req.user,policyAgencyId,immediateBooking));
     await validateCustomReminderChannels(policyAgencyId, customReminders);

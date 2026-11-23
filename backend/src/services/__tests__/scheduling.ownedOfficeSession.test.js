@@ -114,3 +114,14 @@ it('keeps the second half of a reserved hour available for a different client', 
   expect(next.appointmentIds).toEqual([101]);
   expect(next.officeEventId).toBe(18512);
 });
+
+it('books later available dates when the first date of an alternating-week series is skipped',async()=>{
+ const skippedDates=[{date:'2026-11-26',reasons:['planned out']}];
+ const result=await bookSessionInOwnedOffice({...input,occurrenceStarts:['2026-12-10 22:00:00'],skippedDates});
+ expect(result.appointmentIds).toEqual([100]);
+ expect(result.skippedDates).toEqual(skippedDates);
+ expect(m.create).toHaveBeenCalledTimes(1);
+ expect(m.create).toHaveBeenCalledWith(expect.objectContaining({startAt:'2026-12-10T22:00:00Z',officeEventId:18511}));
+ expect(events[0].client_id).toBeNull();
+ expect(events[0].standing_assignment_id).toBe(283);
+});

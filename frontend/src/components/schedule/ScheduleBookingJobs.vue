@@ -33,7 +33,7 @@ function track(job, { notify = true, restore = false, clientLabel } = {}) {
   jobs.value = [...jobs.value.filter(item => item.id !== job.id), job];
   if (job.status === 'completed' && !completed.has(job.id)) {
     completed.add(job.id); if (notify) emit('completed', job);
-    if (!canWriteNote(job)) {
+    if (!canWriteNote(job) && !job.result?.skippedDates?.length) {
       const receiptTimer = setTimeout(() => { receiptTimers.delete(receiptTimer); dismiss(job.id); }, 10000);
       receiptTimers.add(receiptTimer);
     }
@@ -73,6 +73,9 @@ defineExpose({ track });
     <p v-if="job.status === 'failed'">{{ job.error || 'Scheduling paused. Refresh the schedule and retry the same booking to continue safely.' }}</p>
     <p v-else-if="job.status !== 'completed'">{{ officeBookingProgressText(job) }} You can keep using your schedule.</p>
    </div>
+   <details v-if="job.result?.skippedDates?.length"><summary>{{ job.result.skippedDates.length }} dates skipped</summary>
+    <ul><li v-for="item in job.result.skippedDates" :key="item.date">{{ item.date }} · {{ item.reasons.join(', ') }}</li></ul>
+   </details>
    <progress v-if="['queued','processing'].includes(job.status)" :value="job.completed" :max="job.total || 1" :aria-label="officeBookingProgressText(job)" />
    <button v-if="canWriteNote(job)" class="booking-job-note" type="button" @click="emit('write-note', job.result.appointment)"><img :src="AURICWELL_MARK_URL" alt="" /> Write note</button>
    <button v-if="!['queued','processing'].includes(job.status)" type="button" @click="dismiss(job.id)" aria-label="Dismiss booking result">×</button>

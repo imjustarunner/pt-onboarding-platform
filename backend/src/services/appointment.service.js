@@ -250,6 +250,7 @@ async function createLockedAppointment({
   resumeReplacementAppointmentId = null,
   deferScheduleNotice = false,
   acknowledgedGroupSupervision = [],
+  acknowledgedTimeConflicts = [],
   sendBookingNotice = true
 } = {}) {
   const aid = Number(agencyId || 0);
@@ -432,6 +433,7 @@ async function createLockedAppointment({
   const appt = resuming || await Appointment.create({
     replacementOfferId,
     acknowledgedGroupSupervision,
+    acknowledgedTimeConflicts,
     agencyId: aid,
     parentAgencyId,
     businessType,

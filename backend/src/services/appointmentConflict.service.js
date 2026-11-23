@@ -89,6 +89,16 @@ export async function reviewGroupSupervisionOverlap(req, res, { providerId, occu
 
 export async function assertAppointmentWindowAvailable(db, row, appointmentId = null) {
   if (!row.providerUserId || !appointmentOccupiesTime(row.status)) return;
+  const conflict = async (activity, records, options = {}) => {
+    const key = createHash('sha256').update(JSON.stringify([row.providerUserId,
+      +parseUtcDate(row.startAt), +parseUtcDate(row.endAt), activity, records])).digest('hex');
+    if (row.acknowledgedTimeConflicts?.includes(key) && options.allowOverlap !== false) return;
+    if (typeof row.collectTimeConflict === 'function') {
+      row.collectTimeConflict({ key, reason: activity, allowOverlap: options.allowOverlap !== false });
+      return;
+    }
+    throw await fail(db, row, activity, options);
+  };
   let childcare=[];
   try {
     [childcare]=await db.execute(`SELECT s.id FROM childcare_shifts s JOIN company_events e ON e.id=s.company_event_id
@@ -96,7 +106,7 @@ export async function assertAppointmentWindowAvailable(db, row, appointmentId = 
       WHERE assignment.provider_user_id=? AND s.status<>'canceled' AND e.is_active=1
         AND e.starts_at<? AND e.ends_at>? AND s.id<>? LIMIT 1`,[row.providerUserId,row.endAt,row.startAt,row.excludeChildcareShiftId||0]);
   } catch(error) {if(error.code!=='ER_NO_SUCH_TABLE')throw error;}
-  if(childcare.length)throw await fail(db,row,'an assigned childcare shift');
+  if(childcare.length)await conflict('an assigned childcare shift',childcare,{allowOverlap:false});
   const offered = await readPrivateReplacementSlots(db, row.providerUserId);
   let ownsOffer = false;
   if (row.replacementOfferId) {
@@ -112,48 +122,48 @@ export async function assertAppointmentWindowAvailable(db, row, appointmentId = 
     if (parseUtcDate(slot.start_at) >= parseUtcDate(row.endAt) || parseUtcDate(slot.end_at) <= parseUtcDate(row.startAt)) continue;
     if (ownsOffer) continue;
     // A pending client selection must be confirmed through its own request.
-    throw await fail(db, row, 'a private replacement offer');
+    await conflict('a private replacement offer', [slot], {allowOverlap:false});
   }
-  const [appointments] = await db.execute(`SELECT id FROM appointments WHERE provider_user_id = ? AND start_at < ? AND end_at > ?
+  const [appointments] = await db.execute(`SELECT id,start_at,end_at,updated_at FROM appointments WHERE provider_user_id = ? AND start_at < ? AND end_at > ?
     AND status NOT IN ('draft','canceled_by_provider','canceled_by_client','canceled_by_guardian','canceled_by_organization','late_canceled','rescheduled','voided')
-    AND (? IS NULL OR id <> ?) LIMIT 1`, [row.providerUserId, row.endAt, row.startAt, appointmentId, appointmentId]);
-  if (appointments.length) throw await fail(db, row, 'a client appointment');
+    AND (? IS NULL OR id <> ?) ORDER BY id`, [row.providerUserId, row.endAt, row.startAt, appointmentId, appointmentId]);
+  if (appointments.length) await conflict('a client appointment',appointments);
   // Lazy office materialization can reserve a client slot before its canonical
   // appointment is linked. That reservation must still block another booking,
   // including a virtual booking, beyond the guardian's six-item display.
-  const [officeBookings] = await db.execute(`SELECT id FROM office_events
+  const [officeBookings] = await db.execute(`SELECT id,start_at,end_at,updated_at FROM office_events
     WHERE (booked_provider_id = ? OR assigned_provider_id = ?) AND client_id IS NOT NULL
       AND status = 'BOOKED' AND start_at < ? AND end_at > ?
       AND (? IS NULL OR id <> ?)
       AND (JSON_EXTRACT(session_context_json,'$.sessionStartAt') IS NULL
         OR NOT EXISTS (SELECT 1 FROM appointments linked WHERE linked.office_event_id=office_events.id))
-      LIMIT 1`,
+      ORDER BY id`,
     [row.providerUserId,row.providerUserId,row.endAt,row.startAt,row.officeEventId || null,row.officeEventId || null]);
-  if (officeBookings.length) throw await fail(db, row, 'a client room reservation');
+  if (officeBookings.length) await conflict('a client room reservation',officeBookings);
   const excludedSupervisionIds = (row.excludeSupervisionIds || []).map(Number).filter(id => Number.isSafeInteger(id) && id > 0);
   const approvedGroups = (row.acknowledgedGroupSupervision || []).filter(group =>
     Number.isSafeInteger(group.id) && Number.isFinite(group.start) && Number.isFinite(group.end));
   const groupExclusion = approvedGroups.length ? `AND NOT (s.session_type='group' AND (${approvedGroups.map(() => '(s.id=? AND s.start_at=? AND s.end_at=?)').join(' OR ')}))` : '';
-  const [supervision] = await db.execute(`SELECT s.id FROM supervision_sessions s WHERE s.status='SCHEDULED'
+  const [supervision] = await db.execute(`SELECT s.id,s.start_at,s.end_at,s.session_type FROM supervision_sessions s WHERE s.status='SCHEDULED'
     ${groupExclusion}
     AND (? IS NULL OR s.id<>?) ${excludedSupervisionIds.length ? `AND s.id NOT IN (${excludedSupervisionIds.map(()=>'?')})` : ''} AND s.start_at<? AND s.end_at>?
     AND (s.supervisor_user_id=? OR s.co_facilitator_user_id=? OR (s.session_type='individual' AND s.supervisee_user_id=?)
       OR EXISTS (SELECT 1 FROM supervision_session_attendees a WHERE a.session_id=s.id AND a.user_id=?
-        AND a.is_required=1 AND a.status NOT IN ('REMOVED','CANCELLED','WITHDRAWN'))) LIMIT 1`,
+        AND a.is_required=1 AND a.status NOT IN ('REMOVED','CANCELLED','WITHDRAWN'))) ORDER BY s.id`,
     [...approvedGroups.flatMap(group => [group.id, new Date(group.start), new Date(group.end)]), row.supervisionSessionId || null,row.supervisionSessionId || null,...excludedSupervisionIds,row.endAt,row.startAt,row.providerUserId,row.providerUserId,row.providerUserId,row.providerUserId]);
-  if (supervision.length) throw await fail(db, row, 'a supervision session');
+  if (supervision.length) await conflict('a supervision session',supervision);
   const busy = await readProviderCalendarBusy(db, { providerId: row.providerUserId, startAt: row.startAt, endAt: row.endAt,
     excludeEventId: row.providerScheduleEventId || null, timeZone: row.sourceTimezone || 'America/Denver', includeKind: true });
   const blocking = row.ignoreScheduleHolds ? busy.filter(entry => String(entry.kind || '').toUpperCase() !== 'SCHEDULE_HOLD') : busy;
-  if (blocking.length) {
-    const entry = blocking[0];
+  for (const entry of blocking) {
     const kind = String(entry.kind || '').toUpperCase();
     if (kind === 'SCHEDULE_HOLD' && String(entry.reasonCode || '').toUpperCase() === 'PLANNED_OUT') {
       const availability = await plannedOutAvailability(db, entry);
       const status = availability ? ` (${availability})` : '';
-      throw await fail(db, row, `planned out ${plannedOutSpan(entry)}${status}`, { overridable: true, plannedOut: true });
+      await conflict(`planned out ${plannedOutSpan(entry)}${status}`,[entry], { overridable: true, plannedOut: true });
+    } else {
+      await conflict(calendarConflictLabels[kind] || 'a calendar event', [entry], { overridable: kind === 'SCHEDULE_HOLD' });
     }
-    throw await fail(db, row, calendarConflictLabels[kind] || 'a calendar event', { overridable: kind === 'SCHEDULE_HOLD' });
   }
 }
 export async function withAppointmentWindow(pool, row, appointmentId, save) {

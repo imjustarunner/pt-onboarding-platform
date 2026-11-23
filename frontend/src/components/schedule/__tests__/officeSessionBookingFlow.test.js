@@ -569,3 +569,23 @@ it('offers one publication action and preselects in-person for an office reserva
   expect(s.editorOpenVirtual).toBe(false);
   expect(s.editorAttachOfficeRequest).toBe(false);
 });
+
+it('offers available dates and keeps the original cadence when a provider skips an overlap',async()=>{
+ wrapper=shallowMount(Grid,{props:{userId:7,agencyId:2},global:{stubs:{Teleport:true,RouterLink:true}}});
+ await flushPromises();
+ const s=wrapper.vm.$.setupState;
+ const submit=vi.fn().mockRejectedValueOnce({response:{data:{error:{
+  code:'REVIEW_BOOKING_CONFLICTS',review:'review-1',conflicts:[{date:'2026-12-10',reasons:['planned out']}],
+  canBookAvailable:true,canOverlap:true,availableCount:2,requestedCount:3
+ }}}}).mockResolvedValueOnce({data:{appointments:[{id:1},{id:2}],skippedDates:[{date:'2026-12-10',reasons:['planned out']}]}});
+ const save=s.withBookingConflictReview({recurrence:'BIWEEKLY',occurrenceCount:3},submit);
+ await flushPromises();
+ expect(s.scheduleConfirmation.conflicts).toEqual([{date:'2026-12-10',reasons:['planned out']}]);
+ expect(s.scheduleConfirmation.choices.map(choice=>choice.label)).toContain('Book all available dates');
+ s.resolveScheduleConfirmation('available');
+ await save;
+ expect(submit).toHaveBeenLastCalledWith({
+  recurrence:'BIWEEKLY',occurrenceCount:3,reviewBookingConflicts:true,bookingConflictChoice:'available',bookingConflictReview:'review-1'
+ });
+ expect(s.scheduleChangeNotice).toContain('Skipped');
+});

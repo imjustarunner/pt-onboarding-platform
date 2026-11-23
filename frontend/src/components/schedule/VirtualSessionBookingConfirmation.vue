@@ -1,5 +1,8 @@
 <template>
   <section class="virtual-booked" data-testid="virtual-session-booked" aria-live="polite">
+    <details v-if="booking.skippedDates?.length"><summary>{{ booking.skippedDates.length }} dates skipped</summary>
+      <ul><li v-for="item in booking.skippedDates" :key="item.date">{{ item.date }} · {{ item.reasons.join(', ') }}</li></ul>
+    </details>
     <h3>{{ booking.uncertain ? 'Check booking status' : booking.partial ? 'Booking needs review' : booking.historical ? 'Past session recorded' : 'Session scheduled' }}</h3>
     <p v-if="booking.uncertain">The booking response was interrupted. Refresh your schedule before trying again; an appointment may already have been saved.</p>
     <template v-else>
