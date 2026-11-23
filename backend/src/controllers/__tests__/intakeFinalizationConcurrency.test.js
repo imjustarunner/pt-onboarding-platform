@@ -10,6 +10,7 @@ vi.mock('../../models/Client.model.js',()=>({default:{findById:mocks.client}}));
 vi.mock('../../models/clinical/ClinicalTreatmentPlan.model.js',()=>({default:{listByClient:mocks.plan,findById:mocks.planById}}));
 vi.mock('../../models/AdminAuditLog.model.js',()=>({default:{logAction:vi.fn()}}));
 vi.mock('../../services/noteAidChartAudit.service.js',()=>({logNoteAidChartEvent:vi.fn()}));
+vi.mock('../../services/safetyPlans/access.js',()=>({clientAccess:async()=>({agency_id:450})}));
 vi.mock('../../services/clientAccessLog.service.js',()=>({logClientAccess:vi.fn()}));
 vi.mock('../publicIntake.controller.js',()=>({buildClinicalSummaryText:vi.fn(),buildIntakeAnswersText:vi.fn()}));
 import { finalizeClientIntakeNote } from '../clientIntakeNote.controller.js';
@@ -46,9 +47,19 @@ beforeEach(()=>{
  });
 });
 function request(){return {params:{id:'2304',draftId:'1'},query:{},user:{id:1433,role:'super_admin'},body:{sourceReview:{fingerprint:intakeDraftReview(row,JSON.parse(row.note_sections_json_enc)).fingerprint,sectionKeys:['mse'],sourceCompared:true,unsupportedClaimsRemoved:true,appointmentReviewed:true}}};}
-it('keeps imported source intakes nonbillable without appointment or treatment-plan finalization side effects',async()=>{
- row.session_context_enc=JSON.stringify({source:'client_records_import',nonBillable:true});const res=response(),next=vi.fn();await finalizeClientIntakeNote(request(),res,next);
- expect(next).not.toHaveBeenCalled();expect(res.status).toHaveBeenCalledWith(409);expect(res.json).toHaveBeenCalledWith({error:expect.objectContaining({code:'IMPORTED_INTAKE_NONBILLABLE'})});expect(writeCalls).toHaveLength(0);expect(mocks.plan).not.toHaveBeenCalled();expect(mocks.clinical).not.toHaveBeenCalled();
+it('finalizes imported source intakes without an appointment, billing, or treatment-plan side effect',async()=>{
+ row.status='draft';row.session_context_enc=JSON.stringify({source:'client_records_import',nonBillable:true});
+ const res=response(),next=vi.fn(),req=request();req.body.sourceReview.appointmentReviewed=false;
+ await finalizeClientIntakeNote(req,res,next);
+ expect(next).not.toHaveBeenCalled();expect(res.json.mock.calls[0][0].draft).toMatchObject({status:'final',recordsImport:true,nonBillable:true});
+ expect(JSON.parse(row.session_context_enc)).toMatchObject({clinicalSessionId:null,sourceReview:{reviewedByUserId:1433}});
+ expect(writeCalls).toHaveLength(1);expect(mocks.plan).not.toHaveBeenCalled();expect(mocks.clinical).not.toHaveBeenCalled();
+});
+it('requires a real persisted confirmation for documented imported diagnoses',async()=>{
+ row.status='ready';row.session_context_enc=JSON.stringify({source:'client_records_import'});row.diagnosis_action='confirmed';
+ row.suggested_dx_json=JSON.stringify({diagnoses:[{code:'R69'}],primary:{code:'R69'}});row.confirmed_dx_json='{}';
+ const res=response();await finalizeClientIntakeNote(request(),res,vi.fn());
+ expect(res.status).toHaveBeenCalledWith(409);expect(writeCalls).toHaveLength(0);
 });
 it('serializes an interleaved section/regeneration write behind the real finalizer and rejects it after finalization',async()=>{
  const lookup=deferred(),entered=deferred();mocks.clinical.mockImplementation(async()=>{entered.resolve();return lookup.promise});

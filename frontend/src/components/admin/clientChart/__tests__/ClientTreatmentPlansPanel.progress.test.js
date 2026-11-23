@@ -32,6 +32,6 @@ it('keeps clinical progress controls out of support and learning-plan views', as
 
 it('opens the selected client plan in its own agency instead of a stale NLU selection',async()=>{
  state.agency={currentAgency:{id:453,slug:'nlu-qa-demo'},userAgencies:[{id:450,slug:'auricwell-qa-demo'},{id:453,slug:'nlu-qa-demo'}]};
- const w=mount(Panel,{props:{clientId:2449,agencyId:450,clientType:'clinical'}});await flushPromises();await w.findAll('button').find(b=>b.text()==='Update in Note Workspace').trigger('click');
+ const w=mount(Panel,{props:{clientId:2449,agencyId:450,clientType:'clinical'}});await flushPromises();await w.findAll('button').find(b=>b.text()==='Start a plan revision').trigger('click');
  expect(state.push).toHaveBeenCalledWith(expect.objectContaining({path:'/auricwell-qa-demo/note-aid'}));w.unmount();
 });

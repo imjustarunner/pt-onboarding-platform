@@ -56,7 +56,8 @@ class ClinicalTreatmentPlan {
     primaryDiagnosisId = null,
     diagnosticJustification = null,
     effectiveDate = null,
-    supersedesImportedDraftId = null
+    supersedesImportedDraftId = null,
+    supersedesChartDraftId = null
   }) {
     // New clinical content stays pending until the provider and supervisor review
     // this exact version. Existing historical active records are left intact.
@@ -64,9 +65,10 @@ class ClinicalTreatmentPlan {
     const conn = await clinicalPool.getConnection();
     try {
       await conn.beginTransaction();
-      if (supersedesImportedDraftId) {
-        const [[source]] = await conn.execute('SELECT status,source_tool_id FROM clinical_treatment_plans WHERE id = ? AND agency_id = ? AND client_id = ? FOR UPDATE', [supersedesImportedDraftId,agencyId,clientId]);
-        if (!source || source.status !== 'draft' || !(String(source.source_tool_id || '').startsWith('client_records_import:') || source.source_tool_id === 'client_creation_record_import')) {
+      const sourceDraftId=supersedesChartDraftId || supersedesImportedDraftId;
+      if (sourceDraftId) {
+        const [[source]] = await conn.execute('SELECT status,source_tool_id FROM clinical_treatment_plans WHERE id = ? AND agency_id = ? AND client_id = ? FOR UPDATE', [sourceDraftId,agencyId,clientId]);
+        if (!source || source.status !== 'draft' || (!supersedesChartDraftId && !(String(source.source_tool_id || '').startsWith('client_records_import:') || source.source_tool_id === 'client_creation_record_import'))) {
           throw Object.assign(new Error('This imported draft changed or was already finalized. Reload the treatment plans before continuing.'), {status:409});
         }
       }
@@ -219,9 +221,14 @@ class ClinicalTreatmentPlan {
             }
           }
           await persistObjectiveInterventions(conn, oRes.insertId, o.interventions);
+          if (o.projectedCompletion || o.kioskPrompt || o.kioskPromptOther) {
+            await conn.execute(`UPDATE clinical_treatment_plan_objectives
+              SET projected_completion=?,kiosk_prompt=?,kiosk_prompt_other=? WHERE id=?`,
+            [o.projectedCompletion || null,o.kioskPrompt || null,o.kioskPromptOther || null,oRes.insertId]);
+          }
         }
       }
-      if (supersedesImportedDraftId) await conn.execute("UPDATE clinical_treatment_plans SET status = 'superseded', updated_at = NOW() WHERE id = ? AND agency_id = ? AND client_id = ? AND status = 'draft'", [supersedesImportedDraftId,agencyId,clientId]);
+      if (sourceDraftId) await conn.execute("UPDATE clinical_treatment_plans SET status = 'superseded', updated_at = NOW() WHERE id = ? AND agency_id = ? AND client_id = ? AND status = 'draft'", [sourceDraftId,agencyId,clientId]);
       if(['active','final','finalized'].includes(status))await conn.execute("UPDATE clinical_treatment_plans SET client_ack_status='awaiting_portal' WHERE id=?",[planId]);
       await conn.commit();
       return this.findById(planId);

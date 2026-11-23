@@ -2692,14 +2692,6 @@
         </div>
 
         <div v-if="showPanel('intake-note')" class="detail-section">
-          <h3 style="margin-top: 0;">{{ ['learning', 'school'].includes(effectiveClientType) ? 'Enrollment note' : 'Intake note' }}</h3>
-          <p class="hint">
-            {{
-              ['learning', 'school'].includes(effectiveClientType)
-                ? 'Enrollment documentation for this student.'
-                : 'Intake draft and finalization for this client. Progress notes are under Records → Notes.'
-            }}
-          </p>
           <ClientIntakeNotePanel
             :client-id="client.id"
             :client="client"
@@ -2722,6 +2714,7 @@
             :client-type="showClinicalChartSurfaces ? 'clinical' : effectiveClientType"
             :client="client"
             @navigate="goChartSub"
+            @updated="loadCareSummary"
           />
         </div>
 
@@ -3703,8 +3696,8 @@ const clientDobLabel = computed(() => {
 const sexSelectOptions = [
   { value: 'male', label: 'Male' },
   { value: 'female', label: 'Female' },
-  { value: 'nonbinary', label: 'Non-binary' },
-  { value: 'other', label: 'Other / self-describe' }
+  { value: 'intersex', label: 'Intersex' },
+  { value: 'other', label: 'Other' }
 ];
 const ethnicitySelectOptions = [
   { value: 'american_indian', label: 'American Indian or Alaska Native' },
@@ -4406,7 +4399,8 @@ const overviewAlertItems = computed(() => {
         tone:'warning', tab:'intake-note'});
     }
     if (!summary.treatmentPlanOnFile) items.push({id:'plan-incomplete',label:'Signed treatment plan needed',tone:'warning',tab:'treatment-plans'});
-    if (summary.importedDiagnoses?.length) items.push({id:'dx-review',label:'Review imported diagnoses',tone:'info',tab:summary.intakeReviewStatus==='draft'?'intake-note':'treatment-plans'});
+    if (summary.intakeDiagnosisPending) items.push({id:'dx-review',label:'Review intake diagnosis',tone:'info',tab:'intake-note'});
+    if (summary.planDiagnosisPending) items.push({id:'plan-dx-review',label:'Review treatment plan diagnoses',tone:'info',tab:'treatment-plans'});
   }
   return items;
 });
@@ -6898,9 +6892,13 @@ function intakeRecordedSex() {
   return match ? String(match.value).trim() : '';
 }
 
-const recordSexLabel = computed(() => formatDemoLookupValue(props.client?.gender, sexSelectOptions) || '');
-const intakeSexLabel = computed(() =>
-  formatDemoLookupValue(props.client?.recorded_sex || intakeRecordedSex(), sexSelectOptions) || '');
+function chartSexLabel(value) {
+  const key = String(value || '').trim().toLowerCase();
+  return ({m:'Male',f:'Female',x:'X',u:'Unknown',unknown:'Unknown'})[key]
+    || sexSelectOptions.find(option=>option.value===key)?.label || '';
+}
+const recordSexLabel = computed(() => chartSexLabel(props.client?.recorded_sex || props.client?.sex || props.client?.gender));
+const intakeSexLabel = computed(() => chartSexLabel(intakeRecordedSex()));
 function isIntakeSexField(field) {
   const key = String(field?.key || '').trim();
   const label = String(field?.label || '').trim();

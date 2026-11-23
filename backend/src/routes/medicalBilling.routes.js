@@ -65,6 +65,8 @@ import {
   updateClaimBillingMode,
   parseTreatmentPlanImport,
   normalizeTreatmentPlanObjective,
+  saveNarrivaChartDraft,
+  proposeNarrivaChartDraft,
   suggestTreatmentPlanDischarge,
   proposeTreatmentPlanUpdate,
   listClientChart,
@@ -264,6 +266,9 @@ router.get(
   ],
   getTreatmentPlanById
 );
+
+router.put('/treatment-plans/:planId/chart-draft', excludeSupportClinicalContent, requireClinicalChart, saveNarrivaChartDraft);
+router.post('/treatment-plans/narriva-suggestions', excludeSupportClinicalContent, requireClinicalChart, proposeNarrivaChartDraft);
 
 router.get('/treatment-plans/:planId/approval', excludeSupportClinicalContent, requireClinicalChart, getPlanApproval);
 router.get('/clients/:clientId/mse-history', excludeSupportClinicalContent, requireClinicalChart, getClinicalMseHistory);

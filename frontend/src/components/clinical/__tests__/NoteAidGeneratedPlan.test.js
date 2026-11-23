@@ -2,7 +2,7 @@ import { it, expect, vi, beforeEach } from 'vitest';
 import { mount, shallowMount, flushPromises } from '@vue/test-utils';
 import Review from '../NoteAidTreatmentPlanImportReview.vue';
 import api from '../../../services/api';
-vi.mock('../../../services/api', () => ({ default: { post: vi.fn(), get: vi.fn() } }));
+vi.mock('../../../services/api', () => ({ default: { post: vi.fn(), get: vi.fn(), put: vi.fn() } }));
 beforeEach(() => vi.resetAllMocks());
 it('loads the imported source once, preloads its diagnoses, allows incomplete drafts and identifies the source when finalized',async()=>{
  const original={id:44,status:'draft',source_tool_id:'client_records_import:source',effective_date:'2026-01-02',discharge_plan:'Discharge after goals met.',recordsImportSource:{text:'Complete original source',parsed:{diagnoses:[{icd10Code:'F41.1',description:'Source diagnosis'}]}},goals:[{goalText:'Improve coping',objectives:[{objectiveText:'Progress on a scale of 1–10. The client is currently functioning at a 3. The goal is to achieve a 7.'}]}]};
@@ -106,4 +106,42 @@ it('keeps partial drafts saveable and gates finalization on goal durations',asyn
  expect(w.text()).toContain('Choose a duration');await state.save({finalize:true});expect(api.post).not.toHaveBeenCalled();
  await state.save({finalize:false});expect(api.post).toHaveBeenCalledWith('/medical-billing/treatment-plans',expect.objectContaining({status:'draft',finalize:false}));
  state.model.goals[0].durationMonths=6;await state.save({finalize:true});expect(api.post).toHaveBeenLastCalledWith('/medical-billing/treatment-plans',expect.objectContaining({goals:[expect.objectContaining({durationMonths:6,projectedCompletion:'2027-05-14'})]}));w.unmount();
+});
+
+
+it('uses one chart action to suggest objectives, questions, dates, interventions and discharge without guessing a baseline', async () => {
+  api.get.mockResolvedValue({data:{policy:{renewAfterDays:90}}});
+  api.post.mockResolvedValue({data:{proposal:{objectives:[
+    {ref:'1.1', objectiveText:'Practice grounding', target:3, durationMonths:3, clientQuestion:'Rate your current anxiety.',otherQuestion:'Rate the anxiety you observed.',interventions:['Grounding']},
+    {ref:'2.1', objectiveText:'Practice assertiveness', target:8,durationMonths:6,clientQuestion:'Rate your communication this week.',interventions:['Role play']}
+  ],dischargePlan:'Review sustained goal progress and transition readiness.'}}});
+  api.put.mockResolvedValue({data:{revision:1}});
+  const plan={id:44,status:'draft',effectiveDate:'2026-11-23',diagnoses:[{icd10Code:'F41.1',description:'Synthetic diagnosis'}],goals:[
+    {goalText:'Manage anxiety',objectives:[{objectiveText:'Practice coping'}]},
+    {goalText:'Improve communication',objectives:[{objectiveText:'Use assertive language',scaleCurrent:4}]}
+  ]};
+  const wrapper=shallowMount(Review,{props:{open:true,embedded:true,mode:'draft',agencyId:2,clientId:42,planId:44,initialPlan:plan}});
+  await flushPromises();
+  expect(wrapper.get('.na-plan-paper').exists()).toBe(true);
+  expect(wrapper.find('input[placeholder="ICD-10"]').element.value).toBe('F41.1');
+  const button=text=>wrapper.findAll('button').find(item=>item.text()===text);
+  await wrapper.find('.narriva-plan-actions input[type="checkbox"]').setValue(true);
+  await button('Make this Narriva Compliant').trigger('click');await flushPromises();
+  const state=wrapper.vm.$.setupState;
+  expect(api.post).toHaveBeenCalledWith('/medical-billing/treatment-plans/narriva-suggestions',expect.objectContaining({clientId:42,chartDraft:true,includeOther:true}),expect.anything());
+  expect(state.model.goals[0].objectives[0]).toMatchObject({scaleCurrent:null,scaleTarget:3,projectedCompletion:'2027-02-23',interventions:['Grounding'],kioskPromptOther:'Rate the anxiety you observed.'});
+  expect(state.model.goals[1].objectives[0]).toMatchObject({scaleCurrent:4,projectedCompletion:'2027-05-23',interventions:['Role play']});
+  expect(state.model.dischargePlan).toMatch(/transition readiness/);
+  state.model.goals[0].objectives[0].reviewed=true;
+  await button('Save draft').trigger('click');await flushPromises();
+  expect(api.put).toHaveBeenCalledWith('/medical-billing/treatment-plans/44/chart-draft',expect.objectContaining({revision:0,draft:expect.objectContaining({goals:expect.arrayContaining([expect.objectContaining({objectives:[expect.objectContaining({reviewed:true})]})])})}));
+  expect(wrapper.text()).toContain('Draft saved.');
+  expect(api.post).toHaveBeenCalledOnce();
+  const saved=api.put.mock.calls[0][1].draft;
+  wrapper.unmount();
+  const reopened=shallowMount(Review,{props:{open:true,embedded:true,mode:'draft',agencyId:2,clientId:42,planId:44,
+    initialPlan:{...plan,chartDraft:{revision:1,value:saved}}}});
+  await flushPromises();
+  expect(reopened.vm.$.setupState.model.goals[0].objectives[0]).toMatchObject({reviewed:true,projectedCompletion:'2027-02-23',kioskPrompt:'Rate your current anxiety.'});
+  reopened.unmount();
 });

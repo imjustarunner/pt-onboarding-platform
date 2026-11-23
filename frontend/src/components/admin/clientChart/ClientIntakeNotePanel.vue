@@ -4,7 +4,6 @@
     <header class="cin-header">
       <div class="cin-header__title-row">
         <h3 class="cin-title">Intake Note</h3>
-        <span class="cin-badge">Intake</span>
         <span v-if="copyFlash" class="cin-copy-flash">{{ copyFlash }}</span>
       </div>
       <div class="cin-header__actions">
@@ -98,9 +97,9 @@
 
     <p v-if="draft?.recordsImport" class="hint">Imported intake record · nonbillable · no appointment link. The original source is retained here; use a separate note for a new service.</p>
     <div v-if="loading" class="muted cin-loading">Loading intake note…</div>
-    <div v-else-if="error" class="error">{{ error }}</div>
+    <div v-if="error" class="error" role="alert">{{ error }}</div>
 
-    <template v-else>
+    <template v-if="!loading">
       <p v-if="draft && !assignedProvider" class="cin-callout">No clinician is assigned. An authorized clinician must review this record before using it for current care.</p>
       <div v-if="!assignedProvider && !draft" class="cin-callout">
         Assign a clinician to generate an intake note (credential selects 90791 vs H0031).
@@ -122,40 +121,31 @@
         <!-- Main column -->
         <main class="cin-main">
           <!-- Diagnosis -->
-          <section v-if="activeDiagnosis" class="cin-panel cin-dx">
+          <section v-if="activeDiagnosis || draft.recordsImport" class="cin-panel cin-dx">
             <div class="cin-panel__head">
               <h4>Diagnosis</h4>
-              <span v-if="draft.status !== 'final' && !draft.diagnosisAction" class="cin-chip cin-chip--warn">Needs confirmation</span>
-              <span v-else-if="draft.confirmedDiagnosis" class="cin-chip cin-chip--ok">Diagnosis decision saved</span>
+              <span v-if="diagnosisConfirmed" class="cin-chip cin-chip--ok" role="status">Diagnosis confirmed</span>
+              <span v-else-if="diagnosisPending && draft.status !== 'final'" class="cin-chip cin-chip--warn">Review diagnosis</span>
             </div>
-            <p v-if="diagnosisUnsupported" class="cin-dx-rationale">This code is not in the intake source. It remains on the saved draft and is not a confirmed diagnosis.</p>
-            <p class="cin-dx-code mono">
-              {{ activeDiagnosis.code || '—' }}
-              <span v-if="activeDiagnosis.description"> — {{ activeDiagnosis.description }}</span>
-            </p>
-            <button
-              v-if="activeDiagnosis.justification"
-              type="button"
-              class="cin-rationale-toggle cdp-text-link"
-              @click="showRationale = !showRationale"
-            >
+            <p v-if="!activeDiagnosis?.code">No diagnosis is documented in this intake.</p>
+            <ul v-else class="cin-diagnoses">
+              <li v-for="dx in activeDiagnosis.diagnoses?.length ? activeDiagnosis.diagnoses : [activeDiagnosis]" :key="dx.code">
+                <code>{{ dx.code }}</code> {{ dx.description }}
+              </li>
+            </ul>
+            <p v-if="diagnosisUnsupported" class="cin-dx-rationale">Check this code against the source before confirming it.</p>
+            <button v-if="activeDiagnosis?.justification" type="button" class="cin-rationale-toggle cdp-text-link" @click="showRationale = !showRationale">
               {{ showRationale ? 'Hide' : 'Show' }} diagnostic rationale
             </button>
-            <p
-              v-if="showRationale && activeDiagnosis.justification"
-              class="cin-dx-rationale muted"
-            >{{ activeDiagnosis.justification }}</p>
-
+            <p v-if="showRationale && activeDiagnosis?.justification" class="cin-dx-rationale muted">{{ activeDiagnosis.justification }}</p>
             <div v-if="draft.status !== 'final' && !isHistoricalView" class="cin-dx-actions">
-              <button type="button" class="cdp-btn-soft" :disabled="busy" @click="confirmDx('remain')">
-                No further information — remain as is
-              </button>
-              <button type="button" class="cdp-btn-primary" :disabled="busy" @click="confirmDx('confirmed')">
+              <button v-if="activeDiagnosis?.code && !diagnosisConfirmed" type="button" class="cdp-btn-primary" :disabled="busy" @click="confirmDx('confirmed')">
                 {{ busyAction === 'dx' ? 'Saving…' : 'Confirm diagnosis' }}
               </button>
               <button type="button" class="cdp-btn-soft" :disabled="busy" @click="showDxEdit = !showDxEdit">
-                Change / update diagnosis
+                {{ activeDiagnosis?.code ? 'Edit diagnosis' : 'Add diagnosis' }}
               </button>
+              <p v-if="diagnosisConfirmed" class="muted">Review the note below and select Finalize intake to complete the record.</p>
             </div>
             <div v-if="showDxEdit && !isHistoricalView" class="cin-dx-edit">
               <input v-model="dxEdit.code" class="filters-input" placeholder="ICD-10 code" />
@@ -174,54 +164,42 @@
           </section>
 
           <section v-if="draft.status !== 'final'" class="cin-panel cin-source-review">
-            <h4>Review against the intake source</h4>
-            <p>Generated text is a draft. Check each section against the source below and any documented clinician observations. Remove unsupported observations, denials, risk findings and diagnoses before finalizing.</p>
             <details>
-              <summary>Source used to prepare this draft</summary>
-              <pre class="cin-section__body">{{ draft.sourceReview?.sourceText || 'The source is unavailable. Finalization is paused until it can be reviewed.' }}</pre>
+              <summary>{{ draft.recordsImport ? 'Original imported intake' : 'Source used to prepare this draft' }}</summary>
+              <p v-if="!draft.recordsImport">Check the draft against the source and correct unsupported observations, risk findings and diagnoses.</p>
+              <pre class="cin-section__body">{{ draft.sourceReview?.sourceText || 'The original source could not be loaded.' }}</pre>
             </details>
-            <p>Use Edit Note to correct the draft. Editing, changing the diagnosis or regenerating it clears this review.</p>
           </section>
 
-          <!-- Note sections -->
-          <section v-if="draft.sections?.length" class="cin-panel cin-sections">
+          <section v-for="sec in draft.sections" :key="sec.key" :ref="el => setSectionRef(sec.key, el)" class="cin-panel cin-note-section">
             <div class="cin-panel__head">
-              <h4>Note sections</h4>
-              <span class="muted tiny">{{ draft.sections.length }} section{{ draft.sections.length === 1 ? '' : 's' }}</span>
+              <h4>{{ sec.label }}</h4>
+              <button type="button" class="cdp-text-link" @click="copyText(sec.body, sec.label)">Copy</button>
             </div>
-            <div
-              v-for="sec in draft.sections"
-              :key="sec.key"
-              :ref="(el) => setSectionRef(sec.key, el)"
-              class="cin-section"
-              :class="{ 'cin-section--open': expandedSections[sec.key] }"
-            >
-              <button
-                type="button"
-                class="cin-section__toggle"
-                :aria-expanded="!!expandedSections[sec.key]"
-                @click="toggleSection(sec.key)"
-              >
-                <span class="cin-section__chevron" aria-hidden="true">{{ expandedSections[sec.key] ? '▾' : '▸' }}</span>
-                <span class="cin-section__label">{{ sec.label }}</span>
-                <span v-if="sectionStatus(sec)" class="cin-chip cin-chip--sm">{{ sectionStatus(sec) }}</span>
-              </button>
-              <div v-if="!expandedSections[sec.key]" class="cin-section__preview muted">
-                {{ sectionPreview(sec.body) }}
-              </div>
-              <div v-else class="cin-section__body-wrap">
-                <div class="cin-section__head">
-                  <span class="muted tiny">Full section</span>
-                  <button type="button" class="cdp-text-link" @click.stop="copyText(sec.body, sec.label)">Copy</button>
-                </div>
-                <pre class="cin-section__body">{{ sec.body || '—' }}</pre>
-                <label v-if="draft.status !== 'final' && !isHistoricalView" class="cin-review-check">
-                  <input v-model="reviewedSections" type="checkbox" :value="sec.key" :disabled="busy" />
-                  I compared this section with the source and corrected unsupported claims.
-                </label>
-              </div>
-            </div>
+            <pre class="cin-section__body">{{ sec.body || '—' }}</pre>
           </section>
+
+          <section v-if="draft.status !== 'final' && !isHistoricalView" class="cin-panel cin-finalize">
+            <h4>Finalize intake</h4>
+            <template v-if="!draft.recordsImport">
+              <label v-if="appointmentOptions.length" class="cin-review-check">Intake appointment
+                <select v-model="selectedClinicalSessionId" class="filters-input" :disabled="busy">
+                  <option value="">Choose the matching appointment</option>
+                  <option v-for="option in appointmentOptions" :key="option.clinicalSessionId" :value="String(option.clinicalSessionId)">{{ appointmentLabel(option) }}</option>
+                </select>
+              </label>
+              <p v-else-if="appointmentOptionsUnavailable" class="error">Appointment information could not be loaded. Refresh before finalizing.</p>
+              <p v-else>No matching appointment is available. The intake will be saved in the chart.</p>
+              <label class="cin-review-check"><input v-model="appointmentReviewed" type="checkbox" :disabled="busy" /> I checked the appointment information.</label>
+            </template>
+            <label class="cin-review-check"><input v-model="sourceCompared" type="checkbox" :disabled="busy" /> Confirm all sections. I reviewed the complete note against the source and corrected unsupported claims.</label>
+            <p v-if="diagnosisPending && draft.recordsImport" class="muted">Confirm or update the documented diagnosis above before finalizing.</p>
+            <button type="button" class="cdp-btn-primary" :disabled="busy || !canFinalize" @click="finalize">
+              {{ busyAction === 'finalize' ? 'Finalizing…' : draft.recordsImport ? 'Finalize intake' : 'Finalize intake only' }}
+            </button>
+            <button v-if="!draft.recordsImport" type="button" class="cdp-btn-soft" :disabled="busy || !canFinalize" @click="finalizeAndEditPlan">Finalize &amp; edit treatment plan</button>
+          </section>
+          <p v-else-if="draft.recordsImport && draft.status === 'final'" class="cin-panel" role="status">Imported intake finalized{{ draft.finalizedAt ? ' · ' + formatWhen(draft.finalizedAt) : '' }}.</p>
 
           <!-- Treatment plan preview (when present) -->
           <section v-if="treatmentPlan && (treatmentPlan.goals || []).length" class="cin-panel cin-tp">
@@ -241,25 +219,6 @@
 
         <!-- Right sidebar -->
         <aside class="cin-sidebar">
-          <!-- Progress -->
-          <div class="cin-progress">
-            <svg class="cin-progress__ring" viewBox="0 0 36 36" aria-hidden="true">
-              <path
-                class="cin-progress__track"
-                d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-              />
-              <path
-                class="cin-progress__fill"
-                :stroke-dasharray="`${progressPct}, 100`"
-                d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-              />
-            </svg>
-            <div class="cin-progress__label">
-              <strong>{{ progressPct }}%</strong>
-              <span class="muted tiny">Reviewed</span>
-            </div>
-          </div>
-
           <!-- Quick nav -->
           <nav v-if="draft.sections?.length" class="cin-nav" aria-label="Section navigation">
             <h5 class="cin-sidebar__heading">Sections</h5>
@@ -304,35 +263,6 @@
             >
               Copy All
             </button>
-
-            <template v-if="draft.status !== 'final' && !isHistoricalView && !draft.recordsImport">
-              <label class="cin-sidebar__context-label">Intake appointment</label>
-              <p v-if="appointmentOptionsUnavailable" class="error">Appointment information could not be loaded. Your draft is available to review; refresh before finalizing.</p>
-              <select v-else-if="appointmentOptions.length" v-model="selectedClinicalSessionId" class="filters-input" :disabled="busy">
-                <option value="">Choose the matching appointment</option>
-                <option v-for="option in appointmentOptions" :key="option.clinicalSessionId" :value="String(option.clinicalSessionId)">{{ appointmentLabel(option) }}</option>
-              </select>
-              <p v-else class="hint">No matching appointment is available. This intake remains a chart record without an appointment link.</p>
-              <label class="cin-review-check"><input v-model="sourceCompared" type="checkbox" :disabled="busy" /> I reviewed all sections against their sources and removed unsupported claims.</label>
-              <label class="cin-review-check"><input v-model="appointmentReviewed" type="checkbox" :disabled="busy" /> I checked the appointment information above.</label>
-              <button
-                type="button"
-                class="cdp-btn-primary cin-sidebar__btn"
-                :disabled="busy || !canFinalize"
-                @click="finalizeAndEditPlan"
-              >
-                {{ busy && busyAction === 'finalize' ? 'Finalizing…' : 'Finalize & edit treatment plan' }}
-              </button>
-              <button
-                type="button"
-                class="cdp-btn-soft cin-sidebar__btn"
-                :disabled="busy || !canFinalize"
-                @click="finalize"
-              >
-                Finalize intake only
-              </button>
-              <p v-if="!canFinalize" class="hint cin-sidebar__hint">Confirm the diagnosis, review every section and check the appointment before finalizing.</p>
-            </template>
 
             <button
               v-if="treatmentPlan || draft.status === 'final'"
@@ -395,7 +325,7 @@
 <script setup>
 import { getActivePinia } from 'pinia';
 import { useAuthStore } from '../../../store/auth';
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../../../services/api';
 import { useAgencyStore } from '../../../store/agency';
@@ -431,26 +361,14 @@ const showDxEdit = ref(false);
 const showImport = ref(false);
 const showMoreMenu = ref(false);
 const showRationale = ref(false);
-const reviewedSections = ref([]), sourceCompared = ref(false), appointmentReviewed = ref(false);
+const sourceCompared = ref(false), appointmentReviewed = ref(false);
 const appointmentOptions = ref([]), selectedClinicalSessionId = ref(''), appointmentOptionsUnavailable = ref(false);
 const dxEdit = ref({ code: '', description: '', justification: '', comment: '' });
 const copyFlash = ref('');
-const expandedSections = reactive({});
 const sectionRefs = ref({});
 
-const GENDER_LABELS = {
-  m: 'Male',
-  f: 'Female',
-  u: 'Unknown',
-  unknown: 'Unknown',
-  male: 'Male',
-  female: 'Female',
-  nonbinary: 'Non-binary',
-  other: 'Other'
-};
-
 const statusLabel = computed(() => {
-  if (draft.value?.recordsImport) return 'Imported · nonbillable';
+  if (draft.value?.recordsImport) return draft.value.status === 'final' ? 'Finalized imported intake' : 'Imported intake needs review';
   const s = String(draft.value?.status || 'none');
   const map = {
     none: 'Not started',
@@ -470,29 +388,24 @@ const statusChipClass = computed(() => {
   return 'cin-status-chip--draft';
 });
 
+const activeDiagnosis = computed(() => {
+  const saved = draft.value?.confirmedDiagnosis;
+  return saved?.code ? saved : draft.value?.suggestedDiagnosis;
+});
+const diagnosisConfirmed = computed(() => draft.value?.diagnosisReviewStatus === 'confirmed'
+  || (draft.value?.confirmedDiagnosis?.code && ['confirmed','updated'].includes(draft.value?.diagnosisAction)));
+const diagnosisPending = computed(() => !!activeDiagnosis.value?.code && !diagnosisConfirmed.value);
 const canFinalize = computed(() => {
-  const s = draft.value?.status;
-  return s === 'ready' && !appointmentOptionsUnavailable.value && !!draft.value?.sourceReview?.sourceText
-    && sourceCompared.value && appointmentReviewed.value
-    && (draft.value?.sections || []).length > 0
-    && draft.value.sections.every(section => reviewedSections.value.includes(section.key))
+  const note = draft.value;
+  if (!note?.sourceReview?.sourceText || !note.sections?.length || !sourceCompared.value || isHistoricalView.value) return false;
+  if (note.recordsImport) return ['draft','ready','diagnosis_pending'].includes(note.status) && !diagnosisPending.value;
+  return note.status === 'ready' && !appointmentOptionsUnavailable.value && appointmentReviewed.value
     && (!appointmentOptions.value.length || !!selectedClinicalSessionId.value);
 });
-
-const activeDiagnosis = computed(() => (
-  draft.value?.confirmedDiagnosis || draft.value?.suggestedDiagnosis || null
-));
 
 const isHistoricalView = computed(() => {
   if (!viewingHistoryId.value || !latestDraftId.value) return false;
   return Number(viewingHistoryId.value) !== Number(latestDraftId.value);
-});
-
-const progressPct = computed(() => {
-  const s = String(draft.value?.status || 'none');
-  if (s === 'final') return 100;
-  const sections = draft.value?.sections || [];
-  return sections.length ? Math.round(100 * sections.filter(section => reviewedSections.value.includes(section.key)).length / sections.length) : 0;
 });
 
 const clientName = computed(() => String(props.client?.full_name || '').trim());
@@ -521,10 +434,11 @@ const sourceSex = computed(() => {
   const match = String(draft.value?.sourceReview?.sourceText || '').match(/\b(?:sex|gender)\s*[:\-]\s*(female|male|unknown|f|m)\b/i);
   return match ? match[1].toLowerCase() : '';
 });
-const clientGenderLabel = computed(() => {
-  const g = String(props.client?.gender || props.client?.recorded_sex || sourceSex.value || '').trim().toLowerCase();
-  if (!g) return '';
-  return GENDER_LABELS[g] || g.charAt(0).toUpperCase() + g.slice(1);
+const SEX_LABELS = {m:'Male',f:'Female',male:'Male',female:'Female',x:'X',u:'Unknown',unknown:'Unknown',intersex:'Intersex',other:'Other'};
+const recordedSex = computed(() => {
+  const client = props.client;
+  const values = [client?.recorded_sex, client?.sex, client?.gender, sourceSex.value];
+  return values.map(value => SEX_LABELS[String(value || '').trim().toLowerCase()]).find(Boolean) || '';
 });
 const diagnosisUnsupported = computed(() => {
   const code = String(activeDiagnosis.value?.code || '').trim();
@@ -546,7 +460,7 @@ const clientDobLabel = computed(() => {
 const clientDemoLine = computed(() => {
   const parts = [];
   if (clientAge.value) parts.push(`${clientAge.value} yrs`);
-  if (clientGenderLabel.value) parts.push(clientGenderLabel.value);
+  if (recordedSex.value) parts.push(`Sex ${recordedSex.value}`);
   if (clientDobLabel.value) parts.push(`DOB ${clientDobLabel.value}`);
   return parts.join(' · ');
 });
@@ -582,24 +496,12 @@ function sectionPreview(body, max = 140) {
   return `${text.slice(0, max).trim()}…`;
 }
 
-function sectionStatus(sec) {
-  const body = String(sec?.body || '').trim();
-  if (!body) return 'Empty';
-  if (draft.value?.status === 'final') return 'Finalized';
-  return reviewedSections.value.includes(sec.key) ? 'Reviewed' : 'Needs review';
-}
-
 function setSectionRef(key, el) {
   if (el) sectionRefs.value[key] = el;
   else delete sectionRefs.value[key];
 }
 
-function toggleSection(key) {
-  expandedSections[key] = !expandedSections[key];
-}
-
 function scrollToSection(key) {
-  expandedSections[key] = true;
   const el = sectionRefs.value[key];
   if (el?.scrollIntoView) {
     el.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -615,16 +517,6 @@ function syncDxEditFromDraft() {
     justification: dx.justification || '',
     comment: ''
   };
-}
-
-function initExpandedSections() {
-  const secs = draft.value?.sections || [];
-  for (const key of Object.keys(expandedSections)) {
-    if (!secs.some((s) => s.key === key)) delete expandedSections[key];
-  }
-  for (const sec of secs) {
-    if (expandedSections[sec.key] === undefined) expandedSections[sec.key] = false;
-  }
 }
 
 async function load(opts = {}) {
@@ -648,7 +540,6 @@ async function load(opts = {}) {
       || options.find(option => savedAppointment && String(option.appointmentId) === String(savedAppointment));
     selectedClinicalSessionId.value = match ? String(match.clinicalSessionId) : '';
     syncDxEditFromDraft();
-    initExpandedSections();
 
     if (draftId) {
       viewingHistoryId.value = Number(draftId);
@@ -701,7 +592,6 @@ async function generateDraft() {
     latestDraftId.value = draft.value?.id || latestDraftId.value;
     viewingHistoryId.value = null;
     syncDxEditFromDraft();
-    initExpandedSections();
     await load();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to generate intake note';
@@ -742,13 +632,13 @@ async function confirmDx(action) {
 async function finalize() {
   const id = Number(props.clientId || 0);
   const draftId = Number(draft.value?.id || 0);
-  if (!id || !draftId) return;
+  if (!id || !draftId || !canFinalize.value) return;
   busy.value = true;
   busyAction.value = 'finalize';
   error.value = '';
   try {
     const r = await api.post(`/clients/${id}/intake-note/${draftId}/finalize`, {
-      sourceReview: { fingerprint: draft.value?.sourceReview?.fingerprint, sectionKeys: reviewedSections.value,
+      sourceReview: { fingerprint: draft.value?.sourceReview?.fingerprint, allSectionsReviewed: sourceCompared.value,
         sourceCompared: sourceCompared.value, unsupportedClaimsRemoved: sourceCompared.value, appointmentReviewed: appointmentReviewed.value,
         clinicalSessionId: Number(selectedClinicalSessionId.value) || null }
     });
@@ -843,7 +733,7 @@ function appointmentLabel(option) {
   return `${when} · ${option.serviceCode} · ${option.appointmentId ? `Appointment #${option.appointmentId}` : `Event #${option.officeEventId}`}`;
 }
 watch(() => draft.value?.sourceReview?.fingerprint, () => {
-  reviewedSections.value = []; sourceCompared.value = false; appointmentReviewed.value = false;
+  sourceCompared.value = false; appointmentReviewed.value = false;
 });
 
 function formatWhen(v) {
@@ -1084,6 +974,11 @@ watch(() => [props.clientId,props.initialDraftId], () => {
   .cin-body { grid-template-columns: 1fr; }
 }
 
+.cin-main { display: block; background: #fff; border: 1px solid #d8e2ef; border-radius: 14px; padding: clamp(16px, 3vw, 32px); min-width: 0; }
+.cin-main .cin-panel { background: transparent; border: 0; border-radius: 0; border-bottom: 1px solid #e4ebf2; padding: 14px 0; margin: 0; }
+.cin-main .cin-panel:last-child { border-bottom: 0; }
+.cin-diagnoses { padding-left: 20px; }
+.cin-finalize button { margin: 8px 8px 0 0; }
 .cin-panel {
   border: 1px solid var(--border, #e2e8f0);
   border-radius: 12px;
@@ -1160,36 +1055,6 @@ watch(() => [props.clientId,props.initialDraftId], () => {
   background: var(--bg, #fff);
   border-color: color-mix(in srgb, var(--cin-primary) 25%, var(--border, #e2e8f0));
 }
-.cin-section__toggle {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  border: 0;
-  background: transparent;
-  cursor: pointer;
-  text-align: left;
-  font: inherit;
-  color: inherit;
-}
-.cin-section__chevron {
-  color: var(--text-secondary, #64748b);
-  font-size: 12px;
-  width: 12px;
-  flex-shrink: 0;
-}
-.cin-section__label {
-  font-weight: 700;
-  font-size: 13px;
-  flex: 1;
-}
-.cin-section__preview {
-  padding: 0 12px 10px 32px;
-  font-size: 12px;
-  line-height: 1.45;
-}
-.cin-section__body-wrap { padding: 0 12px 12px; }
 .cin-section__head {
   display: flex;
   justify-content: space-between;
@@ -1222,43 +1087,6 @@ watch(() => [props.clientId,props.initialDraftId], () => {
   letter-spacing: 0.06em;
   color: var(--text-secondary, #64748b);
 }
-.cin-progress {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 16px;
-  padding-bottom: 14px;
-  border-bottom: 1px solid var(--border, #e2e8f0);
-}
-.cin-progress__ring {
-  width: 52px;
-  height: 52px;
-  flex-shrink: 0;
-}
-.cin-progress__track {
-  fill: none;
-  stroke: var(--border, #e2e8f0);
-  stroke-width: 3;
-}
-.cin-progress__fill {
-  fill: none;
-  stroke: var(--cin-primary);
-  stroke-width: 3;
-  stroke-linecap: round;
-  transform: rotate(-90deg);
-  transform-origin: 50% 50%;
-  transition: stroke-dasharray 0.35s ease;
-}
-.cin-progress__label {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.2;
-}
-.cin-progress__label strong {
-  font-size: 20px;
-  color: var(--cin-primary);
-}
-
 .cin-nav {
   margin-bottom: 14px;
   padding-bottom: 14px;

@@ -12,23 +12,37 @@ let wrapper;
 const mountPanel=()=>{wrapper=mount(Panel,{props:{clientId:2304,assignedProvider:true,client:{full_name:'QA',date_of_birth:'2015-05-18T00:00:00.000Z',gender:'F'}}});return wrapper;};
 beforeEach(()=>{vi.clearAllMocks();mocks.get.mockResolvedValue({data:{draft:structuredClone(draft),history:[],appointmentOptions:[{clinicalSessionId:77,appointmentId:135,startsAt:'2026-11-03T23:00:00Z',timeZone:'America/Denver',serviceCode:'90791'}]}});mocks.post.mockResolvedValue({data:{draft:{...draft,status:'final'}}});});
 afterEach(()=>wrapper?.unmount());
-it('shows the imported note as nonbillable without appointment or finalization controls',async()=>{
- mocks.get.mockResolvedValue({data:{draft:{...draft,status:'draft',recordsImport:true,nonBillable:true},history:[],appointmentOptions:[]}});mountPanel();await flushPromises();
- expect(wrapper.text()).toContain('Imported · nonbillable');expect(wrapper.findAll('button').some(button=>button.text()==='Finalize intake only'||button.text()==='Finalize & edit treatment plan')).toBe(false);expect(wrapper.text()).not.toContain('Intake appointment');
+it('finalizes an imported note with one review and no appointment or diagnosis when the source has none', async () => {
+ const imported={...draft,status:'draft',recordsImport:true,nonBillable:true,diagnosisAction:'confirmed',confirmedDiagnosis:{},suggestedDiagnosis:null};
+ mocks.get.mockResolvedValue({data:{draft:imported,history:[],appointmentOptions:[]}});
+ mocks.post.mockResolvedValue({data:{draft:{...imported,status:'final'}}});
+ mountPanel(); await flushPromises();
+ expect(wrapper.text()).toContain('No diagnosis is documented in this intake.');
+ expect(wrapper.text()).not.toContain('Confirm diagnosis');
+ expect(wrapper.findAll('.cin-note-section')).toHaveLength(2);
+ expect(wrapper.text()).toContain('Not assessed.');
+ expect(wrapper.findAll('input[type=checkbox]')).toHaveLength(1);
+ const finish=wrapper.findAll('button').find(button=>button.text()==='Finalize intake');
+ expect(finish.attributes('disabled')).toBeDefined();
+ await wrapper.get('input[type=checkbox]').setValue(true);
+ await finish.trigger('click'); await flushPromises();
+ expect(mocks.post).toHaveBeenCalledWith('/clients/2304/intake-note/1/finalize',{sourceReview:expect.objectContaining({allSectionsReviewed:true,clinicalSessionId:null})});
+ expect(wrapper.text()).toContain('Imported intake finalized');
 });
 it('does not label long unreviewed sections complete or enable finalization on diagnosis alone',async()=>{
  mountPanel();await flushPromises();expect(wrapper.text()).toContain('Needs source review');expect(wrapper.text()).not.toContain('Ready to finalize');expect(wrapper.text()).toContain('May 18, 2015');expect(wrapper.text()).toContain('Female');expect(wrapper.findAll('button').find(button=>button.text()==='Finalize intake only').attributes('disabled')).toBeDefined();
 });
 it('requires section reviews and appointment selection, then submits a review bound to the displayed source',async()=>{
  mountPanel();await flushPromises();
- for(const button of wrapper.findAll('.cin-section__toggle'))await button.trigger('click');
+
  for(const input of wrapper.findAll('input[type="checkbox"]'))await input.setValue(true);
  const finalize=wrapper.findAll('button').find(button=>button.text()==='Finalize intake only');expect(finalize.attributes('disabled')).toBeDefined();
  await wrapper.find('select').setValue('77');expect(finalize.attributes('disabled')).toBeUndefined();await finalize.trigger('click');await flushPromises();
- expect(mocks.post).toHaveBeenCalledWith('/clients/2304/intake-note/1/finalize',{sourceReview:{fingerprint:'current',sectionKeys:['mse','risk'],sourceCompared:true,unsupportedClaimsRemoved:true,appointmentReviewed:true,clinicalSessionId:77}});
+ expect(mocks.post).toHaveBeenCalledWith('/clients/2304/intake-note/1/finalize',{sourceReview:{fingerprint:'current',allSectionsReviewed:true,sourceCompared:true,unsupportedClaimsRemoved:true,appointmentReviewed:true,clinicalSessionId:77}});
 });
 it('clears review after diagnosis changes return a new content fingerprint',async()=>{
- mountPanel();await flushPromises();for(const button of wrapper.findAll('.cin-section__toggle'))await button.trigger('click');for(const input of wrapper.findAll('input[type="checkbox"]'))await input.setValue(true);await wrapper.find('select').setValue('77');
+ mocks.get.mockResolvedValue({data:{draft:{...draft,diagnosisAction:null,confirmedDiagnosis:null,suggestedDiagnosis:{code:'R69'}},appointmentOptions:[{clinicalSessionId:77,appointmentId:135,startsAt:'2026-11-03T23:00:00Z'}]}});
+ mountPanel();await flushPromises();for(const input of wrapper.findAll('input[type="checkbox"]'))await input.setValue(true);await wrapper.find('select').setValue('77');
  mocks.post.mockResolvedValue({data:{draft:{...draft,sourceReview:{...draft.sourceReview,fingerprint:'changed'}}}});await wrapper.findAll('button').find(button=>button.text()==='Confirm diagnosis').trigger('click');await flushPromises();
  expect(wrapper.emitted('review-updated')).toHaveLength(1);
  expect(wrapper.findAll('input[type="checkbox"]').every(input=>!input.element.checked)).toBe(true);expect(wrapper.findAll('button').find(button=>button.text()==='Finalize intake only').attributes('disabled')).toBeDefined();
@@ -37,14 +51,14 @@ it('clears review after diagnosis changes return a new content fingerprint',asyn
 it('keeps source visible but prevents finalization when appointment information is unavailable',async()=>{
  mocks.get.mockResolvedValue({data:{draft:structuredClone(draft),history:[],appointmentOptions:[],appointmentOptionsUnavailable:true}});mountPanel();await flushPromises();
  expect(wrapper.text()).toContain('Appointment information could not be loaded');expect(wrapper.text()).not.toContain('No matching appointment is available');
- for(const button of wrapper.findAll('.cin-section__toggle'))await button.trigger('click');for(const input of wrapper.findAll('input[type="checkbox"]'))await input.setValue(true);
+ for(const input of wrapper.findAll('input[type="checkbox"]'))await input.setValue(true);
  expect(wrapper.findAll('button').find(button=>button.text()==='Finalize intake only').attributes('disabled')).toBeDefined();
 });
 it('renders imported sections for an authorized admin without a clinician and separates service date from added date',async()=>{
  mocks.get.mockResolvedValue({data:{draft:{...draft,status:'draft',recordsImport:true,nonBillable:true,dateOfService:'2026-07-29',createdAt:'2026-11-17T12:00:00Z'},history:[],appointmentOptions:[]}});
  mountPanel();await wrapper.setProps({assignedProvider:false});await flushPromises();
- expect(wrapper.text()).toContain('No clinician is assigned');expect(wrapper.text()).toContain('Jul 29, 2026');expect(wrapper.text()).toContain('Added');expect(wrapper.findAll('.cin-section__toggle')).toHaveLength(2);
- await wrapper.findAll('.cin-section__toggle')[0].trigger('click');expect(wrapper.text()).toContain('Not observed.');expect(wrapper.text()).not.toContain('Assign a clinician to generate');
+ expect(wrapper.text()).toContain('No clinician is assigned');expect(wrapper.text()).toContain('Jul 29, 2026');expect(wrapper.text()).toContain('Added');expect(wrapper.findAll('.cin-note-section')).toHaveLength(2);
+ expect(wrapper.text()).toContain('Not observed.');expect(wrapper.text()).not.toContain('Assign a clinician to generate');
 });
 it('opens the exact intake selected in Notes or Medical record',async()=>{
  mountPanel();await wrapper.setProps({initialDraftId:23});await flushPromises();expect(mocks.get).toHaveBeenLastCalledWith('/clients/2304/intake-note',{params:{draftId:23},skipGlobalLoading:true});

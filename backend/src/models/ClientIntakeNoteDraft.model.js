@@ -253,7 +253,8 @@ class ClientIntakeNoteDraft {
     scrubbedInputEnc = undefined,
     diagnosisAction = undefined,
     serviceCode = undefined,
-    toolId = undefined
+    toolId = undefined,
+    finalizedAt = undefined
   }) {
     return withIntakeDraftMutationLock(draftId, async () => {
       const iid = safeInt(draftId);
@@ -292,6 +293,10 @@ class ClientIntakeNoteDraft {
       if (status !== undefined && VALID_STATUSES.has(status)) {
         sets.push('status = ?');
         vals.push(status);
+      }
+      if (finalizedAt !== undefined) {
+        sets.push('finalized_at = ?');
+        vals.push(finalizedAt);
       }
       if (scrubbedInputEnc !== undefined) {
         sets.push('scrubbed_input_enc = ?');

@@ -29,6 +29,7 @@ export function guardianPlanRevision(plan) {
       id: g.id, text: g.goal_text, projectedCompletion: g.projected_completion,
       objectives: (g.objectives || []).map(o => ({ id: o.id, text: o.objective_text,
         target: o.scale_target, direction: o.scale_direction, measurement: o.measurement_method,
+        ...(o.projected_completion ? {projectedCompletion:o.projected_completion} : {}),
         interventions: o.interventions || o.interventions_json }))
     }))
   })).digest('hex');

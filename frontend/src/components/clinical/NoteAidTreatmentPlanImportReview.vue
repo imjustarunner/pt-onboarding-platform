@@ -1,18 +1,18 @@
 <template>
-  <div v-if="open" class="na-modal-backdrop">
-    <div class="na-modal na-modal--wide" role="dialog" aria-labelledby="na-plan-import-title">
+  <div v-if="open" :class="embedded ? 'na-plan-embedded' : 'na-modal-backdrop'">
+    <div :class="embedded ? 'na-plan-paper' : 'na-modal na-modal--wide'" :role="embedded ? 'region' : 'dialog'" aria-labelledby="na-plan-import-title">
       <header class="na-modal-head">
         <h3 id="na-plan-import-title">
           {{ props.mode === 'generated' ? 'Review generated treatment plan' : (isUpdaterMode ? 'Update treatment plan' : (isDraftEditor ? 'Edit treatment plan draft' : 'Review imported treatment plan')) }}
         </h3>
-        <button type="button" class="na-link-btn" @click="emit('close')">Close</button>
+        <button type="button" class="na-link-btn" @click="emit('close')">{{ embedded ? 'Back to plan' : 'Close' }}</button>
       </header>
 
       <p v-if="isUpdaterMode" class="hint hint-block">
         Review AI suggestions from recent sessions, add narrative changes, or paste a full plan as a rewrite source (no section parsing). Confirm and sign — do not trust AI without review.
       </p>
       <p v-else-if="isDraftEditor" class="hint hint-block">
-        Edit goals, objectives, and 1–10 scales. Add information below to regenerate, then finalize after reviewing the intake on file.
+        Review the diagnoses, goals, objectives and discharge criteria before preparing the plan for signature.
       </p>
 
       <template v-if="isUpdaterMode">
@@ -62,8 +62,17 @@
       <details v-if="importedSourceText" class="hint hint-block"><summary>Original imported treatment plan</summary><pre style="white-space:pre-wrap">{{ importedSourceText }}</pre></details>
 
       <template v-if="model">
+        <div v-if="planAuthoring" class="narriva-plan-actions">
+          <button type="button" class="na-btn-primary narriva-plan-button" :disabled="suggestingPlan || !!rewriteKey || saving" @click="runNarrivaPlan()">
+            <img :src="NARRIVA_BRAND.icon" alt="" />
+            {{ suggestingPlan ? 'Preparing suggestions…' : 'Make this Narriva Compliant' }}
+          </button>
+          <label class="na-check"><input v-model="includeOtherQuestions" type="checkbox" /> Include third-person rating questions</label>
+          <p class="hint">At least two goals need a measurable 1–10 objective. Choose an alternate measure for objectives that don’t need a scale. Enter a baseline from your assessment where a score is missing.</p>
+          <p v-if="draftNotice" role="status">{{ draftNotice }}</p>
+        </div>
         <p v-if="goalsMissingDuration.length" class="na-required-callout" role="alert">Required before finalizing: choose a duration for goals {{ goalsMissingDuration.join(', ') }}. Use “Apply duration to all” below or select each highlighted duration.</p>
-        <p class="hint">After provider finalization, portal review and approval are prepared automatically. If an authorized recipient or email is not ready, delivery remains pending and resumes when available.</p>
+        <p v-if="!embedded" class="hint">Provider and supervisor signatures are required before the plan can be shared for client approval.</p>
         <label class="na-label">
           Effective date
           <input v-model="model.effectiveDate" type="date" class="na-input" />
@@ -144,7 +153,7 @@
           <div class="na-import-block-head">
             <div>
               <strong>Goals &amp; objectives</strong>
-              <p class="hint hint-block">Objectives use a 1–10 scale only (current → target). Duration is set in months; target dates are calculated from today.</p>
+              <p class="hint hint-block">Set a target date for each objective. Link interventions under the objective they support.</p>
             </div>
             <div class="na-import-block-actions">
               <label class="na-label na-label--inline">
@@ -170,9 +179,10 @@
           <div v-for="(g, gi) in model.goals" :key="`g-${gi}`" class="na-import-card na-import-card--goal">
             <label class="na-label">
               Goal {{ gi + 1 }}
-              <textarea v-model="g.goalText" class="na-textarea na-textarea--goal" rows="3" placeholder="Goal text" />
+              <textarea v-model="g.goalText" class="na-textarea na-textarea--goal" rows="3" placeholder="Goal text" @input="g.reviewed=false" />
             </label>
 
+            <label v-if="planAuthoring" class="na-check"><input v-model="g.reviewed" type="checkbox" /> Goal {{ gi + 1 }} reviewed</label>
             <div class="na-import-row na-import-row--goal-meta">
               <label class="na-label na-label--inline">
                 Duration
@@ -199,11 +209,20 @@
                   class="na-textarea na-textarea--objective"
                   rows="4"
                   placeholder="Objective"
-                  @blur="reparseObjectiveScales(o)"
+                  @blur="reparseObjectiveScales(o)" @input="o.reviewed=false"
                 />
               </label>
 
-              <div class="na-import-scale">
+              <div v-if="planAuthoring" class="na-objective-controls">
+                <label class="na-label">Objective target date
+                  <input v-model="o.projectedCompletion" class="na-input" type="date" @input="o.reviewed=false" />
+                </label>
+                <label class="na-check"><input v-model="o.skipScale" type="checkbox" @change="o.reviewed=false" /> Use an alternate measure for this objective</label>
+                <label v-if="o.skipScale" class="na-label">Alternate measure and reason
+                  <input v-model="o.scaleExemption" class="na-input" maxlength="350" @input="o.reviewed=false" />
+                </label>
+              </div>
+              <div v-if="!o.skipScale" class="na-import-scale">
                 <label class="na-label na-label--scale">
                   Current (1–10)
                   <input v-model.number="o.scaleCurrent" class="na-input na-input--scale" type="number" min="1" max="10" @input="onScaleEdit(o)" />
@@ -219,6 +238,18 @@
                   <option value="decrease">Decrease</option>
                 </select>
               </div>
+              <div v-if="planAuthoring && !o.skipScale" class="na-objective-questions">
+                <label class="na-label">Client rating question
+                  <textarea v-model="o.kioskPrompt" class="na-textarea" rows="2" maxlength="500" @input="o.reviewed=false" />
+                </label>
+                <label class="na-label">Third-person rating question (optional)
+                  <textarea v-model="o.kioskPromptOther" class="na-textarea" rows="2" maxlength="500" @input="o.reviewed=false" />
+                </label>
+                <details v-if="o.originalText" class="hint"><summary>Original objective</summary><p>{{ o.originalText }}</p></details>
+                <button type="button" class="na-btn-outline" :disabled="suggestingPlan || !!rewriteKey || saving || !o.objectiveText.trim()" @click="runNarrivaPlan(gi, oi)">
+                  {{ rewriteKey === `${gi}-${oi}` ? 'Preparing suggestion…' : 'Rewrite on a 1–10 scale' }}
+                </button>
+              </div>
               <div v-if="o.renewalRecommendation" class="na-rewrite-banner">
                 <strong>Renewal recommendation</strong>
                 <p>{{ o.renewalRecommendation }}</p>
@@ -232,6 +263,7 @@
                 :options="interventionOptions"
                 :goal-text="g.goalText"
                 :objective-text="o.objectiveText"
+                @update:model-value="o.reviewed=false"
                 @ai-used="aiContentUsed = true; attestAiReviewed = false"
                 @catalog-updated="catalogNames = $event"
               />
@@ -240,9 +272,9 @@
                 <button type="button" class="na-link-btn" @click="g.objectives.splice(oi, 1)">Remove</button>
               </div>
 
-              <p class="na-scale-standard muted tiny">Measurement: 1–10 scale (client self-report)</p>
+              <label v-if="planAuthoring" class="na-check"><input v-model="o.reviewed" type="checkbox" /> Objective {{ gi + 1 }}.{{ oi + 1 }} reviewed</label>
 
-              <div v-if="objectiveNeedsRewrite(o)" class="na-rewrite-banner">
+              <div v-if="!planAuthoring && objectiveNeedsRewrite(o)" class="na-rewrite-banner">
                 <span>This objective is not on a clear 1–10 scale yet.</span>
                 <button
                   type="button"
@@ -320,7 +352,7 @@
         <div class="na-modal-actions">
           <button type="button" class="na-btn-outline" @click="emit('close')">Cancel</button>
           <button
-            v-if="isDraftEditor && Number(props.planId || 0)"
+            v-if="!embedded && isDraftEditor && Number(props.planId || 0)"
             type="button"
             class="na-btn-outline na-btn-danger"
             :disabled="saving || discarding"
@@ -339,7 +371,7 @@
               :disabled="saving || goalsMissingDuration.length > 0 || (aiContentUsed && !attestAiReviewed)"
               @click="save({ finalize: true })"
             >
-              {{ finalizing ? 'Finalizing…' : (isUpdaterMode ? 'Confirm &amp; sign updated plan' : 'Finalize treatment plan') }}
+              {{ finalizing ? 'Finalizing…' : (embedded ? 'Prepare for signature' : isUpdaterMode ? 'Prepare updated plan for signature' : 'Finalize treatment plan') }}
             </button>
           </template>
           <button
@@ -360,6 +392,7 @@
 <script setup>
 import { computed, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
+import { NARRIVA_BRAND } from '../../config/narrivaBrand.js';
 import { todayCalendarDate } from '../../utils/formatDate.js';
 import NoteAidInterventionPicker from './NoteAidInterventionPicker.vue';
 import NoteAidFrequencySelect from './NoteAidFrequencySelect.vue';
@@ -378,6 +411,7 @@ import {
 
 const props = defineProps({
   open: { type: Boolean, default: false },
+  embedded: Boolean,
   agencyId: { type: [Number, String], required: true },
   clientId: { type: [Number, String], required: true },
   initialText: { type: String, default: '' },
@@ -418,6 +452,10 @@ const durationPresets = DURATION_PRESETS;
 const loadedPlanId = ref(null);
 const importedDraftId = ref(null);
 const aiContentUsed = ref(false);
+const draftRevision = ref(0), draftNotice = ref('');
+const suggestingPlan = ref(false), includeOtherQuestions = ref(false);
+const planAuthoring = computed(() => props.embedded || isUpdaterMode.value);
+let editScope = 0;
 const attestAiReviewed = ref(false);
 const renewalPolicy = ref(null), renewalPolicyError = ref('');
 let renewalPolicyRequest = 0;
@@ -476,6 +514,7 @@ function objectiveNeedsRewrite(o) {
 }
 
 function onScaleEdit(o) {
+  o.reviewed=false;
   o.scaleNeedsRewrite = !isObjectiveScaleValid(o.scaleCurrent, o.scaleTarget);
   if (isObjectiveScaleValid(o.scaleCurrent, o.scaleTarget)) {
     const cur = Number(o.scaleCurrent);
@@ -511,6 +550,11 @@ function onGoalDurationChange(goal) {
   syncGoalCompletion(goal);
   if (!Number(goal.durationMonths)) return;
   for (const objective of goal.objectives || []) {
+    if (planAuthoring.value) {
+      if (!objective.projectedCompletion) objective.projectedCompletion=goal.projectedCompletion;
+      objective.reviewed=false;
+      continue;
+    }
     objective.objectiveText = setObjectiveCompletionTime(objective.objectiveText, goal.durationMonths);
   }
 }
@@ -529,7 +573,7 @@ function mapGoal(g, effectiveDate) {
   const restoredMonths=effectiveDate && /^\d{4}-\d{2}-\d{2}$/.test(stored) ? DURATION_PRESETS.find(months=>completionDateFromDurationMonths(months,effectiveDate)===stored) : null;
   const months = g.durationMonths != null ? Number(g.durationMonths) : restoredMonths || null;
   return {
-    id: g.id, status: g.status, superseded_at: g.superseded_at,
+    id: g.id, status: g.status, superseded_at: g.superseded_at, reviewed: g.reviewed === true,
     goalText: g.goalText || g.goal_text || '',
     durationMonths: Number.isFinite(months) && months > 0 ? months : null,
     durationLabel: g.durationLabel || (months ? durationLabel(months) : null),
@@ -550,6 +594,13 @@ function mapGoal(g, effectiveDate) {
         || inferScaleDirection(scaleCurrent, scaleTarget);
       return {
         id: o.id, status: o.status, superseded_at: o.superseded_at,
+        reviewed: o.reviewed === true,
+        projectedCompletion: String(o.projectedCompletion || o.projected_completion || '').slice(0,10),
+        durationMonths: o.durationMonths || null,
+        skipScale: o.skipScale === true || !!o.scaleExemption || String(o.measurement_method || '').startsWith('Alternate measure:'),
+        scaleExemption: o.scaleExemption || String(o.measurement_method || '').match(/^Alternate measure:\s*(.+)$/)?.[1] || '',
+        kioskPrompt: o.kioskPrompt || o.kiosk_prompt || '',
+        kioskPromptOther: o.kioskPromptOther || o.kiosk_prompt_other || '',
         objectiveText: text,
         renewalRecommendation: o.renewalRecommendation || '',
         suggestedObjective: o.suggestedObjective || '',
@@ -611,6 +662,11 @@ function applyPlanRecord(plan) {
         : [{ icd10Code: '', description: '', isPrimary: true }]),
     goals: (plan.goals || []).map((g) => mapGoal(g, (plan.effective_date || plan.effectiveDate || '').toString().slice(0,10)))
   });
+  draftRevision.value = Number(plan.chartDraft?.revision) || 0;
+  const working = plan.chartDraft?.value;
+  if (working && plan.status === 'draft') {
+    model.value=reactive({...model.value,...working,goals:working.goals.map(g=>mapGoal(g,working.effectiveDate))});
+  }
   if (!model.value.goals.length) addGoal();
 }
 
@@ -657,6 +713,7 @@ function addObjective(gi) {
     scaleDirection: null,
     measurementMethod: DEFAULT_MEASUREMENT_METHOD,
     scaleNeedsRewrite: true,
+    reviewed:false, projectedCompletion:'', durationMonths:null, skipScale:false, scaleExemption:'', kioskPrompt:'', kioskPromptOther:'',
     interventions: [],
     pendingSuggestion: null,
     showParamEditor: false,
@@ -720,6 +777,71 @@ async function suggestRewrite(gi, oi, { withParams = false } = {}) {
     error.value = e.response?.data?.error?.message || e.message || 'AI suggestion failed';
   } finally {
     rewriteKey.value = '';
+  }
+}
+
+function draftPayload(goals = model.value.goals) {
+  return {
+    ...Object.fromEntries(['effectiveDate','presentingProblem','prescribedFrequency','dischargePlan','diagnosticJustification','diagnoses'].map(field=>[field,model.value[field]])),
+    goals: goals.map(goal=>({
+      goalText:goal.goalText, durationMonths:goal.durationMonths, projectedCompletion:goal.projectedCompletion, reviewed:goal.reviewed,
+      objectives:goal.objectives.map(o=>({
+        objectiveText:o.objectiveText, scaleCurrent:o.scaleCurrent ?? null, scaleTarget:o.scaleTarget ?? null, scaleDirection:o.scaleDirection,
+        skipScale:o.skipScale, scaleExemption:o.skipScale?o.scaleExemption:'', projectedCompletion:o.projectedCompletion || goal.projectedCompletion || null,
+        durationMonths:o.durationMonths, kioskPrompt:o.kioskPrompt, kioskPromptOther:o.kioskPromptOther,
+        interventions:o.interventions, reviewed:o.reviewed
+      }))
+    }))
+  };
+}
+
+async function runNarrivaPlan(gi, oi) {
+  if (!model.value || suggestingPlan.value || rewriteKey.value || saving.value) return;
+  const single = gi != null;
+  const selected = single ? model.value.goals[gi]?.objectives[oi] : null;
+  const working = model.value;
+  const selectedGoals = single ? [{...working.goals[gi],objectives:[selected]}] : working.goals;
+  const payload = draftPayload(selectedGoals);
+  const snapshot = JSON.stringify(payload);
+  const run = editScope;
+  suggestingPlan.value = !single;
+  rewriteKey.value = single ? `${gi}-${oi}` : '';
+  error.value = '';
+  draftNotice.value = '';
+  try {
+    const {data}=await api.post('/medical-billing/treatment-plans/narriva-suggestions',{
+      agencyId:Number(props.agencyId),clientId:Number(props.clientId),planId:loadedPlanId.value,chartDraft:props.embedded,
+      draft:payload, includeOther:includeOtherQuestions.value
+    },{skipGlobalLoading:true,timeout:90000});
+    if (run!==editScope || model.value!==working) return;
+    if (JSON.stringify(draftPayload(selectedGoals))!==snapshot) throw new Error('The draft changed while Narriva was working. Request suggestions again for the updated text.');
+    const suggestions = new Map((data?.proposal?.objectives || []).map(item=>[item.ref,item]));
+    selectedGoals.forEach((goal, goalIndex)=>goal.objectives.forEach((o, objectiveIndex)=>{
+      const suggestion=suggestions.get(`${goalIndex+1}.${objectiveIndex+1}`);
+      if (!suggestion?.objectiveText && !suggestion?.clientQuestion && !suggestion?.interventions?.length) return;
+      if (suggestion.objectiveText) { o.originalText ||= o.objectiveText; o.objectiveText=suggestion.objectiveText; }
+      if (!o.skipScale) {
+        if (o.scaleTarget == null && suggestion.target!==o.scaleCurrent) o.scaleTarget=suggestion.target;
+        o.kioskPrompt ||= suggestion.clientQuestion || '';
+        o.kioskPromptOther ||= suggestion.otherQuestion || '';
+        onScaleEdit(o);
+      }
+      if (!o.projectedCompletion && suggestion.durationMonths) {
+        o.durationMonths=suggestion.durationMonths;
+        o.projectedCompletion=completionDateFromDurationMonths(suggestion.durationMonths,working.effectiveDate);
+      }
+      o.interventions=[...new Set([...(o.interventions || []),...(suggestion.interventions || [])])];
+      o.reviewed=false;
+      (single ? working.goals[gi] : goal).reviewed=false;
+    }));
+    if (!single && !working.dischargePlan.trim()) working.dischargePlan=data?.proposal?.dischargePlan || '';
+    aiContentUsed.value=true;
+    attestAiReviewed.value=false;
+    draftNotice.value='Suggestions are ready to review. Enter any missing baselines before preparing the plan for signature.';
+  } catch(e) {
+    if (run===editScope) error.value=e.response?.data?.error?.message || e.message || 'Narriva suggestions are unavailable.';
+  } finally {
+    if (run===editScope) { suggestingPlan.value=false; rewriteKey.value=''; }
   }
 }
 
@@ -925,8 +1047,9 @@ async function loadPlan() {
 }
 
 watch(
-  () => props.open,
-  (open) => {
+  () => [props.open,props.clientId,props.agencyId,props.planId],
+  ([open]) => {
+    editScope++;
     if (!open) return;
     pasteText.value = props.initialText || '';
     providerNarrative.value = props.renewalReason || '';
@@ -937,6 +1060,10 @@ watch(
     addendum.value = '';
     bulkDurationMonths.value = 0;
     rewriteKey.value = '';
+    draftNotice.value = '';
+    draftRevision.value = 0;
+    suggestingPlan.value = false;
+    includeOtherQuestions.value = false;
     loadedPlanId.value = null;
     importedDraftId.value = null;
     aiContentUsed.value = !!props.initialPlan?.aiGenerated;
@@ -951,12 +1078,12 @@ watch(
     } else if (pasteText.value.trim()) {
       parse();
     }
-  }
+  }, {immediate:true}
 );
 
-const goalsMissingDuration=computed(()=>(model.value?.goals||[]).map((g,i)=>({goal:g,index:i+1})).filter(({goal})=>!Number.isInteger(Number(goal.durationMonths))||Number(goal.durationMonths)<1||Number(goal.durationMonths)>36).map(({index})=>index));
+const goalsMissingDuration=computed(()=>(model.value?.goals||[]).map((g,i)=>({goal:g,index:i+1})).filter(({goal})=>!(planAuthoring.value && goal.objectives.length && goal.objectives.every(o=>o.projectedCompletion)) && (!Number.isInteger(Number(goal.durationMonths))||Number(goal.durationMonths)<1||Number(goal.durationMonths)>36)).map(({index})=>index));
 async function save({ finalize = true } = {}) {
-  if (!model.value) return;
+  if (!model.value || saving.value || suggestingPlan.value || rewriteKey.value) return;
   saving.value = true;
   finalizing.value = !!finalize;
   error.value = '';
@@ -975,25 +1102,37 @@ async function save({ finalize = true } = {}) {
     }
     for (const g of model.value.goals || []) {
       syncGoalCompletion(g);
+      if (planAuthoring.value) {
+        const dates=g.objectives.map(o=>o.projectedCompletion || g.projectedCompletion).filter(Boolean).sort();
+        g.projectedCompletion=dates.at(-1) || null;
+      }
       for (const o of g.objectives || []) {
-        if (finalize && !isObjectiveScaleValid(o.scaleCurrent, o.scaleTarget)) {
+        if (finalize && !planAuthoring.value && !isObjectiveScaleValid(o.scaleCurrent, o.scaleTarget)) {
           throw new Error('Each objective needs a valid 1–10 current and target before saving.');
         }
       }
     }
 
+    if (finalize && planAuthoring.value) {
+      const draft=draftPayload();
+      for (const [index, goal] of draft.goals.entries()) {
+        if (goal.objectives.some(o=>!o.projectedCompletion || (o.skipScale ? !o.scaleExemption.trim()
+          : !isObjectiveScaleValid(o.scaleCurrent,o.scaleTarget) || !String(o.kioskPrompt || '').trim()))) {
+          throw new Error(`Finish the objective dates and measurement choices for goal ${index+1} before preparing the plan for signature.`);
+        }
+      }
+      if (draft.goals.filter(goal=>goal.objectives.some(o=>!o.skipScale && isObjectiveScaleValid(o.scaleCurrent,o.scaleTarget))).length < 2) {
+        throw new Error('At least two separate goals need a 1–10 objective.');
+      }
+    }
     const primary = (model.value.diagnoses || []).find((d) => d.isPrimary) || model.value.diagnoses?.[0];
-    const dischargeParts = [];
-    if (String(model.value.presentingProblem || '').trim()) {
-      dischargeParts.push(`Presenting Problem\n${String(model.value.presentingProblem).trim()}`);
-    }
-    if (String(model.value.prescribedFrequency || '').trim()) {
-      dischargeParts.push(
-        `Prescribed Frequency of Treatment\n${String(model.value.prescribedFrequency).trim()}`
-      );
-    }
-    if (String(model.value.dischargePlan || '').trim()) {
-      dischargeParts.push(`Discharge Criteria/Planning\n${String(model.value.dischargePlan).trim()}`);
+    if (props.embedded) {
+      const {data}=await api.put(`/medical-billing/treatment-plans/${loadedPlanId.value}/chart-draft`,{
+        agencyId:Number(props.agencyId),clientId:Number(props.clientId),revision:draftRevision.value,draft:draftPayload()
+      });
+      draftRevision.value=data.revision;
+      draftNotice.value='Draft saved.';
+      if (!finalize) return;
     }
     const asDraft = !finalize;
     const res = await api.post('/medical-billing/treatment-plans', {
@@ -1002,7 +1141,9 @@ async function save({ finalize = true } = {}) {
       title: props.mode === 'generated' ? `${props.initialPlan?.title || 'Generated Treatment Plan'}${asDraft ? ' Draft' : ''}` : (asDraft ? 'Treatment Plan Draft' : (isDraftEditor.value ? 'Treatment Plan' : 'Imported Treatment Plan')),
       status: asDraft ? 'draft' : 'active',
       finalize: !asDraft,
-      ...(importedDraftId.value && !asDraft ? {sourceDraftPlanId:importedDraftId.value} : {}),
+      narrivaRevision:isUpdaterMode.value && !asDraft,
+      ...(props.embedded ? {narrivaChartDraft:true,chartDraftPlanId:loadedPlanId.value,draftRevision:draftRevision.value} :
+        importedDraftId.value && !asDraft ? {sourceDraftPlanId:importedDraftId.value} : {}),
       effectiveDate: model.value.effectiveDate || null,
       dischargePlan: model.value.dischargePlan || null,
       presentingProblem: model.value.presentingProblem || null,
@@ -1025,10 +1166,14 @@ async function save({ finalize = true } = {}) {
         objectives: (g.objectives || []).map((o, j) => ({
           objectiveIndex: j + 1,
           objectiveText: o.objectiveText,
-          scaleCurrent: o.scaleCurrent,
-          scaleTarget: o.scaleTarget,
+          scaleCurrent: o.skipScale ? null : o.scaleCurrent,
+          scaleTarget: o.skipScale ? null : o.scaleTarget,
           scaleDirection: o.scaleDirection,
-          measurementMethod: DEFAULT_MEASUREMENT_METHOD,
+          projectedCompletion: o.projectedCompletion || (planAuthoring.value ? g.projectedCompletion : null),
+          scaleExemption: o.skipScale ? o.scaleExemption : '',
+          skipScale:o.skipScale === true,
+          kioskPrompt: o.skipScale ? null : o.kioskPrompt, kioskPromptOther: o.skipScale ? null : o.kioskPromptOther,
+          measurementMethod: o.skipScale ? `Alternate measure: ${o.scaleExemption || ''}` : DEFAULT_MEASUREMENT_METHOD,
           interventions: Array.isArray(o.interventions) ? o.interventions : []
         }))
       }))
@@ -1289,4 +1434,15 @@ async function discardDraft() {
 .tiny { font-size: 0.75rem; }
 .error { color: #b91c1c; }
 .na-duration-preview { font-size: 0.8rem; color: #334155; }
+</style>
+
+<style scoped>
+.na-plan-paper { background:#fff; border:1px solid #d9e4ee; border-radius:14px; padding:clamp(16px,3vw,32px); min-width:0; }
+.na-plan-paper .na-import-card { background:transparent; border:0; border-bottom:1px solid #dbe5ef; border-radius:0; padding:16px 0; }
+.na-plan-paper .na-import-obj { background:transparent; border:0; border-left:2px solid #c8d9eb; padding:12px 0 12px 16px; }
+.narriva-plan-actions { margin:16px 0; }
+.narriva-plan-button { display:inline-flex; align-items:center; gap:8px; }
+.narriva-plan-button img { width:23px; height:23px; object-fit:contain; background:white; padding:2px; border-radius:4px; }
+.na-objective-controls,.na-objective-questions { display:grid; gap:8px; margin:12px 0; }
+.na-objective-questions button { justify-self:start; }
 </style>

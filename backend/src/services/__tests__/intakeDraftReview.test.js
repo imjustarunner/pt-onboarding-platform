@@ -7,13 +7,13 @@ const request = draft => ({ fingerprint:intakeDraftReview(draft,sections).finger
 describe('intake source review',()=>{
  it('does not treat legacy ready status or long sections as evidence of review',()=>{
   expect(intakeDraftReview(row,sections).reviewedAt).toBeNull();
-  expect(()=>validateIntakeDraftReview(row,sections,{})).toThrow(/review every section/);
+  expect(()=>validateIntakeDraftReview(row,sections,{})).toThrow(/review the complete note/);
  });
  it('accepts an explicit review of each current section and the appointment',()=>{
   expect(validateIntakeDraftReview(row,sections,request(row)).fingerprint).toBe(request(row).fingerprint);
  });
  it.each(['note_body_enc','scrubbed_input_enc','confirmed_dx_json','provider_user_id'])('invalidates review when %s changes',field=>{
-  expect(()=>validateIntakeDraftReview({...row,[field]:'changed'},sections,request(row))).toThrow(/review every section/);
+  expect(()=>validateIntakeDraftReview({...row,[field]:'changed'},sections,request(row))).toThrow(/review the complete note/);
  });
  it('rejects partial section review, missing sources, and unchecked appointment',()=>{
   expect(()=>validateIntakeDraftReview(row,sections,{...request(row),sectionKeys:['mse']})).toThrow();
@@ -37,4 +37,11 @@ it('uses the labeled original service date for legacy and current imported notes
  expect(importedClinicalSourceDate('DOB: 1/1/2013\nDate signed: 11/17/2026')).toBeNull();
  expect(importedClinicalSourceDate('Intake Date: 2/30/2026')).toBeNull();expect(importedClinicalSourceDate('Date: FakeMonth 30 2026')).toBeNull();
  expect(intakeDraftChartSummary({session_context_enc:JSON.stringify({source:'client_creation_record_import'}),scrubbed_input_enc:'Assessment Date: July 29, 2026',created_at:'2026-11-17'})).toMatchObject({records_import:true,non_billable:true,date_of_service:'2026-07-29',clinical_session_id:null});
+});
+
+it('binds a single whole-note review to the source without requiring an appointment for a historical import',()=>{
+ const imported={...row,session_context_enc:JSON.stringify({source:'client_records_import'})};
+ const evidence={...request(imported),sectionKeys:[],allSectionsReviewed:true,appointmentReviewed:false};
+ expect(validateIntakeDraftReview(imported,sections,evidence)).toHaveProperty('fingerprint',evidence.fingerprint);
+ expect(()=>validateIntakeDraftReview(row,sections,{...evidence,fingerprint:request(row).fingerprint})).toThrow(/appointment/);
 });

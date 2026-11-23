@@ -307,6 +307,60 @@ export const getMedicalBillingStatus = async (req, res, next) => {
   }
 };
 
+async function verifyNarrivaPlanEditor(req, agencyId, clientId, planId = null) {
+  assertClinicalSigner(req.user);
+  const { clientAccess } = await import('../services/safetyPlans/access.js');
+  const client = await clientAccess(req.user,clientId,{write:!['admin','super_admin'].includes(req.user.role)});
+  if (Number(client.agency_id) !== agencyId || (req.user.scopedAgencyId && Number(req.user.scopedAgencyId) !== agencyId)) {
+    throw Object.assign(new Error('Access to this treatment plan’s agency is required.'),{status:403});
+  }
+  if (!planId) return null;
+  const plan = await ClinicalTreatmentPlan.findById(planId);
+  if (!plan || Number(plan.agency_id)!==agencyId || Number(plan.client_id)!==clientId) {
+    throw Object.assign(new Error('Treatment plan not found.'),{status:404});
+  }
+  const { getTreatmentPlanApproval } = await import('../services/treatmentPlanApproval.service.js');
+  if (plan.status!=='draft' || (await getTreatmentPlanApproval(plan)).providerApproved) {
+    throw Object.assign(new Error('This version is in review or finalized. Open the treatment plan updater to prepare a revision.'),{status:409});
+  }
+  return plan;
+}
+
+export async function saveNarrivaChartDraft(req,res,next) {
+  try {
+    const agencyId=parseIntValue(req.body.agencyId), clientId=parseIntValue(req.body.clientId), planId=parseIntValue(req.params.planId);
+    const revision=req.body.revision;
+    if (!agencyId || !clientId || !planId || !Number.isSafeInteger(revision) || revision<0) {
+      return res.status(400).json({error:{message:'Open the current chart draft before saving.'}});
+    }
+    await verifyNarrivaPlanEditor(req,agencyId,clientId);
+    const { normalizeNarrivaPlanDraft }=await import('../services/narrivaPlanDraft.service.js');
+    const { saveChartRecord }=await import('../services/clientChartImport.service.js');
+    const { withHistoricalImportLock }=await import('../services/ehrHistoricalImportLock.service.js');
+    const draft=normalizeNarrivaPlanDraft(req.body.draft);
+    const result=await withHistoricalImportLock(agencyId,clientId,'plan',async()=>{
+      await verifyNarrivaPlanEditor(req,agencyId,clientId,planId);
+      return saveChartRecord({agencyId,clientId},`plan_edit_${planId}`,0,draft,req.user.id,revision);
+    });
+    await logNoteAidChartEvent(req,{clientId,agencyId,action:'treatment_plan_saved',metadata:{treatmentPlanId:planId,draftRevision:result.revision}});
+    return res.set('Cache-Control','no-store').json(result);
+  } catch(error) { next(error); }
+}
+
+export async function proposeNarrivaChartDraft(req,res,next) {
+  try {
+    const agencyId=parseIntValue(req.body.agencyId),clientId=parseIntValue(req.body.clientId);
+    if (!agencyId || !clientId) return res.status(400).json({error:{message:'Choose a client chart first.'}});
+    const planId=parseIntValue(req.body.planId);
+    if(req.body.chartDraft===true && !planId) return res.status(400).json({error:{message:'Open a chart draft before requesting suggestions.'}});
+    // Workspace revisions produce suggestions from an existing signed plan without editing it.
+    await verifyNarrivaPlanEditor(req,agencyId,clientId,req.body.chartDraft===true?planId:null);
+    const { suggestNarrivaPlanDraft }=await import('../services/narrivaPlanDraft.service.js');
+    const proposal=await suggestNarrivaPlanDraft({input:req.body.draft,includeOther:req.body.includeOther===true});
+    return res.set('Cache-Control','no-store').json({proposal});
+  } catch(error) { next(error); }
+}
+
 /** Load a single treatment plan (goals/objectives) for Documentation Hub draft editor. */
 export const getTreatmentPlanById = async (req, res, next) => {
   try {
@@ -325,6 +379,15 @@ export const getTreatmentPlanById = async (req, res, next) => {
       const { readChartRecord } = await import('../services/clientChartImport.service.js');
       plan.recordsImportSource = (await readChartRecord({ agencyId,clientId }, `plan_source_${plan.id}`, 0)).value;
     }
+    if (plan.status==='draft') {
+      const { clientAccess }=await import('../services/safetyPlans/access.js');
+      const client=await clientAccess(req.user,clientId);
+      if (Number(client.agency_id)!==agencyId) return res.sendStatus(403);
+      const { readChartRecord }=await import('../services/clientChartRecordRead.service.js');
+      const { getTreatmentPlanApproval }=await import('../services/treatmentPlanApproval.service.js');
+      plan.chartDraft=await readChartRecord({agencyId,clientId},`plan_edit_${planId}`,0);
+      plan.providerApproved=(await getTreatmentPlanApproval(plan)).providerApproved;
+    }
     await logNoteAidChartEvent(req, { clientId, agencyId, action: 'clinical_treatment_plan_viewed', metadata: { treatmentPlanId: plan.id } });
     return res.json({ plan });
   } catch (e) {
@@ -334,6 +397,17 @@ export const getTreatmentPlanById = async (req, res, next) => {
 
 /** Save structured treatment plan + optional note payload to chart (requires clinicalChartEnabled). */
 export const saveTreatmentPlanToChart = async (req, res, next) => {
+  if (req.body.narrivaChartDraft!==true) return saveTreatmentPlanRequest(req,res,next);
+  try {
+    const agencyId=parseIntValue(req.body.agencyId),clientId=parseIntValue(req.body.clientId);
+    if (!agencyId || !clientId) return res.status(400).json({error:{message:'Choose a client chart first.'}});
+    await verifyNarrivaPlanEditor(req,agencyId,clientId);
+    const { withHistoricalImportLock }=await import('../services/ehrHistoricalImportLock.service.js');
+    return await withHistoricalImportLock(agencyId,clientId,'plan',()=>saveTreatmentPlanRequest(req,res,next));
+  } catch(error) { next(error); }
+};
+
+async function saveTreatmentPlanRequest(req,res,next) {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -366,6 +440,29 @@ export const saveTreatmentPlanToChart = async (req, res, next) => {
     const requestedStatus = String(req.body.status || 'active').trim().toLowerCase();
     const finalizeRequested = req.body.finalize === true || req.body.finalize === 1
       || requestedStatus === 'active' || requestedStatus === 'final';
+    const chartDraftPlanId = req.body.narrivaChartDraft===true ? parseIntValue(req.body.chartDraftPlanId) : null;
+    if (req.body.narrivaChartDraft===true) {
+      if (!chartDraftPlanId || !finalizeRequested) return res.status(400).json({error:{message:'Open the saved draft before preparing this version for review.'}});
+      await verifyNarrivaPlanEditor(req,agencyId,clientId,chartDraftPlanId);
+      const { normalizeNarrivaPlanDraft }=await import('../services/narrivaPlanDraft.service.js');
+      const { readChartRecord }=await import('../services/clientChartRecordRead.service.js');
+      const saved=await readChartRecord({agencyId,clientId},`plan_edit_${chartDraftPlanId}`,0);
+      if (req.body.draftRevision!==saved.revision || !saved.value) {
+        return res.status(409).json({error:{message:'The draft changed. Reopen the treatment plan before finalizing.'}});
+      }
+      if (sessionId || req.body.officeEventId || req.body.clinicalNoteId) {
+        return res.status(400).json({error:{message:'A chart treatment plan draft is prepared without a billing or appointment link.'}});
+      }
+      const normalized=normalizeNarrivaPlanDraft(saved.value,{finalize:true});
+      const primary=normalized.diagnoses.find(d=>d.isPrimary) || normalized.diagnoses[0];
+      Object.assign(req.body, normalized,{sourceToolId:'narriva_chart_plan',primaryDiagnosisId:null,
+        icd10Code:primary?.icd10Code || null,diagnosisDescription:primary?.description || null});
+    }
+    if(req.body.narrivaRevision===true && finalizeRequested && !chartDraftPlanId) {
+      await verifyNarrivaPlanEditor(req,agencyId,clientId);
+      const { normalizeNarrivaPlanDraft }=await import('../services/narrivaPlanDraft.service.js');
+      Object.assign(req.body,normalizeNarrivaPlanDraft(req.body,{finalize:true}));
+    }
     const sourceDraftPlanId = parseIntValue(req.body.sourceDraftPlanId);
     if (sourceDraftPlanId) {
       assertClinicalSigner(req.user);
@@ -459,6 +556,7 @@ export const saveTreatmentPlanToChart = async (req, res, next) => {
       primaryDiagnosisId,
       diagnosticJustification,
       supersedesImportedDraftId: finalizeRequested ? sourceDraftPlanId : null,
+      supersedesChartDraftId: chartDraftPlanId,
       goals: goals.map((g, i) => ({
         goalIndex: g.goalIndex || i + 1,
         goalText: String(g.goalText || g.text || ''),
@@ -473,6 +571,8 @@ export const saveTreatmentPlanToChart = async (req, res, next) => {
               ? o.scaleDirection
               : null,
           measurementMethod: o.measurementMethod || null,
+          projectedCompletion: o.projectedCompletion || null,
+          kioskPrompt: o.kioskPrompt || null, kioskPromptOther: o.kioskPromptOther || null,
           interventions: Array.isArray(o.interventions) ? o.interventions : []
         }))
       }))
@@ -480,7 +580,7 @@ export const saveTreatmentPlanToChart = async (req, res, next) => {
 
     try {
       const { fillEmptyKioskPrompts } = await import('../services/kioskObjectivePrompt.service.js');
-      const prompts = await fillEmptyKioskPrompts({ objectives: plan.goals.flatMap((g) => g.objectives || []) });
+      const prompts = chartDraftPlanId ? [] : await fillEmptyKioskPrompts({ objectives: plan.goals.flatMap((g) => g.objectives || []).filter(o=>!String(o.measurement_method || '').startsWith('Alternate measure:')) });
       for (const row of prompts) await ClinicalTreatmentPlan.updateObjectiveKioskPrompts(row.id, { kioskPrompt: row.kiosk_prompt, kioskPromptOther: row.kiosk_prompt_other });
       plan = await ClinicalTreatmentPlan.findById(plan.id);
     } catch { /* A saved plan stays saved; questions can be retried from its chart panel. */ }
@@ -560,7 +660,7 @@ export const saveTreatmentPlanToChart = async (req, res, next) => {
   } catch (e) {
     next(e);
   }
-};
+}
 
 /** Discard a chart treatment-plan draft (not a Documentation Hub clinical_note_drafts row). */
 export const discardTreatmentPlanDraft = async (req, res, next) => {

@@ -1,5 +1,6 @@
 import {readChartRecord} from './clientChartRecordRead.service.js';
 import {readClientInsurance} from './clientInsurance.service.js';
+import { intakeDiagnoses } from './intakeDraftReview.service.js';
 import { scheduleFromIntake } from '../utils/clientExchangeSchedule.js';
 import pool from '../config/database.js';
 import clinicalPool from '../config/clinicalDatabase.js';
@@ -53,7 +54,7 @@ async function importedIntakeConcerns(clientId, agencyId) {
   return rows.filter(row => row.status === 'final' ||
     ['client_creation_record_import','client_records_import'].includes(parseSummaryJson(maybeDecryptNotePayload(row.session_context_enc)).source)).map(row => {
     const suggested = parseSummaryJson(row.suggested_dx_json);
-    const reviewed = row.status === 'final' || ['confirmed','updated'].includes(row.diagnosis_action);
+    const reviewed = row.status === 'final' || (['confirmed','updated'].includes(row.diagnosis_action) && intakeDiagnoses(row.confirmed_dx_json).length > 0);
     const confirmed = parseSummaryJson(row.confirmed_dx_json || row.suggested_dx_json);
     return {
       reviewedDiagnosisCodes: reviewed ? summaryItems(confirmed.diagnoses || confirmed.primary || confirmed).map(item => item.split(' — ')[0]) : [],
@@ -87,7 +88,8 @@ export async function loadClientExchangeSummary({ client, agencyId = client.agen
   const importedPlanDiagnoses = (importedPlan?.value?.parsed?.diagnoses || []).map(d => ({
     code: d.icd10Code || d.icd10_code || d.code,
     description: d.description
-  })).filter(item => !reviewedCodes.has(String(item.code).toUpperCase()));
+  })).filter(item => !reviewedCodes.has(String(item.code).toUpperCase()) &&
+    !diagnoses.some(diagnosis=>String(diagnosis.icd10_code).toUpperCase()===String(item.code).toUpperCase()));
   const importedDiagnoses = summaryItems([...(intakeNotes[0]?.importedDiagnoses || []), ...importedPlanDiagnoses]);
   const billing = diagnoses.length ? [] : await listBillingDiagnosesForClient({ agencyId, clientId: client.id });
   const intake = parseSummaryJson(client.intake_preferences_json);
@@ -111,6 +113,8 @@ export async function loadClientExchangeSummary({ client, agencyId = client.agen
   return {
     demographics: { ...(age == null ? (referral.age == null ? {} : { ageBand: String(referral.age) }) : { ageBand: String(age) }), ...((explicitRecordedSex(client.gender) || intakes.find(row => row.sex)?.sex) ? { gender: explicitRecordedSex(client.gender) || intakes.find(row => row.sex).sex } : {}) },
     importedDiagnoses,
+    intakeDiagnosisPending: Boolean(intakeNotes[0]?.importedDiagnoses?.length),
+    planDiagnosisPending: Boolean(importedPlanDiagnoses.length),
     intakeReviewStatus: intakeNotes[0]?.source === 'Intake (review pending)'
       ? 'draft' : intakeNotes.some(note => note.source === 'Intake') || intakes.length ? 'complete' : 'missing',
     treatmentPlanOnFile: plans.some(plan => plan.status === 'active'),

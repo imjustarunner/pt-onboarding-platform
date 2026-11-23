@@ -15,9 +15,6 @@
         </p>
       </div>
       <div class="ctp-actions">
-        <button type="button" class="cdp-btn-soft" @click="openNoteAidUpdater">
-          Update in Note Workspace
-        </button>
         <button type="button" class="cdp-btn-soft" @click="$emit('navigate', 'notes')">
           {{ isLearning ? 'Learning notes' : 'Notes' }}
         </button>
@@ -92,7 +89,11 @@
           </p>
         </div>
 
-        <div v-if="detailPlan" class="ctp-detail">
+        <NoteAidTreatmentPlanImportReview v-if="editingDraft && detailPlan" :key="`draft-${detailPlan.id}`"
+          open embedded mode="draft" :plan-id="detailPlan.id" :agency-id="agencyId" :client-id="clientId"
+          :initial-plan="editablePlan" @close="editingDraft=false" @saved="onDraftPrepared" />
+
+        <div v-else-if="detailPlan" class="ctp-detail">
           <div class="ctp-detail__head">
             <div>
               <h4>{{ planTitle(detailPlan) }}</h4>
@@ -107,7 +108,10 @@
               />
               Share via kiosk
             </label>
-            <button type="button" class="cdp-btn-soft" @click="openNoteAidUpdater">Open updater</button>
+            <button v-if="isEditingEligible" type="button" class="cdp-btn-primary" @click="editingDraft=true">Edit draft in chart</button>
+            <button v-else type="button" class="cdp-btn-primary ctp-revision-button" @click="openNoteAidUpdater">
+              <img :src="NARRIVA_BRAND.icon" alt="" /> {{ isLearning ? 'Update learning plan' : 'Start a plan revision' }}
+            </button>
             <button
               v-if="isDiscardableDraft(detailPlan)"
               type="button"
@@ -123,11 +127,10 @@
           <div v-if="renewalStatus.flagged || renewalStatus.required" class="ctp-renewal" role="alert">
             <strong>{{ renewalStatus.required ? 'Treatment plan update required' : 'Treatment plan review due' }}</strong>
             <p>This plan is {{ renewalStatus.ageDays }} days old. Renewal interval: {{ renewalPolicy.renewAfterDays }} days.</p>
-            <button type="button" @click="openNoteAidUpdater">Update treatment plan</button>
           </div>
           <section v-if="planSections.presentingProblem" class="ctp-goal ctp-plan-section"><h4>Presenting problem</h4><p>{{ planSections.presentingProblem }}</p></section>
           <section v-if="planSections.prescribedFrequency" class="ctp-goal ctp-plan-section"><h4>Prescribed treatment frequency</h4><p>{{ planSections.prescribedFrequency }}</p></section>
-          <div v-if="planDiagnosesDisplay.length" class="ctp-dx">
+          <section v-if="!isLearning || planDiagnosesDisplay.length" class="ctp-dx">
             <div class="ctp-dx__head">
               <strong>{{ isLearning ? 'Areas of concern' : 'Diagnosis summary' }}</strong>
               <button type="button" class="cdp-text-link" @click="$emit('navigate', 'intake-note')">
@@ -139,10 +142,12 @@
                 <code v-if="d.icd10_code && !isLearningConcernCode(d.icd10_code)">{{ d.icd10_code }}</code>
                 {{ d.description || '' }}
                 <em v-if="d.is_primary">primary</em>
+                <span v-if="d.imported" class="muted"> · Imported, review in draft</span>
               </li>
             </ul>
+            <p v-if="!planDiagnosesDisplay.length" class="muted">No diagnosis has been recorded for this plan.</p>
             <p v-if="planSharedJustification" class="ctp-dx-just">{{ planSharedJustification }}</p>
-          </div>
+          </section>
 
           <p v-if="detailPlan?.effective_date" class="muted tiny">
             Plan date: {{ formatDateOnly(detailPlan.effective_date) }}
@@ -196,7 +201,7 @@
                     <span class="ctp-pill ctp-pill--obj">O{{ g.goal_index }}.{{ o.objective_index }}</span>
                     <span>{{ stripPlanHeadingPrefix(o.objective_text) || o.objective_text }}</span>
                   </div>
-                  <div class="ctp-obj__scale">
+                  <div v-if="!String(o.measurement_method || '').startsWith('Alternate measure:')" class="ctp-obj__scale">
                     <span>Start <strong>{{ o.scale_start ?? o.scale_current ?? '—' }}</strong></span>
                     <span aria-hidden="true">→</span>
                     <span>Current <strong>{{ o.scale_current ?? '—' }}</strong></span>
@@ -205,6 +210,8 @@
                     <em v-if="o.scale_direction" class="ctp-dir">{{ o.scale_direction }}</em>
                     <span v-if="o.measurement_method" class="muted">{{ o.measurement_method }}</span>
                   </div>
+                  <p v-else>{{ o.measurement_method }}</p>
+                  <p v-if="o.projected_completion" class="muted">Objective target date {{ formatDateOnly(o.projected_completion) }}</p>
                   <div v-if="sparklinePoints(o).length" class="ctp-spark">
                     <svg
                       viewBox="0 0 100 28"
@@ -247,11 +254,10 @@
                     </ol>
                   </div>
                   <p v-else class="muted tiny">No ratings logged yet for this objective.</p>
-                  <label class="ctp-interventions">Associated interventions
-                    <textarea rows="3" :value="(o.interventions || []).join('\n')" :disabled="kioskBusy" placeholder="One intervention per line" @blur="saveObjectiveInterventions(o, $event.target.value)" />
-                  </label>
-                  <button type="button" :disabled="kioskBusy" @click="generateQuestions(o)">{{ kioskBusy ? 'Working…' : 'Generate questions with AI' }}</button>
-                  <div class="ctp-kiosk-q">
+                  <div v-if="o.interventions?.length" class="ctp-interventions"><strong>Linked interventions</strong>
+                    <ul><li v-for="intervention in o.interventions" :key="intervention">{{ intervention }}</li></ul>
+                  </div>
+                  <div v-if="!isDiscardableDraft(detailPlan)" class="ctp-kiosk-q">
                     <label>
                       Client question
                       <span v-if="o.kiosk_prompt_verified_at">Verified</span>
@@ -285,6 +291,8 @@
 
           <section v-if="planSections.dischargePlan" class="ctp-goal ctp-plan-section"><h4>Discharge plan</h4><p>{{ planSections.dischargePlan }}</p></section>
 
+          <TreatmentPlanApprovalPanel v-if="detailPlan.source_tool_id==='narriva_chart_plan' && detailPlan.status==='draft'"
+            :agency-id="agencyId" :client-id="clientId" :plan-id="detailPlan.id" @updated="onAckUpdated" />
           <TreatmentPlanAckPanel
             v-if="!isLearning && detailPlan?.id"
             class="ctp-ack"
@@ -329,6 +337,9 @@ import { treatmentPlanUpdaterQuery, noteAidPath } from '../../../utils/noteAidLa
 import { useAuthStore } from '../../../store/auth';
 import { useAgencyStore } from '../../../store/agency';
 import ClientChartAvatar from './ClientChartAvatar.vue';
+import NoteAidTreatmentPlanImportReview from '../../clinical/NoteAidTreatmentPlanImportReview.vue';
+import TreatmentPlanApprovalPanel from '../../clinical/TreatmentPlanApprovalPanel.vue';
+import { NARRIVA_BRAND } from '../../../config/narrivaBrand.js';
 import TreatmentPlanAckPanel from './TreatmentPlanAckPanel.vue';
 
 const props = defineProps({
@@ -337,7 +348,7 @@ const props = defineProps({
   clientType: { type: String, default: '' },
   client: { type: Object, default: null }
 });
-defineEmits(['navigate']);
+const emit=defineEmits(['navigate','updated']);
 
 const router = useRouter();
 const agencyStore = useAgencyStore();
@@ -356,6 +367,7 @@ const error = ref('');
 const plans = ref([]);
 const latestPlan = ref(null);
 const diagnoses = ref([]);
+const editingDraft = ref(false);
 const objectiveRatings = ref([]);
 const selectedId = ref(null);
 const selectedFullPlan = ref(null);
@@ -394,6 +406,17 @@ const detailPlan = computed(() => {
   return (plans.value || []).find((p) => Number(p.id) === id) || null;
 });
 
+const isEditingEligible = computed(() => !isLearning.value && isDiscardableDraft(detailPlan.value)
+  && !!detailPlan.value.chartDraft && !detailPlan.value.providerApproved && ['provider','provider_plus','intern','intern_plus','supervisor','admin','super_admin'].includes(String(authStore.user?.role || '').toLowerCase()));
+const editablePlan = computed(() => ({ ...detailPlan.value, diagnoses: detailPlan.value?.recordsImportSource?.parsed?.diagnoses?.length
+  ? detailPlan.value.recordsImportSource.parsed.diagnoses : activeDiagnoses.value }));
+async function onDraftPrepared(plan) {
+  editingDraft.value=false;
+  selectedId.value=plan?.id || null;
+  selectedFullPlan.value=plan;
+  await load();
+  emit('updated');
+}
 const structuredGoals = computed(() => activePlanGoals(detailPlan.value));
 
 const currentPlans = computed(() => {
@@ -436,7 +459,10 @@ function formatDateOnly(v) {
 }
 
 async function onAckUpdated() {
+  const id=selectedId.value;
   await load();
+  if(id && Number(selectedFullPlan.value?.id)===Number(id) && !selectedFullPlan.value.chartDraft && selectedFullPlan.value.status==='draft') await selectPlan(id);
+  emit('updated');
 }
 
 const activeDiagnoses = computed(() =>
@@ -456,6 +482,10 @@ const planDiagnosesDisplay = computed(() => {
       justification: d.justification
     }));
   }
+  const imported = detailPlan.value?.chartDraft?.value?.diagnoses || detailPlan.value?.recordsImportSource?.parsed?.diagnoses;
+  if (Array.isArray(imported) && imported.length) return imported.map(d=>({
+    icd10_code:d.icd10Code || d.icd10_code || d.code, description:d.description, is_primary:d.isPrimary, imported:true
+  }));
   return activeDiagnoses.value;
 });
 
@@ -598,6 +628,7 @@ async function saveGoalProgress(goal) {
 }
 
 async function selectPlan(id) {
+  editingDraft.value=false;
   selectedId.value = id;
   const planId = Number(id || 0);
   if (!planId) {
@@ -735,14 +766,6 @@ async function saveKioskPrompt(objective, field, value) {
   }
 }
 
-async function generateQuestions(objective) {
-  kioskBusy.value = true; error.value = '';
-  try {
-    const { data } = await api.patch(`/medical-billing/objectives/${objective.id}/kiosk-prompts`, { agencyId: Number(props.agencyId), clientId: Number(props.clientId), generate: true });
-    Object.assign(objective, data.objective);
-  } catch (e) { error.value = e.response?.data?.error?.message || 'Unable to generate questions.'; }
-  finally { kioskBusy.value = false; }
-}
 async function verifyQuestion(objective, field) {
   kioskBusy.value = true; error.value = '';
   try {
@@ -752,17 +775,6 @@ async function verifyQuestion(objective, field) {
   } catch (e) { error.value = e.response?.data?.error?.message || 'Unable to verify the question.'; }
   finally { kioskBusy.value = false; }
 }
-async function saveObjectiveInterventions(objective, text) {
-  const interventions = [...new Set(String(text || '').split('\n').map((v) => v.trim()).filter(Boolean))];
-  if (JSON.stringify(interventions) === JSON.stringify(objective.interventions || [])) return;
-  kioskBusy.value = true; error.value = '';
-  try {
-    await api.patch(`/medical-billing/objectives/${objective.id}/kiosk-prompts`, { agencyId: Number(props.agencyId), clientId: Number(props.clientId), interventions });
-    objective.interventions = interventions;
-  } catch (e) { error.value = e.response?.data?.error?.message || 'Unable to save interventions.'; }
-  finally { kioskBusy.value = false; }
-}
-
 async function load() {
   const clientId = Number(props.clientId || 0);
   const agencyId = Number(props.agencyId || 0);
@@ -793,9 +805,10 @@ async function load() {
       selectedFullPlan.value = latestPlan.value && Number(latestPlan.value.id) === preferredId
         ? latestPlan.value
         : null;
-      if (!selectedFullPlan.value) await selectPlan(preferredId);
+      if (!selectedFullPlan.value || isDiscardableDraft(selectedFullPlan.value)) await selectPlan(preferredId);
     } else if (selectedId.value && latestPlan.value && Number(latestPlan.value.id) === Number(selectedId.value)) {
       selectedFullPlan.value = latestPlan.value;
+      if (isDiscardableDraft(latestPlan.value) && !editingDraft.value) await selectPlan(selectedId.value);
     } else if (selectedId.value) {
       const stillThere = (plans.value || []).some((p) => Number(p.id) === Number(selectedId.value));
       if (!stillThere && preferredId) {
@@ -1127,4 +1140,12 @@ watch(selectedId, () => { goalProgressHistory.value = []; goalProgressHistoryErr
   border-radius: 8px;
   font-size: 0.82rem;
 }
+</style>
+
+<style scoped>
+.ctp-detail { background:#fff; padding:clamp(16px,3vw,32px); border:1px solid #d9e3ed; border-radius:14px; }
+.ctp-detail .ctp-goal,.ctp-detail .ctp-dx,.ctp-detail .ctp-obj { background:transparent; border-radius:0; border:0; border-bottom:1px solid #dce5ee; padding:12px 0; }
+.ctp-detail .ctp-obj { border-bottom:0; border-left:2px solid #cedded; padding-left:16px; }
+.ctp-revision-button { display:inline-flex; align-items:center; gap:8px; }
+.ctp-revision-button img { width:22px; height:22px; object-fit:contain; background:white; border-radius:4px; padding:2px; }
 </style>

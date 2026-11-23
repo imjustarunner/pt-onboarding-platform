@@ -3,7 +3,7 @@ import { withIntakeDraftMutationLock } from '../services/intakeDraftMutationLock
 import { logNoteAidChartEvent } from '../services/noteAidChartAudit.service.js';
 import pool from '../config/database.js';
 import clinicalPool from '../config/clinicalDatabase.js';
-import { intakeDraftContext, intakeDraftChartSummary, intakeDraftReview, validateIntakeDraftReview } from '../services/intakeDraftReview.service.js';
+import { isImportedIntake, intakeDiagnoses, intakeDraftContext, intakeDraftChartSummary, intakeDraftReview, validateIntakeDraftReview } from '../services/intakeDraftReview.service.js';
 import User from '../models/User.model.js';
 import Client from '../models/Client.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
@@ -717,6 +717,10 @@ function formatDraftResponse(row) {
   } catch {
     confirmedDiagnosis = null;
   }
+  const suggestedCodes = intakeDiagnoses(suggestedDiagnosis);
+  const confirmedCodes = intakeDiagnoses(confirmedDiagnosis);
+  if (suggestedCodes.length && !suggestedDiagnosis?.code) suggestedDiagnosis = { ...suggestedCodes[0], diagnoses:suggestedCodes };
+  if (!confirmedCodes.length) confirmedDiagnosis = null;
   if (suggestedDiagnosis?.primary?.code && !suggestedDiagnosis.code) {
     suggestedDiagnosis = {
       ...suggestedDiagnosis.primary,
@@ -738,6 +742,8 @@ function formatDraftResponse(row) {
     diagnosisAction: row.diagnosis_action || null,
     suggestedDiagnosis,
     confirmedDiagnosis,
+    diagnosisReviewStatus: confirmedCodes.length && ['confirmed','updated'].includes(row.diagnosis_action) ? 'confirmed'
+      : suggestedCodes.length ? 'pending' : 'none',
     sections,
     sourceReview: intakeDraftReview(row, sections),
     intakeSubmissionId: row.intake_submission_id || null,
@@ -1063,6 +1069,12 @@ export const confirmClientIntakeDiagnosis = async (req, res, next) => {
         suggestedDx = null;
       }
 
+      const imported = isImportedIntake(intakeDraftContext(draft));
+      if (imported) await requireImportedIntakeClinician(req.user, clientId, agencyId);
+      const sourceDiagnoses = intakeDiagnoses(suggestedDx);
+      if (imported && action === 'confirmed' && !sourceDiagnoses.length) {
+        return res.status(409).json({ error: { message: 'The imported intake has no diagnosis code to confirm. Add a diagnosis if supported, or review and finalize the imported note.' } });
+      }
       let confirmedDx;
       if (action === 'updated') {
         const code = String(
@@ -1084,14 +1096,9 @@ export const confirmClientIntakeDiagnosis = async (req, res, next) => {
           ).trim() || (suggestedDx?.justification || '')
         };
       } else {
-        // remain / confirmed — keep suggested dx including justification
-        confirmedDx = suggestedDx
-          ? {
-              code: suggestedDx.code,
-              description: suggestedDx.description,
-              justification: suggestedDx.justification || ''
-            }
-          : null;
+        const diagnoses = (action === 'confirmed' ? intakeDiagnoses(draft.confirmed_dx_json) : []).filter(() => draft.diagnosis_action === 'updated');
+        const reviewed = diagnoses.length ? diagnoses : sourceDiagnoses;
+        confirmedDx = reviewed.length ? { ...reviewed[0], diagnoses: reviewed } : null;
       }
 
       const comment = req.body?.comment ? String(req.body.comment).trim() : null;
@@ -1141,6 +1148,14 @@ export const confirmClientIntakeDiagnosis = async (req, res, next) => {
   }
 };
 
+async function requireImportedIntakeClinician(user, clientId, agencyId) {
+  const { assertClinicalSigner } = await import('../services/clinicalNoteSigningToken.service.js');
+  const { clientAccess } = await import('../services/safetyPlans/access.js');
+  assertClinicalSigner(user);
+  const client = await clientAccess(user, clientId, {write:!['admin','super_admin'].includes(user.role)});
+  if (Number(client.agency_id) !== agencyId) throw Object.assign(new Error('This intake belongs to a different agency.'), {status:403});
+}
+
 /**
  * POST /clients/:id/intake-note/:draftId/finalize
  *
@@ -1166,8 +1181,29 @@ export const finalizeClientIntakeNote = async (req, res, next) => {
     return await withIntakeDraftMutationLock(draftId, async () => {
       const draft = await ClientIntakeNoteDraft.findForClient({ draftId, clientId, agencyId });
       if (!draft) return res.status(404).json({ error: { message: 'Draft not found' } });
-      if (intakeDraftContext(draft).source === 'client_records_import') {
-        return res.status(409).json({ error: { code: 'IMPORTED_INTAKE_NONBILLABLE', message: 'This is an imported source record, retained without an appointment or billing link. Create a separate current-care note for a new service.' } });
+      const context = intakeDraftContext(draft);
+      if (isImportedIntake(context) && draft.status !== 'final') {
+        await requireImportedIntakeClinician(req.user, clientId, agencyId);
+        if (draft.status === 'failed') return res.status(409).json({error:{message:'Import a readable intake before finalizing it.'}});
+        const sections = formatDraftResponse(draft).sections;
+        const review = validateIntakeDraftReview(draft, sections, req.body?.sourceReview);
+        if (intakeDiagnoses(draft.suggested_dx_json).length &&
+            (!['confirmed','updated'].includes(draft.diagnosis_action) || !intakeDiagnoses(draft.confirmed_dx_json).length)) {
+          return res.status(409).json({ error: { message: 'Review the diagnosis in the imported intake before finalizing the note.' } });
+        }
+        const reviewedAt = new Date();
+        const reviewed = await ClientIntakeNoteDraft.updateContent({
+          draftId, status: 'final', finalizedAt: reviewedAt,
+          sessionContextEnc: maybeEncryptNotePayload(JSON.stringify({
+            ...context, nonBillable:true, clinicalSessionId:null, appointmentId:null, officeEventId:null,
+            sourceReview: { fingerprint:review.fingerprint, reviewedAt:reviewedAt.toISOString(),
+              reviewedByUserId:req.user.id, sectionKeys:sections.map(section=>section.key), sourceCompared:true, unsupportedClaimsRemoved:true }
+          }))
+        });
+        return res.json({draft:formatDraftResponse(reviewed),treatmentPlan:null});
+      }
+      if (isImportedIntake(context)) {
+        return res.status(409).json({error:{code:'intake_already_finalized',message:'This imported intake has already been finalized.'}});
       }
       const allowReplace = req.body?.replace === true || req.body?.forceReplace === true
         || req.query?.replace === '1' || req.query?.forceReplace === '1';
