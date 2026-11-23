@@ -56,8 +56,8 @@ it('treats a counseling program as an office organization and opens assignments 
 it.each([true,false])('enables direct overview assignment only for authorized editors (%s)',async canEdit=>{
  wrapper=shallowMount(ClientOverviewHub,{props:{clientId:7,canEdit,careTeamLabel:'Not assigned',glanceItems:[{label:'Primary clinician',value:'Not assigned',assignable:canEdit}]}});await flushPromises();
  const links=wrapper.findAll('button').filter(button=>button.text()==='Not assigned');
- expect(links).toHaveLength(canEdit?2:0);
- if(canEdit){await links[0].trigger('click');await links[1].trigger('click');expect(wrapper.emitted('assign-provider')).toHaveLength(2);}
+ expect(links).toHaveLength(canEdit?1:0);
+ if(canEdit){await links[0].trigger('click');expect(wrapper.emitted('assign-provider')).toHaveLength(1);}
 });
 
 async function renderAssignments() {

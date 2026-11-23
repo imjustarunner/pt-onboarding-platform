@@ -33,6 +33,7 @@ jobs:
           node-version: '22'
       - run: npm ci --ignore-scripts --prefix frontend
       - run: npm ci --ignore-scripts --prefix backend
+      - run: npm rebuild bcrypt --prefix backend
       - run: frontend/node_modules/.bin/vitest run --config backend/vitest.session-counts.config.js
       - working-directory: frontend
         run: >-
