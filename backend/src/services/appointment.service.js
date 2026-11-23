@@ -551,6 +551,17 @@ async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId 
     patch.externalMeetingUrl = null;
     patch.includeGoogleDialIn = false;
   }
+  const wasAudioOnly = existing.audioOnly && patch.audioOnly === false;
+  const addsClinicalVideo = ['mental_health', 'healthcare'].includes(existing.businessType)
+    && patch.modality !== undefined && existing.modality === 'IN_PERSON';
+  if ((wasAudioOnly || addsClinicalVideo) && !appointmentHasStarted(patch.endAt || existing.endAt)) {
+    const nextVideoMode = appointmentVideoRoomMode({ modality: patch.modality || existing.modality, clinicalBooking: true });
+    if (nextVideoMode === 'google_meet') {
+      patch.videoRoomMode = nextVideoMode;
+      patch.externalMeetingUrl = null;
+      patch.includeGoogleDialIn = true;
+    }
+  }
   if(patch.includeGoogleDialIn!==undefined&&typeof patch.includeGoogleDialIn!=='boolean')throw Object.assign(new Error('Choose whether Google Meet phone instructions should be included.'),{status:400});
   if (patch.videoRoomMode !== undefined || patch.externalMeetingUrl !== undefined || (existing.videoRoomMode === 'external' && (patch.modality !== undefined || patch.providerUserId !== undefined))) {
     const externalMeetingUrl = patch.videoRoomMode !== undefined && patch.videoRoomMode !== 'external' && patch.externalMeetingUrl === undefined
@@ -783,7 +794,7 @@ async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId 
     await refreshAppointmentCalendar(await Appointment.findById(appointmentId), actorUserId, { detachFromSeries: detachCalendarOccurrence });
   }
 
-  if (!deferScheduleNotice && (moved || ['modality','roomId','serviceLocationId','providerUserId'].some(k => patch[k] !== undefined && String(patch[k]) !== String(existing[k])))) {
+  if (!deferScheduleNotice && (moved || (updatePatch.videoRoomMode === 'google_meet' && (patch.participants || existing.audioOnly !== (patch.audioOnly ?? existing.audioOnly))) || ['modality','roomId','serviceLocationId','providerUserId'].some(k => patch[k] !== undefined && String(patch[k]) !== String(existing[k])))) {
     await (await import('./appointmentScheduleNotice.service.js')).appointmentScheduleNotices.queue(appointmentId, { eventType: moved ? 'moved' : 'updated', before: existing, actorUserId });
   }
   if (!moved && (patch.customReminders !== undefined || patch.notificationMode !== undefined)) await scheduleSessionNotifications(appointmentId, { replace: true });

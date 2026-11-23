@@ -55,9 +55,8 @@ export function buildOfficeDirectory({ rooms, events, standing, plans, people, d
   const dayEvents = [...events, ...appointments.filter(ap => !ap.office_event_id
     && !events.some(event => Number(event.room_id) === Number(ap.room_id) && event.status !== 'CANCELLED' && overlap(event, ap)))
     .map(ap => ({ ...ap, status: 'BOOKED', booked_provider_id: ap.provider_id, has_appointment: 1 }))];
-  const weekday = new Date(`${date}T12:00:00Z`).getUTCDay();
   for (const assignment of standing) {
-    if (Number(assignment.weekday) !== weekday || !isAssignmentActiveOnDate(assignment, date)) continue;
+    if (!isAssignmentActiveOnDate(assignment, date)) continue;
     const start = mysqlDateTimeForDateHour(date, assignment.hour, timezone);
     const end = mysqlDateTimeForDateHour(date, Number(assignment.hour) + 1, timezone);
     // Explicit events, cancellations and releases win over recurring defaults.

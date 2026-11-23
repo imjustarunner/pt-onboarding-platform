@@ -104,7 +104,7 @@ export async function bookOfficeToday({ user, locationId, roomId, date, time, en
     }
     for (const [originalOwner, intervals] of recipients) {
       const name = [provider.first_name, provider.last_name].filter(Boolean).join(' ') || 'Another staff member';
-      const message = `${name} reserved your vacant office at ${location.name} on ${date}, ${intervals.map(entry => entry.time).join(', ')}. Your standing reservation is still active.`;
+      const message = `${name} reserved your vacant ${room.roomNumber ? `Office ${room.roomNumber}` : room.name || 'office'} at ${location.name} on ${date}, ${intervals.map(entry => entry.time).join(', ')}. Your standing reservation is still active.`;
       const [notification] = await conn.execute(`INSERT INTO notifications
         (type, severity, title, message, user_id, agency_id, related_entity_type, related_entity_id)
         VALUES ('office_vacancy_reserved','info','Vacant office reserved',?,?,?,'office_event',?)`,

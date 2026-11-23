@@ -407,6 +407,9 @@ class Appointment {
       ? String(next.othersPresentNames).trim().slice(0, 500) || null
       : null;
     const videoRoomMode = normalizeVideoRoomMode(next.videoRoomMode, existing.videoRoomMode || 'unique_session');
+    const roomAccessChanged = existing.videoRoomMode === 'google_meet'
+      && (videoRoomMode !== 'google_meet' || Number(existing.providerUserId) !== Number(next.providerUserId) || patch.participants !== undefined);
+    const resetGoogleRoom = roomAccessChanged ? ', private_meet_url = NULL' : '';
     const audioUpdate = patch.audioOnly === undefined ? '' : ', audio_only = ?';
     const audioParams = patch.audioOnly === undefined ? [] : [patch.audioOnly ? 1 : 0];
     const notificationMode = normalizeNotificationMode(next.notificationMode, existing.notificationMode || 'default');
@@ -433,7 +436,7 @@ class Appointment {
            cancellation_fee_cents = ?, cancellation_recommendation_json = ?,
            canceled_at = ?, canceled_by_user_id = ?,
            title = ?, notes = ?,
-           others_present_names = ?, video_room_mode = ?, notification_mode = ?${externalUpdate}${dialInUpdate}${audioUpdate},
+           others_present_names = ?, video_room_mode = ?, notification_mode = ?${externalUpdate}${dialInUpdate}${audioUpdate}${resetGoogleRoom},
            updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
          WHERE id = ?${compare}`,
         [
@@ -473,7 +476,7 @@ class Appointment {
       );
       if (expected && result.affectedRows === 0) throw Object.assign(new Error('This appointment changed while you were editing. Refresh before saving.'), { status: 409 });
     } catch (e) {
-      if(videoRoomMode==='external'||videoRoomMode==='google_meet'||existing.videoRoomMode==='external'||patch.audioOnly!==undefined||patch.includeGoogleDialIn!==undefined)throw e;
+      if(videoRoomMode==='external'||videoRoomMode==='google_meet'||existing.videoRoomMode==='external'||roomAccessChanged||patch.audioOnly!==undefined||patch.includeGoogleDialIn!==undefined)throw e;
       if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
       const [result] = await executor.execute(
         `UPDATE appointments SET

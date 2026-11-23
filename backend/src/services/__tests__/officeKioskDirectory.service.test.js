@@ -112,3 +112,10 @@ it('offers quiet assigned time today and keeps protected gaps and staff meetings
  expect(current({events:[{...event,booked_provider_id:null,status:'RELEASED',slot_state:'ASSIGNED_AVAILABLE',
   session_context_json:{roomOccupancy:'occupied'}}]})).toMatchObject({requestable:false,current:[{usage:'occupied'}]});
 });
+
+it('keeps a monthly reservation on its calendar date when the weekday changes', () => {
+ const monthly = {...assignment, assigned_frequency:'MONTHLY', available_since_date:'2026-09-29'};
+ const result = buildOfficeDirectory({...base, events:[], standing:[monthly],
+   date:'2026-10-29', selectedAt:'2026-10-29 10:30:00', now:new Date('2026-10-28T15:00:00Z')});
+ expect(result[0].current).toMatchObject([{usage:'assigned'}]);
+});

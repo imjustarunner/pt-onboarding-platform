@@ -19,8 +19,7 @@ export async function setRoomOccupancy({ officeLocationId, eventId, assignmentId
   const roomId = Number(event?.room_id || assignment?.room_id);
   const parsedDate = new Date(typeof date === 'string' ? date : '');
   const validDate = /^\d{4}-\d{2}-\d{2}$/.test(date || '') && Number.isFinite(+parsedDate) && parsedDate.toISOString().slice(0,10) === date;
-  if (!roomId || (!event && (!validDate || !assignment || parsedDate.getUTCDay() !== Number(assignment.weekday)
-    || !isAssignmentActiveOnDate(assignment, date)))) throw conflict('Choose an active reservation on this date.');
+  if (!roomId || (!event && (!validDate || !assignment || !isAssignmentActiveOnDate(assignment, date)))) throw conflict('Choose an active reservation on this date.');
   const startAt = event ? toMysqlUtcDateTime(event.start_at) : mysqlDateTimeForDateHour(date, assignment.hour, timezone);
   const endAt = event ? toMysqlUtcDateTime(event.end_at) : mysqlDateTimeForDateHour(date, Number(assignment.hour) + 1, timezone);
   const now = new Date();
