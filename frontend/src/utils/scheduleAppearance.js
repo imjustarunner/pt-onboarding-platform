@@ -24,7 +24,7 @@ export const SCHEDULE_COLOR_OPTIONS = [
   ['indirect_services', 'Indirect services', '#84A30C'],
   ['school_visit', 'School visit', '#15803D'],
   ['school_visit_hold', 'School visit opening', '#94A3B8'],
-  ['school', 'School assignment', '#2D9CDB'],
+  ['school', 'School day / assignment', '#2D9CDB'],
   ['office_assigned', 'Office assigned', '#A16207'],
   ['office_temporary', 'Temporary office hold', '#EA580C'],
   ['office_booked', 'Office booked', '#334155'],

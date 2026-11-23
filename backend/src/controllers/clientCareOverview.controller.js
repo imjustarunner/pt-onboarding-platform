@@ -1,3 +1,12 @@
+import pool from '../config/database.js';
+import { readClientInsurance } from '../services/clientInsurance.service.js';
+import { clientPaymentSetup } from '../services/clientPaymentSetup.service.js';
+import { readCoverageVerificationSummary } from '../services/coverageVerificationSummary.service.js';
+import { hasSchedulingBillingAccess } from '../services/schedulingBillingAccess.service.js';
+import { clientSessionSnapshots } from '../services/clientSessionSnapshot.service.js';
+import { getLatestDisclosureAcknowledgement } from '../services/smartDisclosure.service.js';
+import { policyIsMedicaid } from '../utils/insurancePaymentPolicy.js';
+import { logClientAccess } from '../services/clientAccessLog.service.js';
 import {requireOverviewAccess} from './clientQuickView.controller.js';
 import ClinicalEligibilityService from '../services/clinicalEligibility.service.js';
 import {loadEncounterTreatmentPlanEligibility} from '../services/treatmentPlanEncounterEligibility.service.js';
@@ -23,4 +32,75 @@ export async function saveClientFiscalBaseline(req,res,next){
   try{const context=await scope(req);await recordFiscalBaseline({...context,actorUserId:req.user.id,input:req.body||{}});
     res.set('Cache-Control','private, no-store').json(await loadClientFiscalSessions(context));
   }catch(error){next(error);}
+}
+
+export async function clientOverviewEssentials(req, res, next) {
+  try {
+    const agencyId = Number(req.query.agencyId);
+    const clientId = Number(req.params.id);
+    const context = { agencyId, clientId };
+    await requireOverviewAccess(req.user, clientId, agencyId, { allowBilling: true });
+    const [[agency]] = await pool.execute('SELECT timezone FROM agencies WHERE id = ?', [agencyId]);
+    let timeZone = agency?.timezone || 'America/Denver';
+    try {
+      new Intl.DateTimeFormat('en-US', { timeZone });
+    } catch {
+      timeZone = 'America/Denver';
+    }
+    const { year, month, day } = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+      timeZone, year: 'numeric', month: '2-digit', day: '2-digit'
+    }).formatToParts(new Date()).map(part => [part.type, part.value]));
+    const dateOfService = `${year}-${month}-${day}`;
+    const [insurance, canBill, disclosure, intake, treatmentPlan, sessions] = await Promise.allSettled([
+      readClientInsurance(clientId, agencyId),
+      hasSchedulingBillingAccess(req.user, agencyId),
+      getLatestDisclosureAcknowledgement(clientId, { agencyId }),
+      pool.execute(`SELECT MAX(s.submitted_at) AS submitted_at
+        FROM intake_submissions s
+        JOIN intake_links l ON l.id = s.intake_link_id AND l.organization_id = ?
+        WHERE s.submitted_at IS NOT NULL AND (s.client_id = ? OR EXISTS (
+          SELECT 1 FROM intake_submission_clients isc WHERE isc.intake_submission_id = s.id AND isc.client_id = ?
+        ))`, [agencyId, clientId, clientId]),
+      loadEncounterTreatmentPlanEligibility({ ...context, dateOfService }),
+      clientSessionSnapshots(agencyId, [clientId])
+    ]);
+    const policies = insurance.status === 'fulfilled' ? ['primary', 'secondary'].flatMap(slot => {
+      const policy = insurance.value?.[slot];
+      if (!policy?.insurerName) return [];
+      const programType = ['commercial', 'medicaid', 'tricare', 'medicare'].includes(policy.programType)
+        ? policy.programType : policyIsMedicaid(policy) ? 'medicaid' : null;
+      return [{ slot, insurerName: policy.insurerName, programType }];
+    }) : null;
+    let billing = null;
+    if (canBill.value) {
+      const [verification, payment] = await Promise.allSettled([
+        insurance.status === 'fulfilled' && policies.length ? readCoverageVerificationSummary(context, insurance.value) : null,
+        clientPaymentSetup(agencyId, clientId)
+      ]);
+      billing = {
+        verification: verification.value ? { current: verification.value.current, verifiedAt: verification.value.verifiedAt } : null,
+        verificationUnavailable: insurance.status === 'rejected' || verification.status === 'rejected',
+        payment: payment.value ? { cardOnFile: payment.value.summary.cardOnFile, medicaid: payment.value.summary.medicaid } : null
+      };
+    }
+    const acknowledgement = disclosure.value;
+    const plan = treatmentPlan.value;
+    const sessionDates = sessions.value?.[0];
+    await logClientAccess(req, clientId, 'view_client_overview_essentials');
+    res.set('Cache-Control', 'private, no-store').json({
+      timeZone, policies, billing,
+      disclosure: acknowledgement?.signed_at ? {
+        signedAt: acknowledgement.signed_at,
+        includesViewer: Array.isArray(acknowledgement.providers) && acknowledgement.providers.length
+          ? acknowledgement.providers.some(provider => Number(provider.id || provider.userId) === Number(req.user.id)) : null
+      } : null,
+      intakeAt: intake.value?.[0]?.[0]?.submitted_at ?? null,
+      intakeUnavailable: intake.status === 'rejected',
+      treatmentPlan: plan ? { date: plan.planDate || null, ageDays: plan.ageDays, current: plan.eligible } : null,
+      today: dateOfService,
+      sessions: sessionDates ? { lastAt: sessionDates.lastCompletedAt || sessionDates.lastAt, nextAt: sessionDates.nextAt, unavailable: sessionDates.unavailable } : null
+    });
+  } catch (error) {
+    next(error);
+  }
 }

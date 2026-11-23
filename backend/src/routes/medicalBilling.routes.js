@@ -11,7 +11,7 @@ import { getServiceBillingSupervisors, putServiceBillingSupervisor } from '../co
 import { getBillingRules, putBillingCredentialRule, putProviderServiceGrant,putBillingPayerRule } from '../controllers/billingRules.controller.js';
 import {getClientServiceCodeEligibility} from '../controllers/clientServiceCodeEligibility.controller.js';
 import {listPrimaryProof,uploadPrimaryProof,downloadPrimaryProof,getSecondaryManualReview} from '../controllers/claimAdjudicationEvidence.controller.js';
-import {indexRemittances,getRemittance,syncEras,retryBalances,matchEra,postEra} from '../controllers/remittance.controller.js';
+import {indexRemittances,getRemittance,syncEras,retryBalances,matchEra,postEra,externalRemittance} from '../controllers/remittance.controller.js';
 import { getBankFeeds, createBankSession, finishBankSession, removeBankFeed, importBankFeed, verifyEraDeposit } from '../controllers/bankFeed.controller.js';
 import {getMedicalServiceFees,saveMedicalServiceFees} from '../controllers/medicalServiceFees.controller.js';
 import {getEligibilityAutomation,saveEligibilitySettings,enrollEligibilityRoster} from '../controllers/eligibilityAutomation.controller.js';
@@ -737,6 +737,8 @@ router.get('/claimmd/claims/:claimId/service-changes', ...claimMdGate,getClaimSe
 router.post('/claimmd/claims/:claimId/service-changes/:requestId/resolve', ...claimMdGate,resolveClaimServiceChange);
 router.get('/claimmd/claims/:claimId/draft', ...claimMdGate, claimDraft);
 router.patch('/claimmd/claims/:claimId', ...claimMdGate, correctClaim);
+router.get('/claims/:claimId/external-remittance', ...claimsGate, requireMedicalBillingFinancialAccess, externalRemittance);
+router.post('/claims/:claimId/external-remittance', ...claimsGate, requireMedicalBillingFinancialAccess, externalRemittance);
 router.get('/claimmd/remittances', ...claimMdGate, indexRemittances);
 router.post('/claimmd/remittances/sync', ...claimMdGate, syncEras);
 router.post('/claimmd/remittances/retry-balances', ...claimMdGate, retryBalances);

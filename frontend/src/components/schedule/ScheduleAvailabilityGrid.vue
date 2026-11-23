@@ -36,11 +36,22 @@
     <div v-if="scheduleChangeNotice" class="hint" role="status" style="padding:12px;border:1px solid currentColor;border-radius:8px;margin-bottom:12px;">
       {{ scheduleChangeNotice }} <button type="button" class="btn btn-secondary btn-sm" @click="scheduleChangeNotice=''">Dismiss</button>
     </div>
+    <dialog ref="borrowedRoomDialog" class="borrowed-room-dialog" aria-labelledby="borrowed-room-title" @close="borrowedRoom = null">
+      <template v-if="borrowedRoom">
+        <h3 id="borrowed-room-title">{{ borrowedRoom.room }}</h3>
+        <p>Assigned available · Occupied</p>
+        <p><strong>{{ borrowedRoom.name }}</strong> reserved this time.</p>
+        <p v-if="borrowedRoom.contact?.workEmail">{{ borrowedRoom.contact.workEmail }}</p>
+        <p v-if="borrowedRoom.contact?.workPhone">{{ borrowedRoom.contact.workPhone }}<template v-if="borrowedRoom.contact.extension"> · Ext. {{ borrowedRoom.contact.extension }}</template></p>
+        <div class="nr-reservation-actions">
+          <button v-if="borrowedRoom.agencyId" type="button" class="btn btn-primary" @click="messageRoomBorrower">Direct message</button>
+          <button type="button" class="btn btn-secondary" @click="borrowedRoomDialog?.close()">Close</button>
+        </div>
+      </template>
+    </dialog>
     <AppointmentWaiverReviewQueue :agency-ids="effectiveAgencyIds" @reviewed="onAppointmentWaiverReviewed" />
     <ScheduledTrainingEditor v-if="trainingEditorOpen && canScheduleTraining(authStore.user)" :agency-id="Number(effectiveAgencyId)" @close="trainingEditorOpen=false" @saved="refreshScheduleSummaryInBackground()" />
     <Teleport to="body"><div v-if="selectedTrainingEventId" class="training-detail-backdrop" @click.self="selectedTrainingEventId=null"><section class="training-detail-dialog" role="dialog" aria-modal="true" aria-label="Scheduled training" @keydown.esc="selectedTrainingEventId=null"><button type="button" class="btn btn-secondary" @click="selectedTrainingEventId=null">Close</button><router-link v-if="selectedTrainingInvited" :to="`/join/team-meeting/${selectedTrainingEventId}`" class="btn btn-primary">Open training</router-link><ScheduledTrainingPanel :event-id="selectedTrainingEventId" @state="selectedTrainingInvited=$event.invited" /></section></div></Teleport>
-    <CalendarTimeZoneControl :model-value="calendarDisplayTimezone" :office-time-zone="officeTimezoneIana" :effective-time-zone="bookingTimezoneIana"
-      :disabled="showRequestModal || viewMode === 'office_layout'" :office-layout="viewMode === 'office_layout'" @update:model-value="setCalendarDisplayTimezone" />
     <div class="sched-toolbar" data-tour="my-schedule-toolbar">
       <label v-if="familyScheduleEnabled && Number(userId) === Number(authStore.user?.id)" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:12px">
         Personal events
@@ -201,6 +212,8 @@
               <button type="button" class="sched-span-btn" :class="{ on: scheduleSpanMode === 'agenda' }" title="List of appointments for one day" @click="setScheduleSpanMode('agenda')">Agenda</button>
               <button type="button" class="sched-span-btn" :class="{ on: scheduleSpanMode === 'week' }" title="Show the full week grid" @click="setScheduleSpanMode('week')">Week</button>
             </div>
+            <CalendarTimeZoneControl :model-value="calendarDisplayTimezone" :office-time-zone="officeTimezoneIana" :effective-time-zone="bookingTimezoneIana"
+      :disabled="showRequestModal || viewMode === 'office_layout'" :office-layout="viewMode === 'office_layout'" @update:model-value="setCalendarDisplayTimezone" />
             <button
               type="button"
               class="sched-command__settings"
@@ -301,6 +314,8 @@
             <button type="button" class="sched-span-btn" :class="{ on: scheduleSpanMode === 'agenda' }" title="List of appointments for one day" @click="setScheduleSpanMode('agenda')">Agenda</button>
             <button type="button" class="sched-span-btn" :class="{ on: scheduleSpanMode === 'week' }" title="Show the full week grid" @click="setScheduleSpanMode('week')">Week</button>
           </div>
+          <CalendarTimeZoneControl :model-value="calendarDisplayTimezone" :office-time-zone="officeTimezoneIana" :effective-time-zone="bookingTimezoneIana"
+      :disabled="showRequestModal || viewMode === 'office_layout'" :office-layout="viewMode === 'office_layout'" @update:model-value="setCalendarDisplayTimezone" />
           <button
             v-if="!calendarSettingsOpen && isDayOrAgendaSpan"
             type="button"
@@ -583,12 +598,14 @@
         </div>
 
         <div
-          v-if="!hideOfficeAndCalendarIntegration && googleCalendarEnabled"
+          v-if="showGoogleConnections || showPersonalCalendarConnection"
           id="sched-settings-feeds" aria-labelledby="sched-tab-feeds" role="tabpanel" v-show="activeSettingsSection === 'feeds'"
           class="sched-tool-cluster"
-          title="Google Calendar for this SSO account."
         >
-          <h3>Google Calendar</h3><p v-if="rawSummary?.googleSyncPending" role="status" class="hint sched-settings-full-width">Updating Google Calendar… Your app schedule is ready.</p><p v-if="rawSummary?.googleOverlayRefreshError" class="hint sched-settings-full-width">{{ rawSummary.googleOverlayRefreshError }}</p><p class="hint sched-settings-full-width">Only events outside AuricWell appear as Google overlays. Open an app appointment for its Google Calendar link.</p>
+          <h3>Connections</h3>
+          <ScheduleCalendarMenu v-if="showPersonalCalendarConnection" :agency-ids="effectiveAgencyIds" />
+          <template v-if="showGoogleConnections">
+          <h4>Google Calendar</h4><p v-if="rawSummary?.googleSyncPending" role="status" class="hint sched-settings-full-width">Updating Google Calendar… Your app schedule is ready.</p><p v-if="rawSummary?.googleOverlayRefreshError" class="hint sched-settings-full-width">{{ rawSummary.googleOverlayRefreshError }}</p><p class="hint sched-settings-full-width">Only events outside AuricWell appear as Google overlays. Open an app appointment for its Google Calendar link.</p>
           <button
             type="button"
             class="sched-pill"
@@ -637,6 +654,7 @@
           >
             Show
           </button>
+          </template>
         </div>
 
         <div id="sched-settings-layout" aria-labelledby="sched-tab-layout" role="tabpanel" v-show="activeSettingsSection === 'layout'" class="sched-tool-cluster" title="How the week grid is laid out">
@@ -707,6 +725,23 @@
           >
             Week starts: {{ effectiveWeekStartsOn === 'sunday' ? 'Sunday' : 'Monday' }}
           </button>
+          <details class="sched-color-key" data-testid="my-schedule-color-key">
+            <summary class="sched-color-key__summary">
+              <span class="sched-tool-cluster__label">Appointment colors</span>
+              <span class="sched-more-tools__hint muted">Customize by appointment type</span>
+              <span class="sched-more-tools__chev" aria-hidden="true">▾</span>
+            </summary>
+            <div class="sched-type-colors">
+            <p class="hint">Icons identify agencies; colors identify appointment types.</p>
+            <ScheduleColorSettings v-model="scheduleColors" :disabled="scheduleColorsSaving" />
+            <button type="button" class="btn btn-primary" :disabled="scheduleColorsSaving" @click="saveScheduleColors">
+              {{ scheduleColorsSaving ? 'Saving…' : 'Save colors' }}
+            </button>
+            <p v-if="scheduleColorsStatus" class="hint" role="status">{{ scheduleColorsStatus }}</p>
+            <p v-if="scheduleColorsError" class="error" role="alert">{{ scheduleColorsError }}</p>
+            </div>
+          </details>
+
         </div>
       </div>
 
@@ -780,24 +815,7 @@
             </button>
           </div>
 
-          <details class="sched-color-key" data-testid="my-schedule-color-key">
-            <summary class="sched-color-key__summary">
-              <span class="sched-tool-cluster__label">Appointment colors</span>
-              <span class="sched-more-tools__hint muted">Customize by appointment type</span>
-              <span class="sched-more-tools__chev" aria-hidden="true">▾</span>
-            </summary>
-            <div class="sched-type-colors">
-            <p class="hint">Icons identify agencies; colors identify appointment types.</p>
-            <ScheduleColorSettings v-model="scheduleColors" :disabled="scheduleColorsSaving" />
-            <button type="button" class="btn btn-primary" :disabled="scheduleColorsSaving" @click="saveScheduleColors">
-              {{ scheduleColorsSaving ? 'Saving…' : 'Save colors' }}
-            </button>
-            <p v-if="scheduleColorsStatus" class="hint" role="status">{{ scheduleColorsStatus }}</p>
-            <p v-if="scheduleColorsError" class="error" role="alert">{{ scheduleColorsError }}</p>
-            </div>
-          </details>
         </div>
-          <ScheduleCalendarMenu v-if="!hideCalendarSubscription && Number(userId) === Number(authStore.user?.id)" :agency-ids="effectiveAgencyIds" />
           <div ref="scheduleToolsTarget" class="sched-settings-tools-target" />
       </div>
         </div>
@@ -2826,6 +2844,7 @@
             <strong>{{ selectedOfficeReservationPlaceLabel }}</strong>
             <span>{{ selectedOfficeReservationDateLabel }} · {{ selectedOfficeReservationTimeLabel }} · {{ bookingTimezoneLabel }}</span>
             <span class="room-usage-badge" role="status">{{ roomUsageLabels[selectedRoomUsage] }}</span>
+            <p v-if="selectedRoomUsage === 'vacant'">Reclaim this time before using the room. You can book a session at another location while the room is vacant.</p>
             <span>{{ roomReservationFrequencyLabel }}<template v-if="roomReservationUntil"> · Reserved until {{ formatEditorDisplayDate(roomReservationUntil) }}</template></span>
             <div class="nr-reservation-actions">
               <button v-if="!editingRoomReservation" class="btn btn-primary btn-sm" type="button"
@@ -2836,11 +2855,12 @@
                 :disabled="!!reservationExtensionAction.disabledReason"
                 @click="onQuickActionSelect(reservationExtensionAction)">Extend reservation</button>
               <template v-if="!editingRoomReservation && ownSlotForfeitAction">
-                <button class="btn btn-secondary btn-sm" type="button" :disabled="submitting"
-                  @click="updateSelectedRoomOccupancy('occupied')">Confirm room use</button>
-                <button class="btn btn-secondary btn-sm" type="button" :disabled="submitting"
+                <span v-if="roomUsagePending" role="status">Saving room status…</span>
+                <button v-if="selectedRoomUsage !== 'occupied'" class="btn btn-secondary btn-sm" type="button" :disabled="submitting || roomUsagePending"
+                  @click="updateSelectedRoomOccupancy('occupied')">{{ selectedRoomUsage === 'vacant' ? 'Reclaim room' : 'Confirm room use' }}</button>
+                <button v-if="selectedRoomUsage !== 'vacant'" class="btn btn-secondary btn-sm" type="button" :disabled="submitting || roomUsagePending"
                   @click="updateSelectedRoomOccupancy('vacant')">Cancel this date · Mark vacant</button>
-                <button v-if="hasFutureForfeitSupport" class="btn btn-secondary btn-sm" type="button" :disabled="submitting"
+                <button v-if="hasFutureForfeitSupport" class="btn btn-secondary btn-sm" type="button" :disabled="submitting || roomUsagePending"
                   @click="forfeitFutureRoomReservation">Forfeit room now and forward</button>
               </template>
             </div>
@@ -6647,6 +6667,10 @@ const loading = ref(false);
 const refreshingSchedule = ref(false);
 const error = ref('');
 const rawSummary = ref(null);
+const roomUsageChanges = ref([]);
+const roomUsagePending = ref(false);
+const borrowedRoom = ref(null);
+const borrowedRoomDialog = ref(null);
 const recentlySavedAppointments = ref({});
 const forgetRecentlySavedAppointment = id => {
   recentlySavedAppointments.value = Object.fromEntries(Object.entries(recentlySavedAppointments.value).filter(([, event]) => Number(event.appointmentId) !== Number(id)));
@@ -6670,7 +6694,12 @@ const summary = computed({
     const merged = Object.keys(recentlySavedAppointments.value).length
       ? mergeSavedAppointmentCalendar(rawSummary.value, recentlySavedAppointments.value, props.userId, weekStart.value, String(agencyStore.currentAgency?.timezone || 'America/Denver'))
       : rawSummary.value;
-    const raw = merged;
+    const raw = merged && roomUsageChanges.value.length ? { ...merged,
+      officeEvents: (merged.officeEvents || []).map(event => {
+        const update = roomUsageChanges.value.find(context => matchesRoomOccurrence(event, context));
+        return update ? { ...event, roomOccupancy: update.usage, slotState: 'ASSIGNED_AVAILABLE', status: 'RELEASED' } : event;
+      })
+    } : merged;
     // Resolve owned-room links before display filters: a room reserved under
     // another agency still supplies the location of this provider's session.
     const projected = raw ? {...raw, scheduleEvents:decorateSessionLocations(includeOfficeClientSessions(raw.scheduleEvents, raw.officeEvents), raw.schoolAssignments, raw.officeEvents, String(agencyStore.currentAgency?.timezone || 'America/Denver'))} : raw;
@@ -6708,12 +6737,14 @@ const showAvailabilityEditor = ref(false);
 const showAvailHoursLegend = ref(false);
 const calendarSettingsOpen = ref(false);
 const activeSettingsSection = ref('calendars');
+const showGoogleConnections = computed(() => !props.hideOfficeAndCalendarIntegration && googleCalendarEnabled.value);
+const showPersonalCalendarConnection = computed(() => !props.hideCalendarSubscription && Number(props.userId) === Number(authStore.user?.id));
 const settingsSections = computed(() => [
   { id: 'calendars', label: 'Calendars' },
   ...(!props.hideOfficeAndCalendarIntegration ? [{ id: 'people', label: 'People' }, { id: 'office', label: 'Office' }] : []),
   { id: 'layout', label: 'Display' },
   { id: 'privacy', label: 'Privacy' },
-  ...(!props.hideOfficeAndCalendarIntegration && googleCalendarEnabled.value ? [{ id: 'feeds', label: 'Connections' }] : []),
+  ...(showGoogleConnections.value || showPersonalCalendarConnection.value ? [{ id: 'feeds', label: 'Connections' }] : []),
   { id: 'more', label: 'More' }
 ]);
 watch(settingsSections, sections => {
@@ -8980,6 +9011,13 @@ const maybeExpandOfficeBookingSelection = (focusItem) => {
 };
 
 const openOfficeOccupiedHourAction = (focusItem) => {
+  const slot = normalizeOfficeSlotShape(focusItem?.slot);
+  const borrow = officeBorrowMeta(slot);
+  if (borrow.isBorrowedAway) {
+    void openBorrowedRoom({ id: Number(slot.bookedProviderId), name: borrow.bookerName || 'Another staff member',
+      room: shortOfficeLabel(slot, 'Office'), agencyId: Number(slot.agencyId || slot.bookingAgencyId) || effectiveAgencyId.value });
+    return;
+  }
   const selection = maybeExpandOfficeBookingSelection(focusItem);
   if (!selection) return;
   const { focus, rows } = selection;
@@ -12328,18 +12366,18 @@ const buildCellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout 
     if (st === 'ASSIGNED_BOOKED') {
       const borrow = officeBorrowMeta(top);
       if (borrow.isBorrowedAway) {
-        const takenLabel = borrow.bookerName
-          ? `Taken · ${borrow.bookerName}`
-          : (colorBlocksByTenant.value ? `Taken · ${roomShort}` : 'Taken');
+        const takenLabel = borrow.bookerName || 'Occupied';
         blocks.push({
           key: `office-taken-${blockKeySuffix}`,
           kind: 'ob',
           isOfficeBlock: true,
-          officeStatus: 'taken',
-          officeStatusLabel: borrow.bookerName
-            ? `Booked by ${borrow.bookerName} for this day`
-            : 'Booked by someone else for this day',
-          officeRoomLabel,
+          officeStatus: 'occupied',
+          officeStatusLabel: 'Assigned available · Occupied',
+          officeRoomLabel: borrow.bookerName ? `${officeRoomLabel} · ${borrow.bookerName}` : officeRoomLabel,
+          borrowedRoom: { id: Number(top.bookedProviderId), name: takenLabel, room: officeRoomLabel, agencyId },
+          eventId: Number(top?.id || 0),
+          startAt: top?.startAt,
+          endAt: top?.endAt,
           shortLabel: `${buildingPrefix}${takenLabel}${intakeSuffix}`,
           title: officeTitle(dayName, hour, top),
           buildingId,
@@ -12395,12 +12433,13 @@ const buildCellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout 
         supervisionSessionsInCell(dayName, hour, minute).some(event => !isScheduleEventTerminal(event))
         || scheduleEventsInCell(dayName, hour, minute).some(event => ['TEAM_MEETING', 'HUDDLE'].includes(event.kind) && !isScheduleEventTerminal(event))
       );
-      const occupied = blocked || top?.roomOccupancy === 'occupied' || staffUse;
+      const occupied = blocked || ['occupied', 'staff', 'borrowed'].includes(top?.roomOccupancy) || staffUse;
       const assignedLabel = occupied ? `Occupied · ${roomShort}` : top?.roomOccupancy === 'vacant' ? `Vacant · ${roomShort}`
         : (colorBlocksByTenant.value ? `Assigned · ${roomShort}` : roomShort || 'Office');
       blocks.push({
         key: `office-assigned-${blockKeySuffix}`,
         kind: 'oa',
+        eventId: Number(top?.id || 0),
         isOfficeBlock: true,
         officeStatus: occupied ? 'occupied' : top?.roomOccupancy === 'vacant' ? 'vacant' : 'reserved',
         officeStatusLabel: occupied ? 'Assigned available · Occupied' : top?.roomOccupancy === 'vacant' ? 'Assigned available · Vacant' : 'Assigned available',
@@ -13900,7 +13939,7 @@ const availableQuickActions = computed(() => {
     },
     {
       id: 'individual_session',
-      label: hasAssignedOffice && isOwnAssignedSlot ? 'Book a session in this room' : 'Book Session',
+      label: hasAssignedOffice && isOwnAssignedSlot && ctx.roomOccupancy !== 'vacant' ? 'Book a session in this room' : 'Book Session',
       description: tutoringWorkspaceOnly.value ? 'Schedule tutoring with one of your assigned students' : hasOffice
         ? 'Schedule a client session — add more than one client to make it a group session'
         : 'Schedule a session (office optional). Add more than one client to make it a group session.',
@@ -14251,28 +14290,72 @@ const chooserCardActions = computed(() => visibleQuickActions.value.filter(
   (action) => !action.disabledReason && (!ownSlotForfeitAction.value || action.id !== 'forfeit_slot')
     && (!canEditBookingStrip.value || action.id !== 'extend_assignment')
 ));
-const roomUsageLabels = { assigned: 'Assigned available', occupied: 'Confirmed · Occupied', vacant: 'Canceled · Vacant' };
+const roomUsageLabels = { assigned: 'Assigned available', occupied: 'Assigned available · Occupied', vacant: 'Assigned available · Vacant' };
 const selectedRoomUsage = computed(() => ['occupied', 'vacant'].includes(modalContext.value?.roomOccupancy)
   ? modalContext.value.roomOccupancy : 'assigned');
+async function openBorrowedRoom(room) {
+  borrowedRoom.value = room;
+  await nextTick();
+  borrowedRoomDialog.value?.showModal();
+  if (!room.agencyId) return;
+  try {
+    const { data } = await api.get('/staff/directory', { params: { agencyId: room.agencyId }, skipGlobalLoading: true });
+    if (borrowedRoom.value?.id === room.id && borrowedRoom.value?.agencyId === room.agencyId) {
+      borrowedRoom.value = { ...room, contact: data.staff?.find(person => Number(person.id) === room.id) };
+    }
+  } catch {
+    // Shared buildings can have staff from different agencies.
+  }
+}
+function messageRoomBorrower() {
+  const room = borrowedRoom.value;
+  if (!room?.id || !room.agencyId) return;
+  borrowedRoomDialog.value?.close();
+  router.push({ path: scheduleOrgTo('/messages'), query: { openChatWith: String(room.id), agencyId: String(room.agencyId) } }).catch(() => {});
+}
+function matchesRoomOccurrence(event, context) {
+  if (Number(event.id || event.eventId) === context.officeEventId) return true;
+  if (!context.standingAssignmentId || Number(event.standingAssignmentId) !== context.standingAssignmentId) return false;
+  const start = parseGridEventDate(event.startAt);
+  return !!start && localYmd(start) === context.dateYmd && start.getHours() === Number(context.hour);
+}
 async function changeSelectedRoomReservation(action, usage) {
-  if (submitting.value) return;
-  const contexts = selectedActionContexts().filter(ctx => ctx?.officeLocationId && (ctx.officeEventId || ctx.standingAssignmentId));
+  if (roomUsagePending.value || submitting.value) return;
+  const pendingContexts = selectedActionContexts().filter(ctx => ctx?.officeLocationId && (ctx.officeEventId || ctx.standingAssignmentId));
+  const contexts = [...new Map(pendingContexts.map(ctx => [ctx.officeEventId ? `event:${ctx.officeEventId}` : `assignment:${ctx.standingAssignmentId}:${ctx.dateYmd}`, ctx])).values()];
   if (!contexts.length) return;
-  submitting.value = true;
+  const original = modalContext.value;
+  const updatingUsage = action === 'occupancy';
+  roomUsagePending.value = true;
   modalError.value = '';
+  if (updatingUsage) {
+    roomUsageChanges.value = contexts.map(context => ({ ...context, usage }));
+    modalContext.value = { ...original, roomOccupancy: usage };
+  }
+  const optimistic = modalContext.value;
+  const changes = roomUsageChanges.value;
   try {
     for (const ctx of contexts) {
       const resource = ctx.officeEventId ? `events/${ctx.officeEventId}` : `assignments/${ctx.standingAssignmentId}`;
-      await api.post(`/office-slots/${ctx.officeLocationId}/${resource}/${action}`, action === 'occupancy'
-        ? { usage, date: ctx.dateYmd } : { acknowledged: true, scope: 'future', date: ctx.dateYmd });
+      await api.post(`/office-slots/${ctx.officeLocationId}/${resource}/${action}`, updatingUsage
+        ? { usage, date: ctx.dateYmd } : { acknowledged: true, scope: 'future', date: ctx.dateYmd }, { skipGlobalLoading: true });
     }
-    if (action === 'forfeit') closeModal();
-    else modalContext.value = { ...modalContext.value, roomOccupancy: usage };
-    invalidateScheduleSummaryCacheForUser(props.userId);
-    await Promise.all([load({ forceRefresh: true }), loadSelectedOfficeGrid()]);
+    if (!updatingUsage && modalContext.value === original) closeModal();
   } catch (error) {
-    modalError.value = error?.response?.data?.error?.message || 'The room reservation could not be updated. Refresh the schedule to see its current status.';
-  } finally { submitting.value = false; }
+    roomUsageChanges.value = [];
+    const message = error?.response?.data?.error?.message || 'The room reservation could not be updated. Refresh the schedule to see its current status.';
+    if (showRequestModal.value && modalContext.value === optimistic) {
+      if (updatingUsage) modalContext.value = original;
+      modalError.value = message;
+    } else {
+      scheduleChangeNotice.value = message;
+    }
+  } finally {
+    roomUsagePending.value = false;
+    invalidateScheduleSummaryCacheForUser(props.userId);
+    await Promise.allSettled([load({ forceRefresh: true }), loadSelectedOfficeGrid()]);
+    if (roomUsageChanges.value === changes) roomUsageChanges.value = [];
+  }
 }
 async function updateSelectedRoomOccupancy(usage) {
   if (usage === 'vacant' && !(await confirmScheduleAction('Mark this room time vacant?', 'Other staff can reserve this time on the selected date. Your recurring reservation is kept.', 'Mark vacant'))) return;
@@ -17974,7 +18057,7 @@ const modalOfficeRoomOptions = computed(() => {
 const modalSlotStateUpper = computed(() => String(modalContext.value?.slotState || '').toUpperCase());
 const sessionReservationContext = computed(() => {
   const context = modalContext.value;
-  if (!context?.officeLocationId || !context?.roomId
+  if (!context?.officeLocationId || !context?.roomId || context.roomOccupancy === 'vacant'
     || !['ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY', 'ASSIGNED_BOOKED', 'BOOKED'].includes(modalSlotStateUpper.value)) return null;
   const reservedFor = Number(context.bookedProviderId || context.assignedProviderId || 0);
   return reservedFor === Number(scheduleActorUserId.value) || modalActionSource.value === 'office_block' ? context : null;
@@ -21897,13 +21980,10 @@ const cellBlockStyle = (b) => {
     style.boxShadow = 'inset 0 0 0 2px rgba(194, 65, 12, 0.55)';
   }
   if (kind === 'school' && b?.schoolRail) {
-    const palette = {
-      open: { fill: '#15803d', border: '#14532d' },
-      tight: { fill: '#ca8a04', border: '#854d0e' },
-      full: { fill: '#b91c1c', border: '#7f1d1d' },
-      closed: { fill: '#9a3412', border: '#7c2d12' },
-      neutral: { fill: '#64748b', border: '#334155' }
-    }[b.railTone] || { fill: '#64748b', border: '#334155' };
+    const schoolPalette = scheduleTypePalette(b, scheduleColors.value, dark);
+    const palette = b.schoolClosure
+      ? { fill: hexToRgba('#9a3412', dark ? 0.26 : 0.12), border: '#9a3412', text: dark ? '#fdba74' : '#7c2d12' }
+      : schoolPalette;
     const index = Number(b.railIndex || 0);
     Object.assign(style, {
       position: 'absolute',
@@ -21919,12 +21999,23 @@ const cellBlockStyle = (b) => {
       minHeight: '28px',
       maxWidth: '26px',
       flex: 'none',
-      background: hexToRgba(palette.fill, dark ? 0.26 : 0.12),
-      color: dark ? lightenHex(palette.fill, 0.6) : palette.border,
+      background: palette.fill,
+      color: palette.text,
       borderColor: palette.border
     });
-    style['--blockFill'] = hexToRgba(palette.fill, dark ? 0.26 : 0.12);
+    style['--blockFill'] = palette.fill;
     style['--blockBorder'] = palette.border;
+  }
+  if (b?.officeStatus === 'occupied' || b?.officeStatus === 'vacant') {
+    const colors = b.officeStatus === 'occupied'
+      ? (dark ? ['#184636', '#76bfaa', '#d8f6e9'] : ['#dcf7ed', '#40856b', '#193e33'])
+      : (dark ? ['#4f391c', '#e5b85a', '#fff0d2'] : ['#fff0d2', '#bb8629', '#573910']);
+    style['--blockFill'] = colors[0];
+    style['--blockBorder'] = colors[1];
+    style['--blockTypeStripe'] = colors[1];
+    style.color = colors[2];
+    style.backgroundColor = colors[0];
+    style.borderColor = colors[1];
   }
   if (b?.besideSchoolRail && kind !== 'school') {
     const inset = 4 + Number(b.schoolRailCount || 1) * 30;
@@ -22517,7 +22608,8 @@ const onQuickActionSelect = async (act) => {
   }
   if (UNIFIED_EDITOR_KINDS.has(id)) {
     const hasOfficeEvent = Number(modalContext.value?.officeEventId || 0) > 0;
-    const publishingAtOffice = id === 'portal_intake' && hasOfficeEvent
+    const roomVacant = modalContext.value?.roomOccupancy === 'vacant';
+    const publishingAtOffice = id === 'portal_intake' && hasOfficeEvent && !roomVacant
       && ['ASSIGNED_AVAILABLE', 'ASSIGNED_BOOKED', 'ASSIGNED_TEMPORARY'].includes(modalContext.value.slotState);
     if (hasOfficeEvent && ['portal_intake', 'attach_open_for_booking'].includes(id)) {
       bookingTargetUserId.value = Number(modalContext.value.assignedProviderId || modalContext.value.bookedProviderId || scheduleActorUserId.value);
@@ -22536,7 +22628,7 @@ const onQuickActionSelect = async (act) => {
         ...(officeSession ? {
           officeLocationId: Number(modalContext.value.officeLocationId),
         } : {}),
-        roomId: Number(selectedOfficeRoomId.value || modalContext.value?.roomId || 0),
+        roomId: roomVacant ? 0 : Number(selectedOfficeRoomId.value || modalContext.value?.roomId || 0),
         attachOfficeRequest: attachOffice,
         openSlotEnabled: id === 'portal_intake' || id === 'attach_open_for_booking',
         availableForIntake: true,
@@ -26873,6 +26965,7 @@ const onAppointmentPointerUp = (e) => {
 
 const dispatchCellBlockAction = (block, dayName, hour, minute = 0) => {
   if (block?.peerOnly) return;
+  if (block?.borrowedRoom) { void openBorrowedRoom(block.borrowedRoom); return; }
   const kind = String(block?.kind || '');
   if (kind === 'sevt' && (block?.eventKind === 'COMPANY_EVENT_INVITATION')) {
     const event = (summary.value?.scheduleEvents || []).find(row => Number(row.id) === Number(block.eventId)
@@ -28964,6 +29057,8 @@ watch(editorClientSchoolLocationOptions, (schools, previous) => {
 .schedule-record-footer{display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:12px 16px;font-size:10px;color:#64748b}.schedule-record-footer button{border:0;background:transparent;color:inherit;font:11px ui-monospace,monospace;cursor:copy}
 
 .nr-selected-reservation { display: flex; flex-direction: column; gap: 5px; margin-bottom: 14px; padding: 16px 18px; background: #eef5ff; border: 1px solid #b6cbea; border-left: 4px solid #34629a; border-radius: 12px; color: #20354f; }
+.borrowed-room-dialog { max-width: min(420px, 90vw); border: 1px solid var(--border, #cbd5e1); border-radius: 12px; padding: 20px; background: var(--bg-card, #fff); color: var(--text-primary, #17233a); }
+.borrowed-room-dialog::backdrop { background: #17233a70; }
 .nr-selected-reservation--occupied, .cell-block-office.cell-block-office--occupied { background: #dcf7ed; border-color: #40856b; color: #193e33; }
 .nr-selected-reservation--vacant, .cell-block-office.cell-block-office--vacant { background: #fff0d2; border-color: #bb8629; color: #573910; }
 .room-usage-badge { align-self: flex-start; font-size: .83rem; font-weight: 700; border: 1px solid currentColor; border-radius: 999px; padding: 3px 9px; }

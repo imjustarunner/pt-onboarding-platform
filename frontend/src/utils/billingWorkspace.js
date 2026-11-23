@@ -21,6 +21,7 @@ export const clearinghouseStatusLabel = status => {
   }[code] || `Clearinghouse status ${code}`;
 };
 export const claimHistoryLabel = type => ({
+  external_remittance_processed: 'External remittance',
   claim_closed:'Claim closed without submission',
   correction:'Billing fields updated',
   remittance_posted:'Payer adjudication posted',

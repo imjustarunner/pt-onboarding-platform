@@ -1,11 +1,11 @@
 <template>
-  <div class="cc-hub">
+  <div class="cc-hub" :class="{ 'cc-hub--overview-only': !showQuickActions }">
     <div class="cc-hub__main">
       <header class="cc-hub-pagehead">
         <div class="cdp-overview-toolbar" style="margin: 0;">
           <div>
             <h3 class="cc-hub-title">Overview</h3>
-            <p>Care status, activity, next steps, and important updates in one place.</p>
+            <p>{{ [statusLabel, careTeamLabel].filter(Boolean).join(" · ") }}</p>
           </div>
           <button
             v-if="canEdit"
@@ -18,47 +18,18 @@
         </div>
       </header>
 
-      <div class="cc-ribbon" aria-label="At a glance">
-        <div v-for="item in glanceItems" :key="item.label" class="cc-ribbon__item">
-          <span class="cc-ribbon__k">{{ item.label }}</span>
-          <button v-if="canEdit && item.assignable" type="button" class="cc-ribbon__v cc-provider-assign" @click="$emit('assign-provider')">{{ item.value }}</button>
-          <div v-else class="cc-ribbon__v">{{ item.value }}</div>
-        </div>
-      </div>
-
-      <slot name="clinical-summary" />
-
-      <ClientSupplementaryRecords v-if="canViewPrivateChart && client?.agency_id" :client-id="clientId" :agency-id="client.agency_id" :refresh-key="client" :linked-guardians="linkedGuardians" />
-
-      <FamilyWelcomeWorkflowCard :agency-id="client?.agency_id" :client-id="clientId" />
-
-      <div class="cc-tile-row">
-        <button type="button" class="cc-tile" disabled>
-          <div class="cc-tile__k">Current status</div>
-          <div class="cc-tile__v">{{ statusLabel }}</div>
-          <div v-if="programLabel" class="cc-tile__m">{{ programLabel }}</div>
-        </button>
-        <button type="button" class="cc-tile" @click="$emit('navigate', 'phi')">
-          <div class="cc-tile__k">Documents</div>
-          <div class="cc-tile__v">{{ documentsLabel }}</div>
-          <div class="cc-tile__m">Open chart documents →</div>
-        </button>
-        <button type="button" class="cc-tile" @click="canEdit && glanceItems.some(item => item.assignable) ? $emit('assign-provider') : $emit('navigate', 'assignments')">
-          <div class="cc-tile__k">Care team</div>
-          <div class="cc-tile__v">{{ careTeamLabel }}</div>
-          <div class="cc-tile__m">{{ careTeamMeta || 'Primary clinician' }}</div>
-        </button>
-        <button
-          v-if="canViewMedicalRecord"
-          type="button"
-          class="cc-tile"
-          @click="$emit('navigate', 'medical-record')"
-        >
-          <div class="cc-tile__k">Sessions on file</div>
-          <div class="cc-tile__v">{{ sessionCountLabel }}</div>
-          <div class="cc-tile__m">{{ lastSessionLabel === '—' ? 'None yet' : lastSessionLabel }}</div>
-        </button>
-      </div>
+      <section v-if="canLoadEssentials" aria-label="Client essentials">
+        <p v-if="essentialsLoading" class="muted" role="status">Loading overview…</p>
+        <p v-else-if="!essentials" class="muted">Client essentials are unavailable. <button type="button" class="cdp-text-link" @click="loadEssentials">Retry</button></p>
+        <dl v-else class="cc-essentials">
+          <div v-for="item in essentialItems" :key="item.label">
+            <dt>{{ item.label }}</dt>
+            <dd>{{ item.value }}</dd>
+            <dd v-if="item.detail" class="muted">{{ item.detail }}</dd>
+          </div>
+        </dl>
+      </section>
+      <slot v-else name="clinical-summary" />
 
       <div v-if="alerts.length" class="cc-attention">
         <strong>Needs attention</strong>
@@ -71,6 +42,11 @@
         </ul>
       </div>
 
+      <details class="cc-overview-details">
+        <summary>Care activity, documents and contacts</summary>
+        <slot v-if="canLoadEssentials" name="clinical-summary" />
+        <ClientSupplementaryRecords v-if="canViewPrivateChart && client?.agency_id" :client-id="clientId" :agency-id="client.agency_id" :refresh-key="client" :linked-guardians="linkedGuardians" />
+        <FamilyWelcomeWorkflowCard :agency-id="client?.agency_id" :client-id="clientId" />
       <section>
         <h3 class="cc-hub-section__title">Care workflow</h3>
         <ClientCareTimeline
@@ -125,10 +101,11 @@
           </article>
         </div>
       </section>
+      </details>
     </div>
 
-    <aside class="cc-hub__aside">
-      <section v-if="showQuickActions" class="cc-side-card">
+    <aside v-if="showQuickActions" class="cc-hub__aside">
+      <section class="cc-side-card">
         <h4>Quick actions</h4>
         <div class="cc-side-actions">
           <button v-if="canEdit" type="button" class="cdp-btn-primary" @click="$emit('edit')">Edit client</button>
@@ -136,32 +113,6 @@
           <button type="button" class="cdp-btn-soft" @click="$emit('upload')">Upload document</button>
           <button v-if="canProcessPaper" type="button" class="cdp-btn-soft" @click="$emit('client-actions', 'process')">Process paper packet</button>
         </div>
-      </section>
-      <section class="cc-side-card">
-        <h4>Today</h4>
-        <div class="cdp-aside-timeline">
-          <div class="cdp-aside-timeline__item">
-            <strong>Status</strong>
-            <span>{{ statusLabel }}</span>
-          </div>
-          <div class="cdp-aside-timeline__item">
-            <strong>Clinician</strong>
-            <span>{{ careTeamLabel }}</span>
-          </div>
-        </div>
-      </section>
-      <section class="cc-side-card">
-        <h4>Upcoming</h4>
-        <div v-if="!alerts.length" class="cdp-glance-meta">No upcoming items flagged.</div>
-        <button
-          v-for="alert in alerts.slice(0, 3)"
-          :key="`side-${alert.id}`"
-          type="button"
-          class="cdp-aside-timeline__item cdp-aside-timeline__item--btn"
-          @click="$emit('alert-click', alert)"
-        >
-          <strong>{{ alert.label }}</strong>
-        </button>
       </section>
     </aside>
   </div>
@@ -186,6 +137,7 @@ const props = defineProps({
   canEdit: { type: Boolean, default: false },
   canViewMedicalRecord: { type: Boolean, default: false },
   canViewPrivateChart: { type: Boolean, default: false },
+  canViewEssentials: Boolean,
   glanceItems: { type: Array, default: () => [] },
   statusLabel: { type: String, default: '' },
   programLabel: { type: String, default: '' },
@@ -210,10 +162,57 @@ defineEmits(['secure-message','upload','client-actions','edit', 'assign-provider
 const docsLoading = ref(false);
 const artifacts = ref([]);
 
-const documentsLabel = computed(() => {
-  const onFile = (artifacts.value || []).filter((a) => !a.missing);
-  if (!onFile.length) return 'Not on file';
-  return `${onFile.length} on file`;
+const essentials = ref(null);
+const essentialsLoading = ref(false);
+const canLoadEssentials = computed(() => !!props.client?.agency_id && props.canViewEssentials);
+let essentialsGeneration = 0;
+
+async function loadEssentials() {
+  const generation = ++essentialsGeneration;
+  essentials.value = null;
+  essentialsLoading.value = canLoadEssentials.value;
+  if (!canLoadEssentials.value) return;
+  try {
+    const { data } = await api.get(`/clients/${Number(props.clientId)}/overview-essentials`, {
+      params: { agencyId: props.client.agency_id }, skipGlobalLoading: true
+    });
+    if (generation === essentialsGeneration) essentials.value = data;
+  } catch {
+    if (generation === essentialsGeneration) essentials.value = null;
+  } finally {
+    if (generation === essentialsGeneration) essentialsLoading.value = false;
+  }
+}
+watch([() => props.clientId, () => props.client?.agency_id, canLoadEssentials], loadEssentials, { immediate: true });
+
+const insurerTypes = { medicaid: 'Medicaid', medicare: 'Medicare', commercial: 'Commercial', tricare: 'TRICARE' };
+const essentialItems = computed(() => {
+  const { timeZone, policies, billing, disclosure, intakeAt, intakeUnavailable, treatmentPlan, today, sessions } = essentials.value;
+  const localDate = new Intl.DateTimeFormat('en-US', { timeZone, dateStyle: 'medium' });
+  const calendarDate = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' });
+  const dateKey = (value) => {
+    const { year, month, day } = Object.fromEntries(calendarDate.formatToParts(new Date(value)).map(part => [part.type, part.value]));
+    return `${year}-${month}-${day}`;
+  };
+  const displayDate = value => value && Number.isFinite(Date.parse(value)) ? localDate.format(new Date(value)) : '';
+  const ageLabel = days => days === 0 ? 'Today' : Number.isFinite(days) && days > 0 ? `${days} day${days === 1 ? '' : 's'} ago` : '';
+  const signedDisclosure = artifacts.value.find(row => row.kind === 'disclosure' && row.hasSignature && row.signedAt);
+  const packet = artifacts.value.find(row => row.kind === 'packet' && row.hasSignature && row.signedAt);
+  const intakeDate = [intakeAt, packet?.signedAt].filter(value => value && Number.isFinite(Date.parse(value))).sort((a, b) => Date.parse(b) - Date.parse(a))[0];
+  const intakeAge = intakeDate ? Math.round((Date.parse(today) - Date.parse(dateKey(intakeDate))) / 86400000) : null;
+  const planDate = treatmentPlan?.date && new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', dateStyle: 'medium' }).format(new Date(treatmentPlan.date + 'T00:00:00Z'));
+  return [
+    { label: 'Insurance', value: policies === null ? 'Unavailable' : policies.length ? policies.map(policy => [policy.insurerName, insurerTypes[policy.programType]].filter(Boolean).join(' · ')).join(' / ') : 'No insurer on file' },
+    ...billing ? [
+      { label: 'Insurance verification', value: billing.verificationUnavailable ? 'Unavailable' : !policies?.length ? 'No policy on file' : billing.verification?.current ? 'Verified' : billing.verification?.verifiedAt ? 'Verification needs renewal' : 'Unverified', detail: displayDate(billing.verification?.verifiedAt) },
+      { label: 'Payment setup', value: !billing.payment ? 'Unavailable' : billing.payment.cardOnFile ? 'Card on file' : billing.payment.medicaid ? 'Card generally not needed' : 'No card on file' }
+    ] : [],
+    { label: 'Disclosure agreement', value: disclosure?.includesViewer === true ? 'You are listed' : disclosure?.includesViewer === false ? 'Your name is not listed' : disclosure || signedDisclosure ? 'Review signed agreement' : 'No signed agreement on file', detail: displayDate(disclosure?.signedAt || signedDisclosure?.signedAt) },
+    { label: 'Intake', value: displayDate(intakeDate) || (intakeUnavailable ? 'Unavailable' : 'No completed intake on file'), detail: ageLabel(intakeAge) },
+    { label: 'Treatment plan', value: planDate || (treatmentPlan ? 'No signed plan on file' : 'Unavailable'), detail: planDate ? [ageLabel(treatmentPlan.ageDays), treatmentPlan.current ? 'Current' : 'Review due'].filter(Boolean).join(' · ') : '' },
+    { label: 'Last session', value: displayDate(sessions?.lastAt) || (!sessions || sessions.unavailable ? 'Unavailable' : 'None on record') },
+    { label: 'Next session', value: displayDate(sessions?.nextAt) || (!sessions || sessions.unavailable ? 'Unavailable' : 'None scheduled') }
+  ];
 });
 
 const docRows = computed(() => (artifacts.value || []).filter((a) => !a.missing).slice(0, 5));
@@ -248,6 +247,16 @@ watch(() => props.clientId, loadDocs);
 </script>
 
 <style scoped>
+.cc-hub--overview-only { grid-template-columns: minmax(0, 1fr); }
+.cc-essentials { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); margin: 0; border: 1px solid var(--border, #dce4ee); border-radius: 12px; padding: 8px 16px; gap: 4px 18px; }
+.cc-essentials > div { padding: 12px 0; min-width: 0; }
+.cc-essentials dt { font-size: .825rem; color: var(--text-secondary, #52647a); }
+.cc-essentials dd { margin: 3px 0 0; overflow-wrap: anywhere; font-weight: 600; }
+.cc-essentials dd.muted { font-weight: 400; font-size: .825rem; }
+.cc-overview-details { border-top: 1px solid var(--border, #dce4ee); padding-top: 12px; }
+.cc-overview-details > summary { cursor: pointer; font-weight: 650; margin-bottom: 12px; }
+.cc-overview-details > section { margin-block: 16px; }
+
 .cc-provider-assign {
   appearance: none;
   border: 0;

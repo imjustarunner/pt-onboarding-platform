@@ -68,8 +68,8 @@ export async function recordClaimEvent({ agencyId, claimId, connectionId, eventK
   return result.affectedRows > 0;
 }
 
-export async function claimEventHistory(agencyId, claimId) {
-  const [rows] = await clinicalPool.execute(`SELECT * FROM claimmd_claim_events WHERE agency_id = ? AND clinical_claim_id = ? ORDER BY id DESC LIMIT 100`, [agencyId, claimId]);
+export async function claimEventHistory(agencyId, claimId, { eventType } = {}) {
+  const [rows] = await clinicalPool.execute(`SELECT * FROM claimmd_claim_events WHERE agency_id = ? AND clinical_claim_id = ? ${eventType ? "AND event_type = ?" : ""} ORDER BY id DESC LIMIT 100`, eventType ? [agencyId, claimId, eventType] : [agencyId, claimId]);
   const actorIds = [...new Set(rows.map(row => Number(row.actor_user_id)).filter(id => Number.isSafeInteger(id) && id > 0))];
   const [actors] = actorIds.length ? await pool.execute(`SELECT id,first_name,last_name FROM users WHERE id IN (${actorIds.map(() => '?').join(',')})`, actorIds) : [[]];
   const names = new Map(actors.map(actor => [Number(actor.id), [actor.first_name, actor.last_name].filter(Boolean).join(' ')]));

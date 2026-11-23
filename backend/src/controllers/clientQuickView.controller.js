@@ -1,12 +1,13 @@
 import {resolveClientRecordAccess} from '../services/clientRecordAccess.service.js';
 import {clientAgencyMembership} from '../services/clientServiceEnrollment.service.js';
 
-export async function requireOverviewAccess(user, clientId, agencyId) {
+export async function requireOverviewAccess(user, clientId, agencyId, { allowBilling = false } = {}) {
   if (!Number.isSafeInteger(clientId) || clientId<1 || !Number.isSafeInteger(agencyId) || agencyId<1) {
     throw Object.assign(new Error('Choose a client and agency.'),{status:400});
   }
-  if (!['admin','super_admin','support','staff','provider','provider_plus','intern','intern_plus','clinical_practice_assistant','supervisor'].includes(user.role)
-      || (user.scopedAgencyId && Number(user.scopedAgencyId)!==agencyId)) {
+  const roleAllowed = ['admin','super_admin','support','staff','provider','provider_plus','intern','intern_plus','clinical_practice_assistant','supervisor'].includes(user.role)
+    || (allowBilling && user.role === 'billing');
+  if (!roleAllowed || (user.scopedAgencyId && Number(user.scopedAgencyId)!==agencyId)) {
     throw Object.assign(new Error('Chart access required.'),{status:403});
   }
   const access=await resolveClientRecordAccess({userId:user.id,role:user.role,clientId});

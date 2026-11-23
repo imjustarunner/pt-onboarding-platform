@@ -307,7 +307,10 @@ it('keeps settings in one connected panel and shows only the selected section', 
   expect(state.calendarSettingsOpen).toBe(true);
   state.summary = { ...summary, googleCalendarEnabled: false };
   await flushPromises();
-  expect(wrapper.find('[aria-controls="sched-settings-feeds"]').exists()).toBe(false);
+  expect(wrapper.find('[aria-controls="sched-settings-feeds"]').exists()).toBe(true);
+  expect(wrapper.get('#sched-settings-feeds').text()).not.toContain('Google busy');
+  expect(wrapper.get('#sched-settings-layout').find('[data-testid="my-schedule-color-key"]').exists()).toBe(true);
+  expect(wrapper.get('#sched-settings-more').find('[data-testid="my-schedule-color-key"]').exists()).toBe(false);
 });
 
 it('submits ranked room preferences and the editor building from the provider request form', async () => {
@@ -731,11 +734,12 @@ it('keeps the owned room location when a session agency differs from its room re
  expect(state.summary.scheduleEvents).toHaveLength(1);expect(state.summary.scheduleEvents[0].locationLabel).toBe('Windchime · Office #10');
  expect(state.summary.officeEvents).toHaveLength(0);
 });
-it('returns to Calendars when the viewed account has no Google connection', async()=>{
+it('returns to Calendars when a viewed coworker has no Google connection', async()=>{
  const state=await mount();state.summary={...summary,googleCalendarEnabled:true};
  state.toggleSettingsSection('feeds');await flushPromises();
  expect(state.activeSettingsSection).toBe('feeds');
- state.summary={...summary,googleCalendarEnabled:false};await flushPromises();
+ await wrapper.setProps({userId: 9});
+ state.summary={...summary,providerId:9,googleCalendarEnabled:false};await flushPromises();
  expect(state.activeSettingsSection).toBe('calendars');
  expect(wrapper.find('[aria-controls="sched-settings-feeds"]').exists()).toBe(false);
 });

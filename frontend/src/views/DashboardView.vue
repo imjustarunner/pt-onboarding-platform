@@ -693,7 +693,6 @@
               </template>
               <template #header-actions>
                 <RouterLink v-if="!isClubContext" :to="virtualOfficePath" class="btn btn-secondary btn-sm">AuricWell Office</RouterLink>
-                <ScheduleCalendarMenu :agency-ids="personalCalendarAgencyIds" />
                 <button v-if="scheduleViewMode !== 'self'" type="button" class="btn btn-secondary btn-sm" @click="openScheduleInNewWindow">
                   New window ↗
                 </button>
@@ -960,7 +959,6 @@
                 :show-company-events-calendar-button="!isClubContext"
                 :platform-theme="usePlatformShell"
                 :compact-page-chrome="true"
-                :hide-calendar-subscription="true"
                 :hub-views="scheduleHubViews"
                 :active-hub-view="scheduleViewMode"
                 :schedule-title="scheduleViewHeadline"
@@ -1420,7 +1418,6 @@ import SubmitPanelTab from '../components/dashboard/SubmitPanelTab.vue';
 import MyAccountTab from '../components/dashboard/MyAccountTab.vue';
 import HowToVideoButton from '../components/HowToVideoButton.vue';
 import ScheduleHubPanel from '../components/dashboard/ScheduleHubPanel.vue';
-import ScheduleCalendarMenu from '../components/schedule/ScheduleCalendarMenu.vue';
 import { SCHEDULE_VIEWS } from '../config/scheduleDisplayViews.js';
 import ProgramShiftsTab from '../components/dashboard/ProgramShiftsTab.vue';
 import MyLearningView from './MyLearningView.vue';
@@ -2486,11 +2483,6 @@ const noteWorkspaceLabel = computed(() => noteAidWorkspaceLabel({
 }));
 
 const virtualOfficePath = computed(() => `${route.params.organizationSlug ? `/${route.params.organizationSlug}` : ''}/my-virtual-office`);
-const personalCalendarAgencyIds = computed(() => {
-  const ids = currentAgency.value?.id ? [currentAgency.value.id] : (agencyStore.userAgencies || []).map(a => a.id);
-  return [...new Set(ids.map(Number).filter(id => id > 0))];
-});
-
 const currentAgencyId = computed(() => {
   return currentAgency.value?.id || null;
 });

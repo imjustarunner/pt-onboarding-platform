@@ -4446,14 +4446,17 @@ export const getUserScheduleSummary = async (req, res, next) => {
           .map((x) => String(x || '').trim())
           .filter(Boolean)
           .join(' ') || null;
+        const borrowedAway = Number(r.assigned_provider_id) === providerId && Number(r.booked_provider_id) > 0
+          && Number(r.booked_provider_id) !== providerId;
         return {
-        roomOccupancy: Number(r.office_gap_blocked) ? 'occupied' : officeOccupancy(r),
+        borrowedAway,
+        roomOccupancy: borrowedAway ? 'borrowed' : Number(r.office_gap_blocked) ? 'occupied' : officeOccupancy(r),
         displayStatus: Number(r.office_gap_blocked) === 1 ? 'BLOCKED' : toDisplayStatus({ status: r.status, slotState: normalizedSlotState }),
         id: r.id,
         buildingId: r.office_location_id,
         // Use the booking tenant, not the building owner or whichever tenant was fetched first.
         agencyId: officeBookingAgencyId(r),
-        googleEventId: googleCalendarEnabled ? r.google_provider_event_id || null : null,
+        googleEventId: !borrowedAway && googleCalendarEnabled ? r.google_provider_event_id || null : null,
         standingAssignmentId: Number(r.standing_assignment_id || 0) || null,
         bookingPlanId: Number(r.booking_plan_id || 0) || null,
         recurrenceGroupId: String(r.assignment_recurrence_group_id || '').trim() || null,
@@ -4475,16 +4478,16 @@ export const getUserScheduleSummary = async (req, res, next) => {
         status: r.status,
         slotState: normalizedSlotState,
         officeGapBlocked: Number(r.office_gap_blocked) === 1,
-        appointmentType: String(r.appointment_type_code || '').trim().toUpperCase() || defaultAppointmentTypeForSlot({ status: r.status, slotState: normalizedSlotState }),
-        appointmentSubtype: String(r.appointment_subtype_code || '').trim().toUpperCase() || null,
-        serviceCode: String(r.service_code || '').trim().toUpperCase() || null,
-        modality: String(r.modality || '').trim().toUpperCase() || null,
-        statusOutcome: String(r.status_outcome || '').trim().toUpperCase() || null,
-        cancellationReason: String(r.cancellation_reason || '').trim() || null,
-        clientId: Number(r.client_id || 0) || null,
-        clinicalSessionId: Number(r.clinical_session_id || 0) || null,
-        noteContextId: Number(r.note_context_id || 0) || null,
-        billingContextId: Number(r.billing_context_id || 0) || null,
+        appointmentType: borrowedAway ? null : String(r.appointment_type_code || '').trim().toUpperCase() || defaultAppointmentTypeForSlot({ status: r.status, slotState: normalizedSlotState }),
+        appointmentSubtype: borrowedAway ? null : String(r.appointment_subtype_code || '').trim().toUpperCase() || null,
+        serviceCode: borrowedAway ? null : String(r.service_code || '').trim().toUpperCase() || null,
+        modality: borrowedAway ? null : String(r.modality || '').trim().toUpperCase() || null,
+        statusOutcome: borrowedAway ? null : String(r.status_outcome || '').trim().toUpperCase() || null,
+        cancellationReason: borrowedAway ? null : String(r.cancellation_reason || '').trim() || null,
+        clientId: borrowedAway ? null : Number(r.client_id || 0) || null,
+        clinicalSessionId: borrowedAway ? null : Number(r.clinical_session_id || 0) || null,
+        noteContextId: borrowedAway ? null : Number(r.note_context_id || 0) || null,
+        billingContextId: borrowedAway ? null : Number(r.billing_context_id || 0) || null,
         hasAppointment: Number(r.has_appointment || 0) === 1,
         virtualIntakeEnabled: Number(r.virtual_intake_enabled || 0) === 1,
         inPersonIntakeEnabled: Number(r.in_person_intake_enabled || 0) === 1,
@@ -5871,7 +5874,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
       ]);
       if (officeApptMap.size) {
         officeEvents = (officeEvents || []).map(e => {
-          const meta = officeApptMap.get(Number(e.id));
+          const meta = e.borrowedAway ? null : officeApptMap.get(Number(e.id));
           if (!meta) return e;
           return { ...e, appointmentId: meta.id, appointmentAgencyId: meta.agencyId, clinicalSessionId: meta.clinicalSessionId,
             clientId: meta.clientId, clientName: meta.clientName, modality: meta.modality,

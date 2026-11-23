@@ -261,6 +261,7 @@
         <ul><li v-for="suggestion in event.suggestions || []" :key="suggestion">{{ suggestion }}</li></ul>
         <p v-if="event.reason">{{ event.reason }}</p>
         <ClaimSubmissionSnapshot v-if="event.type === 'approved_submission' && event.payload" :payload="event.payload" :supervision="event.supervision" :practice="event.practice === true || event.mode === 'practice'" />
+        <p v-if="event.type==='external_remittance_processed'">Processed externally · {{ event.processedOn }} · {{ event.source }} · {{ event.reference }}</p>
         <p v-if="event.type==='remittance_posted'">{{ event.denied ? 'Denied' : 'Payer adjudication' }} · Paid {{ claimHistoryMoney(event.paidCents) }} · Adjustments {{ claimHistoryMoney(event.adjustmentCents) }} · Patient responsibility {{ claimHistoryMoney(event.responsibilityCents) }}<template v-if="event.payerControlNumber"> · Payer control number {{ event.payerControlNumber }}</template></p>
         <ul v-if="claimHistoryChanges(event).length"><li v-for="change in claimHistoryChanges(event)" :key="change.label">{{ change.label }}: {{ change.before }} → {{ change.after }}</li></ul>
       </article>

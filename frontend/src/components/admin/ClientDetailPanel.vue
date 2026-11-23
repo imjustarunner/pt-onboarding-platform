@@ -198,6 +198,7 @@
             @secure-message="openClientSecureMessage"
             :can-view-medical-record="canViewMedicalRecord"
             :can-view-private-chart="['super_admin', 'admin', 'support', 'provider', 'provider_plus'].includes(roleNorm)"
+            :can-view-essentials="['super_admin', 'admin', 'billing', 'support', 'staff', 'provider', 'provider_plus', 'intern', 'intern_plus', 'supervisor', 'clinical_practice_assistant'].includes(roleNorm)"
             :glance-items="overviewGlanceItems"
             :status-label="isClientArchived ? 'Inactive' : displayStatusLabel"
             :program-label="overviewProgramLabel"

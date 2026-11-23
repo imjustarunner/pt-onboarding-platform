@@ -6,7 +6,11 @@ const props=defineProps({learningOnly:Boolean,tutoring:Boolean});
 const root = ref(null); const open = ref(false);
 const panel = ref(null), trigger = ref(null), position = ref({}), portal = ref('body');
 const topics = [
-  ['Show weekends or change the layout', 'Open Settings, then Layout. Choose the days you want to show, row height, and how overlapping appointments appear. Appointment colors are also in Settings.'],
+  ['Show weekends or change the layout', 'Open Calendar settings, then Display. Change visible days, row height, overlapping cards, and appointment colors, including the school day color.'],
+  ['Jump to a date or change the time zone', 'Select the date range above the schedule to pick a date. Use Day, Agenda or Week to choose your view. Select Time Zone next to those buttons to change the calendar display.'],
+  ['Connect a personal calendar', 'Open Calendar settings, then Connections. Use Connect a personal calendar for an Apple, Google or Outlook subscription. Client appointments appear as Client session on connected calendars.'],
+  ['See when coworkers are busy', 'Open Calendar settings, then People, and turn on Peers (busy). The overlay shows busy times with client details hidden.'],
+  ['Record a past session', 'Choose the date and time, then Book Session. For an in-person visit, choose where it took place. A past visit can be recorded without a room reservation.'],
   ['Use full screen', 'Choose Full screen beside the date controls to give your calendar more room. Choose Exit full screen or press Escape to return.'],
   ['Understand the colors', 'Open Color key to see the appointment types. Select Color key again to collapse it.'],
   ['Schedule an appointment', 'Click an empty hour, choose a quarter-hour from the + control, or drag across a time range. Choose Book Session, select the client, and review before saving.'],
@@ -22,6 +26,7 @@ const topics = [
   ['Leave a schedule clip', 'Open the appointment and add a Schedule clip. It stays on the appointment. Choose “In this appointment and on the schedule” to flag it on the schedule face. Staff with full schedule access can see it; clients cannot.'],
   ['Link an existing office booking', 'Open the session’s Info tab and choose Link an existing office reservation. Select your reserved room. For a recurring series, choose this and future saved appointments. Each date needs an existing reservation; session notes and dates are preserved.'],
   ['Open part of a booked office block', 'Click an hour in the reserved office block. Choose Only this hour or Whole office block in the app. Back to calendar closes the choice without changing your selection or reservation.'],
+  ['Manage a room reservation', 'Open the room block. Confirm room use marks the time occupied. Mark vacant releases that date for coworkers and keeps the recurring reservation. Confirm room use to reclaim a vacant slot while it is still free. Forfeit room now and forward ends the reservation.'],
   ['Copy an appointment reference', 'Open a session or office booking, then click Reference at the bottom of its details to copy it. Each record keeps its own stable reference.'],
   ['Review notes and reminders', 'Session note holds your source text. Review its formatted draft and sign in Note Workspace. In Notifications, choose Organization default, My default, or Custom. Save as My default keeps your timing and channel choices for future bookings.'],
   ['Send a reminder now', 'Choose available email, opted-in text, or in-app channels, then Send reminder now. Manual pushes are limited to once per 24 hours. Confirmed clients receive friendly reminders; unanswered clients receive RSVP requests. Declined sessions receive no reminders.'],
@@ -45,7 +50,7 @@ const tutoringTopics=[
  ['Publish tutoring hours','Choose Open Slot, then Tutoring. Select virtual or in person. A one-time opening publishes one tutoring session; weekly tutoring hours repeat through the selected end date. Subjects and grades come from your tutoring profile.'],
  ['Book an assigned student','Choose Book session, then Tutoring if you provide more than one service. Select your assigned student, format and time. Review the session before saving.'],
  ['Message a student or family','Open the student’s Learning record or secure messages. Review the recipient and share only the tutoring information intended for that family.'],
- ['Write tutoring notes','Use the booked session’s Learning workspace. Scheduling notes are visible to staff with scheduling access and may appear on synced calendars. Publish family updates separately; private tutor notes stay private.'],
+ ['Write tutoring notes','Use the booked session’s Learning workspace. Scheduling notes stay in the app for staff with scheduling access. Publish family updates separately; private tutor notes stay private.'],
  ['Change or remove tutoring hours','Open the published opening and choose this occurrence or this and future occurrences. Existing bookings are preserved.'],
  ['Reachable hours and bookable hours','Availability preferences say when you can be reached. Use Open Slot to publish actual bookable tutoring hours. Contact the office for assignment or location changes.']
 ];

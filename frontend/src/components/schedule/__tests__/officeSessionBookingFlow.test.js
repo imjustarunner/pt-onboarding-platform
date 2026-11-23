@@ -497,10 +497,10 @@ it.each([
   }
   await flushPromises();
   expect(s.modalError).toBe('');
-  expect(mocks.post).toHaveBeenCalledExactlyOnceWith('/office-slots/8/events/40/'+path,payload);
+  expect(mocks.post).toHaveBeenCalledExactlyOnceWith('/office-slots/8/events/40/'+path,payload,{skipGlobalLoading:true});
 });
 
-it.each([['vacant','Canceled · Vacant'], ['occupied','Confirmed · Occupied']])('reopens a reservation with the saved %s state', async (usage, label) => {
+it.each([['vacant','Assigned available · Vacant'], ['occupied','Assigned available · Occupied']])('reopens a reservation with the saved %s state', async (usage, label) => {
   mocks.user={id:7,role:'provider'};
   wrapper=shallowMount(Grid,{props:{userId:7,agencyId:2},global:{stubs:{Teleport:true,RouterLink:true,ClinicalWorkspaceFrame:{template:'<div><slot /></div>'}}}});
   await flushPromises();
@@ -515,6 +515,32 @@ it.each([['vacant','Canceled · Vacant'], ['occupied','Confirmed · Occupied']])
   const card=wrapper.get('[data-testid="selected-office-reservation"]');
   expect(card.classes()).toContain(`nr-selected-reservation--${usage}`);
   expect(card.text()).toContain(label);
+});
+
+it('shows vacancy on the calendar and lets the reservation close before the request finishes', async () => {
+  mocks.user={id:7,role:'provider'};
+  let complete;
+  mocks.post.mockImplementation(() => new Promise(resolve => { complete = resolve; }));
+  wrapper=shallowMount(Grid,{props:{userId:7,agencyId:2},global:{stubs:{Teleport:true,RouterLink:true,ClinicalWorkspaceFrame:{template:'<div><slot /></div>'}}}});
+  await flushPromises();
+  const s=wrapper.vm.$.setupState;
+  const event={id:40,agencyId:2,buildingId:8,roomId:9,assignedProviderId:7,standingAssignmentId:19,
+    slotState:'ASSIGNED_AVAILABLE',startAt:'2026-11-26T17:00:00Z',endAt:'2026-11-26T18:00:00Z'};
+  s.weekStart='2026-11-23';s.summary={providerId:7,weekStart:s.weekStart,officeEvents:[event]};
+  s.modalDay='Thursday';s.modalHour=10;s.modalStartHour=10;s.modalEndHour=11;
+  s.modalContext=s.buildModalContext({dayName:'Thursday',dateYmd:'2026-11-26',hour:10,roomId:9,slot:event});
+  s.modalActionSource='office_block';s.showRequestModal=true;
+  await nextTick();
+  const save=s.changeSelectedRoomReservation('occupancy','vacant');
+  await nextTick();
+  expect(s.summary.officeEvents[0].roomOccupancy).toBe('vacant');
+  expect(wrapper.get('[data-testid="selected-office-reservation"]').text()).toContain('Assigned available · Vacant');
+  expect(s.submitting).toBe(false);
+  s.closeModal();
+  expect(s.showRequestModal).toBe(false);
+  complete({data:{ok:true}});
+  await save;
+  expect(s.showRequestModal).toBe(false);
 });
 
 it('offers one publication action and preselects in-person for an office reservation', async () => {

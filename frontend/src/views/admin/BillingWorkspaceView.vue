@@ -111,6 +111,7 @@
       <form v-if="editableClaim && !selectedClaim.claimmd_submitted_at && !selectedClaim.claimmd_claim_id && !selectedClaim.claimmd_connection_id" class="panel-note" @submit.prevent="closeUnsubmittedClaim"><h3>Close without submitting</h3><label>Reason<textarea v-model="closureReason" required minlength="10" maxlength="2000" placeholder="For example: Not intended for submission; awaiting external billing confirmation." /></label><button class="secondary" :disabled="closingClaim || closureReason.trim().length < 10">{{ closingClaim ? 'Closing…' : 'Record reason and close claim' }}</button></form>
       <p v-if="selectedClaim.claim_lifecycle === 'queued'" class="panel-note">Submission is unresolved. Sync and reconcile before attempting another upload.</p><p v-if="selectedClaim.claim_lifecycle === 'denied'" class="panel-note">Review the payer’s adjudication before choosing a replacement claim or appeal.</p>
       <ClaimResubmissionPanel v-if="selectedClaimId && !clinicalDraft" :agency-id="Number(selectedClaim.agency_id)" :claim-id="selectedClaimId" :revision="selectedClaim.billing_revision == null ? null : Number(selectedClaim.billing_revision)" :lifecycle="selectedClaim.claim_lifecycle" :claim-reference="selectedClaim.claim_reference" @created="openResubmission" />
+      <ExternalRemittanceProcessing v-if="selectedClaimId && !selectedClaim.administrativeArchive && selectedClaim.canReviewClaim !== false" :key="`external-${selectedClaim.agency_id}-${selectedClaimId}`" :agency-id="Number(selectedClaim.agency_id)" :claim-id="selectedClaimId" />
       <SecondaryClaimPanel v-if="canPrepareSecondary" :agency-id="Number(selectedClaim.agency_id)" :claim-id="selectedClaimId" @created="claimUpdated" />
       <ClaimMdWorkspace v-if="selectedClaimId" ref="claimTools" :key="`${selectedClaim.agency_id}-${selectedClaimId}`" :agency-id="Number(selectedClaim.agency_id)" :connection="claimOrganization?.connection || {}" :read-only="clinicalDraft" section="detail" @updated="claimUpdated" />
     </aside></div>
@@ -150,6 +151,7 @@ import { toUploadsUrl } from '../../utils/uploadsUrl';
 import { billingTotals, billingBrand, claimQueueFilters, billingStages, billingDate, diagnosisList, workStage, workClaimId, workItemKey, workItemTitle, claimStatusLabel, claimStatusTone } from '../../utils/billingWorkspace';
 import { formatBillingTimestamp } from '../../utils/billingReviewDisplay.js';
 import { groupBillingPayers } from '../../utils/billingPayerConnections.js';
+import ExternalRemittanceProcessing from '../../components/admin/ExternalRemittanceProcessing.vue';
 import ClaimMdWorkspace from '../../components/admin/ClaimMdWorkspace.vue';
 import MedicalBillingReportsPanel from '../../components/admin/MedicalBillingReportsPanel.vue';
 import MedicalBillingView from './MedicalBillingView.vue';
