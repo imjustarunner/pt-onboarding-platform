@@ -9,6 +9,7 @@
     </dl></details>
     <ul v-if="links.length"><li v-for="link in links" :key="link.id">
       <strong>{{ link.direction === 'incoming' ? 'Referred by' : 'Referred to' }}: {{ link.name }}</strong>
+      <span v-if="link.is_fax_referral" class="referral-badge">Fax referral</span>
       <span v-if="link.referral_date"> · {{ String(link.referral_date).slice(0,10) }}</span>
       <span v-if="link.phi_document_id"> · Linked document #{{ link.phi_document_id }}</span>
       <div>{{ link.phone }} <span v-if="link.fax">· Fax {{ link.fax }}</span></div>
@@ -60,5 +61,6 @@ async function remove(link) {
 watch(() => [props.clientId, props.agencyId], () => { links.value = []; documents.value = []; faxFields.value = null; faxFieldsWarning.value = ''; editing.value = false; error.value = ''; load(); }, { immediate: true });
 </script>
 <style scoped>
+.referral-badge { margin-inline-start: 8px; padding: 2px 7px; border-radius: 8px; background: #e3f2e9; color: #245d40; font-size: .8em; font-weight: 650; }
 .client-referrals { padding:16px; border:1px solid var(--border-color,#ddd); border-radius:10px; margin:12px 0; } .referral-form,label { display:grid; gap:8px; } li { margin:12px 0; } li button { margin:6px; } input,select { padding:8px; max-width:100%; } p { color:var(--text-secondary,#666); }
 </style>

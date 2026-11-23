@@ -79,6 +79,7 @@
       </button>
     </div>
 
+    <FaxTriageQueue v-if="!embedded && !selectedId && canReviewFaxes && faxQueueAgencyId" :key="faxQueueAgencyId" :agency-id="faxQueueAgencyId" @created="loadTickets" />
     <p v-if="embedded && error" class="error" role="alert">{{ error }}</p>
     <div class="desk-body">
       <aside
@@ -106,6 +107,7 @@
               <option value="email">Email</option>
               <option value="public_web">Public page</option>
               <option value="phone">Phone</option>
+              <option value="fax">Fax referral</option>
             </select>
             <select v-if="!isSchoolStaff" v-model="creatorRoleFilter" @change="loadTickets">
               <option value="">Creator</option>
@@ -373,6 +375,8 @@
                 <button type="button" class="btn btn-secondary btn-xs" @click="openCanonicalThread">Open email conversation</button>
               </div>
               <div ref="conversationScroller" class="conversation-scroll">
+              <FaxReferralIntake v-if="detailTab === 'conversation' && selected.source_channel === 'fax' && canReviewFaxes"
+                :key="selectedId" :ticket-id="Number(selectedId)" :agency-id="Number(selected.agency_id)" @filed="loadTickets" />
               <!-- Conversation tab -->
               <template v-if="detailTab === 'conversation'">
                 <div v-if="messagesLoading" class="muted pad">Loading conversation…</div>
@@ -1073,6 +1077,8 @@
 </template>
 
 <script setup>
+import FaxReferralIntake from './FaxReferralIntake.vue';
+import FaxTriageQueue from './FaxTriageQueue.vue';
 import { renderEmailContent } from '../../utils/emailPresentation';
 import ConversationEmailBody from '../messages/ConversationEmailBody.vue';
 import TicketAttachmentComposer from './TicketAttachmentComposer.vue';
@@ -1314,6 +1320,8 @@ function sortTicketsForViewer(list) {
 }
 /** Selected tenant id (number|null) or 'platform'. null = all tenants. */
 const agencyIdInput = ref(null);
+const faxQueueAgencyId = computed(() => agencyIdInput.value === 'platform' ? 0 : Number(agencyIdInput.value || agencyStore.currentAgency?.id || 0));
+const canReviewFaxes = computed(() => ['admin', 'support', 'super_admin'].includes(role.value));
 const tenantPickerOpen = ref(false);
 const queueScopeLabel = computed(() => agencyIdInput.value === 'platform' ? 'Platform' : !agencyIdInput.value ? 'All tenants' : agencyOptions.value.find(a => Number(a.id) === Number(agencyIdInput.value))?.name || `Agency #${agencyIdInput.value}`);
 
@@ -1761,6 +1769,7 @@ const visibleMessages = computed(() => newestFirst.value && threadQuery.value.tr
 const showOriginalInquiry = computed(() => !!originalInquiry.value && (!threadQuery.value.trim() ||
   rankEmailMessages([{ message: originalInquiry.value, header: selected.value.subject, body: originalInquiry.value }], threadQuery.value).length > 0));
 function sourceLabel(t) {
+  if (t?.source_channel === 'fax') return 'Fax referral';
   if (t?.source_channel) return String(t.source_channel);
   if (t?.created_by_source_key) return 'External';
   return 'Portal';

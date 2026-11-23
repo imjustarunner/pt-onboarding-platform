@@ -1,9 +1,10 @@
 <template>
   <section class="fax-intake" aria-label="Client from fax">
-    <p>Upload a fax, review the suggested fields, then create the client. The original fax will be encrypted and attached to their chart.</p>
-    <label>Fax document (PDF, PNG, JPEG; up to 10 MB, 30 pages)
+    <p v-if="!inboxReceiptId">Upload a fax, review the suggested fields, then create the client. The original fax will be encrypted and attached to their chart.</p>
+    <label v-if="!inboxReceiptId">Fax document (PDF, PNG, JPEG; up to 10 MB, 30 pages)
       <input type="file" accept="application/pdf,image/png,image/jpeg" :disabled="busy || !agencyId || !organizationId" @change="extract" />
     </label>
+    <button v-if="inboxReceiptId && !draftId" type="button" class="btn btn-secondary" :disabled="busy || !organizationId" @click="extractFromReceipt">Open fax for review</button>
     <p v-if="!organizationId">Select the agency and organization above first.</p>
     <p v-if="busy" role="status">Reading fax pages and identifying fields…</p>
     <p v-if="error" role="alert">{{ error }}</p>
@@ -34,7 +35,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import api from '../../services/api';
 import ReferralEntityPicker from '../referralDirectory/ReferralEntityPicker.vue';
-const props = defineProps({ agencyId: [String, Number], organizationId: [String, Number] });
+const props = defineProps({ agencyId: [String, Number], organizationId: [String, Number], inboxReceiptId: String });
 const emit = defineEmits(['change']);
 const draftId = ref(null), rows = ref([]), fields = ref({}), pages = ref([]), entryId = ref(null), reviewed = ref(false);
 const previewUrl = ref(''), previewType = ref('');
@@ -62,6 +63,38 @@ async function extract(event) {
   } catch (e) { if (current === sequence) error.value = e.response?.data?.error?.message || 'Could not read this fax. Please retry.'; }
   finally { if (current === sequence) busy.value = false; event.target.value = ''; }
 }
+async function extractFromReceipt() {
+  const current = ++sequence;
+  discard();
+  rows.value = [];
+  reviewed.value = false;
+  warning.value = '';
+  error.value = '';
+  busy.value = true;
+  const agencyId = props.agencyId;
+  const path = `/fax-intake/inbox/${props.inboxReceiptId}`;
+  try {
+    const { data: original } = await api.get(`${path}/document`, { params: { agencyId }, responseType: 'blob' });
+    if (current !== sequence) return;
+    const { data } = await api.post(`${path}/draft`, { agencyId, organizationId: props.organizationId }, { timeout: 300000 });
+    if (current !== sequence) {
+      api.delete(`/fax-intake/${data.draftId}`, { params: { agencyId }, skipGlobalLoading: true }).catch(() => {});
+      return;
+    }
+    previewUrl.value = URL.createObjectURL(original);
+    previewType.value = 'application/pdf';
+    draftId.value = data.draftId;
+    draftAgency = agencyId;
+    rows.value = data.candidates;
+    fields.value = data.fields;
+    pages.value = data.pages;
+    warning.value = data.warning || '';
+  } catch (e) {
+    if (current === sequence) error.value = e.response?.data?.error?.message || 'Could not open this fax for review.';
+  } finally {
+    if (current === sequence) busy.value = false;
+  }
+}
 function addField() { rows.value.push({ id: `manual-${Date.now()}-${rows.value.length}`, field: '', value: '' }); }
 watch([rows, entryId], () => { reviewed.value = false; }, { deep: true, flush: 'sync' });
 watch([mapped, reviewed, entryId, draftId, duplicates, busy], () => {
@@ -69,7 +102,7 @@ watch([mapped, reviewed, entryId, draftId, duplicates, busy], () => {
   emit('change', { draftId: draftId.value, fields: mapped.value, entryId: entryId.value, reviewed: reviewed.value,
     ready: !!(draftId.value && name && entryId.value && reviewed.value && !duplicates.value.length && !busy.value), fullName: name });
 }, { deep: true, immediate: true });
-watch(() => [props.agencyId, props.organizationId], () => { sequence++; discard(); rows.value = []; pages.value = []; reviewed.value = false; busy.value = false; });
+watch(() => [props.agencyId, props.organizationId, props.inboxReceiptId], () => { sequence++; discard(); rows.value = []; pages.value = []; reviewed.value = false; busy.value = false; });
 onBeforeUnmount(() => { sequence++; discard(); });
 </script>
 <style scoped>

@@ -13,7 +13,7 @@
     <div v-else-if="loading" class="pmh-loading">Loading…</div>
     <article v-else-if="isTisiHub && subPageSlug === 'contact'" class="pmh-sub-inner">
       <h1>Contact Inner Strength Institute</h1><p>Send a message to our team. We’ll help you find your next step.</p>
-      <PublicWebsiteContactForm agency-slug="tisi" />
+      <AgencyContactLines agency-slug="tisi"/><PublicWebsiteContactForm agency-slug="tisi" />
     </article>
     <article v-else-if="subPage" class="pmh-sub-inner">
       <nav class="pmh-sub-breadcrumb">
@@ -40,6 +40,7 @@
 </template>
 
 <script setup>
+import AgencyContactLines from "../../components/public/AgencyContactLines.vue";
 import AuricWellPartnerBadge from '../../components/public/AuricWellPartnerBadge.vue';
 import PublicWebsiteContactForm from '../../components/public/PublicWebsiteContactForm.vue';
 import PublicResourcesMenu from "../../components/public/PublicResourcesMenu.vue";

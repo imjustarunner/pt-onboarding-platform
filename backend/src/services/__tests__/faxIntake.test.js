@@ -7,8 +7,9 @@ vi.mock('../storage.service.js', () => ({ default: { getGCSBucket: async () => (
 vi.mock('../demographicsImport.service.js', () => ({ encryptDemographicsPayload: mocks.demographics }));
 vi.mock('../guardianIntakeEncryption.service.js', () => ({ encryptGuardianIntake: mocks.guardian }));
 import { createClientFromFax, getFaxDraft, saveFaxDraft } from '../faxIntake.service.js';
-const draft = () => ({ id: 'draft', agency_id: 3, organization_id: 4, payload_encrypted: Buffer.from('cipher'), encryption_metadata: {}, expires_at: new Date(Date.now() + 50000) });
-const input = () => ({ userId: 9, payload: { agency_id: 3, organization_id: 4, initials: 'SamSam' }, fax: { draftId: 'draft', entryId: 10, reviewed: true, fields: { client_full_name: 'Sam Sample', guardian_full_name: 'Taylor Example', guardian_phone: '7195550100' } } });
+const draftId = '8c2d7001-d30c-4c90-91a0-dac97f19c643';
+const draft = () => ({ id: draftId, agency_id: 3, organization_id: 4, payload_encrypted: Buffer.from('cipher'), encryption_metadata: {}, expires_at: new Date(Date.now() + 50000) });
+const input = () => ({ userId: 9, payload: { agency_id: 3, organization_id: 4, initials: 'SamSam' }, fax: { draftId, entryId: 10, reviewed: true, fields: { client_full_name: 'Sam Sample', guardian_full_name: 'Taylor Example', guardian_phone: '7195550100' } } });
 beforeEach(() => {
   vi.resetAllMocks();
   mocks.demographics.mockReturnValue({ ciphertextB64: 'sealed' });
@@ -61,9 +62,9 @@ describe('fax intake persistence', () => {
   });
   it('rejects expired and wrong-owner drafts', async () => {
     mocks.execute.mockResolvedValue([[{ ...draft(), expires_at: new Date(0) }]]);
-    await expect(getFaxDraft('draft', 9)).rejects.toThrow('expired');
-    mocks.execute.mockResolvedValue([[]]); await expect(getFaxDraft('draft', 2)).rejects.toThrow('not found');
-    expect(mocks.execute.mock.calls[1][1]).toEqual(['draft', 2]);
+    await expect(getFaxDraft(draftId, 9)).rejects.toThrow('expired');
+    mocks.execute.mockResolvedValue([[]]); await expect(getFaxDraft(draftId, 2)).rejects.toThrow('not found');
+    expect(mocks.execute.mock.calls[1][1]).toEqual([draftId, 2]);
   });
   it('stores only ciphertext in temporary drafts', async () => {
     mocks.execute.mockResolvedValue([{}]);

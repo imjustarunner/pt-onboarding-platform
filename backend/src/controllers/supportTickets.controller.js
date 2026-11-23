@@ -4077,6 +4077,9 @@ export const linkSupportTicketClient = async (req, res, next) => {
     const loaded = await loadTicketForActionAccess(req, ticketId);
     if (!loaded.ok) return res.status(loaded.status).json({ error: { message: loaded.message } });
     const ticket = loaded.ticket;
+    if (ticket.source_channel === 'fax' && ticket.created_by_source_key === 'fax_referral') {
+      return res.status(409).json({ error: { message: 'File a fax referral through the intake panel to link the client and referrer together.' } });
+    }
 
     // Verify client belongs to the same agency.
     const [clientRows] = await pool.execute(

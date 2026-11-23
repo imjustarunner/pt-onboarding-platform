@@ -2433,6 +2433,16 @@ if (shouldStartServerBackgroundJobs()) {
   };
   purgeFaxDrafts();
   setInterval(purgeFaxDrafts, 60 * 60 * 1000).unref();
+  let faxReferralRunning = false;
+  const faxReferralTick = async () => {
+    if (faxReferralRunning || !process.env.NOTIFYRE_BAA_REFERENCE) return;
+    faxReferralRunning = true;
+    try { await (await import('./services/inboundFaxReferral.service.js')).runFaxReferralInbox(); }
+    catch { console.warn('[fax-referral] Worker did not complete the batch.'); }
+    finally { faxReferralRunning = false; }
+  };
+  faxReferralTick();
+  setInterval(faxReferralTick, 30_000).unref();
 
   // Unfinished enrollment form reminders + draft expiry purge (hourly)
   const scheduleUnfinishedEnrollmentReminders = async () => {

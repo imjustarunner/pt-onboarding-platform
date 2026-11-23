@@ -44,7 +44,9 @@ async function clientAccess(req, res, next) {
   } catch { res.status(503).json({ error: { message: 'Unable to verify client access.' } }); }
 }
 router.get('/clients/:clientId', clientAccess, handle(async (req, res) => {
-  const [links] = await pool.execute(`SELECT l.*, e.name, e.organization_name, e.phone, e.fax, e.email, e.website
+  const [links] = await pool.execute(`SELECT l.*, e.name, e.organization_name, e.phone, e.fax, e.email, e.website,
+    EXISTS (SELECT 1 FROM fax_referral_inbox f WHERE f.state = 'linked' AND f.agency_id = l.agency_id
+      AND f.client_id = l.client_id AND f.referral_entry_id = l.entry_id AND l.direction = 'incoming') AS is_fax_referral
     FROM client_referral_links l JOIN referral_directory_entries e ON e.id = l.entry_id
     WHERE l.client_id = ? AND l.agency_id = ? ORDER BY l.created_at DESC`, [req.params.clientId, req.referralAgencyId]);
   const [documents] = await pool.execute(`SELECT id, document_title, document_type, uploaded_at FROM client_phi_documents

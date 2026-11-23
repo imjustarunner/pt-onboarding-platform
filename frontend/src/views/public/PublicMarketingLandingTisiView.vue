@@ -421,7 +421,8 @@
             <h3 class="tisi-footer-heading">Contact</h3>
             <component v-if="!editing && landingDestination(v.ctaHref, destinationContext)" :is="navTag(v.ctaHref)" class="tisi-footer-link" v-bind="navBind(v.ctaHref)">{{ v.ctaButtonLabel }} →</component>
             <template v-if="!editing">
-              <a v-if="v.contactPhone" class="tisi-footer-link" :href="`tel:${v.contactPhone.replace(/[^+\d]/g, '')}`">{{ v.contactPhone }}</a>
+              <AgencyContactLines v-if="hubSlug === 'tisi' && !previewPage" agency-slug="tisi" :main-number="v.contactPhone || undefined"/>
+              <a v-else-if="v.contactPhone" class="tisi-footer-link" :href="`tel:${v.contactPhone.replace(/[^+\d]/g, '')}`">{{ v.contactPhone }}</a>
               <a v-if="v.contactEmail" class="tisi-footer-link" :href="`mailto:${v.contactEmail}`">{{ v.contactEmail }}</a>
               <p v-if="v.contactAddress" class="tisi-footer-meta">{{ v.contactAddress }}</p>
             </template>
@@ -479,6 +480,7 @@
 </template>
 
 <script setup>
+import AgencyContactLines from "../../components/public/AgencyContactLines.vue";
 import AuricWellPartnerBadge from '../../components/public/AuricWellPartnerBadge.vue';
 import PublicWebsiteContactForm from "../../components/public/PublicWebsiteContactForm.vue";
 import PublicResourcesMenu from "../../components/public/PublicResourcesMenu.vue";

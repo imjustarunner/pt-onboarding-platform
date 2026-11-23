@@ -4,13 +4,15 @@ import { normalizeFaxEvent } from './auricwell/faxPolicy.js';
 import { normalizeSmsPhone } from '../utils/smsThreadIdentity.js';
 import { assertNotifyreAgencyCampaign, assertSmsCarrierPurpose } from '../utils/smsCarrierPolicy.js';
 
+import { faxReferralRoutes } from './faxReferralPolicy.js';
+
 const fail = (status, message) => Object.assign(new Error(message), { status });
 const supported = new Set(['sms_received', 'sms_sent', 'mms_received', 'fax_received', 'fax_sent']);
 
 // The callback URL belongs to the Notifyre account, not to an agency. Resolve
 // ownership only from our saved receiving/sending number, never a payload tenant.
 // Both public URL aliases call this function, then the same durable consumers.
-export async function resolveNotifyreWebhookOwner(parsed, settings) {
+export async function resolveNotifyreWebhookOwner(parsed, settings, { allowReferralRoute = true } = {}) {
   const type = parsed?.Event ?? parsed?.event;
   if (!supported.has(type)) return { kind: 'ignored' };
   const routes = settings?.clientMessaging?.routes || [];
@@ -18,6 +20,12 @@ export async function resolveNotifyreWebhookOwner(parsed, settings) {
     const fax = normalizeFaxEvent(parsed);
     const number = fax.direction === 'received' ? fax.to : fax.from;
     const owners = routes.filter(route => route.mainNumber === number);
+    const agencySlug = faxReferralRoutes().get(number);
+    if (agencySlug) {
+      if (!allowReferralRoute) throw fail(409, 'Use the registered referral fax callback.');
+      if (owners.length) throw fail(409, 'This number has conflicting fax owners.');
+      return fax.direction === 'received' ? { kind: 'fax_referral', event: fax, agencySlug } : { kind: 'ignored' };
+    }
     if (owners.length !== 1) throw fail(409, 'This fax number needs one primary agency route.');
     return { kind: 'auricwell' };
   }

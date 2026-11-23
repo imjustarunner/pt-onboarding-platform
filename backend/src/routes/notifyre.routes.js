@@ -24,9 +24,17 @@ export const createNotifyreWebhook = ({ auricwellAlias = false } = {}) => async 
       parsed = verifyNotifyreSignature(req.body, req.get('Notifyre-Signature'), process.env.NOTIFYRE_WEBHOOK_SECRET);
       if (process.env.AURICWELL_ENABLED === 'true') ({settings} = await platformIntegrations());
     }
-    const owner = await resolveNotifyreWebhookOwner(parsed, settings);
+    const owner = await resolveNotifyreWebhookOwner(parsed, settings, { allowReferralRoute: !auricwellAlias || (Boolean(process.env.NOTIFYRE_API_TOKEN) && settings?.notifyre?.apiToken === process.env.NOTIFYRE_API_TOKEN) });
     if (owner.kind === 'ignored') return res.status(200).json({ ignored: true });
     if (owner.kind === 'auricwell') return res.json(await acceptAuthenticatedNotifyreEvent(settings, parsed));
+    if (owner.kind === 'fax_referral') {
+      try {
+        const { enqueueFaxReferral } = await import('../services/inboundFaxReferral.service.js');
+        return res.json(await enqueueFaxReferral(owner.event, owner.agencySlug));
+      } catch {
+        return res.status(503).json({ error: 'Fax intake temporarily unavailable.' });
+      }
+    }
     const { event, sender } = owner;
     key = crypto.createHash('sha256').update(`${event.type}:${event.id}:${event.status || ''}`).digest('hex');
     connection = await pool.getConnection();

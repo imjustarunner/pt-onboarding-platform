@@ -15,6 +15,7 @@ import {
   postPublicMarketingPageEventsNearest
 } from '../controllers/publicMarketingPages.controller.js';
 
+import { publicAgencyContactLines } from '../services/publicAgencyContactLines.service.js';
 import { getItscoWebsiteData } from '../services/itscoPublicWebsite.service.js';
 
 import { ingestPublicWebsiteAnalytics, publicAnalyticsIngestLimiter } from './publicWebsiteAnalytics.routes.js';
@@ -34,6 +35,16 @@ router.get('/partners', publicWebsiteReadLimiter, async (req, res, next) => {
   } catch (error) { next(error); }
 });
 router.post('/:slug/analytics/events', publicAnalyticsIngestLimiter, ingestPublicWebsiteAnalytics);
+router.get('/contact-lines/:slug', publicWebsiteReadLimiter, async (req, res) => {
+  try {
+    const result = await publicAgencyContactLines(String(req.params.slug || '').toLowerCase());
+    if (!result) return res.sendStatus(404);
+    res.set('Cache-Control', 'public, max-age=60').json(result);
+  } catch {
+    res.set('Cache-Control', 'no-store').sendStatus(503);
+  }
+});
+
 router.get('/itsco/website-data', publicWebsiteReadLimiter, async (req, res, next) => {
   try { res.set('Cache-Control', 'no-store').json(await getItscoWebsiteData(req)); }
   catch (error) { if (error.status === 404) return res.status(404).json({ error: { message: error.message } }); next(error); }

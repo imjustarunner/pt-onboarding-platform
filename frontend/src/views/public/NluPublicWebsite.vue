@@ -61,7 +61,7 @@
 
     <section v-if="['get-started','resources','new-families'].includes(section)" class="nlu-wrap nlu-section" data-analytics-id="family-resources"><h2>What Families May Need Before Starting</h2><div class="nlu-four"><template v-for="[title,to,icon] in resourceLinks" :key="title"><a v-if="String(to).startsWith('http')" class="nlu-card nlu-resource" :href="to"><Icon :name="icon"/><h3>{{title}}</h3><span aria-hidden="true">→</span></a><router-link v-else class="nlu-card nlu-resource" :to="to"><Icon :name="icon"/><h3>{{title}}</h3><span aria-hidden="true">→</span></router-link></template></div><div id="insurance" class="nlu-note"><h3>Insurance & Billing</h3><p>Check the provider’s profile and ask our team about coverage, costs, and self-pay options. Insurance coverage for counseling does not automatically include tutoring.</p><router-link :to="path('contact')">Ask our team →</router-link></div><h2 id="faqs" class="nlu-space">Parent FAQs</h2><details v-for="[question,answer] in nluFaqs" :key="question" class="nlu-faq"><summary><span class="nlu-faq-question">{{question}}</span><span class="nlu-faq-toggle" aria-hidden="true">+</span></summary><p>{{answer}}</p></details></section>
 
-    <section v-if="section==='contact'" class="nlu-wrap nlu-section nlu-contact" data-analytics-id="contact"><h2>Message Our Team</h2><p>Our support team can help with service questions and next steps.</p><PublicAgencySupportForm v-if="!preview" :default-category="contactCategory" agency-slug="nlu" join-path="/p/nlu/get-started" login-path="/nlu/login" accent="#087f8c"/><p v-else class="nlu-note">Open the published website to send a message.</p></section>
+    <section v-if="section==='contact'" class="nlu-wrap nlu-section nlu-contact" data-analytics-id="contact"><h2>Message Our Team</h2><p>Our support team can help with service questions and next steps.</p><AgencyContactLines agency-slug="nlu"/><PublicAgencySupportForm v-if="!preview" :default-category="contactCategory" agency-slug="nlu" join-path="/p/nlu/get-started" login-path="/nlu/login" accent="#087f8c"/><p v-else class="nlu-note">Open the published website to send a message.</p></section>
 
     <section v-if="section!=='contact'" class="nlu-final" :style="bannerStyle" data-analytics-id="footer-cta"><div class="nlu-wrap"><div><p class="nlu-eyebrow">Higher potential. Brighter tomorrows.</p><h2>{{section==='counseling'?'Take the Next Step Toward Better Mental Health.':section==='learning-center'?'Start With the Learner. Build the Path.':'Help Your Student Reach the Next Level.'}}</h2><p>Academic support. Emotional support. A path forward.</p><div class="nlu-actions"><router-link class="nlu-button" :to="contextEnrollment">Get started →</router-link><router-link class="nlu-button nlu-outline" :to="path('contact')">Talk with our team →</router-link></div></div><p class="nlu-script">Higher potential<br/>starts here.</p></div></section>
    </template>
@@ -72,6 +72,7 @@
  </div>
 </template>
 <script setup>
+import AgencyContactLines from "../../components/public/AgencyContactLines.vue";
 import AuricWellPartnerBadge from '../../components/public/AuricWellPartnerBadge.vue';
 import { computed,ref,watch,onMounted,onUnmounted } from 'vue';
 import api from '../../services/api';

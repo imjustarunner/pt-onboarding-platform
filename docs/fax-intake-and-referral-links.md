@@ -1,5 +1,17 @@
 # Fax intake and referral directory links
 
+## Inbound referral numbers
+
+The Notifyre referral routes recognize ITSCO at **719-431-8895**, Next Level Up at **719-750-0350**, and The Inner Strength Institute at **719-302-2551**. A route belongs to the agency whose active slug matches the configuration. For additional lines, set `NOTIFYRE_REFERRAL_FAX_ROUTES_JSON` to a JSON object mapping E.164 receiving numbers to agency slugs. An explicit object replaces the built-in routes. An empty object disables them.
+
+In Notifyre, subscribe the existing signed account webhook to **Fax Received**. The primary endpoint is `https://app.itsco.health/api/notifyre/webhook`. The AuricWell alias can accept the configured referral numbers if both routes use the same Notifyre account token. Maintain the carrier's signed BAA reference and keep the signing secret and API token in Secret Manager. Use HTTPS and preserve the raw callback bytes for signature verification. [Notifyre webhook setup](https://support.notifyre.com/creating-a-webhook)
+
+The app acknowledges an authenticated callback after persisting the carrier receipt. A retry-safe worker downloads the PDF over the carrier API, encrypts it with the existing KMS-backed fax key, and opens a generic agency ticket for clear referrals. Billing, records requests, and other non-referrals stay in **Tickets → Fax intake review**. Unreadable or ambiguous faxes remain in that staff queue. Review the original before promoting a fax to a referral ticket. Fax contents and OCR stay out of ticket text, notifications, and logs.
+
+Open a fax referral ticket to review the encrypted original and map the fields. Verify the referring organization against the directory, then choose an existing chart or create a new patient. Filing attaches the encrypted original, creates the incoming referral link, associates the ticket with the client, and marks the referral **Fax referral**. The original document and review accesses are audited. User verification is required before creating a chart, attaching a fax, or associating the referral with a sender.
+
+The public contact pages label the existing main office number, the Notifyre sender eligible for appointment reminders, and the agency's active referral fax. A fax becomes visible after the carrier confirms the number on the same account and the required encryption configuration is available. The backend consumes only the fax event and keeps appointment and provider text assignments in place.
+
 The client manager now offers **New client → From fax**. Select the agency and service organization, upload a downloaded fax, review source text and the original PDF/image, and assign the detected values to client, guardian, contact, insurance, or referring-practice fields. The mapper offers name buttons, an explicit ignore option, corrections, and manual fields. Duplicate field assignments and unreviewed intake block creation. A fax containing multiple detected patients must be split before creating a client.
 
 Select an existing approved directory organization or find/add one using the business lookup. The existing directory approval policy still applies to staff proposals. Public lookup sends only the explicitly entered business name and city/state. It does not receive fax OCR, patient names, dates of birth, or client IDs. New public matches are suggestions for staff review, never automatic identity matches. Directory entries now include fax and source URL fields.
@@ -10,7 +22,7 @@ On existing client charts, **Contacts & relationships → Referrals** supports i
 
 ## Deployment
 
-Apply `database/migrations/1495_fax_intake_referral_links.sql` with the repository migration runner before releasing the server/frontend. No production database migration or deployment was performed as part of this implementation.
+Apply `database/migrations/1495_fax_intake_referral_links.sql` and `database/migrations/1875_inbound_fax_referrals.sql` with the repository migration runner. The inbound worker runs alongside the existing application schedulers.
 
 Use the existing private GCS bucket, application credentials, `REFERRAL_KMS_KEY` (or `DOCUMENTS_KMS_KEY`), demographics encryption configuration (`CLIENT_PHI_ENCRYPTION_KEY_BASE64` or the existing chat key ring), and guardian intake encryption configuration. Fax intake fails closed if these encryption services are not configured. Operational chart fields such as client name, birth date, address, and phone continue using the application's existing database columns; the database's storage encryption and access controls remain necessary. Original faxes, temporary OCR drafts, guardian profiles, and the imported demographics archive are encrypted at the application layer. This change does not assert or certify HIPAA compliance.
 
@@ -22,7 +34,7 @@ For general public business lookup, configure `GOOGLE_MAPS_API_KEY` with Places 
 
 The included Alliance suggestion is **Alliance Urgent Care & Family Practice**, 9320 Grand Cordera Parkway #100, Colorado Springs, CO 80924, phone 719-282-6337, fax 719-282-0532. Contact details were checked on September 28, 2026 against the [practice's own website](https://www.alliancemedicalpractice.com/services/family-practice). It is not automatically inserted into any tenant or presumed to match a particular fax.
 
-This release starts with a fax file uploaded by staff. The repository has no connected inbound fax provider; provider inbox/webhook ingestion is not included. Live OCR, KMS, GCS, Places, and a database migration still need an environment smoke check using synthetic documents before release.
+The manual upload remains available for faxes outside the configured carrier intake. Use synthetic test documents when checking receipt, OCR, encryption, routing, and chart filing in a deployed environment.
 
 ## Verification
 
