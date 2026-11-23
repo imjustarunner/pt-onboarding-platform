@@ -19,6 +19,7 @@ beforeEach(()=>{
   if(sql.startsWith('SELECT t.id FROM chat_threads t JOIN chat_thread_participants p'))return [mocks.rows.filter(row=>row.thread_type==='group' && row.company_event_id).map(row=>({id:row.thread_id}))];
   if(sql.startsWith('SELECT e.* FROM chat_threads')){const group=mocks.rows.find(row=>row.thread_type==='group' && row.company_event_id);return [group?[{id:group.company_event_id,agency_id:group.agency_id,is_active:1,operations_json:{invitedAgencyIds:[20]}}]:[]];}
   if(sql.includes('FROM users u JOIN user_agencies ua'))return [[{id:1,first_name:'Current',last_name:'User',role:'provider',is_active:1,is_archived:0,status:'ACTIVE_EMPLOYEE',agency_id:20,agency_name:'Invited agency'}]];
+  if(sql.startsWith('SELECT 1 FROM user_agencies WHERE user_id'))return [[{1:1}]];
   if(sql.includes('FROM company_event_audiences'))return [[{audience_type:'user',target_id:1}]];
   if(sql.includes('information_schema.tables'))return [mocks.attachments?[{1:1}]:[]];
   if(sql.includes('information_schema.columns'))return [sql.includes("column_name = 'body_ciphertext'") || sql.includes("column_name = 'slug'")?[{1:1}]:[]];
@@ -48,6 +49,17 @@ it('keeps a named event conversation visible after checking a cross-agency invit
  expect(query).toContain("OR (t.thread_type='group' AND t.company_event_id IS NOT NULL AND t.message_channel='internal')");
  expect(calls.some(([sql])=>sql.startsWith('SELECT e.* FROM chat_threads'))).toBe(true);
  expect(calls.some(([sql])=>/^\s*(INSERT|UPDATE|DELETE)\b/.test(sql))).toBe(false);
+});
+it('includes affiliated internal threads in All without widening an agency-specific list',async()=>{
+ await read();
+ const query=()=>mocks.execute.mock.calls.find(([sql])=>sql.includes('SELECT t.id AS thread_id'))[0];
+ expect(query()).toContain('organization_member.user_id=tp.user_id');
+ expect(query()).toContain("t.message_channel='internal' AND t.client_id IS NULL");
+ mocks.execute.mockClear();
+ const res={json:vi.fn()},next=vi.fn();
+ await listMyThreads({user:{id:1,role:'provider'},quickView:{mobileDeviceSessionId:8},query:{agencyId:'20'}},res,next);
+ expect(next).not.toHaveBeenCalled();
+ expect(query()).not.toContain('organization_member');
 });
 it('applies QA scope to attachment lookup and direct-thread reuse before returning IDs',async()=>{
  mocks.execute.mockImplementation(async sql=>sql.includes('information_schema')?[[{1:1}]]:[[]]);

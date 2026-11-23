@@ -8,14 +8,39 @@ import {sentSmsConversationSql,supportReminderSmsConversationSql,latestInboundSm
 import {messageInboxPolicySql,INBOX_REVIEW_CATEGORIES} from '../messageInboxPolicy.js';
 import {describeSmsConversations} from '../smsConversationPresentation.service.js';
 
+// School-scoped team conversations are owned by the parent agency. A current
+// school membership authorizes the participant only while the affiliation is active.
+export function linkedInternalOrganizationSql(participantUserSql) {
+  return `(t.message_channel='internal' AND t.client_id IS NULL AND EXISTS (
+    SELECT 1
+    FROM user_agencies organization_member
+    JOIN agencies organization ON organization.id=organization_member.agency_id
+      AND organization.is_active=1 AND COALESCE(organization.is_archived,0)=0
+    WHERE organization_member.user_id=${participantUserSql}
+      AND organization_member.agency_id=t.organization_id
+      AND COALESCE(organization_member.is_active,1)=1
+      AND (
+        EXISTS (SELECT 1 FROM organization_affiliations affiliation
+          WHERE affiliation.organization_id=t.organization_id AND affiliation.agency_id=t.agency_id AND affiliation.is_active=1)
+        OR EXISTS (SELECT 1 FROM agency_schools school
+          WHERE school.school_organization_id=t.organization_id AND school.agency_id=t.agency_id
+            AND COALESCE(school.is_active,1)=1
+            AND NOT EXISTS (SELECT 1 FROM organization_affiliations current_affiliation
+              WHERE current_affiliation.organization_id=t.organization_id AND current_affiliation.is_active=1))
+      )
+  ))`;
+}
+
 export async function requireMobileThreadMembership(userId,threadId,db=pool,verifyAccess=null){
   if (db === pool && await assertCompanyEventConversationMember({threadId,userId,db})) return true;
   const base=`FROM chat_thread_participants p JOIN chat_threads t ON t.id=p.thread_id
     JOIN agencies a ON a.id=t.agency_id AND a.is_active=1 AND COALESCE(a.is_archived,0)=0
     JOIN users actor ON actor.id=p.user_id AND (LOWER(actor.role)<>'school_staff' OR t.message_channel<>'secure')`;
   const [rows]=await db.execute(`SELECT 1 ${base}
-    JOIN user_agencies ua ON ua.user_id=p.user_id AND ua.agency_id=t.agency_id AND COALESCE(ua.is_active,1)=1
-    WHERE p.thread_id=? AND p.user_id=? LIMIT 1`,[threadId,userId]);
+    WHERE p.thread_id=? AND p.user_id=? AND (
+      EXISTS (SELECT 1 FROM user_agencies ua WHERE ua.user_id=p.user_id AND ua.agency_id=t.agency_id AND COALESCE(ua.is_active,1)=1)
+      OR ${linkedInternalOrganizationSql('p.user_id')}
+    ) LIMIT 1`,[threadId,userId]);
   if(rows.length)return true;
   if(db===pool || verifyAccess){
     const [threads]=await db.execute(`SELECT t.agency_id ${base} WHERE p.thread_id=? AND p.user_id=? LIMIT 1`,[threadId,userId]);

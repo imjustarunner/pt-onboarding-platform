@@ -104,8 +104,17 @@ it('loads Email and Sent rows without unrelated chats, counts, archives, or chan
 it('loads Direct without fetching any email rows or unused counters',async()=>{
  const req=request();req.query={suite:'direct',filter:'all',includeCounts:'0'};const res=response();await getMobileInbox(req,res,vi.fn());expect(mocks.threads).toHaveBeenCalledTimes(1);expect(mocks.archives).toHaveBeenCalledWith(3);for(const spy of [mocks.emails,mocks.emailCounts,mocks.extraCounts,qvListChatChannels])expect(spy).not.toHaveBeenCalled();expect(res.json.mock.calls[0][0].counts).toEqual({});
 });
-it('does not discover empty available channels for All unread',async()=>{
- const req=request();req.query={suite:'all',filter:'unread'};const res=response();await getMobileInbox(req,res,vi.fn());expect(res.json.mock.calls[0][0].items).toHaveLength(1);expect(qvListChatChannels).not.toHaveBeenCalled();
+it('shows read and sent DMs across agencies in All without discovering empty channels',async()=>{
+ mocks.threads.mockImplementation((_req,res)=>res.json([
+  {thread_id:10,agency_id:2,thread_type:'direct',unread_count:0,last_message:{id:50,body:'Read on desktop',sender_user_id:5,created_at:'2026-11-06T10:00:00Z'}},
+  {thread_id:11,agency_id:4,thread_type:'direct',has_sent:true,last_message:{id:51,body:'Sent message',sender_user_id:3,created_at:'2026-11-06T11:00:00Z'}}
+ ]));
+ const res=response();
+ await getMobileInbox(request(),res,vi.fn());
+ expect(res.json.mock.calls[0][0].items.map(({id,agencyId})=>[id,agencyId])).toEqual([[11,4],[10,2]]);
+ expect(mocks.threads.mock.calls[0][0].query.agencyId).toBe('all');
+ expect(res.json.mock.calls[0][0].counts.direct).toMatchObject({total:2,unread:0,sent:1});
+ expect(qvListChatChannels).not.toHaveBeenCalled();
 });
 it('loads drafts in bounded parallel batches without waiting on inbox history or counts',async()=>{
  listMobileAgencies.mockResolvedValue({agencies:[{id:2,name:'Agency two'},{id:4,name:'Agency four'}]});let resolveFirst;const first=new Promise(resolve=>{resolveFirst=resolve;});mocks.drafts.mockImplementation((_user,id)=>id===2?first:Promise.resolve([{id:'newer',subject:'Second agency draft',updated_at:'2026-11-06T13:00:00Z'}]));

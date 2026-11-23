@@ -23,14 +23,14 @@ const inboxReady=ref(false),inboxFailed=ref(false);let inboxScope='';
 const inboxCache=new Map(),inboxFlights=new Map(),chatCache=new Map();
 let inboxRevision=0,countsFlight=null,lastCountsAt=0;
 function rememberInbox(scope,value){inboxCache.set(scope,value);if(inboxCache.size>12)inboxCache.delete(inboxCache.keys().next().value);}
-function cacheInbox(touch=true){if(!inboxScope || !inboxReady.value)return;const previous=inboxCache.get(inboxScope);rememberInbox(inboxScope,{items:items.value.map(item=>({...item})),cursor:cursor.value,counts:{...counts.value},partial:previous?.partial || false,at:touch?Date.now():previous?.at || 0});}
+function cacheInbox(touch=true){if(!inboxScope || !inboxReady.value)return;const previous=inboxCache.get(inboxScope);if(!touch && !previous)return;rememberInbox(inboxScope,{items:items.value.map(item=>({...item})),cursor:cursor.value,counts:{...counts.value},partial:previous?.partial || false,at:touch?Date.now():previous?.at || 0});}
 function invalidateInbox(){++inboxRevision;++inboxRequest;inboxCache.clear();inboxFlights.clear();countsFlight=null;lastCountsAt=0;}
 function deriveInbox(scope){
  const [targetSuite,targetFilter,archived]=scope.split(':');if(!['all','email','sms','groups','direct','channels','secure','unknown','spam'].includes(targetSuite) || !['all','unread','sent'].includes(targetFilter))return null;
  for(const [sourceScope,source] of [...inboxCache].sort((a,b)=>b[1].at-a[1].at)){
   const [sourceSuite,sourceFilter,sourceArchived]=sourceScope.split(':');
   if(sourceArchived!==archived || ![targetSuite,'all'].includes(sourceSuite) || sourceSuite==='all' && targetSuite==='spam' || !['all',targetFilter].includes(sourceFilter) || source.partial)continue;
-  const rows=source.items.filter(item=>(targetSuite==='all'?!item.unknown && !['spam','notices'].includes(item.category):targetSuite==='unknown'?item.unknown:item.category===targetSuite && !item.unknown) && (targetFilter==='unread'?item.unread:targetFilter==='sent'?item.hasSent:true));
+  const rows=source.items.filter(item=>(targetSuite==='all'?!item.unknown && !['spam','notices'].includes(item.category):targetSuite==='unknown'?item.unknown:(item.category===targetSuite || (targetSuite==='direct' && item.isGroupDirect)) && !item.unknown) && (targetFilter==='unread'?item.unread:targetFilter==='sent'?item.hasSent:true));
   const expected=source.counts?.[targetSuite]?.[targetFilter==='unread'?'unread':targetFilter==='sent'?'sent':'total'];
   const complete=Number.isFinite(expected) ? expected===rows.length : !source.cursor;
   // A truncated All page can paint a folder immediately while its own cursor
@@ -128,7 +128,7 @@ watch([inboxReady,()=>props.visible],()=>nextTick(maybeShowSwipeGuide));
 const categories=computed(()=>categoryOrder.value || baseCategories);
 function orderCategories(){if(categoryOrder.value)return;categoryOrder.value=[baseCategories[0],...baseCategories.slice(1).sort((a,b)=>Number((counts.value[b[0]]?.unread||0)>0)-Number((counts.value[a[0]]?.unread||0)>0))];}
 const suite=computed(()=>String(route.query.suite || 'all'));
-const filter=computed(()=>suite.value==='drafts'?'drafts':(route.query.filter==='needs'?'unread':String(route.query.filter || (['all','email'].includes(suite.value)?'unread':'all'))));
+const filter=computed(()=>suite.value==='drafts'?'drafts':(route.query.filter==='needs'?'unread':String(route.query.filter || 'all')));
 const showingDrafts=computed(()=>filter.value==='drafts');
 const includeArchived=computed(()=>route.query.archived==='1');
 const threadId=computed(()=>Number(route.query.threadId)||null),parentId=computed(()=>Number(route.query.parentId)||null);
@@ -174,7 +174,7 @@ function go(query,{replace=false}={}) {return router[replace?'replace':'push']({
 function rememberDraft(){if(!threadId.value)return;drafts.set(draftKey(),{text:reply.value,files:chatFiles.value,threadId:threadId.value,parentId:parentId.value,title:chatTitle.value,secure:secure.value,category:secure.value?'secure':chat.value?.thread_type==='channel'?'channels':chat.value?.thread_type==='direct'?'direct':'groups',agencyLogoUrl:chat.value?.agencyLogoUrl,at:new Date().toISOString()});for(const key of inboxCache.keys())if(key.startsWith('drafts:') || key.split(':')[1]==='drafts')inboxCache.delete(key);}
 function clearFile(){if(fileUrl.value)URL.revokeObjectURL(fileUrl.value);fileUrl.value='';fileData.value=null;filePreview.value=null;}
 function clearChat(){++chatRequest;chatLoading.value=false;hasOlder.value=false;observer?.disconnect();chat.value=null;messages.value=[];secureOpen.value=false;revealNames.value=false;revealedMessages.value=new Set();firstUnreadId.value=null;unreadAbove.value=false;reply.value='';chatFiles.value=[];clearFile();}
-async function changeSuite(value){rememberTabs();rememberListScroll();await go({view:'home',suite:value,filter:['all','email'].includes(value)?'unread':'all',archived:includeArchived.value?'1':undefined});}
+async function changeSuite(value){rememberTabs();rememberListScroll();await go({view:'home',suite:value,filter:'all',archived:includeArchived.value?'1':undefined});}
 async function changeFilter(value){rememberTabs();rememberListScroll();await go({view:'home',suite:suite.value,filter:value,archived:includeArchived.value?'1':undefined});}
 function rememberListScroll(){const pane=document.getElementById('qv-workspace');if(pane)scrollPositions.set(`${suite.value}:${filter.value}`,pane.scrollTop);}
 async function loadInbox({older=false,quiet=false,force=false,refreshCounts=force}={}) {
@@ -348,7 +348,23 @@ async function send(){
   if(chatBusy.value || uploading.value || !reply.value.trim() && !chatFiles.value.length)return;
   const id=threadId.value,pid=parentId.value,key=draftKey(),token=props.sessionToken;chatBusy.value=true;error.value='';
   if(secure.value){const accepted=await sharingNotice.value?.prepareSend();if(!accepted || id!==threadId.value || token!==props.sessionToken){chatBusy.value=false;return;}}
-  try{await axios.post(`${props.apiBase}/chat/threads/${id}/messages`,{body:reply.value.trim(),parentMessageId:pid,attachments:chatFiles.value,...(secure.value?{expectedRecipientUserIds:sharingNotice.value?.recipientUserIds}:{})},config());drafts.delete(key);if(id===threadId.value && pid===parentId.value){reply.value='';chatFiles.value=[];await loadChat({quiet:true});await nextTick();if(timeline.value)timeline.value.scrollTop=timeline.value.scrollHeight;}}
+  try{
+    await axios.post(`${props.apiBase}/chat/threads/${id}/messages`,{
+      body:reply.value.trim(),parentMessageId:pid,attachments:chatFiles.value,
+      ...(secure.value?{expectedRecipientUserIds:sharingNotice.value?.recipientUserIds}:{})
+    },config());
+    if(token!==props.sessionToken)return;
+    drafts.delete(key);
+    invalidateInbox();
+    if(id===threadId.value && pid===parentId.value){
+      reply.value='';chatFiles.value=[];
+      await loadChat({quiet:true});
+      await nextTick();
+      if(timeline.value)timeline.value.scrollTop=timeline.value.scrollHeight;
+    }else if(props.visible && !threadId.value){
+      await loadInbox({quiet:true,force:true});
+    }
+  }
   catch(e){dispatchFamilySharingNoticeRequired(e);error.value=e.response?.data?.error?.message || 'Message was not sent. Your draft is preserved.';if(e.response?.data?.error?.code==='FAMILY_SHARED_AUDIENCE_REVIEW_REQUIRED'){await sharingNotice.value?.refreshAfterAudienceChange();error.value='The eligible recipients changed. Review the updated list before selecting Send again. Your draft is preserved.';}}finally{chatBusy.value=false;}
 }
 async function like(message){try{const path=`${props.apiBase}/chat/messages/${message.id}/reactions`;if(message.reactions?.some(r=>r.code==='❤️' && r.mineActive))await axios.delete(`${path}/${encodeURIComponent('❤️')}`,config());else await axios.post(path,{code:'❤️'},config());await loadChat({quiet:true});}catch{error.value='Could not update your reaction.';}}
@@ -371,12 +387,27 @@ async function syncRoute(){
   else{clearChat();await loadInbox();await restoreTabs(true);await nextTick();const pane=document.getElementById('qv-workspace');if(pane)pane.scrollTop=scrollPositions.get(`${suite.value}:${filter.value}`)||0;}
 }
 watch(()=>route.fullPath,syncRoute);
-watch(()=>props.visible,async visible=>{if(visible){await restoreTabs(true);if(threadId.value){if(!chat.value)await syncRoute();else await loadChat({quiet:true});}else if(!threadId.value)await loadInbox({quiet:true});}else{stopSwipeGuide();closePreview();rowMenu.value=null;spamItem.value=null;commentHistoryOpen.value=false;knownSender.value=null;cancelHold();clearFile();composeMenu.value=false;smsComposeOpen.value=false;closeRecipients();if(secure.value){rememberDraft();clearChat();}}});
+watch(()=>props.visible,async visible=>{if(visible){await restoreTabs(true);if(threadId.value){if(!chat.value)await syncRoute();else await loadChat({quiet:true});}else await loadInbox({quiet:true});}else{stopSwipeGuide();closePreview();rowMenu.value=null;spamItem.value=null;commentHistoryOpen.value=false;knownSender.value=null;cancelHold();clearFile();composeMenu.value=false;smsComposeOpen.value=false;closeRecipients();if(secure.value){rememberDraft();clearChat();}}});
 function markConversationRead(conversation){const item=items.value.find(row=>['email','sms'].includes(row.kind) && Number(row.id)===Number(conversation.id));if(item?.unread)return markRead(item,true);}
 defineExpose({refresh:()=>loadInbox({force:true}),markConversationRead});
-onMounted(async()=>{await syncRoute();timer=setInterval(()=>{if(!props.visible || document.hidden || chatBusy.value || uploading.value || pendingRead.size)return;if(threadId.value)loadChat({quiet:true});else loadInbox({quiet:true,force:true,refreshCounts:Date.now()-lastCountsAt>=30000});},15000);});
+let lastVisibleRefresh=0;
+function refreshVisibleMessages(){
+  if(!props.visible || document.hidden || chatBusy.value || uploading.value || pendingRead.size)return;
+  const now=Date.now();
+  // The focus and visibility events often fire together when returning to the app.
+  if(now-lastVisibleRefresh<3000)return;
+  lastVisibleRefresh=now;
+  if(threadId.value)void loadChat({quiet:true});
+  else void loadInbox({quiet:true,force:true,refreshCounts:now-lastCountsAt>=30000});
+}
+onMounted(()=>{
+  void syncRoute();
+  window.addEventListener('focus',refreshVisibleMessages);
+  document.addEventListener('visibilitychange',refreshVisibleMessages);
+  timer=setInterval(refreshVisibleMessages,15000);
+});
 let noticeTimer;watch(notice,value=>{clearTimeout(noticeTimer);if(value)noticeTimer=setTimeout(()=>{notice.value='';undoItem.value=null;},4500);});
-onUnmounted(()=>{stopSwipeGuide();closePreview();cancelHold();clearTimeout(noticeTimer);clearTimeout(recipientSearchTimer);++recipientRequest;invalidateInbox();clearChat();clearInterval(timer);clearTimeout(scrollTimer);drafts.clear();scrollPositions.clear();chatCache.clear();});
+onUnmounted(()=>{window.removeEventListener('focus',refreshVisibleMessages);document.removeEventListener('visibilitychange',refreshVisibleMessages);stopSwipeGuide();closePreview();cancelHold();clearTimeout(noticeTimer);clearTimeout(recipientSearchTimer);++recipientRequest;invalidateInbox();clearChat();clearInterval(timer);clearTimeout(scrollTimer);drafts.clear();scrollPositions.clear();chatCache.clear();});
 </script>
 
 <template>

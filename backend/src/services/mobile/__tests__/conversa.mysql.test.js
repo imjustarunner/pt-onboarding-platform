@@ -27,13 +27,14 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('personal mobile inbox SQL',
   const options=process.env.MOBILE_MYSQL_SOCKET?{socketPath:process.env.MOBILE_MYSQL_SOCKET}:{host:'127.0.0.1',port:Number(process.env.MOBILE_MYSQL_PORT || 3412)};
   admin=await mysql.createConnection({...options,user:'root',password:process.env.MOBILE_MYSQL_PASSWORD || '',multipleStatements:true});await admin.query(`CREATE DATABASE ${name} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
   db=mysql.createPool({...options,user:'root',password:process.env.MOBILE_MYSQL_PASSWORD || '',database:name,timezone:'+00:00',multipleStatements:true});
-  await db.query(`CREATE TABLE chat_threads(id INT PRIMARY KEY,agency_id INT,message_channel VARCHAR(20));CREATE TABLE chat_thread_participants(thread_id INT,user_id INT);
+  await db.query(`CREATE TABLE chat_threads(id INT PRIMARY KEY,agency_id INT,message_channel VARCHAR(20),organization_id INT,client_id INT);CREATE TABLE chat_thread_participants(thread_id INT,user_id INT);
     CREATE TABLE chat_messages(id INT PRIMARY KEY,thread_id INT,parent_message_id INT,sender_user_id INT);
     CREATE TABLE chat_thread_reads(thread_id INT,user_id INT,last_read_message_id INT);CREATE TABLE chat_message_views(message_id INT,user_id INT);
     CREATE TABLE chat_message_deletes(message_id INT,user_id INT);CREATE TABLE chat_message_mentions(message_id INT,mentioned_user_id INT);
     CREATE TABLE chat_message_attachments(id INT PRIMARY KEY,message_id INT);
     CREATE TABLE agencies(id INT PRIMARY KEY,is_active BOOLEAN DEFAULT 1,is_archived BOOLEAN DEFAULT 0,name VARCHAR(120),logo_url VARCHAR(255),icon_id INT,organization_type VARCHAR(30),slug VARCHAR(90),feature_flags JSON);CREATE TABLE icons(id INT PRIMARY KEY,file_path VARCHAR(255));CREATE TABLE school_profiles(school_organization_id INT,itsco_email VARCHAR(320) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci);CREATE TABLE organization_affiliations(organization_id INT,agency_id INT,is_active BOOLEAN);
     CREATE TABLE users(id INT PRIMARY KEY,email VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,work_email VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci,personal_email VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci,role VARCHAR(40) DEFAULT 'provider',profile_photo_path VARCHAR(255));
+    CREATE TABLE agency_schools(school_organization_id INT,agency_id INT,is_active BOOLEAN);
     CREATE TABLE user_agencies(user_id INT,agency_id INT,is_active BOOLEAN DEFAULT 1);
     CREATE TABLE communication_inboxes(id INT PRIMARY KEY,agency_id INT DEFAULT 10,identity_key VARCHAR(60),kind VARCHAR(20),display_name VARCHAR(255),owner_user_id INT,from_email VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci);
     CREATE TABLE communication_conversations(id INT PRIMARY KEY,agency_id INT,inbox_id INT,owner_user_id INT,channel VARCHAR(20),subject VARCHAR(100),status ENUM('new','needs_reply','waiting_on_them','follow_up','resolved'),last_message_preview TEXT,last_message_at DATETIME,created_at DATETIME,archived_at DATETIME,is_spam BOOLEAN DEFAULT 0,support_ticket_id INT NULL,is_unknown_sender BOOLEAN DEFAULT 0,external_thread_id VARCHAR(80),snoozed_until DATETIME);
@@ -58,7 +59,7 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('personal mobile inbox SQL',
  });
  afterAll(async()=>{await db?.end();if(admin){await admin.query(`DROP DATABASE IF EXISTS ${name}`);await admin.end();}});
  beforeEach(async()=>{
-  await db.query(`TRUNCATE icons;TRUNCATE school_profiles;TRUNCATE organization_affiliations;TRUNCATE support_tickets;TRUNCATE user_communication_contacts;TRUNCATE mobile_secure_deliveries;TRUNCATE chat_threads;TRUNCATE chat_thread_participants;TRUNCATE chat_messages;TRUNCATE chat_thread_reads;TRUNCATE chat_message_views;TRUNCATE chat_message_deletes;TRUNCATE chat_message_mentions;TRUNCATE chat_message_attachments;TRUNCATE mobile_message_archives;TRUNCATE mobile_workspace_preferences;TRUNCATE communication_conversations;TRUNCATE communication_messages;TRUNCATE communication_participants;TRUNCATE communication_conversation_reads;TRUNCATE users;TRUNCATE user_agencies;TRUNCATE agencies;TRUNCATE managed_workspace_groups;TRUNCATE email_sender_identities;TRUNCATE communication_inboxes;TRUNCATE message_logs;TRUNCATE clients;TRUNCATE client_guardians;TRUNCATE user_communications;TRUNCATE support_ticket_email_messages;TRUNCATE communication_links;TRUNCATE twilio_numbers;
+  await db.query(`TRUNCATE icons;TRUNCATE school_profiles;TRUNCATE organization_affiliations;TRUNCATE agency_schools;TRUNCATE support_tickets;TRUNCATE user_communication_contacts;TRUNCATE mobile_secure_deliveries;TRUNCATE chat_threads;TRUNCATE chat_thread_participants;TRUNCATE chat_messages;TRUNCATE chat_thread_reads;TRUNCATE chat_message_views;TRUNCATE chat_message_deletes;TRUNCATE chat_message_mentions;TRUNCATE chat_message_attachments;TRUNCATE mobile_message_archives;TRUNCATE mobile_workspace_preferences;TRUNCATE communication_conversations;TRUNCATE communication_messages;TRUNCATE communication_participants;TRUNCATE communication_conversation_reads;TRUNCATE users;TRUNCATE user_agencies;TRUNCATE agencies;TRUNCATE managed_workspace_groups;TRUNCATE email_sender_identities;TRUNCATE communication_inboxes;TRUNCATE message_logs;TRUNCATE clients;TRUNCATE client_guardians;TRUNCATE user_communications;TRUNCATE support_ticket_email_messages;TRUNCATE communication_links;TRUNCATE twilio_numbers;
     INSERT INTO agencies(id) VALUES(10),(20);
     INSERT INTO users(id,email,work_email,personal_email) VALUES(1,'owner@example.invalid',NULL,NULL),(2,'staff@example.invalid',NULL,'personal@example.invalid');
     INSERT INTO user_agencies VALUES(1,10,1),(2,10,1);
@@ -197,9 +198,30 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('personal mobile inbox SQL',
   await db.execute('INSERT INTO chat_message_views VALUES(101,1)');expect((await store.extraCounts(1,[10])).threads.unread).toBe(0);
  });
  it('keeps current membership and school-staff secure-message restrictions on device sign-ins',async()=>{
-  await db.query(`INSERT INTO chat_threads VALUES(10,10,'internal'),(11,10,'secure');INSERT INTO chat_thread_participants VALUES(10,1),(11,1),(10,2),(11,2);UPDATE users SET role='school_staff' WHERE id=2;`);
+  await db.query(`INSERT INTO chat_threads(id,agency_id,message_channel) VALUES(10,10,'internal'),(11,10,'secure');INSERT INTO chat_thread_participants VALUES(10,1),(11,1),(10,2),(11,2);UPDATE users SET role='school_staff' WHERE id=2;`);
   await expect(requireMobileThreadMembership(1,11,db)).resolves.toBe(true);await expect(requireMobileThreadMembership(2,10,db)).resolves.toBe(true);
   await expect(requireMobileThreadMembership(2,11,db)).rejects.toMatchObject({status:403});await db.execute('UPDATE user_agencies SET is_active=0 WHERE user_id=1');await expect(requireMobileThreadMembership(1,11,db)).rejects.toMatchObject({status:403});
+ });
+ it('opens linked organization chats for current participants and rejects revoked, secure, and unrelated threads',async()=>{
+  await db.query(`
+    INSERT INTO agencies(id,organization_type) VALUES(77,'school');
+    INSERT INTO organization_affiliations VALUES(77,20,1);
+    INSERT INTO user_agencies VALUES(1,77,1);
+    INSERT INTO chat_threads(id,agency_id,message_channel,organization_id) VALUES
+      (10,20,'internal',77),(11,20,'secure',77),(12,20,'internal',NULL),(13,20,'internal',77);
+    INSERT INTO chat_thread_participants VALUES(10,1),(11,1),(12,1),(13,2);
+  `);
+  await expect(requireMobileThreadMembership(1,10,db)).resolves.toBe(true);
+  for(const thread of [11,12,13])await expect(requireMobileThreadMembership(1,thread,db)).rejects.toMatchObject({status:403});
+  await db.execute('UPDATE organization_affiliations SET is_active=0 WHERE organization_id=77');
+  await expect(requireMobileThreadMembership(1,10,db)).rejects.toMatchObject({status:403});
+  await db.execute('INSERT INTO agency_schools VALUES(77,20,1)');
+  await expect(requireMobileThreadMembership(1,10,db)).resolves.toBe(true);
+  await db.execute('INSERT INTO organization_affiliations VALUES(77,10,1)');
+  await expect(requireMobileThreadMembership(1,10,db)).rejects.toMatchObject({status:403});
+  await db.execute('DELETE FROM organization_affiliations');
+  await db.execute('UPDATE user_agencies SET is_active=0 WHERE user_id=1 AND agency_id=77');
+  await expect(requireMobileThreadMembership(1,10,db)).rejects.toMatchObject({status:403});
  });
  it('orders mixed source kinds consistently when a timestamp has more than a page',async()=>{
   await seedMailRange(1000,1105);
@@ -248,7 +270,7 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('personal mobile inbox SQL',
   await store.savePreferences(1,{swipeRight:'unread',navigationMode:'pinned',pinnedNavigation:['mywork','home']});expect(await store.preferences(1)).toMatchObject({swipeRight:'unread',navigationMode:'pinned',pinnedNavigation:['mywork','home']});expect((await store.preferences(2)).swipeRight).toBe('read');
  });
  it('keeps personal mail from a group sender separate from authorized actual group inbox delivery',async()=>{
-  await db.query(`INSERT INTO chat_threads VALUES(30,10,'internal');INSERT INTO chat_thread_participants VALUES(30,1);
+  await db.query(`INSERT INTO chat_threads(id,agency_id,message_channel) VALUES(30,10,'internal');INSERT INTO chat_thread_participants VALUES(30,1);
     INSERT INTO managed_workspace_groups(id,agency_id,chat_thread_id,email)VALUES(1,10,30,'clinical@example.invalid');
     INSERT INTO communication_inboxes(id,agency_id,kind,identity_key,from_email)VALUES(3,10,'shared','clinical','clinical@example.invalid'),(4,10,'shared','payroll','payroll@example.invalid');`);
   await mail(1,{email:'clinical@example.invalid'});await mail(2,{owner:2,inbox:2,email:'clinical@example.invalid'});await mail(3,{owner:0,inbox:3,email:'outside@example.invalid'});await mail(4,{owner:0,inbox:4});await mail(5,{email:'ordinary@example.invalid'});

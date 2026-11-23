@@ -111,8 +111,50 @@ it('keeps email composition in Email and provides explicit choices in All',async
  await start('/mobile/workspace?view=home&suite=email');await wrapper.get('[aria-label="New email"]').trigger('click');expect(wrapper.emitted('compose-email')).toHaveLength(1);
  await wrapper.findAll('.mm-categories button').find(button=>button.text().startsWith('All')).trigger('click');await flushPromises();await wrapper.get('[aria-label="New message"]').trigger('click');expect(wrapper.get('[aria-label="New message options"]').text()).toContain('New direct message');expect(wrapper.get('[aria-label="New message options"]').text()).toContain('New email');
 });
-it('defaults All to unread while preserving an explicit All filter choice',async()=>{
- await start('/mobile/workspace?view=home');expect(api.get.mock.calls[0][1].params).toMatchObject({suite:'all',filter:'unread'});expect(wrapper.findAll('.mm-filters button')[1].attributes('aria-pressed')).toBe('true');await wrapper.findAll('.mm-filters button')[0].trigger('click');await flushPromises();expect(api.get.mock.calls.at(-1)[1].params.filter).toBe('all');
+it('opens All in Inbox with read and sent DMs across agencies and keeps Unread selectable',async()=>{
+ const received={...direct,agencyName:'Agency One'};
+ const sent={...direct,id:12,key:'chat:12',title:'Second teammate',agencyName:'Agency Two',unread:false,unreadCount:0,hasSent:true};
+ api.get.mockResolvedValue({data:{items:[received,sent],counts:{all:{total:2,unread:1,sent:1}},nextCursor:null}});
+ await start('/mobile/workspace?view=home');
+ expect(api.get.mock.calls[0][1].params).toMatchObject({suite:'all',filter:'all'});
+ expect(wrapper.findAll('.mm-filters button')[0].attributes('aria-pressed')).toBe('true');
+ expect(row('Jordan').text()).toContain('Agency One');
+ expect(row('Second teammate').text()).toContain('Agency Two');
+ await wrapper.findAll('.mm-filters button')[1].trigger('click');await flushPromises();
+ expect(wrapper.findAll('.mm-filters button')[1].attributes('aria-pressed')).toBe('true');
+ expect(row('Second teammate')).toBeUndefined();
+});
+it('refreshes the previously loaded inbox on return after sending a direct message',async()=>{
+ const get=api.get.getMockImplementation();
+ let sent=false;
+ api.post.mockImplementation(async(url)=>{
+  if(url.endsWith('/chat/threads/10/messages'))sent=true;
+  return {data:{ok:true}};
+ });
+ api.get.mockImplementation((url,options)=>{
+  if(url.endsWith('/messages/inbox')){
+   return Promise.resolve({data:{items:sent?[{...direct,unread:false,hasSent:true,preview:'My first message'}]:[],counts:{direct:{total:sent?1:0,sent:sent?1:0}},nextCursor:null}});
+  }
+  return get(url,options);
+ });
+ await start();
+ await router.push('/mobile/workspace?view=home&suite=direct&threadId=10');await flushPromises();
+ await wrapper.get('.mm-composer textarea').setValue('My first message');
+ await wrapper.get('.mm-composer').trigger('submit');await flushPromises();
+ await back();
+ expect(row('Jordan').text()).toContain('My first message');
+ expect(api.get.mock.calls.filter(([url])=>url.endsWith('/messages/inbox'))).toHaveLength(2);
+});
+it('revalidates a cached inbox once when foreground events arrive together',async()=>{
+ const get=api.get.getMockImplementation();
+ api.get.mockResolvedValueOnce({data:{items:[],counts:{direct:{total:0}},nextCursor:null}}).mockImplementation(get);
+ await start();
+ expect(row('Jordan')).toBeUndefined();
+ window.dispatchEvent(new Event('focus'));
+ document.dispatchEvent(new Event('visibilitychange'));
+ await flushPromises();
+ expect(row('Jordan')).toBeTruthy();
+ expect(api.get.mock.calls.filter(([url])=>url.endsWith('/messages/inbox'))).toHaveLength(2);
 });
 it('shows the Archive label at the exposed right edge with its own color class',async()=>{
  await start();const card=row('Jordan');pointer(card,'pointerdown',200,100);pointer(card,'pointermove',90,101);await flushPromises();const swipe=card.element.closest('.mm-swipe');expect(swipe.classList.contains('swipe-left')).toBe(true);expect(swipe.classList.contains('action-archive')).toBe(true);expect(swipe.querySelector('.mm-swipe-label').textContent).toBe('Archive');pointer(card,'pointercancel',90,101);await flushPromises();pointer(card,'pointerdown',80,100);pointer(card,'pointermove',190,101);await flushPromises();expect(swipe.classList.contains('swipe-left')).toBe(false);expect(swipe.classList.contains('action-read')).toBe(true);expect(swipe.querySelector('.mm-swipe-label').textContent).toBe('Read');
@@ -136,7 +178,7 @@ it('opens the channel browser from Channels plus and filters authorized channels
 it('exposes saved email drafts and reopens the exact draft and originating agency',async()=>{
  const original=api.get.getMockImplementation();api.get.mockImplementation(async(url,config)=>config?.params?.suite==='drafts'?{data:{items:[{key:'draft:abc',kind:'draft',id:'abc',agencyId:20,title:'Saved synthetic draft',sender:'recipient@example.invalid',preview:'Unsent content'}],counts:{drafts:{total:1,unread:0,needs:0}}}}:original(url,config));await start('/mobile/workspace?view=home&suite=drafts');expect(wrapper.text()).toContain('Saved synthetic draft');await wrapper.get('.mm-row').trigger('click');expect(wrapper.emitted('compose-email')[0][0]).toEqual({draftId:'abc',agencyId:20});
 });
-it('keeps Show all explicit when All starts in the unread view',async()=>{await start('/mobile/workspace?view=home&suite=all');const link=wrapper.findAll('button').find(b=>b.text()==='Go to Inbox');expect(link).toBeTruthy();await link.trigger('click');await flushPromises();expect(router.currentRoute.value.query.filter).toBe('all');});
+it('allows a return to Inbox from the explicit All unread view',async()=>{await start('/mobile/workspace?view=home&suite=all&filter=unread');const link=wrapper.findAll('button').find(b=>b.text()==='Go to Inbox');expect(link).toBeTruthy();await link.trigger('click');await flushPromises();expect(router.currentRoute.value.query.filter).toBe('all');});
 
 it('keeps the keyboard closed on opening Direct and shows the agency mark below a photo',async()=>{
  const original=api.get.getMockImplementation();api.get.mockImplementation((url,options)=>url.endsWith('/directory')?Promise.resolve({data:{providers:[{id:2,displayName:'Synthetic Teammate',agencyId:4,agencyName:'ITSCO',profilePhotoUrl:'photos/person.png',agencyLogoUrl:'/email-signatures/staff-html/itsco-main-logo.png'}]}}):original(url,options));
@@ -264,15 +306,18 @@ it('keeps real-row swipe guidance still for reduced motion and cancels its timer
  vi.stubGlobal('matchMedia',()=>({matches:true}));vi.useFakeTimers();try{await start();expect(wrapper.get('.is-demonstrating').attributes('style')).toContain('translateX(0px)');await vi.advanceTimersByTimeAsync(1200);expect(wrapper.get('.is-demonstrating').attributes('style')).toContain('translateX(0px)');await wrapper.setProps({visible:false});await vi.advanceTimersByTimeAsync(3100);expect(wrapper.find('.is-demonstrating').exists()).toBe(false);expect(api.patch).not.toHaveBeenCalled();expect(api.post).not.toHaveBeenCalled();}finally{vi.useRealTimers();}
 });
 
-it('defaults Email to Unread, while explicit All remains selectable',async()=>{
- await start('/mobile/workspace?view=home&suite=email');expect(api.get.mock.calls[0][1].params).toMatchObject({suite:'email',filter:'unread'});await router.push('/mobile/workspace?view=home&suite=email&filter=all');await flushPromises();expect(api.get.mock.calls.at(-1)[1].params.filter).toBe('all');
+it('opens the Email category in Inbox and preserves an explicit Unread link',async()=>{
+ await start('/mobile/workspace?view=home&suite=email&filter=unread');
+ expect(api.get.mock.calls[0][1].params).toMatchObject({suite:'email',filter:'unread'});
+ await wrapper.findAll('.mm-categories button').find(button=>button.text().startsWith('Email')).trigger('click');await flushPromises();
+ expect(api.get.mock.calls.at(-1)[1].params).toMatchObject({suite:'email',filter:'all'});
 });
 it('opens a complete Email folder directly from authorized All rows without another inbox request',async()=>{
  const email={key:'email:70',id:70,kind:'email',category:'email',title:'CACHED EMAIL',unread:true};api.get.mockResolvedValue({data:{items:[{...direct},email],counts:{all:{unread:2},email:{unread:1},direct:{unread:1}},nextCursor:null}});await start('/mobile/workspace?view=home&suite=all');const before=api.get.mock.calls.length;
  await router.push('/mobile/workspace?view=home&suite=email');await flushPromises();expect(wrapper.text()).toContain('CACHED EMAIL');expect(wrapper.text()).not.toContain('Jordan Example');expect(wrapper.text()).not.toContain('Loading your conversations');expect(api.get.mock.calls.length).toBe(before);
 });
 it('paints a partial cached Email folder during its own page request and never reuses the All cursor',async()=>{
- const email={key:'email:70',id:70,kind:'email',category:'email',title:'CACHED EMAIL',unread:true};let finish;api.get.mockImplementation((_url,{params})=>params.suite==='all'?Promise.resolve({data:{items:[email],counts:{all:{unread:90},email:{unread:60}},nextCursor:'ALL-CURSOR'}}):new Promise(resolve=>{finish=resolve;}));await start('/mobile/workspace?view=home&suite=all');await router.push('/mobile/workspace?view=home&suite=email');await flushPromises();expect(wrapper.text()).toContain('CACHED EMAIL');expect(wrapper.text()).not.toContain('Loading your conversations');expect(api.get.mock.calls.at(-1)[1].params).toMatchObject({suite:'email',filter:'unread',includeCounts:'0',cursor:undefined});expect(wrapper.find('.mm-load').exists()).toBe(false);
+ const email={key:'email:70',id:70,kind:'email',category:'email',title:'CACHED EMAIL',unread:true};let finish;api.get.mockImplementation((_url,{params})=>params.suite==='all'?Promise.resolve({data:{items:[email],counts:{all:{total:90},email:{total:60}},nextCursor:'ALL-CURSOR'}}):new Promise(resolve=>{finish=resolve;}));await start('/mobile/workspace?view=home&suite=all');await router.push('/mobile/workspace?view=home&suite=email');await flushPromises();expect(wrapper.text()).toContain('CACHED EMAIL');expect(wrapper.text()).not.toContain('Loading your conversations');expect(api.get.mock.calls.at(-1)[1].params).toMatchObject({suite:'email',filter:'all',includeCounts:'0',cursor:undefined});expect(wrapper.find('.mm-load').exists()).toBe(false);
  finish({data:{items:[email,{...email,id:71,key:'email:71',title:'REST OF EMAIL'}],counts:{},nextCursor:'EMAIL-CURSOR'}});await flushPromises();expect(wrapper.text()).toContain('REST OF EMAIL');expect(wrapper.find('.mm-load').exists()).toBe(true);
 });
 it('reuses a completed All page for Sent without inventing sent status from the latest author',async()=>{
@@ -283,7 +328,7 @@ it('shares an in-flight folder request across rapid returns and warms only that 
  finish({data:{items:[{key:'email:70',id:70,kind:'email',category:'email',title:'SHARED FLIGHT',unread:true}],counts:{},nextCursor:null}});await flushPromises();expect(wrapper.text()).toContain('SHARED FLIGHT');expect(wrapper.text()).not.toContain('Jordan Example');
 });
 it('rejects a pre-read refresh response even after a post-read refresh has started',async()=>{
- const email={key:'email:70',id:70,kind:'email',category:'email',title:'STALE UNREAD',unread:true};api.get.mockResolvedValue({data:{items:[email],counts:{all:{unread:1},email:{unread:1}},nextCursor:null}});await start('/mobile/workspace?view=home&suite=email');let oldFinish,newFinish;api.get.mockImplementationOnce(()=>new Promise(resolve=>{oldFinish=resolve;})).mockImplementationOnce(()=>new Promise(resolve=>{newFinish=resolve;}));const old=wrapper.vm.refresh();await flushPromises();const read=wrapper.vm.markConversationRead({id:70});await flushPromises();expect(newFinish).toBeTypeOf('function');expect(wrapper.text()).not.toContain('STALE UNREAD');oldFinish({data:{items:[{...email}],counts:{all:{unread:1},email:{unread:1}},nextCursor:null}});await old;await flushPromises();expect(wrapper.text()).not.toContain('STALE UNREAD');newFinish({data:{items:[],counts:{all:{unread:0},email:{unread:0}},nextCursor:null}});await read;await flushPromises();expect(wrapper.emitted('counts').at(-1)[0].all.unread).toBe(0);
+ const email={key:'email:70',id:70,kind:'email',category:'email',title:'STALE UNREAD',unread:true};api.get.mockResolvedValue({data:{items:[email],counts:{all:{unread:1},email:{unread:1}},nextCursor:null}});await start('/mobile/workspace?view=home&suite=email&filter=unread');let oldFinish,newFinish;api.get.mockImplementationOnce(()=>new Promise(resolve=>{oldFinish=resolve;})).mockImplementationOnce(()=>new Promise(resolve=>{newFinish=resolve;}));const old=wrapper.vm.refresh();await flushPromises();const read=wrapper.vm.markConversationRead({id:70});await flushPromises();expect(newFinish).toBeTypeOf('function');expect(wrapper.text()).not.toContain('STALE UNREAD');oldFinish({data:{items:[{...email}],counts:{all:{unread:1},email:{unread:1}},nextCursor:null}});await old;await flushPromises();expect(wrapper.text()).not.toContain('STALE UNREAD');newFinish({data:{items:[],counts:{all:{unread:0},email:{unread:0}},nextCursor:null}});await read;await flushPromises();expect(wrapper.emitted('counts').at(-1)[0].all.unread).toBe(0);
 });
 it('clears cached rows and counters on a delayed denied request even after moving to a cached category',async()=>{
  await start();let deny;api.get.mockImplementation(()=>new Promise((_resolve,reject)=>{deny=reject;}));await router.push('/mobile/workspace?view=home&suite=email');await flushPromises();await router.push('/mobile/workspace?view=home&suite=direct');await flushPromises();expect(wrapper.text()).toContain('Jordan Example');deny({response:{status:403,data:{error:{message:'Access revoked'}}}});await flushPromises();expect(wrapper.text()).not.toContain('Jordan Example');expect(wrapper.emitted('counts').at(-1)[0]).toEqual({});expect(JSON.stringify({...localStorage})).not.toContain('Jordan Example');

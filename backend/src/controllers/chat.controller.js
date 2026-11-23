@@ -1,7 +1,7 @@
 import { assertCompanyEventConversationMember, pruneUserCompanyEventConversations } from '../services/companyEventConversation.service.js';
 import { familyMessageVisibilitySql, assertCanReadFamilySecureMessage, describeFamilySecureThread } from '../services/familySecureMessageAccess.service.js';
 import {listMobileAgencies} from '../services/mobile/agencyScope.service.js';
-import {requireMobileThreadMembership} from '../services/mobile/conversa.service.js';
+import {linkedInternalOrganizationSql,requireMobileThreadMembership} from '../services/mobile/conversa.service.js';
 import {mobileQaAgencyId,mobileQaScopeError} from '../services/mobile/qaConversaScope.service.js';
 import { assertSecureAttachmentPath } from '../services/secureChatAttachment.service.js';
 import { ensureClientSecureConversation, resolveClientForSecureRecipients, refreshClientSecureAccess } from '../services/clientSecureConversation.service.js';
@@ -920,28 +920,29 @@ export const listMyThreads = async (req, res, next) => {
     if(!mobileQaAgencyId(req))await refreshSharedChildMemberships(req.user.id);
     const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
 
-    let agencyIds = [];
-    if (agencyId) {
-      await assertAgencyOrOrgAccess(req.user, agencyId);
+    const mobile = Boolean(req.quickView?.mobileDeviceSessionId);
+    const userId = req.user.id;
+    let agencyIds;
+    if (agencyId) await assertAgencyOrOrgAccess(req.user, agencyId);
+    if (mobile) {
+      const current = await User.findById(userId, { raw: true });
+      const { agencies } = await listMobileAgencies(current);
+      agencyIds = agencies.map(a => Number(a.id)).filter(id => !agencyId || id === agencyId);
+    } else if (agencyId) {
       agencyIds = [agencyId];
+    } else if (req.user.role === 'super_admin') {
+      const [agencies] = await pool.execute('SELECT id FROM agencies WHERE COALESCE(is_archived,0)=0');
+      agencyIds = agencies.map(a => a.id);
     } else {
-      if (req.user.role === 'super_admin') {
-        const [a] = await pool.execute(
-          `SELECT id
-           FROM agencies
-           WHERE (is_archived = FALSE OR is_archived IS NULL)`
-        );
-        agencyIds = (a || []).map((r) => r.id);
-      } else {
-        const agencies = await User.getAgencies(req.user.id);
-        agencyIds = (agencies || []).map((a) => a.id);
-      }
+      agencyIds = (await User.getAgencies(userId) || []).map(a => a.id);
     }
 
-    if(req.quickView?.mobileDeviceSessionId){const current=await User.findById(req.user.id,{raw:true});const scope=await listMobileAgencies(current);agencyIds=scope.agencies.map(a=>Number(a.id)).filter(id=>!agencyId || id===agencyId);}
-    const userId = req.user.id;
-    if (!agencyIds.length) return res.json([]);
-    const placeholders = agencyIds.map(() => '?').join(',');
+    const linkedOrganizationAccess = mobile && !mobileQaAgencyId(req) && !agencyId
+      ? linkedInternalOrganizationSql('tp.user_id')
+      : null;
+    if (!agencyIds.length && !linkedOrganizationAccess) return res.json([]);
+    const ownerScope = agencyIds.length ? `t.agency_id IN (${agencyIds.map(() => '?').join(',')})` : '0=1';
+    const organizationScope = linkedOrganizationAccess ? `OR ${linkedOrganizationAccess}` : '';
     const hasTeamCol = await hasChatThreadsTeamColumn();
     const teamCol = hasTeamCol ? ', t.team_id' : '';
     let channelCols = '';
@@ -1001,10 +1002,10 @@ export const listMyThreads = async (req, res, next) => {
          ORDER BY m.id DESC
          LIMIT 1
        )
-       WHERE (t.agency_id IN (${placeholders}) OR (t.thread_type='group' AND t.company_event_id IS NOT NULL AND t.message_channel='internal'))
+       WHERE (${ownerScope} OR (t.thread_type='group' AND t.company_event_id IS NOT NULL AND t.message_channel='internal') ${organizationScope})
          ${req.quickView && !req.quickView.mobileDeviceSessionId ? "AND t.message_channel = 'internal'" : ''}
          ${req.quickView?.mobileDeviceSessionId && req.user.role==='school_staff'?"AND t.message_channel='internal'":''}
-         ${req.quickView?.mobileDeviceSessionId?`AND COALESCE(a.is_active,1)=1 AND COALESCE(a.is_archived,0)=0`:''}
+         ${mobile?'AND a.is_active=1 AND COALESCE(a.is_archived,0)=0':''}
          AND (td.deleted_at IS NULL OR (lm.created_at IS NOT NULL AND lm.created_at > td.deleted_at))
        ORDER BY t.updated_at DESC`,
       [userId, userId, userId, userId, userId, userId, ...agencyIds]
