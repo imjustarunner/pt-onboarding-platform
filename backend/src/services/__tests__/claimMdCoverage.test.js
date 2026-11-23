@@ -4,6 +4,7 @@ vi.mock('../../config/clinicalDatabase.js',()=>({default:{execute:vi.fn()}}));
 vi.mock('../familyBillingPolicy.service.js',()=>({billingError:(status,message)=>Object.assign(new Error(message),{status}),auditBilling:vi.fn()}));
 import {buildEligibilityRequest,summarizeEligibility,eligibilityIdentityMatches,validateCoverageReview,coverageFingerprint,coverageReviewBlockers,runCoverageCheck,assertCoverageCollectionSafe,listCoverageEvidence} from '../coverageVerification.service.js';
 import {decryptFamilyBilling,encryptFamilyBilling} from '../familyBillingEncryption.service.js';
+import {claimMdFailure,takeClaimMdFailureEvidence} from '../claimMdEligibilityErrors.js';
 it('records previous-EHR evidence without treating it as verified current payer eligibility',()=>{
  const input={source:'other_ehr',status:'unresolved',reference:'Copied policy and previous verification from the former EHR'};
  expect(()=>validateCoverageReview(input,{primary:{memberId:'SYNTHETIC'}})).not.toThrow();
@@ -142,4 +143,21 @@ it('preserves an already saved payer response when follow-up audit processing fa
  const db={execute:vi.fn(async sql=>sql.startsWith('INSERT')?[{insertId:82}]:[{}])};
  const result=await runCoverageCheck({agencyId:1,clientId:2,slot:'primary',serviceDate:'2026-11-22',requestKey:'saved-response-82',actorUserId:5,profile},{db,request:async()=>({elig:[]}),readInsurance:async()=>insurance(),queueFollowUp:vi.fn()});
  expect(result).toMatchObject({id:82,status:'returned',processingWarning:expect.stringContaining('saved')});expect(db.execute.mock.calls.some(([sql])=>sql.includes("status='error'"))).toBe(false);
+});
+it('stores original vendor errors only in encrypted client evidence and logs a correlatable safe reference',async()=>{
+ const db={execute:vi.fn(async sql=>sql.startsWith('INSERT')?[{insertId:315}]:[{}])};
+ const failure=claimMdFailure({httpStatus:200,body:{error:{error_code:'999',error_mesg:'Unrecognized error for PRIVATE_MEMBER; key secret-key'}},secretValues:['secret-key']});
+ const warn=vi.spyOn(console,'warn').mockImplementation(()=>{}),request=vi.fn(async()=>{throw failure;});
+ const thrown=await runCoverageCheck({agencyId:1,clientId:2,slot:'primary',serviceDate:'2026-11-22',requestKey:'protected-response-315',profile},{db,request,readInsurance:async()=>insurance(),queueFollowUp:vi.fn()}).catch(e=>e);
+ expect(thrown).toMatchObject({coverageCheckId:315,code:'CLAIM_MD_REQUEST_REJECTED'});
+ expect(JSON.stringify(thrown)+JSON.stringify(warn.mock.calls)).not.toMatch(/PRIVATE_MEMBER|secret-key/);
+ expect(warn).toHaveBeenCalledWith(expect.stringContaining('"coverageCheckId":315'));
+ const encrypted=db.execute.mock.calls.find(([sql])=>sql.includes("status='error'"))[1][0];
+ expect(encrypted).not.toMatch(/PRIVATE_MEMBER|secret-key/);
+ const saved=decryptFamilyBilling(encrypted,'coverage:1:2');
+ expect(saved.failure.vendorResponse.errors[0].message).toContain('PRIVATE_MEMBER');
+ expect(JSON.stringify(saved)).not.toContain('secret-key');
+ expect(()=>decryptFamilyBilling(encrypted,'coverage:9:2')).toThrow();
+ expect(takeClaimMdFailureEvidence(thrown)).toBeUndefined();expect(request).toHaveBeenCalledTimes(1);
+ warn.mockRestore();
 });

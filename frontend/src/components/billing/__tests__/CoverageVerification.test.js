@@ -131,5 +131,23 @@ it('shows automatic queue status and prevents duplicate manual checks while it i
 it('requires fresh confirmations for new evidence while retaining the typed reference and form',async()=>{
  let reads=0;api.get.mockImplementation(async url=>({data:url.endsWith('billing-offices')?{items:[]}:{checks:[],blockers:[],reviewToken:++reads===1?'old-evidence':'new-evidence'}}));
  const w=mount(Coverage,{props:{agencyId:1,clientId:2}});await flushPromises();const form=w.get('form').element;await w.get('textarea').setValue('Retain dated portal reference');w.vm.$.setupState.draft.primaryChecked=true;w.vm.$.setupState.draft.status='verified';
- await w.vm.refresh();await flushPromises();expect(w.get('form').element).toBe(form);expect(w.get('textarea').element.value).toBe('Retain dated portal reference');expect(w.vm.$.setupState.draft.primaryChecked).toBe(false);expect(w.vm.$.setupState.draft.status).toBe('unresolved');expect(w.text()).toContain('New coverage evidence arrived');w.unmount();
+ await w.vm.refresh();await flushPromises();expect(w.get('form').element).toBe(form);expect(w.get('textarea').element.value).toBe('Retain dated portal reference');expect(w.vm.$.setupState.draft.primaryChecked).toBe(false);expect(w.vm.$.setupState.draft.status).toBe('unresolved');expect(w.text()).toContain('Verification history changed');w.unmount();
+});
+it('opens saved failure details after a check while retaining the review and rendering vendor text safely',async()=>{
+ let reads=0;
+ api.get.mockImplementation(async url=>({data:url.endsWith('billing-offices')?{items:[{id:8,name:'Office',practice_npi:'1306688650'}]}:{reviewToken:++reads===1?'before':'after',checks:reads===1?[]:[{id:315,policy_slot:'primary',status:'error',evidence:{failure:{message:'Request needs review',upstreamStatus:200,vendorResponse:{responseFormat:'json',errors:[{code:'999',message:'Unrecognized request: <script>UNTRUSTED</script>',fields:'prov_npi'}]}}}}],blockers:[]}}));
+ api.post.mockRejectedValue({response:{data:{error:{message:'Request needs review',coverageCheckId:315}}}});
+ const w=mount(Coverage,{props:{agencyId:1,clientId:2}});await flushPromises();
+ const form=w.get('form').element;await w.get('textarea').setValue('Preserve billing reference');
+ await w.findAll('button').find(b=>b.text()==='Check primary eligibility').trigger('click');await flushPromises();
+ expect(w.get('.verification-history').attributes('open')).toBeDefined();
+ expect(w.text()).toContain('Check #315');expect(w.text()).toContain('Unrecognized request: <script>UNTRUSTED</script>');
+ expect(w.find('script').exists()).toBe(false);expect(w.text()).toContain('Fields: prov_npi');
+ expect(w.text()).not.toContain('New coverage evidence arrived');expect(w.get('form').element).toBe(form);expect(w.get('textarea').element.value).toBe('Preserve billing reference');
+ expect(api.post).toHaveBeenCalledTimes(1);w.unmount();
+});
+it('explains why older generic failures have no recoverable vendor details',async()=>{
+ api.get.mockImplementation(async url=>({data:url.endsWith('billing-offices')?{items:[]}:{checks:[{id:315,status:'error',evidence:{failure:{code:'CLAIM_MD_REQUEST_REJECTED',message:'Old generic message'}}}],blockers:[]}}));
+ const w=mount(Coverage,{props:{agencyId:1,clientId:2}});await flushPromises();
+ expect(w.text()).toContain('not retained for this older check');expect(api.post).not.toHaveBeenCalled();w.unmount();
 });

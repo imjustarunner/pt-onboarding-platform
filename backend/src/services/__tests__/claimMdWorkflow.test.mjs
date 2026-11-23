@@ -100,7 +100,7 @@ test('invalid response cursors roll back instead of silently skipping data', asy
 });
 test('adapter keeps AccountKey server-owned and rejects HTTP-200 error bodies', async t => {
   let request;
-  t.mock.method(globalThis, 'fetch', async (url, options) => { request = options; return { ok: true, text: async () => JSON.stringify({ payer: [] }) }; });
+  t.mock.method(globalThis, 'fetch', async (url, options) => { request = options; return { ok: true, text: async () => JSON.stringify({ error: [], elig: { ins_number: 'SYNTHETIC' } }) }; });
   t.mock.method(pool, 'execute', async()=>[[{id:2,slug:'itsco',feature_flags:{}}]]);
   await requestEligibilityJson({ agencyId:2, accountKey: 'ours', payload: { AccountKey: 'attacker' } });
   assert.equal(request.body.get('AccountKey'), 'ours');

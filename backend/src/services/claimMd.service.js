@@ -4,7 +4,7 @@ import { normalizeUsStateCode } from '../utils/usStateTimezone.js';
 import { policyIsMedicaid } from '../utils/insurancePaymentPolicy.js';
 import { insuranceSubscriberIssues } from '../../../frontend/src/navigation/paperInsuranceReview.js';
 import { observeClaimMdData } from './claimMdDataMonitor.service.js';
-import { claimMdFailure } from './claimMdEligibilityErrors.js';
+import { claimMdFailure,claimMdSystemErrors } from './claimMdEligibilityErrors.js';
 /**
  * Claim.MD clearinghouse adapter (https://api.claim.md/).
  * AccountKey is required on every call. Responses are passthrough JSON/text.
@@ -36,14 +36,18 @@ async function postForm(path, fields = {}, agencyId, {timeoutMs=30000}={}) {
     // non-JSON response
   }
   if (!resp.ok) {
-    if(path==='/eligdata/')throw claimMdFailure({httpStatus:resp.status,body:json});
+    if(path==='/eligdata/')throw claimMdFailure({httpStatus:resp.status,body:json,rawText:text,secretValues:[fields.AccountKey]});
     const err = new Error(`Claim.MD request failed (HTTP ${resp.status})`);
     err.status = resp.status >= 400 && resp.status < 600 ? resp.status : 502;
     throw err;
   }
-  if (!json || typeof json !== 'object' || json.error || json.errors) {
+  const eligibility=path==='/eligdata/';
+  const systemErrors=eligibility?claimMdSystemErrors(json):[];
+  const members=json?.elig??json?.result?.elig;
+  const validEligibility=members&&typeof members==='object'&&(Array.isArray(members)?members.length>0: Object.keys(members).length>0);
+  if (!json || typeof json !== 'object' || (eligibility?systemErrors.length||!validEligibility:json.error || json.errors)) {
     await observeClaimMdData({agencyId,endpoint:path.replaceAll('/',''),failure:'invalid_api_response'});
-    if(path==='/eligdata/')throw claimMdFailure({httpStatus:resp.status,body:json});
+    if(eligibility)throw claimMdFailure({httpStatus:resp.status,body:json,rawText:text,secretValues:[fields.AccountKey],invalidResponse:!validEligibility});
     throw Object.assign(new Error('Claim.MD returned an error or an invalid response. Check the account configuration in Claim.MD.'), { status: 502 });
   }
   await observeClaimMdData({agencyId,payerId:fields.payerid,endpoint:path.replaceAll('/',''),result:json});

@@ -6,7 +6,7 @@ import pool from '../config/database.js';
 import { readClientInsurance } from './clientInsurance.service.js';
 import { encryptFamilyBilling, decryptFamilyBilling, assertFamilyBillingEncryption } from './familyBillingEncryption.service.js';
 import { requestEligibilityJson } from './claimMd.service.js';
-import { eligibilityFailure } from './claimMdEligibilityErrors.js';
+import { eligibilityFailure,takeClaimMdFailureEvidence } from './claimMdEligibilityErrors.js';
 import { observeClaimMdData } from './claimMdDataMonitor.service.js';
 import { hasMedicaidCoverage, policyIsMedicaid } from '../utils/insurancePaymentPolicy.js';
 import { billingError, auditBilling } from './familyBillingPolicy.service.js';
@@ -171,11 +171,12 @@ export async function runCoverageCheck({agencyId,clientId,slot,serviceDate,reque
    return {...checked,processingWarning:'The payer response was saved. Billing follow-up processing needs attention; do not repeat the eligibility check.'};
   }
   const failure=eligibilityFailure(e,stage);
-  const diagnostic={code:failure.code,message:failure.message,upstreamCodes:failure.upstreamCodes||[],upstreamStatus:failure.upstreamStatus||null,stage};
+  const vendorResponse=takeClaimMdFailureEvidence(e);
+  const diagnostic={code:failure.code,message:failure.message,upstreamCodes:failure.upstreamCodes||[],upstreamStatus:failure.upstreamStatus||null,stage,...(vendorResponse?{vendorResponse}:{})};
   try {await db.execute("UPDATE client_coverage_checks SET status='error',completed_at=CURRENT_TIMESTAMP(6),evidence_encrypted=? WHERE id=? AND agency_id=? AND client_id=?",[encryptFamilyBilling({failure:diagnostic},context(agencyId,clientId)),id,agencyId,clientId]);}
   catch {console.warn('[insurance eligibility]',{code:'ELIGIBILITY_FAILURE_STORAGE'});}
   try {await (deps.queueFollowUp||queueInsuranceVerificationSafely)({agencyId,clientId,actorUserId,coverageCheckId:id,reason:'eligibility_error'},db);}catch{}
-  console.warn('[insurance eligibility]',{code:failure.code,stage,upstreamStatus:failure.upstreamStatus||null});
+  console.warn(JSON.stringify({severity:'WARNING',message:'insurance_eligibility_failed',coverageCheckId:id,code:failure.code,stage,upstreamStatus:failure.upstreamStatus||null,upstreamCodes:failure.upstreamCodes||[]}));
   throw Object.assign(failure,{coverageCheckId:id});
  }
 }

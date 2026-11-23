@@ -14,9 +14,16 @@
   <p v-if="coverageLoading" role="status">Loading saved coverage and verification sources…</p>
   <p v-if="evidence.review" role="status"><strong>Saved review: {{ evidence.review.status }}</strong> · {{ formatBillingDate(reviewDate) }} · {{ formatBillingTimestamp(evidence.review.created_at) }}. {{ evidence.review.evidence?.reference }}</p>
   <ul><li v-for="blocker in evidence.blockers" :key="blocker">{{ blocker }}</li></ul>
-  <details v-if="evidence.checks?.length" class="verification-history"><summary>Verification history ({{ evidence.checks.length }})</summary><article v-for="check in evidence.checks" :key="check.id">
-   <strong>{{ check.policy_slot }} · {{ check.evidence?.summary?.status || check.status }} · {{ formatBillingTimestamp(check.created_at) }}</strong>
+  <details v-if="evidence.checks?.length" class="verification-history" :open="historyOpen" @toggle="historyOpen=$event.target.open"><summary>Verification history ({{ evidence.checks.length }})</summary><article v-for="check in evidence.checks" :key="check.id">
+   <strong>Check #{{ check.id }} · {{ check.policy_slot }} · {{ check.evidence?.summary?.status || check.status }} · {{ formatBillingTimestamp(check.created_at) }}</strong>
    <p v-if="check.evidence?.failure" role="alert">{{ check.evidence.failure.message }}<small v-if="check.evidence.failure.upstreamCodes?.length"> Claim.MD code: {{ check.evidence.failure.upstreamCodes.join(', ') }}</small></p>
+   <section v-if="check.evidence?.failure?.vendorResponse" class="vendor-error" aria-label="Claim.MD error details">
+    <strong>Claim.MD error details</strong>
+    <p v-for="(item,index) in check.evidence.failure.vendorResponse.errors" :key="index">{{ item.message }}<span v-if="item.code"> ({{ item.code }})</span><span v-if="item.fields"> · Fields: {{ item.fields }}</span></p>
+    <p v-if="!check.evidence.failure.vendorResponse.errors?.length">No readable error explanation was returned. Billing support can use the response format and check number to investigate.</p>
+    <details><summary>Technical details for billing support</summary><p>Response format: {{ check.evidence.failure.vendorResponse.responseFormat }}<span v-if="check.evidence.failure.upstreamStatus"> · HTTP {{ check.evidence.failure.upstreamStatus }}</span></p></details>
+   </section>
+   <p v-else-if="check.evidence?.failure?.code==='CLAIM_MD_REQUEST_REJECTED'">The original Claim.MD error details were not retained for this older check. This entry alone cannot identify the cause.</p>
    <p v-if="check.evidence?.summary?.otherCoverageReported">Other coverage reported — investigate and resolve payer order before billing.</p>
    <p v-if="check.evidence?.summary?.identityMatches === false" role="alert">Reconcile the returned member identity with the saved insurance record before billing.</p>
    <p v-for="(payerError,index) in check.evidence?.summary?.payerErrors || []" :key="index" role="alert">{{ payerError.error_mesg }} ({{ payerError.error_code }})</p>
@@ -47,7 +54,7 @@ const coverageLoading=ref(false),coverageReady=ref(false),hasCoverageData=ref(fa
 const busy=computed(()=>coverageLoading.value||saving.value);
 const automaticPending=computed(()=>['pending','processing'].includes(evidence.value.automaticEligibility?.status));
 const blank=()=>({status:'unresolved',source:'payer_portal',reference:'',primaryChecked:false,secondaryChecked:false,otherCoverageChecked:false,orderConfirmed:false,medicaidTplChecked:false});
-const draft=ref(blank()),lookupMode=ref('member_id');
+const draft=ref(blank()),lookupMode=ref('member_id'),historyOpen=ref(false);
 let generation=0,officeGeneration=0,loadedContext='',officeScope='',pollTimer=null;
 const context=()=>`${props.agencyId}:${props.clientId}:${reviewDate.value}`;
 const attestations=[{key:'primaryChecked',label:'Primary coverage checked for this client and date'},{key:'secondaryChecked',label:'Secondary coverage checked, if recorded'},{key:'otherCoverageChecked',label:'Asked about and investigated other coverage, including reported additional payers'},{key:'orderConfirmed',label:'Confirmed payer order and resolved discrepancies'},{key:'medicaidTplChecked',label:'For Medicaid: reviewed Other Insurance / TPL in the Medicaid portal and resolved discrepancies'}];
@@ -56,7 +63,7 @@ function poll(){clearTimeout(pollTimer);if(automaticPending.value)pollTimer=setT
 async function load({resetReview=false,keepNotice=false,background=false}={}){
  const current=context(),changed=current!==loadedContext,g=++generation;
  clearTimeout(pollTimer);if(!background){coverageLoading.value=true;coverageReady.value=false;error.value='';if(!keepNotice)notice.value='';}
- if(changed){loadedContext=current;lookupMode.value='member_id';hasCoverageData.value=false;evidence.value={checks:[],blockers:[]};draft.value=blank();}
+ if(changed){loadedContext=current;lookupMode.value='member_id';historyOpen.value=false;hasCoverageData.value=false;evidence.value={checks:[],blockers:[]};draft.value=blank();}
  else if(resetReview)draft.value=blank();
  if(officeScope!==String(props.agencyId)){
   const requestedAgency=String(props.agencyId),og=++officeGeneration;officeScope=requestedAgency;officesLoading.value=true;offices.value=[];
@@ -70,7 +77,7 @@ async function load({resetReview=false,keepNotice=false,background=false}={}){
   const {data}=await api.get(base(),{params:{agencyId:props.agencyId,serviceDate:reviewDate.value},skipGlobalLoading:true});
   if(g!==generation)return;
   const newEvidence=hasCoverageData.value&&evidence.value.reviewToken&&data.reviewToken&&evidence.value.reviewToken!==data.reviewToken;
-  if(newEvidence&&!resetReview){for(const item of attestations)draft.value[item.key]=false;draft.value.status='unresolved';notice.value='New coverage evidence arrived. Review it and confirm the checks again; your typed reference has been kept.';}
+  if(newEvidence&&!resetReview){for(const item of attestations)draft.value[item.key]=false;draft.value.status='unresolved';notice.value='Verification history changed. Review the latest entry and confirm the checks again; your typed reference has been kept.';}
   evidence.value=data;hasCoverageData.value=true;coverageReady.value=true;
   if(data.syntheticQaReviewAvailable===true&&(changed||resetReview))draft.value.source='synthetic_qa';
   if(data.syntheticQaReviewAvailable!==true&&draft.value.source==='synthetic_qa')draft.value=blank();
@@ -88,7 +95,7 @@ async function check(slot){
  }catch(e){
   if(current!==context())return;
   const detail=e.response?.data?.error||{};
-  if(detail.coverageCheckId)await load();
+  if(detail.coverageCheckId){await load();if(current===context())historyOpen.value=true;}
   if(current===context())error.value=(detail.message||'Coverage could not be confirmed')+(detail.coverageCheckId?` Check #${detail.coverageCheckId}.`:'')+(detail.upstreamCodes?.length?` Claim.MD code: ${detail.upstreamCodes.join(', ')}.`:'');
  }finally{if(current===context()){saving.value=false;checkingSlot.value='';poll();}}
 }
