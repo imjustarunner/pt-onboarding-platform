@@ -3153,8 +3153,8 @@
     <div v-if="returnLinkOpen" class="intake-return-modal" role="dialog" aria-modal="true">
       <div class="intake-return-card">
         <h3>{{ t('copyReturnLinkTitle') }}</h3>
-        <p>{{ reminderConsentStatus === 'declined' ? t('copyReturnLinkBodyDeclined') : t('copyReturnLinkBodyAgreed') }}</p>
-        <p class="intake-return-hipaa">{{ t('copyReturnLinkHipaa') }}</p>
+        <p>{{ returnLinkCopy.body }}</p>
+        <p class="intake-return-hipaa">{{ returnLinkCopy.privacy }}</p>
         <input :value="returnLinkUrl" type="text" readonly class="intake-return-url" @focus="$event.target.select()" />
         <div class="intake-return-actions">
           <button type="button" class="df-btn df-btn-primary" @click="copyReturnLink">{{ returnLinkCopied ? t('copied') : t('copyTemporaryLink') }}</button>
@@ -5338,6 +5338,22 @@ const officeEssentialOnlyMode = ref(false);
 const officeSkipSplashOffered = ref(false);
 const officeSkipSplashPendingKind = ref(''); // 'questions' | 'clinical'
 const returnLinkOpen = ref(false);
+const returnLinkCopy = computed(() => {
+  const declined = reminderConsentStatus.value === 'declined';
+  if (!isJobApplication.value) return {
+    body: t(declined ? 'copyReturnLinkBodyDeclined' : 'copyReturnLinkBodyAgreed'), privacy: t('copyReturnLinkHipaa')
+  };
+  const spanish = intakeLocale.value === 'es';
+  const duration = declined ? (spanish ? '12 horas' : '12 hours') : (spanish ? '10 días' : '10 days');
+  return {
+    body: spanish
+      ? `Este enlace privado le permite continuar su solicitud de empleo en este u otro dispositivo durante ${duration}. Después, el enlace caduca. Los registros guardados se conservan.`
+      : `This private link lets you continue your job application on this or another device for ${duration}. After that, the link expires. Saved application records are retained.`,
+    privacy: spanish
+      ? 'Mantenga este enlace privado. No lo publique ni lo reenvíe. Quien tenga el enlace puede ver y continuar su solicitud de empleo.'
+      : 'Keep this link private. Do not post or forward it. Anyone with the link can view and continue your job application.'
+  };
+});
 const resumeEmailBusy=ref(false),resumeEmailRequested=ref(false),resumeEmailNotice=ref('');
 const returnLinkCopied = ref(false);
 const smartDisclosureFlowRef = ref(null);

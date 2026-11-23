@@ -24,6 +24,7 @@ class HiringReferenceRequest {
       ...row,
       responses_json: row.status === 'completed' ? stored : null,
       questionnaire: stored?.questionnaireSnapshot || legacyReferenceQuestionnaire,
+      referenceContact: stored?.referenceContactSnapshot || null,
       declined: stored?.declined === true
     };
   }
@@ -45,7 +46,8 @@ class HiringReferenceRequest {
     status = 'sent',
     sentByUserId = null,
     intakeSubmissionId = null,
-    questionnaire = null
+    questionnaire = null,
+    referenceContact = null
   }) {
     const openTok = String(openTrackToken || '').trim() || this.newOpenTrackToken();
     const [result] = await pool.execute(
@@ -67,7 +69,7 @@ class HiringReferenceRequest {
         status,
         sentByUserId || null,
         intakeSubmissionId || null,
-        questionnaire ? JSON.stringify({ questionnaireSnapshot: questionnaire }) : null
+        questionnaire || referenceContact ? JSON.stringify({ questionnaireSnapshot: questionnaire, referenceContactSnapshot: referenceContact }) : null
       ]
     );
     const [rows] = await pool.execute('SELECT * FROM hiring_reference_requests WHERE id = ?', [result.insertId]);

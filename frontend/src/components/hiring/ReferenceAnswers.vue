@@ -1,6 +1,9 @@
 <template>
   <dl v-if="[2, 3].includes(answers.questionnaireVersion)">
     <dt>Reference</dt><dd>{{ answers.referenceName }} · {{ answers.relationshipType?.replaceAll('_', ' ') }} {{ answers.relationshipOther }}</dd>
+    <template v-if="answers.referenceEmail"><dt>Email</dt><dd>{{ answers.referenceEmail }}</dd></template>
+    <template v-if="answers.referencePhone"><dt>Phone</dt><dd>{{ answers.referencePhone }}</dd></template>
+    <template v-if="answers.referenceOrganization"><dt>Organization</dt><dd>{{ answers.referenceOrganization }}</dd></template>
     <template v-if="answers.questionnaireVersion === 3"><dt>Time known</dt><dd>{{ durationLabels[answers.relationshipDuration] }}</dd><dt>Professional strengths</dt><dd>{{ answers.strengths }}</dd><dt>Development areas</dt><dd>{{ answers.developmentAreas || 'No comment' }}</dd></template>
     <dt>Would hire or rehire</dt><dd>{{ hireLabels[answers.wouldHire] || answers.wouldHire }}</dd>
     <template v-for="trait in questionnaire?.traits || []" :key="trait.key"><dt>{{ trait.label }}</dt><dd>{{ answers.traits?.[trait.key] === 'not_observed' ? 'Not observed' : `${answers.traits?.[trait.key]} / 5` }}</dd></template>

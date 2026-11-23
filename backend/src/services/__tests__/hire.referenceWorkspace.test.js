@@ -55,6 +55,15 @@ describe('online completion consistency', () => {
 });
 
 describe('request questionnaire snapshot', () => {
+  it('retains the invited contact snapshot alongside questions before and after completion', async () => {
+    const contact={referenceName:'Taylor',referenceEmail:'taylor@example.test',referencePhone:'555-0100',relationshipType:'coworker'};
+    const stored={questionnaireSnapshot:{version:3},referenceContactSnapshot:contact};
+    expect(HiringReferenceRequest.mapRow({status:'sent',responses_json:JSON.stringify(stored)})).toMatchObject({referenceContact:contact,responses_json:null});
+    expect(HiringReferenceRequest.mapRow({status:'completed',responses_json:stored})).toMatchObject({referenceContact:contact});
+    mocks.execute.mockResolvedValueOnce([{insertId:47}]).mockResolvedValueOnce([[{id:47,status:'sent',responses_json:JSON.stringify(stored)}]]);
+    const created=await HiringReferenceRequest.insertRow({hiringProfileId:3,agencyId:1,candidateUserId:2,referenceIndex:0,referenceName:'Taylor',referenceEmail:contact.referenceEmail,publicLinkToken:'synthetic',tokenExpiresAt:'2030-01-01',questionnaire:stored.questionnaireSnapshot,referenceContact:contact});
+    expect(JSON.parse(mocks.execute.mock.calls[0][1].at(-1))).toEqual(stored);expect(created.referenceContact).toEqual(contact);
+  });
   it('exposes questions separately from responses until the reference is complete', () => {
     const questionnaire = {version:2, traits:[{key:'planning',label:'Planning'}]};
     const stored = JSON.stringify({questionnaireSnapshot:questionnaire});

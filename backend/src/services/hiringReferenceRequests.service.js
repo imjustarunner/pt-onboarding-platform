@@ -8,6 +8,7 @@ import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import HiringReferenceRequest from '../models/HiringReferenceRequest.model.js';
+import { referenceContactDetails } from '../utils/hiringReferenceContact.js';
 import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
 import { resolveHiringReferenceSenderIdentity, resolveHiringReferenceReplyTo } from './hiringReferenceIdentity.service.js';
 import EmailTemplateService from './emailTemplate.service.js';
@@ -294,7 +295,8 @@ export async function createAndSendReferenceRequests({
         status: 'sent',
         sentByUserId,
         intakeSubmissionId,
-        questionnaire: preparedQuestionnaire
+        questionnaire: preparedQuestionnaire,
+        referenceContact: referenceContactDetails({ ...r, name, email })
       });
     } catch (e) {
       if (e?.code === 'ER_DUP_ENTRY') {
@@ -474,6 +476,21 @@ export async function notifyApplicantReferenceCompleted({ agencyId, candidateUse
   });
 }
 
+async function contactForRequest(row) {
+  if (row.referenceContact) return referenceContactDetails({ ...row.referenceContact, referenceEmail: row.reference_email });
+  if (!row.hiring_profile_id) return referenceContactDetails({ name: row.reference_name, email: row.reference_email });
+  // Older invitations have only name/email columns. Look up exactly the bound
+  // profile/index/email, never another referee after a list edit or reapplication.
+  const [[profile]] = await pool.execute(
+    'SELECT references_json FROM hiring_profiles WHERE id = ? AND candidate_user_id = ? LIMIT 1',
+    [row.hiring_profile_id, row.candidate_user_id]
+  );
+  const index = Number(row.reference_index);
+  const source = Number.isInteger(index) && index >= 0 ? parseReferencesArray(profile)[index] : null;
+  const matches = source && String(source.email || '').trim().toLowerCase() === String(row.reference_email || '').trim().toLowerCase();
+  return referenceContactDetails({ ...(matches ? source : {}), name: row.reference_name, email: row.reference_email });
+}
+
 export async function getPublicReferenceMetaByRawToken(rawToken) {
   await HiringReferenceRequest.expireStaleRows();
   const row = await HiringReferenceRequest.findByPublicLinkToken(String(rawToken || '').trim());
@@ -517,6 +534,7 @@ export async function getPublicReferenceMetaByRawToken(rawToken) {
     agencyName: String(agency?.name || agency?.official_name || '').trim() || null,
     candidateLabel,
     referenceName: String(row.reference_name || '').trim() || null,
+    referenceContact: await contactForRequest(row),
     branding,
     questionnaire: row.questionnaire || legacyReferenceQuestionnaire,
     disclaimer:
@@ -552,8 +570,9 @@ export async function submitPublicReferenceForm(rawToken, body) {
       kind: 'reference_declined', referenceIndex: row.reference_index, hiringReferenceRequestId: row.id, outcome: 'declined' });
     return { ok: true, declined: true };
   }
-  const responses = normalizeReferenceResponses(body, row.questionnaire || legacyReferenceQuestionnaire);
-  const updated = await HiringReferenceRequest.markCompleted(row.id, { ...responses, questionnaireSnapshot: row.questionnaire || legacyReferenceQuestionnaire });
+  const referenceContact = await contactForRequest(row);
+  const responses = normalizeReferenceResponses({ ...referenceContact, ...body }, row.questionnaire || legacyReferenceQuestionnaire);
+  const updated = await HiringReferenceRequest.markCompleted(row.id, { ...responses, referenceContactSnapshot: referenceContact, questionnaireSnapshot: row.questionnaire || legacyReferenceQuestionnaire });
   if (!updated || updated.status !== 'completed') {
     const err = new Error('Unable to save responses.');
     err.status = 409;

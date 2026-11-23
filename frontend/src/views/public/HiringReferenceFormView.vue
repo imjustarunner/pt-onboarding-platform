@@ -53,7 +53,10 @@
             <p class="reference-notice">{{ meta.disclaimer }}</p>
             <p v-if="meta.expiresAt" class="reference-deadline">Please respond by {{ formatExp(meta.expiresAt) }}.</p>
             <ReferenceAnswers v-if="reviewing" :answers="form" :questionnaire="meta.questionnaire" />
-            <ReferenceQuestionnaire v-else-if="meta.questionnaire" :model-value="form" :questionnaire="meta.questionnaire" :candidate-name="meta.candidateLabel" />
+            <template v-else>
+              <ReferenceIdentityDetails :model-value="form" />
+              <ReferenceQuestionnaire v-if="meta.questionnaire" :model-value="form" :questionnaire="meta.questionnaire" :candidate-name="meta.candidateLabel" :include-identity="false" />
+            </template>
             <p v-if="submitError" role="alert" class="reference-error">{{ submitError }}</p>
             <div class="reference-actions">
               <button v-if="!reviewing" type="button" class="secondary" @click="declining = true">Unable to provide a reference</button>
@@ -74,6 +77,7 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import '../../styles/brandTypography.css';
 import ReferenceAnswers from '../../components/hiring/ReferenceAnswers.vue';
 import ReferenceQuestionnaire from '../../components/hiring/ReferenceQuestionnaire.vue';
+import ReferenceIdentityDetails from '../../components/hiring/ReferenceIdentityDetails.vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
 
@@ -92,7 +96,7 @@ const declining = ref(false);
 const declined = ref(false);
 
 const reviewing = ref(false);
-const form = reactive({ questionnaireVersion: 2, referenceName: '', relationshipType: '', relationshipOther: '', relationshipDuration: '', strengths: '', developmentAreas: '', wouldHire: '', traits: {}, hireReason: '', additionalComments: '' });
+const form = reactive({ questionnaireVersion: 2, referenceName: '', referenceEmail: '', referencePhone: '', referenceOrganization: '', relationshipType: '', relationshipOther: '', relationshipDuration: '', strengths: '', developmentAreas: '', wouldHire: '', traits: {}, hireReason: '', additionalComments: '' });
 
 const formatExp = (iso) => {
   const d = new Date(iso);
@@ -109,7 +113,10 @@ onMounted(async () => {
     const r = await api.get(`/public/hiring/reference/${encodeURIComponent(token.value)}`);
     meta.value = r.data;
 
-    form.referenceName = String(r.data?.referenceName || '').trim();
+    const contact = r.data?.referenceContact || { referenceName: r.data?.referenceName };
+    for (const key of ['referenceName', 'referenceEmail', 'referencePhone', 'referenceOrganization', 'relationshipType', 'relationshipOther', 'relationshipDuration']) {
+      form[key] = String(contact[key] || '').trim();
+    }
     form.questionnaireVersion = r.data?.questionnaire?.version || 2;
   } catch (e) {
     loadError.value = e.response?.data?.error?.message || 'Unable to load this reference form.';

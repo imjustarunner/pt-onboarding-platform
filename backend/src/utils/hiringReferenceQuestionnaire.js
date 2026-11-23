@@ -51,6 +51,10 @@ export function normalizeReferenceAnswers(body, questionnaire = referenceQuestio
   const fail = message => { throw Object.assign(new Error(message), { status: 400 }); };
   const referenceName = String(body?.referenceName || '').trim().slice(0, 255);
   if (!referenceName) fail('Please enter the reference’s name.');
+  const referenceEmail = String(body?.referenceEmail || '').trim();
+  if (referenceEmail && (referenceEmail.length > 320 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(referenceEmail))) fail('Please enter a valid contact email.');
+  const referencePhone = String(body?.referencePhone || '').trim();
+  if (referencePhone.length > 100) fail('Please keep the contact phone to 100 characters or fewer.');
   const relationshipType = String(body?.relationshipType || '');
   if (!['manager', 'coworker', 'direct_report', 'other'].includes(relationshipType)) fail('Please select your relationship to the applicant.');
   const relationshipOther = String(body?.relationshipOther || '').trim().slice(0, 500);
@@ -84,6 +88,9 @@ export function normalizeReferenceAnswers(body, questionnaire = referenceQuestio
     developmentAreas: current ? String(body?.developmentAreas || '').trim().slice(0, 4000) : null,
     customAnswers,
     referenceName,
+    referenceEmail,
+    referencePhone,
+    referenceOrganization: String(body?.referenceOrganization || '').trim().slice(0, 255),
     relationshipType,
     relationshipOther: relationshipType === 'other' ? relationshipOther : null,
     wouldHire,

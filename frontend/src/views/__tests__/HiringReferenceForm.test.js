@@ -14,6 +14,35 @@ beforeEach(() => {
   api.post.mockResolvedValue({ data: { ok: true } });
 });
 describe('Plotline public reference', () => {
+  it('lists known contact details without repeated identity questions and saves explicit corrections with the answer', async () => {
+    api.get.mockResolvedValue({data:{agencyName:'Juniper QA',candidateLabel:'Rory Q.',referenceContact:{referenceName:'Taylor Reference',referenceEmail:'taylor@example.test',referencePhone:'555-0100',referenceOrganization:'Example Consulting',relationshipType:'other',relationshipOther:'Former project mentor',relationshipDuration:'3_5_years'},questionnaire:{version:3,traits:[]}}});
+    const wrapper = mount(Form);await flushPromises();
+    const identity=wrapper.get('[aria-label="Your reference details"]');
+    expect(identity.text()).toContain('Taylor Reference');expect(identity.text()).toContain('taylor@example.test');expect(identity.text()).toContain('555-0100');expect(identity.text()).toContain('Example Consulting');expect(identity.text()).toContain('Former project mentor');
+    expect(identity.find('input').exists()).toBe(false);
+    expect(wrapper.get('.reference-questionnaire').find('input[autocomplete="name"]').exists()).toBe(false);
+    expect(wrapper.findAll('select').some(select=>select.element.value==='3_5_years')).toBe(true);
+    await identity.get('button').trigger('click');
+    expect(identity.get('[name="referenceEmail"]').element.value).toBe('taylor@example.test');
+    await identity.get('[name="referenceEmail"]').setValue('corrected@example.test');
+    await identity.get('[name="referencePhone"]').setValue('555-0101');
+    await identity.get('button').trigger('click');
+    await wrapper.get('form').trigger('submit');
+    expect(api.post).not.toHaveBeenCalled();expect(wrapper.text()).toContain('corrected@example.test');
+    await wrapper.findAll('button').find(button=>button.text()==='Edit responses').trigger('click');
+    expect(wrapper.get('[aria-label="Your reference details"]').text()).toContain('corrected@example.test');
+    await wrapper.get('form').trigger('submit');await wrapper.get('form').trigger('submit');await flushPromises();
+    expect(api.post.mock.calls[0][1]).toMatchObject({referenceName:'Taylor Reference',referenceEmail:'corrected@example.test',referencePhone:'555-0101',relationshipType:'other',relationshipOther:'Former project mentor'});
+    expect(api.get).toHaveBeenCalledTimes(1);wrapper.unmount();
+  });
+  it('opens only missing identity fields with known values already populated', async () => {
+    const wrapper = mount(Form);await flushPromises();
+    const identity=wrapper.get('[aria-label="Your reference details"]');
+    expect(identity.text()).toContain('Complete any missing details');
+    expect(identity.get('[name="referenceName"]').element.value).toBe('QA Reference');
+    expect(identity.get('[name="relationshipType"]').element.value).toBe('');
+    expect(identity.get('[name="referencePhone"]').attributes('required')).toBeUndefined();wrapper.unmount();
+  });
   it('reviews before submitting and retains the organization signup link after completion', async () => {
     const wrapper = mount(Form);
     await flushPromises();

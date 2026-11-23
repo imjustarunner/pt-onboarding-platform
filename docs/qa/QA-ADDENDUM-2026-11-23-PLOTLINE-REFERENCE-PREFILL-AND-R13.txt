@@ -1,0 +1,91 @@
+PLOTLINE — REFERENCE DETAILS AND ROUND 13 RETEST
+November 23, 2026
+
+Append to the prior briefs and preserve open findings. This is a live retest
+assignment, not a completed bot run. Engineering uses fictional local browser
+fixtures for its preview; those are not real requests or inbox receipts.
+
+SCOPE
+- Authorized automation Jordan 1434, Juniper 463 / Maple 464, QA inbox and vault.
+- Preserve Reese 1871 / profile 253 / application 1643 / job 42, all submitted
+  applications, signatures and existing reference history. Never resubmit Reese
+  to repair consent. Preserve Rory 1849, Quinn 1844 and anonymous R13 draft.
+- Do not use a human employee account or personal invitation, event 648, payroll
+  payment, direct SQL/API writes, role grants or another person's token.
+- Verify matching frontend / required backend / live backend builds, ready=true,
+  and record actual America/Denver date/time with UTC offset before testing.
+
+R13 REFERENCES TAB — FIRST BLOCKER
+- Open Reese's References tab from the ordinary Applications workspace.
+- Confirm the signed-application #1643 authorization message AND the three
+  retained reference tabs/rows (Taylor, Morgan, Casey), contact details, request
+  history and ordinary prepare/send controls are visible together.
+- The R13 defect was a conditional rendering branch: showing the authorization
+  message hid the list. Restoring the list must not grant consent or send mail.
+- Switch contacts, reload and reopen. Each contact retains only its own history.
+  Where authorization is absent, the list remains visible and actual sending
+  must still be rejected by the existing server consent/permission checks.
+
+REFEREE DETAILS — PREFILLED, EDITABLE, RECIPIENT-SPECIFIC
+- Read Taylor's current request/contact history first. If no request has already
+  been delivered or completed, review its questions and manually send ONCE.
+  Canceling preparation, reloading or merely opening the tab sends nothing.
+- Capture request ID, question snapshot, From, Reply-To, logical recipient and
+  actual QA inbox receipt. Never resend a received request for another screenshot.
+  Samples 7571/7574 are earlier evidence and must not be sent again.
+- Open that fictional referee's OWN delivered link in a separate signed-out
+  browser profile. Keep raw token URLs in the vault and redact address bars.
+- Expect Plotline / A People Operations Platform, the correct employer and
+  applicant, and a compact Your details section. Applicant-provided name, email,
+  phone, organization and relationship appear where supplied. They are not blank
+  required questions repeated in the feedback questionnaire.
+- A free-text relationship such as Former project mentor stays readable and
+  editable. Do not infer that a mentor was a direct supervisor. Time-known is
+  prefilled only if actually known; otherwise it remains a feedback question.
+- Select Edit your details. All known values remain filled in. Correct the
+  synthetic phone or organization, then finish editing. No new phone or
+  organization is required when the applicant did not supply one.
+- If the application omitted a required name or relationship, show those missing
+  fields with the other known values already filled. Do not invent a value.
+- Complete ratings/strengths, choose Review responses and verify the contact
+  details plus correction. Edit responses, return to review and confirm no loss.
+- Submit once, then inspect the exact completed reference as authorized hiring
+  staff. Corrections belong to the response; the original invited contact and
+  question snapshots remain evidence. Candidate/application contact data is not
+  silently overwritten, and an email correction does not reroute the invitation
+  or receipt to an unverified new recipient.
+- An existing pre-release invitation may fill details from its exact retained
+  application profile/index/email. If that slot now belongs to another email,
+  never borrow that person's phone, organization or relationship.
+- A second reference's link must show only that person's details. Also test
+  invalid, expired, declined/completed links and repeat submission safely; no
+  other referee's details or confidential answers should appear.
+- Keep the approved confidentiality and marketing checks: answers/ratings stay
+  private from the applicant; completion/by-whom notice only. The referee knows
+  this before submitting. SSO hiring-permission staff receive email only;
+  non-SSO hiring-permission staff receive app notifications. Missing authorized
+  personas remain BLOCKED. Confirm actual inbox receipts and quick-open links.
+
+R13 APPLICATION RETURN DIALOG
+- R13 already passed application Start, Save & Come Back Later and same-session
+  reload retention. Preserve that evidence and reuse the tester's supported
+  unsigned draft/return path where available. Do not create a replacement person.
+- The return-link dialog must say job application and application information,
+  with the correct configured 10-day or 12-hour period. It must not describe a
+  job application as enrollment, a clinical packet or health information.
+- Check desktop and 390 px using supported browser/device controls. If the
+  runner cannot set the viewport, record that exact capability limit; engineering
+  preview evidence is separate from the bot's result. Check Spanish when the
+  actual form supports it. Clinical enrollment copy
+  remains appropriate on the separate clinical workflow.
+- Applications explain that staff choose when to contact references. Submitting
+  an application does not automatically send a reference request.
+
+REPORT
+- PASS / FAIL / BLOCKED / NOT RUN for every case, exact actor/object IDs and
+  actual receipt, screenshot and date/time. No preview/Sent label substitutes
+  for inbox delivery. No token/password/contact secret in public reports.
+- R13 staff-invite cases remain blocked until an authorized synthetic invitee
+  and ordinary invitation send are available; do not use real employee links.
+- Keep applicant confirmation From-domain, missing-persona and broader scheduling
+  findings open until separately verified. This patch requires no migration.

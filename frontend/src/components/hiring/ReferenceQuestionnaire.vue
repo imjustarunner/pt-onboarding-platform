@@ -1,14 +1,14 @@
 <template>
   <fieldset class="reference-questionnaire">
     <legend>Your experience with {{ candidateName || 'the applicant' }}</legend>
-    <label><span>Your name <span aria-hidden="true">*</span></span><input v-model="answers.referenceName" required maxlength="255" autocomplete="name" /></label>
+    <label v-if="includeIdentity"><span>Your name <span aria-hidden="true">*</span></span><input v-model="answers.referenceName" required maxlength="255" autocomplete="name" /></label>
     <div class="reference-relationship">
-      <label><span>Professional relationship <span aria-hidden="true">*</span></span><select v-model="answers.relationshipType" required><option value="">Select relationship</option><option value="manager">Direct supervisor</option><option value="coworker">Colleague or coworker</option><option value="direct_report">I reported to them</option><option value="other">Other</option></select></label>
+      <label v-if="includeIdentity"><span>Professional relationship <span aria-hidden="true">*</span></span><select v-model="answers.relationshipType" required><option value="">Select relationship</option><option value="manager">Direct supervisor</option><option value="coworker">Colleague or coworker</option><option value="direct_report">I reported to them</option><option value="other">Other</option></select></label>
       <label v-if="current"><span>How long have you known {{ candidateName || 'the applicant' }}? <span aria-hidden="true">*</span></span>
         <select v-model="answers.relationshipDuration" required><option value="">Select duration</option><option value="under_1_year">Less than a year</option><option value="1_2_years">1–2 years</option><option value="3_5_years">3–5 years</option><option value="over_5_years">More than 5 years</option></select>
       </label>
     </div>
-    <label v-if="answers.relationshipType === 'other'">Describe your relationship<input v-model="answers.relationshipOther" required maxlength="500" /></label>
+    <label v-if="includeIdentity && answers.relationshipType === 'other'">Describe your relationship<input v-model="answers.relationshipOther" required maxlength="500" /></label>
     <h3 v-if="current">How would you rate {{ candidateName || 'the applicant' }} in these areas?</h3>
     <p>{{ questionnaire.scale }}</p>
     <div v-for="trait in questionnaire.traits" :key="trait.key" class="reference-rating">
@@ -42,7 +42,7 @@
 </template>
 <script setup>
 import { computed, watchEffect } from 'vue';
-const props = defineProps({ modelValue: { type: Object, required: true }, questionnaire: { type: Object, required: true }, candidateName: String });
+const props = defineProps({ modelValue: { type: Object, required: true }, questionnaire: { type: Object, required: true }, candidateName: String, includeIdentity: { type:Boolean, default:true } });
 const answers = computed(() => props.modelValue);
 const current = computed(() => props.questionnaire.version === 3);
 watchEffect(() => { answers.value.customAnswers ||= {}; });

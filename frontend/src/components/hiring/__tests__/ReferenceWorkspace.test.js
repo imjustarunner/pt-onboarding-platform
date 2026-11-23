@@ -7,6 +7,18 @@ vi.mock('../../../services/api', () => ({default:api}));
 const refs = [{name:'First Reference',email:'first@example.test'},{name:'Second Reference',email:'second@example.test'}];
 beforeEach(() => {vi.clearAllMocks();api.post.mockResolvedValue({data:{sent:[{id:1}]}});api.get.mockImplementation(async url => ({data:url.endsWith('reference-workspace')?{contacts:[],questionnaire:{scale:'1–5',traits:[]}}:[]}));});
 describe('per-reference workspace', () => {
+  it.each([true, false])('keeps the reference list, request history and send preparation visible alongside consent allowed=%s', async allowed => {
+    api.get.mockImplementation(async url => ({data:url.endsWith('reference-workspace')
+      ? {contacts:[],questionnaire:{version:3,traits:[]},consent:{allowed,message:allowed?'Authorized in signed application #1643.':'Reference authorization is required.'}}
+      : url.endsWith('reference-requests') ? [{id:47,reference_index:0,status:'send_failed'}] : []}));
+    const wrapper = mount(ReferenceWorkspace,{props:{userId:2,agencyId:1,references:refs}});await flushPromises();
+    expect(wrapper.text()).toContain(allowed?'Authorized in signed application #1643.':'Reference authorization is required.');
+    expect(wrapper.findAll('nav button')).toHaveLength(2);
+    expect(wrapper.text()).toContain('First Reference');expect(wrapper.text()).toContain('#47');
+    await wrapper.findAll('button').find(button=>button.text()==='Email online reference link').trigger('click');
+    expect(wrapper.find('[aria-label="Prepare reference request"]').exists()).toBe(true);
+    expect(api.post).not.toHaveBeenCalled();wrapper.unmount();
+  });
   it('opens the exact received reference rather than the first contact', async () => {
     api.get.mockImplementation(async url => ({data:url.endsWith('reference-requests') ? [{id:47,reference_index:1,status:'completed',responses_json:{referenceName:'Second Reference'}}] : url.endsWith('reference-workspace') ? {contacts:[],questionnaire:{traits:[]}} : []}));
     const wrapper = mount(ReferenceWorkspace,{props:{userId:2,agencyId:1,references:refs,referenceRequestId:47,initialReferenceIndex:0}}); await flushPromises();

@@ -4,7 +4,7 @@
     <p v-if="error" role="alert" class="error">{{ error }}</p><p v-if="message" role="status">{{ message }}</p>
     <p v-if="loading">Loading references…</p>
     <p v-if="consent" :role="consent.allowed ? 'status' : 'note'" class="reference-consent">{{ consent.message }}</p>
-    <template v-else>
+    <template v-if="!loading">
       <nav class="reference-tabs" aria-label="References"><button v-for="(person, index) in references" :key="index" type="button" :aria-pressed="selected === index" @click="selectReference(index)">{{ person.name || `Reference ${index + 1}` }}</button></nav>
       <article v-if="person" class="reference-card">
         <h3>{{ person.name || `Reference ${selected + 1}` }}</h3>
