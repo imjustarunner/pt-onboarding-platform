@@ -15,7 +15,6 @@ const info = { appointmentId: 18141, timeZone: 'America/Denver', hasSeries: true
 beforeEach(() => {
   vi.clearAllMocks(); setActivePinia(createPinia()); localStorage.clear(); sessionStorage.clear();
   vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-11-18T15:00:00Z'));
-  vi.spyOn(window, 'confirm').mockReturnValue(true);
   m.get.mockImplementation(async url => ({ data: url.endsWith('/reschedule') ? info : url.includes('agencies') ? [] : {} }));
   m.post.mockImplementation(async url => ({ data: url.endsWith('/options') ? { rooms: [{ id: 10, label: 'Your room', needsRequest: false }], selectedRoomId: 10 } : { ok: true } }));
   m.patch.mockResolvedValue({ data: { ok: true } });
@@ -95,7 +94,11 @@ it('routes edits of a display-only session through its appointment instead of PA
   const item = s.buildScheduleStackItemFromEvent(event);
   await s.openAppointmentEditInScheduleModal({ item, dayName: 'Tuesday', hour: 17 }); await flushPromises();
   s.scheduleEventEditForm.startAt = '2026-11-19T17:00'; s.scheduleEventEditForm.endAt = '2026-11-19T18:00';
-  await s.saveScheduleStackItem(item);
+  const saving = s.saveScheduleStackItem(item);
+  await flushPromises();
+  expect(s.scheduleConfirmation?.title).toBe('Update a past event?');
+  s.resolveScheduleConfirmation(true);
+  await saving;
   expect(s.appointmentMoveDraft).toMatchObject({ appointmentId: 18141, newStartAt: '2026-11-19T17:00:00' });
   expect(m.patch.mock.calls.some(([url]) => url.includes('schedule-events/-'))).toBe(false);
 });

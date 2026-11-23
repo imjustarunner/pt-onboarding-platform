@@ -12,7 +12,6 @@ beforeEach(async () => {
   setActivePinia(createPinia()); localStorage.clear(); vi.clearAllMocks();
   m.get.mockImplementation(async url => ({ data: url.includes('agencies') ? [] : {} }));
   m.post.mockResolvedValue({ data: { ok: true } });
-  vi.spyOn(window, 'confirm').mockReturnValue(true);
   wrapper = shallowMount(Grid, { props: { userId: 7, agencyId: 2 }, global: { stubs: { Teleport: false, RouterLink: true } } });
   await flushPromises();
 });
@@ -23,13 +22,21 @@ it('includes the current tenant in the person-first admin room assignment', asyn
   s.adminAssignMode = 'provider'; s.adminAssignPersonId = 538;
   s.officeAssignStartHour = 13; s.officeAssignEndHour = 17;
   s.modalContext = { dateYmd: '2026-11-16', hour: 13, roomId: 4 };
-  await s.submitAdminAssign();
+  const saving = s.submitAdminAssign();
+  await flushPromises();
+  expect(s.scheduleConfirmation?.title).toBe('Reserve this room once?');
+  s.resolveScheduleConfirmation(true);
+  await saving;
   expect(m.post).toHaveBeenCalledWith('/office-slots/1/open-slots/assign', expect.objectContaining({ agencyId: 2, assignedUserId: 538, hour: 13, endHour: 17 }));
 });
 it('includes the current tenant in the provider office assignment', async () => {
   const s = wrapper.vm.$.setupState;
   s.officeAssignBuildingId = 1; s.officeAssignRoomId = 4;
   s.officeAssignDay = 'Monday'; s.officeAssignStartHour = 13; s.officeAssignEndHour = 17;
-  await s.submitOfficeAssign();
+  const saving = s.submitOfficeAssign();
+  await flushPromises();
+  expect(s.scheduleConfirmation?.title).toBe('Reserve this room once?');
+  s.resolveScheduleConfirmation(true);
+  await saving;
   expect(m.post).toHaveBeenCalledWith('/office-slots/1/open-slots/assign', expect.objectContaining({ agencyId: 2, assignedUserId: 7, hour: 13, endHour: 17 }));
 });
