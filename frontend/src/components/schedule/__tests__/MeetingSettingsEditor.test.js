@@ -36,6 +36,14 @@ it('preserves a compensation setting the user cannot edit and respects disabled 
   expect(wrapper.emitted('update:modelValue')).toHaveLength(1);
   wrapper.unmount();
 });
+it('shows the interview staff-time policy and keeps it during Deselect all',async()=>{
+ const wrapper=await mountEditor(true,{type:'interview',modelValue:{...settings(),compensation:false}});
+ expect(wrapper.text()).toContain('Interview staff time uses recorded attendance');
+ const input=wrapper.findAll('label').find(label=>label.text().includes('Attendance time claims')).find('input');
+ expect(input.element.checked).toBe(true);expect(input.element.disabled).toBe(true);
+ await button(wrapper,'Deselect all').trigger('click');
+ expect(wrapper.emitted('update:modelValue').at(-1)[0].compensation).toBe(true);wrapper.unmount();
+});
 
 it('clears the type-default draft without changing this meeting or saving until requested', async () => {
   const wrapper = await mountEditor();

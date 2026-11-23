@@ -18,7 +18,9 @@ const route = useRoute();
 const loading = ref(true), error = ref(''), applicationKey = ref(''), context = ref(null);
 const careersPath = computed(() => `/careers/${encodeURIComponent(String(route.params.agencySlug || ''))}`);
 let request = 0;
-watch(() => [route.params.agencySlug, route.params.jobId], async ([slug, jobId]) => {
+// Adding a session query must preserve the mounted application and its draft.
+// Vue Router replaces params even when only the query changes.
+watch([() => route.params.agencySlug, () => route.params.jobId], async ([slug, jobId]) => {
   const current = ++request; loading.value = true; error.value = ''; applicationKey.value = ''; context.value = null;
   try {
     const { data } = await api.get(`/public-intake/careers/${encodeURIComponent(String(slug || ''))}`);

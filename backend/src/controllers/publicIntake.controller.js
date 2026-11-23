@@ -71,6 +71,7 @@ import { generateIntakeSummaryPdf } from '../services/intakeSummaryPdf.service.j
 import { brandedIntakeSummarySpec, resolvePacketBrandChrome } from '../services/packetBrandChrome.service.js';
 import { buildCompletedIntakeRecord } from '../services/completedIntakeRecord.service.js';
 import { buildReferenceReleasePdfBuffer } from '../services/referenceReleasePdf.service.js';
+import { applicationReferenceConsent } from '../utils/applicationReferenceConsent.js';
 import { getClientIpAddress } from '../utils/ipAddress.util.js';
 import { resolveRequestedMasterLanguage } from '../utils/schoolIntakeMasterLanguage.js';
 import ClientPhiDocument from '../models/ClientPhiDocument.model.js';
@@ -5152,7 +5153,7 @@ const validateJobApplicationSubmission = (link, ctx) => {
     const releaseSigned = !!ctx.referencesConsentJson?.referenceReleaseSigned || !!ctx.referenceReleaseSignature;
     if (!releaseSigned) {
       if (!ctx.referencesConsentJson?.digitalFormAtInterviewOrOffer) {
-        return 'You must consent to digital reference forms (at interview or offer stage) before continuing.';
+        return 'Please authorize digital reference forms in the Reference Release before continuing.';
       }
       if (!ctx.referencesConsentJson?.referenceContentWaiverAcknowledged) {
         return 'You must acknowledge the reference confidentiality statement before continuing.';
@@ -5405,18 +5406,7 @@ const parseJobApplicationContext = (intakeData, link = null) => {
       ?? false
   );
   const referencesWaived = toBooleanSafe(intakeData?.referencesWaived ?? submission.referencesWaived ?? false);
-  const rcIn = submission.referencesConsent && typeof submission.referencesConsent === 'object' ? submission.referencesConsent : {};
-  const referencesConsentJson = {
-    consentVersion: Number(rcIn.consentVersion) || 1,
-    digitalFormAtInterviewOrOffer: toBooleanSafe(rcIn.digitalFormAtInterviewOrOffer),
-    referenceContentWaiverAcknowledged: toBooleanSafe(rcIn.referenceContentWaiverAcknowledged),
-    referencesWaived: !!referencesWaived,
-    referenceReleaseSigned: toBooleanSafe(
-      rcIn.referenceReleaseSigned
-      || intakeData?.referenceReleaseSignature
-      || submission.referenceReleaseSignature
-    )
-  };
+  const referencesConsentJson = applicationReferenceConsent(intakeData);
   const profileIn = (intakeData?.applicantProfile && typeof intakeData.applicantProfile === 'object')
     ? intakeData.applicantProfile
     : ((submission.applicantProfile && typeof submission.applicantProfile === 'object') ? submission.applicantProfile : {});

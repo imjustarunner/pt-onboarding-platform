@@ -2614,6 +2614,7 @@ export const putMeetingTypeSettings = async (req, res, next) => {
     const key = String(req.params.typeKey || '');
     if (!Object.hasOwn(MEETING_TYPES,key)) return res.status(400).json({error:{message:'Invalid meeting type'}});
     const settings = normalizeMeetingSettings(req.body.settings,defaultMeetingSettings(key));
+    if (key === 'interview' && settings.compensation === false) return res.status(400).json({error:{message:'Interview staff time is evaluated from recorded attendance, salary coverage and assigned rates.'}});
     await pool.execute('INSERT INTO agency_meeting_types (agency_id,type_key,settings_json,updated_by_user_id) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE settings_json=VALUES(settings_json),updated_by_user_id=VALUES(updated_by_user_id)',[agencyId,key,JSON.stringify(settings),req.user.id]);
     res.json({settings});
   } catch (error) { next(error); }

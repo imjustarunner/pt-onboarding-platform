@@ -8,5 +8,12 @@ export default {...base,test:{...base.test,include:[...base.test.include,
  'src/views/__tests__/InterviewStaffJoin.test.js',
  'src/components/hiring/__tests__/ReferenceWorkspace.test.js',
  'src/utils/__tests__/notificationActions.test.js',
- 'src/views/__tests__/HiringReferenceForm.test.js'
+ 'src/views/__tests__/HiringReferenceForm.test.js',
+ 'src/views/__tests__/MeetingJoinEntry.test.js',
+ 'src/views/__tests__/PersonalMeetingRsvp.test.js',
+ 'src/utils/__tests__/teamMeetingInvitationAccess.test.js',
+ 'src/utils/__tests__/calendarWallClock.test.js',
+ 'src/utils/__tests__/calendarDisplayTimeZone.test.js',
+ 'src/components/schedule/__tests__/scheduleNluScope.test.js',
+ 'src/components/schedule/__tests__/MeetingSettingsEditor.test.js'
 ]}};

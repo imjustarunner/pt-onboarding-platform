@@ -51,6 +51,10 @@ async function poll(){if(stopped||!visit.value||ended.value||pollingVisit===visi
 function leave(){if(ended.value)return;ended.value=true;clearInterval(timer);video.value=null;if(visit.value)void api.post(`${visit.value.base}/guests/${visit.value.id}/leave`,{},opts()).catch(()=>{});}
 async function initialize(){const requestVersion=++version;try{
  if(staffJoin.value)setApplicantInterviewMode(false);
+ // A personal invitation has already been exchanged for a meeting-only grant.
+ // Resolve it before the public calendar lookup, which does not authenticate
+ // numeric event IDs. The server still validates the grant on every request.
+ if(!accountJoin.value && !guestJoin.value && /^\d+$/.test(refId.value)&&(type.value==='supervision'?supervisionAccessFor(refId.value):teamMeetingAccessFor(refId.value))){setApplicantInterviewMode(false);identified.value=true;return;}
  let sharedInfo;
  if(guestJoin.value){
    const info=(await api.get(base(),opts())).data;
@@ -76,7 +80,6 @@ async function initialize(){const requestVersion=++version;try{
    }
  }
  // A shared opaque calendar URL must never inherit a stored personal grant.
- if(!accountJoin.value && /^\d+$/.test(refId.value)&&(type.value==='supervision'?supervisionAccessFor(refId.value):teamMeetingAccessFor(refId.value))){identified.value=true;return;}
  let account;
  try{account=(await api.get('/users/me',{skipAuthRedirect:true,skipGlobalLoading:true})).data;}catch{/* signed-out guests remain guests */}
  if(requestVersion!==version||stopped)return;

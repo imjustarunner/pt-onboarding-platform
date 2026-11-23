@@ -7,7 +7,7 @@ export const ADMIN_ONLY_MEETING_TYPES = new Set(['leadership_circle', 'superviso
 export function defaultMeetingSettings(type = 'general') {
   return { agenda: type !== 'interview', goals: type !== 'interview', actionItems: type !== 'interview',
     attendance: true, transcription: true, screenShare: true, dialIn: false,
-    compensation: ['training','huddle','cpa','mentorship','admin','town_hall','evaluation','leadership_circle','supervisors_meeting'].includes(type),
+    compensation: ['interview','training','huddle','cpa','mentorship','admin','town_hall','evaluation','leadership_circle','supervisors_meeting'].includes(type),
     reminders: type === 'training' ? [10080,1440,60] : type === 'interview' ? [10080,1440,60,5] : ['business_days_3', 1440, 5] };
 }
 export function parseMeetingSettings(raw) {

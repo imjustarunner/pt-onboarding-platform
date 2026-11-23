@@ -80,11 +80,12 @@ function buildPlatformLabel(event) {
 
 export function normalizeMeetingSubtype(value) {
   const subtype = String(value || 'general').trim().toLowerCase();
-  if (subtype === 'admin' || ['training', 'town_hall', 'leadership_circle', 'supervisors_meeting'].includes(subtype) || subtype === 'evaluation') return subtype;
+  if (subtype === 'interview' || subtype === 'admin' || ['training', 'town_hall', 'leadership_circle', 'supervisors_meeting'].includes(subtype) || subtype === 'evaluation') return subtype;
   return 'general';
 }
 
 export function isCompensationClaimMeeting(event) {
+  if (String(event?.kind).toUpperCase() === 'TEAM_MEETING' && normalizeMeetingSubtype(event?.meeting_subtype) === 'interview') return true;
   const settings = parseMeetingSettings(event?.meeting_settings_json);
   if (typeof settings.compensation === 'boolean') return settings.compensation;
   const kind = String(event?.kind || '').trim().toUpperCase();
@@ -99,6 +100,7 @@ export function meetingTypeLabelForEvent(event) {
   if (kind === 'HUDDLE') return huddleTitle(event,event.host_role);
   const subtype = normalizeMeetingSubtype(event?.meeting_subtype ?? event?.meetingSubtype);
   if (subtype === 'training') return 'Training';
+  if (subtype === 'interview') return 'Interview panel';
   if (subtype === 'admin') return 'Admin Meeting';
   if (subtype === 'town_hall') return 'Town Hall';
   if (subtype === 'leadership_circle') return 'Leadership Circle';
@@ -351,6 +353,12 @@ async function syncCompensationClaimsUnlocked({
       if (n > 0) participantIds.add(n);
     }
     for (const uid of minutesByUser.keys()) participantIds.add(uid);
+    const interviewPanel = kind === 'TEAM_MEETING' && normalizeMeetingSubtype(row.meeting_subtype) === 'interview';
+    if (interviewPanel) {
+      const [[interview]] = await pool.execute('SELECT candidate_user_id FROM hiring_interviews WHERE provider_schedule_event_id=? AND agency_id=? LIMIT 1', [eid, agencyId]);
+      if (!interview?.candidate_user_id) return { ok: false, skipped: true, error: 'interview_not_found', results: [] };
+      participantIds.delete(Number(interview.candidate_user_id));
+    }
 
     // Once segments exist (or meeting completed), never fall back to full scheduled duration.
     const useScheduledFallback = false; // Invitations alone never establish payable attendance.
@@ -400,9 +408,17 @@ async function syncCompensationClaimsUnlocked({
         payRateSource = 'jacquelyne_onboarding_huddle';
         categoryLabel = 'Admin Time · Onboarding help';
       }
-      if (ADMIN_SALARY_ROLES.has(role) && !(kind === 'TEAM_MEETING' && ['admin','training'].includes(meetingSubtype))) { results.push({userId:uid,ok:true,skipped:true,error:'admin_not_compensated'}); continue; }
+      if (ADMIN_SALARY_ROLES.has(role) && !(kind === 'TEAM_MEETING' && ['interview','admin','training'].includes(meetingSubtype))) { results.push({userId:uid,ok:true,skipped:true,error:'admin_not_compensated'}); continue; }
       const salary = await PayrollSalaryPosition.findActiveForUser({agencyId,userId:uid,asOfDate:claimDate});
       if (!training && Number(salary?.salary_per_pay_period)>0) { results.push({userId:uid,ok:true,skipped:true,error:'salary_not_compensated'}); continue; }
+      if (interviewPanel) {
+        const claim = { agency_id: agencyId, user_id: uid, claim_date: claimDate };
+        const adminRate = await meetingClaimHourlyRate({ ...claim, payload: { serviceCode: ADMIN_TIME_SERVICE_CODE } }, null);
+        serviceCode = adminRate > 0 ? ADMIN_TIME_SERVICE_CODE : 'INDIRECT';
+        payRateSource = adminRate > 0 ? 'interview_admin_time' : 'interview_indirect_time';
+        categoryLabel = 'Interview panel';
+        compensationNote = 'Actual staff interview attendance; uses the assigned rate effective on the interview date.';
+      }
 
       // Supervisor meeting time uses half the effective individual-supervision rate.
       if (kind === 'TEAM_MEETING' && ['leadership_circle','supervisors_meeting'].includes(meetingSubtype)) {
@@ -492,7 +508,7 @@ export async function syncCompensationClaimsForAgencyInWindow(agencyId, periodSt
          UPPER(COALESCE(kind, '')) = 'HUDDLE'
          OR (
            UPPER(COALESCE(kind, '')) = 'TEAM_MEETING'
-           AND LOWER(COALESCE(meeting_subtype, 'general')) IN ('training', 'admin', 'town_hall', 'evaluation', 'leadership_circle', 'supervisors_meeting')
+           AND LOWER(COALESCE(meeting_subtype, 'general')) IN ('interview', 'training', 'admin', 'town_hall', 'evaluation', 'leadership_circle', 'supervisors_meeting')
          )
        )
        AND (

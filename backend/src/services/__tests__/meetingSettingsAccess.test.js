@@ -1,10 +1,14 @@
 import {beforeEach,describe,it,expect,vi} from 'vitest';
 const db=vi.hoisted(()=>({execute:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:db}));
-import {assertMeetingCompensationSetting,saveEventMeetingSettings} from '../meetingSettings.service.js';
+import {assertMeetingCompensationSetting,saveEventMeetingSettings,eventMeetingSettings} from '../meetingSettings.service.js';
 import {meetingTypeForEvent} from '../meetingSettingsPolicy.js';
 beforeEach(()=>{vi.clearAllMocks();db.execute.mockResolvedValue([[]]);});
 describe('meeting compensation administration',()=>{
+ it('presents legacy interviews as eligible staff time and rejects switching that policy off',async()=>{
+   expect(eventMeetingSettings({meeting_subtype:'interview',kind:'TEAM_MEETING',meeting_settings_json:{compensation:false}}).compensation).toBe(true);
+   await expect(assertMeetingCompensationSetting({agencyId:2,type:'interview',role:'admin',input:{compensation:false}})).rejects.toMatchObject({status:400});
+ });
  it.each(['cpa','mentorship'])('preserves customized %s defaults instead of loading huddle defaults',async type=>{
    db.execute.mockResolvedValueOnce([[{type_key:type,settings_json:{agenda:false,reminders:[30]}},{type_key:'huddle',settings_json:{agenda:true,reminders:[5]}}]]);
    const settings=await saveEventMeetingSettings({id:9,agency_id:2,kind:'HUDDLE',meeting_subtype:type},null);

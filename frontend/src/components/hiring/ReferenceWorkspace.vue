@@ -3,6 +3,7 @@
     <p>Confidential reference answers and contact notes · Staff with hiring permission only. Applicants see completion status and method only.</p>
     <p v-if="error" role="alert" class="error">{{ error }}</p><p v-if="message" role="status">{{ message }}</p>
     <p v-if="loading">Loading references…</p>
+    <p v-if="consent" :role="consent.allowed ? 'status' : 'note'" class="reference-consent">{{ consent.message }}</p>
     <template v-else>
       <nav class="reference-tabs" aria-label="References"><button v-for="(person, index) in references" :key="index" type="button" :aria-pressed="selected === index" @click="selectReference(index)">{{ person.name || `Reference ${index + 1}` }}</button></nav>
       <article v-if="person" class="reference-card">
@@ -68,6 +69,7 @@ import ReferenceAnswers from './ReferenceAnswers.vue';
 const props = defineProps({ userId: [Number, String], agencyId: [Number, String], references: { type: Array, default: () => [] }, initialReferenceIndex: [Number, String], referenceRequestId: [Number, String], referenceContactId: [Number, String] });
 const selected = ref(0), loading = ref(false), busy = ref(false), error = ref(''), message = ref('');
 const requests = ref([]), contacts = ref([]), events = ref([]), questionnaire = ref(null);
+const consent = ref(null);
 const draft = reactive({ method: 'phone', outcome: 'note', note: '', useQuestionnaire: false });
 const answers = ref({});
 const preparing = ref(false);
@@ -91,7 +93,7 @@ async function load() {
   try {
     const base = `/hiring/candidates/${props.userId}`;
     const [r, w, e] = await Promise.all([api.get(`${base}/reference-requests`, options()), api.get(`${base}/reference-workspace`, options()), api.get(`${base}/reference-activity`, options())]);
-    requests.value = r.data; contacts.value = w.data.contacts; questionnaire.value = w.data.questionnaire; events.value = e.data;
+    requests.value = r.data; contacts.value = w.data.contacts; questionnaire.value = w.data.questionnaire; events.value = e.data; consent.value = w.data.consent || null;
     const target = requests.value.find(row => Number(row.id) === Number(props.referenceRequestId)) || contacts.value.find(row => Number(row.id) === Number(props.referenceContactId));
     const index = Number(target?.reference_index ?? props.initialReferenceIndex);
     if (Number.isInteger(index) && index >= 0 && index < props.references.length) selected.value = index;

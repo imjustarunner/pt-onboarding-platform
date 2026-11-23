@@ -1,6 +1,7 @@
 import { referenceQuestionnaire, legacyReferenceQuestionnaire, normalizeReferenceQuestionnaire, normalizeReferenceAnswers, referenceDeadline } from '../utils/hiringReferenceQuestionnaire.js';
 import { brandedReferenceEmail, referenceEmailFrame } from './hiringReferenceEmail.service.js';
 import { runReferenceReceiptNotifications } from './hiringReferenceReceipt.service.js';
+import { resolveHiringReferenceConsent } from './hiringReferenceConsent.service.js';
 import crypto from 'crypto';
 import config from '../config/config.js';
 import pool from '../config/database.js';
@@ -84,20 +85,6 @@ function parseReferencesArray(profile) {
     }
   }
   return [];
-}
-
-function parseConsent(profile) {
-  const raw = profile?.references_consent_json;
-  if (!raw) return {};
-  if (typeof raw === 'object') return raw;
-  if (typeof raw === 'string') {
-    try {
-      return JSON.parse(raw) || {};
-    } catch {
-      return {};
-    }
-  }
-  return {};
 }
 
 function escapeHtml(s) {
@@ -232,13 +219,9 @@ export async function createAndSendReferenceRequests({
   }
 
   const preparedQuestionnaire = normalizeReferenceQuestionnaire(questionnaire);
-  const consent = parseConsent(profile);
-  if (consent.referencesWaived === true) {
-    errors.push('References were waived on the application; digital reference forms cannot be sent.');
-    return { sent, skipped, errors };
-  }
-  if (!consent.digitalFormAtInterviewOrOffer) {
-    errors.push('Applicant did not consent to digital reference forms at interview or offer stage.');
+  const consent = await resolveHiringReferenceConsent({ profile, agencyId: aid, candidateUserId: uid, referenceIndex });
+  if (!consent.allowed) {
+    errors.push(consent.message);
     return { sent, skipped, errors };
   }
 
@@ -395,6 +378,8 @@ export async function createAndSendReferenceRequests({
       textBody: text,
       htmlBody: html,
       outcome: 'sent',
+      consentSource: consent.source,
+      consentSubmissionId: consent.submissionId || null,
       gmailMessageId: out.messageId || null
     });
 

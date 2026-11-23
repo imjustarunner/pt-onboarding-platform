@@ -23,6 +23,13 @@ it('uses Plotline branding, the agency sender, and an RSVP link for a new interv
     html:expect.stringContaining('Plotline'),
     text:expect.stringContaining('https://tenant.test/join/invitation/personal?rsvp=1&eventId=240')
   }));
+  const email=m.send.mock.calls[0][0];
+  expect(email.html).toContain('max-width:600px');expect(email.html).toContain('border:1px solid');
+  expect(email.html).toContain('data-email-action="primary"');
+  expect(email.html).toContain('response=accepted');expect(email.html).toContain('response=declined');
+  expect(email.html).toContain('No app sign-in is required');
+  expect(email.html).toContain('A People Operations Platform');
+  expect(email.html).not.toContain('Want to use Plotline for your organization?');
 });
 
 it('defaults interviews to four reminders and respects explicitly empty settings', () => {

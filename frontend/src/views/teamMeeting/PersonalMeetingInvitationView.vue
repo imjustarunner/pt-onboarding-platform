@@ -54,17 +54,17 @@ const meeting = ref(null), rsvpSaved=ref(''),saving=ref(false);
 const absenceScope=ref('occurrence'), absenceUntil=ref('');
 const signInRequired = ref(false), declining=ref(false), declineReason=ref('');
 async function respond(response){saving.value=true;error.value='';try{await api.post(`/meeting-invitations/${route.name === 'InterviewRsvp' ? 'interview/' : ''}${encodeURIComponent(route.params.token)}/rsvp`,{eventId:Number(route.query.eventId),response,reason:declineReason.value,...(response==='declined'&&absenceScope.value==='until_date'?{scope:'until_date',untilDate:absenceUntil.value}:{})},{skipAuthRedirect:true});rsvpSaved.value=response;}catch(e){error.value=e.response?.data?.error?.message||'Could not save your response.';}finally{saving.value=false;}}
-watch(() => [route.params.token, route.query.details, route.query.rsvp, route.query.eventId], async (_, __, onCleanup) => {
+watch(() => [route.params.token, route.query.details, route.query.rsvp, route.query.eventId, route.query.response], async (_, __, onCleanup) => {
   let stale = false;
   onCleanup(() => { stale = true; });
-  meeting.value=null;error.value='';signInRequired.value=false;rsvpSaved.value='';declining.value=false;declineReason.value='';absenceScope.value='occurrence';absenceUntil.value='';
+  meeting.value=null;error.value='';signInRequired.value=false;rsvpSaved.value='';declining.value=route.query.response==='declined';declineReason.value='';absenceScope.value='occurrence';absenceUntil.value='';
   if(route.name === 'InterviewRsvp')return;
   try {
     const { data } = await api.get(`/meeting-invitations/${encodeURIComponent(route.params.token)}`, {skipAuthRedirect:true,params: route.query.details || route.query.rsvp ? {details:1,eventId:route.query.eventId} : {}});
     if(stale)return;
     if (!data.joinUrl && data.meeting) {
       meeting.value = data.meeting;
-      declining.value = route.query.rsvp === 'absence' && data.meeting.attendance?.tier === 'mandatory';
+      declining.value = route.query.response === 'declined' || (route.query.rsvp === 'absence' && data.meeting.attendance?.tier === 'mandatory');
       return;
     }
     const url = new URL(data.rsvpUrl || data.joinUrl);

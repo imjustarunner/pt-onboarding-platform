@@ -13951,6 +13951,10 @@ const submitJobApplicationPage2 = async () => {
   referencesDigitalFormConsent.value = true;
   referenceContentWaiverAcknowledged.value = true;
   referencesWaived.value = false;
+  intakeResponses.submission.referencesConsent = {
+    consentVersion: 1, digitalFormAtInterviewOrOffer: true,
+    referenceContentWaiverAcknowledged: true, referenceReleaseSigned: true
+  };
   intakeResponses.submission.references = filled.filter((r) => r.name || r.email);
   intakeResponses.submission.applicantProfile = {
     hiringNotifications: {...hiringNotifications.value},

@@ -3,6 +3,7 @@ const escapeHtml = value => String(value || '').replace(/&/g, '&amp;').replace(/
 export function interviewEmailBrand(agencyName) {
   return `<table role="presentation" width="100%" style="margin:0 0 18px;border-bottom:1px solid #d9e5dc"><tr><td style="padding:0 0 12px">
     <img src="https://plotlinepo.com/assets/plotline/website/brand/logos/plotline-primary-transparent.png" alt="Plotline People Operations" width="126" style="display:block;">
+    <div style="font:12px/1.5 Arial,Helvetica,sans-serif;color:#546c62;margin-top:5px;">A People Operations Platform</div>
     <div style="color:#36534a;font-family:Arial,Helvetica,sans-serif;font-weight:bold;margin-top:6px;">${escapeHtml(agencyName)}</div>
   </td></tr></table>`;
 }

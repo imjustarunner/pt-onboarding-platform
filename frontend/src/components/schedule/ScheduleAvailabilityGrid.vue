@@ -22,15 +22,15 @@
     <OfferedTimeDialog v-if="offeredTime" :item="offeredTime" @close="offeredTime=null" @released="onOfferReleased" />
     <SchoolSoftScheduleDialog v-if="selectedSchoolSoftBlock" :block="selectedSchoolSoftBlock" :can-cancel-day="canBookFromGrid"
       @close="selectedSchoolSoftBlock = null" @cancel-day="date => { selectedSchoolSoftBlock = null; cancelDaySchool = null; cancelDayDate = date; }" />
-    <DayCancellationDialog v-if="cancelDayDate" :date="cancelDayDate" :time-zone="bookingTimezoneIana" :provider-id="Number(userId || authStore.user?.id)"
+    <DayCancellationDialog v-if="cancelDayDate" :date="cancelDayDate" :time-zone="officeTimezoneIana" :provider-id="Number(userId || authStore.user?.id)"
       :agency-id="Number(cancelDaySchool?.agencyId || effectiveAgencyId || 0)" :school-id="cancelDaySchool?.schoolOrganizationId" :school-name="cancelDaySchool?.schoolName"
       @close="cancelDayDate = ''" @saved="onDayCancelled" />
-    <ProviderDayNoteDialog v-if="dayNoteDate" :date="dayNoteDate" :time-zone="bookingTimezoneIana" :provider-id="Number(userId || authStore.user?.id)"
+    <ProviderDayNoteDialog v-if="dayNoteDate" :date="dayNoteDate" :time-zone="officeTimezoneIana" :provider-id="Number(userId || authStore.user?.id)"
       :agency-ids="effectiveAgencyIds" @close="dayNoteDate = ''" />
     <SchoolWeekdayEditor v-if="schoolWeekdayEditorAgency" :provider-id="Number(userId || authStore.user?.id)" :agency-id="schoolWeekdayEditorAgency"
       @close="schoolWeekdayEditorAgency = 0" @saved="loadSchoolWeekdays({ force: true })" />
     <SchoolAssignmentRailPanel v-if="schoolRailDetail" :detail="schoolRailDetail" :provider-id="Number(userId || authStore.user?.id)"
-      :time-zone="bookingTimezoneIana" :time-format="scheduleTimeFormat" :can-cancel="canBookFromGrid" :can-request="canRequestSchoolChange"
+      :time-zone="officeTimezoneIana" :time-format="scheduleTimeFormat" :can-cancel="canBookFromGrid" :can-request="canRequestSchoolChange"
       @close="schoolRailDetail = null" @request-change="openSchoolAssignmentRequest(false)" @adjust-slots="openSchoolAssignmentRequest(true)"
       @changed="onSchoolDayClosed" @cancel-with-families="openSchoolFamilyCancellation" />
     <div v-if="scheduleChangeNotice" class="hint" role="status" style="padding:12px;border:1px solid currentColor;border-radius:8px;margin-bottom:12px;">
@@ -39,6 +39,8 @@
     <AppointmentWaiverReviewQueue :agency-ids="effectiveAgencyIds" @reviewed="onAppointmentWaiverReviewed" />
     <ScheduledTrainingEditor v-if="trainingEditorOpen && canScheduleTraining(authStore.user)" :agency-id="Number(effectiveAgencyId)" @close="trainingEditorOpen=false" @saved="refreshScheduleSummaryInBackground()" />
     <Teleport to="body"><div v-if="selectedTrainingEventId" class="training-detail-backdrop" @click.self="selectedTrainingEventId=null"><section class="training-detail-dialog" role="dialog" aria-modal="true" aria-label="Scheduled training" @keydown.esc="selectedTrainingEventId=null"><button type="button" class="btn btn-secondary" @click="selectedTrainingEventId=null">Close</button><router-link v-if="selectedTrainingInvited" :to="`/join/team-meeting/${selectedTrainingEventId}`" class="btn btn-primary">Open training</router-link><ScheduledTrainingPanel :event-id="selectedTrainingEventId" @state="selectedTrainingInvited=$event.invited" /></section></div></Teleport>
+    <CalendarTimeZoneControl :model-value="calendarDisplayTimezone" :office-time-zone="officeTimezoneIana" :effective-time-zone="bookingTimezoneIana"
+      :disabled="showRequestModal || viewMode === 'office_layout'" :office-layout="viewMode === 'office_layout'" @update:model-value="setCalendarDisplayTimezone" />
     <div class="sched-toolbar" data-tour="my-schedule-toolbar">
       <label v-if="familyScheduleEnabled && Number(userId) === Number(authStore.user?.id)" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:12px">
         Personal events
@@ -6053,6 +6055,8 @@ import SupervisionRsvpSummary from './SupervisionRsvpSummary.vue';
 import { supervisionProgress } from '../../utils/supervisionProgress.js';
 import { getScheduleSummaryStale, scheduleSummaryRevision, setScheduleSummary, invalidateScheduleSummaryCacheForUser } from '../../utils/scheduleSummaryCache';
 import { timezoneLabelFor, isoToZonedDatetimeLocal, zonedDatetimeLocalToIso, timezoneAbbrevAt } from '../../utils/timezones.js';
+import CalendarTimeZoneControl from './CalendarTimeZoneControl.vue';
+import { normalizeCalendarDisplayTimeZone, calendarDisplayTimeZone } from '../../utils/calendarDisplayTimeZone.js';
 import {calendarWallDate,calendarSessionState} from '../../utils/calendarWallClock.js';
 import {
   parseScheduleUtcInstant as parseScheduleInstant,
@@ -6357,6 +6361,7 @@ const loadMyScheduleColors = async () => {
     const resp = await api.get(`/users/${myId}/preferences`);
     const colors = parseJsonMaybe(resp.data?.schedule_color_overrides);
     const display = parseJsonMaybe(resp.data?.schedule_display_prefs);
+    if (!calendarDisplayTimezoneEdited) calendarDisplayTimezone.value = normalizeCalendarDisplayTimeZone(display?.calendarDisplayTimezone ?? loadDisplayPrefsLocal()?.calendarDisplayTimezone);
     schedulePaletteVersion.value = Number(display?.schedulePaletteVersion || 0);
     scheduleColors.value = resolveScheduleColors(colors, schedulePaletteVersion.value);
     if (schedulePaletteVersion.value < 2) {
@@ -6976,6 +6981,13 @@ const rowHeightMode = ref('normal');
 const scheduleSideBySide = ref(true);
 const clientNameDisplay = ref('full');
 const scheduleTimeFormat = ref('12h');
+const calendarDisplayTimezone = ref('');
+let calendarDisplayTimezoneEdited = false;
+const setCalendarDisplayTimezone = value => {
+  calendarDisplayTimezoneEdited = true;
+  calendarDisplayTimezone.value = normalizeCalendarDisplayTimeZone(value);
+  saveDisplayPrefs();
+};
 let clientNameDisplayEdited = false;
 const initializedOverlayDefaults = ref(false);
 
@@ -7002,6 +7014,7 @@ const showOfficeQuickGlance = ref(false);
 
 const applyDisplayPrefs = (prefs = {}, { focusDay = true } = {}) => {
   if (!prefs || typeof prefs !== 'object') return;
+  if (!calendarDisplayTimezoneEdited) calendarDisplayTimezone.value = normalizeCalendarDisplayTimeZone(prefs.calendarDisplayTimezone);
   scheduleSideBySide.value = prefs.layoutDefaultsVersion === 2 ? prefs.scheduleSideBySide !== false : true;
   if (prefs.rowHeightMode != null) rowHeightMode.value = normalizeRowHeightMode(prefs.rowHeightMode);
   // An explicit parent view survives async preference hydration and session return.
@@ -7023,6 +7036,7 @@ const collectDisplayPrefs = () => ({
   scheduleSideBySide: scheduleSideBySide.value,
   clientNameDisplay: clientNameDisplay.value,
   timeFormat: scheduleTimeFormat.value,
+  calendarDisplayTimezone: calendarDisplayTimezone.value,
   rowHeightMode: normalizeRowHeightMode(rowHeightMode.value),
   spanMode: normalizeSpanMode(scheduleSpanMode.value),
   weekStartsOn: effectiveWeekStartsOn.value === 'sunday' ? 'sunday' : 'monday',
@@ -7108,6 +7122,7 @@ const saveDisplayPrefs = () => {
 // Restore display prefs immediately from localStorage (skip day focus until focusableDays exists).
 try {
   const ownLocal = loadDisplayPrefsLocal();
+  calendarDisplayTimezone.value = normalizeCalendarDisplayTimeZone(ownLocal?.calendarDisplayTimezone);
   clientNameDisplay.value = normalizeClientNameDisplay(ownLocal?.clientNameDisplay);
   scheduleTimeFormat.value = ownLocal?.timeFormat === '24h' ? '24h' : '12h';
   if (ownLocal?.layoutDefaultsVersion === 2 && ownLocal.scheduleSideBySide != null) scheduleSideBySide.value = !!ownLocal.scheduleSideBySide;
@@ -20982,11 +20997,10 @@ watch(hasSingleAssignedOffice, (single) => {
   if (picked > 0) selectedOfficeLocationId.value = picked;
 });
 
-/** IANA timezone for the selected (or first) office — schedule wall clock source of truth. */
+/** Preserve office defaults; an explicit viewer choice changes the grid and labeled new-time inputs. */
 const mobileScheduleTimeZone=ref('');
 watch(showRequestModal,open=>{if(!open)mobileScheduleTimeZone.value='';});
-const bookingTimezoneIana = computed(() => {
-  if(mobileScheduleTimeZone.value)return mobileScheduleTimeZone.value;
+const officeTimezoneIana = computed(() => {
   const offices = officeLocations.value || [];
   const selectedId = Number(selectedOfficeLocationId.value || modalContext.value?.officeLocationId || 0);
   const selected = selectedId > 0
@@ -20996,6 +21010,8 @@ const bookingTimezoneIana = computed(() => {
   const fromGrid = String(officeGrid.value?.location?.timezone || '').trim();
   return fromOffice || fromGrid || String(agencyStore.currentAgency?.timezone || '').trim() || 'America/Denver';
 });
+const bookingTimezoneIana = computed(() => calendarDisplayTimeZone({ preferred: calendarDisplayTimezone.value,
+  office: officeTimezoneIana.value, fixed: mobileScheduleTimeZone.value, officeLayout: viewMode.value === 'office_layout' }));
 const bookingTimezoneLabel = computed(() => timezoneLabelFor(bookingTimezoneIana.value));
 
 const isScheduleSuperAdmin = computed(() => {
@@ -25287,11 +25303,11 @@ const startTrackedSupvMeet = async () => {
 };
 
 const parseMaybeDate = (raw) => parseScheduleInstant(raw);
-/** Calendar inputs and new appointments use the displayed office/agency timezone, never the browser's. */
+/** New time inputs use the explicitly displayed zone; the default remains office/agency time. */
 const scheduleMeetingTimeZone = () => String(bookingTimezoneIana.value || 'America/Denver').trim();
 /**
- * IANA zone for TEAM_MEETING / HUDDLE wall-clock. Always anchors to the selected
- * tenant/office timezone (the one shown right next to the time fields) rather than
+ * IANA zone for TEAM_MEETING / HUDDLE wall-clock. Uses the explicit calendar
+ * choice, or the selected tenant/office timezone (the one shown right next to the time fields) rather than
  * the scheduler's own browser timezone. Meetings involve other people's calendars —
  * if "My Schedule" silently used the creator's browser zone, a time typed while the
  * displayed timezone label said "Mountain Time" could actually get saved as Central,

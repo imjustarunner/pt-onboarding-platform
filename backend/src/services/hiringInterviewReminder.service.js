@@ -1,7 +1,9 @@
 import Agency from '../models/Agency.model.js';
 import { resolveMeetingRecipient } from './meetingRecipientIdentity.service.js';
 import { resolveInterviewSender } from './hiringInterviewSender.service.js';
-import { interviewEmailBrand, escapeInterviewHtml } from '../utils/interviewInvitationBody.js';
+import { escapeInterviewHtml } from '../utils/interviewInvitationBody.js';
+import { referenceEmailFrame } from './hiringReferenceEmail.service.js';
+import { emailActionButton } from '../utils/emailActionButton.js';
 import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 import HiringInterview from '../models/HiringInterview.model.js';
 import HiringProfile from '../models/HiringProfile.model.js';
@@ -26,7 +28,7 @@ export async function sendHiringInterviewReminder(event, candidate) {
   return sendEmailFromIdentity({ ...delivery, subject: `Interview reminder: ${email.subject}`, templateType: 'meeting_join_reminder' });
 }
 
-export async function sendStaffInterviewEmail(event, user, joinUrl, { reminder = false } = {}) {
+export async function prepareStaffInterviewEmail(event, user, joinUrl, { reminder = false } = {}) {
   const interview = await HiringInterview.findByScheduleEventId(event.id);
   if (interview && (interview.guest_access_ended_at || ['completed','cancelled'].includes(interview.status))) return { skipped: true };
   const [agency, identity, recipient] = await Promise.all([
@@ -45,14 +47,28 @@ export async function sendStaffInterviewEmail(event, user, joinUrl, { reminder =
   rsvp.searchParams.set('eventId', String(event.id));
   const heading = reminder ? 'Interview reminder' : 'You’ve been invited to an interview';
   const message = reminder ? 'Your interview is coming up.' : 'You’ve been invited to join the interview team. The interview is on My Schedule.';
-  const html = `${interviewEmailBrand(agencyName)}<h1>${heading}</h1><p>${escapeInterviewHtml(message)}</p>
-    <h2>${escapeInterviewHtml(title)}</h2><p>${escapeInterviewHtml(when)}</p>
-    <p><a href="${escapeInterviewHtml(joinUrl)}">Join interview</a></p>
-    <p><a href="${escapeInterviewHtml(rsvp.href)}">Respond to invitation</a></p>`;
-  return sendEmailFromIdentity({
+  const choiceUrl = response => { const url = new URL(rsvp);url.searchParams.set('response', response);return url.href; };
+  const html = referenceEmailFrame({ agency, heading, marketing: false, body: `
+    <p>Hello ${escapeInterviewHtml(user.preferred_name || user.first_name || 'there')},</p>
+    <p>${escapeInterviewHtml(message)}</p>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:20px 0;background:#f0f5f2;border:1px solid #dce6e1;border-radius:10px"><tr><td style="padding:18px"><strong>${escapeInterviewHtml(title)}</strong><br>${escapeInterviewHtml(when)}</td></tr></table>
+    ${emailActionButton('Join interview', joinUrl, true)}
+    <p style="font-size:13px;color:#546c62">This personal email link identifies you as the invited staff member and opens only this interview. No app sign-in is required. Do not forward it.</p>
+    <h2 style="font-size:19px">Will you attend?</h2>
+    ${emailActionButton('Yes, I’m attending', choiceUrl('accepted'))}
+    ${emailActionButton('I can’t attend', choiceUrl('declined'))}
+    <p style="font-size:13px;color:#546c62">Confirm your response on the page that opens. RSVP does not record attendance or paid time.</p>
+    <p>For eligible hourly staff, actual interview attendance is recorded for payroll using your assigned administrative or indirect-time rate. Salaried coverage and existing payroll review still apply.</p>
+    <p>Questions or a scheduling conflict? Reply to this email to reach ${escapeInterviewHtml(agencyName)} People Operations.</p>` });
+  return {
     senderIdentityId: identity.id, fromDisplayNameOverride: `${agencyName} People Operations`, replyToOverride: identity.from_email,
     to: recipient.email, userId: user.id, subject: `${heading} · ${title}`, html,
     text: `Plotline · ${agencyName}\n${message}\n${title}\n${when}\nJoin: ${joinUrl}\nRSVP: ${rsvp.href}`,
     templateType: reminder ? 'meeting_join_reminder' : 'meeting_invited', source: 'auto'
-  });
+  };
+}
+
+export async function sendStaffInterviewEmail(...args) {
+  const email = await prepareStaffInterviewEmail(...args);
+  return email.skipped ? email : sendEmailFromIdentity(email);
 }

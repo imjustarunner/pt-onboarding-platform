@@ -42,6 +42,7 @@ import HiringReferenceRequest from '../models/HiringReferenceRequest.model.js';
 import EmailService from '../services/email.service.js';
 import UserActivityLog from '../models/UserActivityLog.model.js';
 import { createAndSendReferenceRequests } from '../services/hiringReferenceRequests.service.js';
+import { resolveHiringReferenceConsent } from '../services/hiringReferenceConsent.service.js';
 import { sanitizeCareersPageJson } from '../utils/careersPageSanitize.js';
 import { sanitizePrehireConfig, mergePrehireDocuments } from '../utils/prehireConfigSanitize.js';
 import {
@@ -4855,6 +4856,7 @@ export const getCandidateReferenceWorkspace = async (req, res, next) => {
     const contacts = await listReferenceContacts(profile.id, agencyId);
     res.json({
       questionnaire: referenceQuestionnaire,
+      consent: await resolveHiringReferenceConsent({ profile, agencyId, candidateUserId: userId }),
       contacts: contacts.map(contact => ({
         ...contact,
         questionnaire: contact.responses_json?.questionnaireSnapshot || legacyReferenceQuestionnaire

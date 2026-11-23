@@ -2,8 +2,8 @@ import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 import {flushPromises,shallowMount} from '@vue/test-utils';
 import {createPinia,setActivePinia} from 'pinia';
 import {reactive} from 'vue';
-const m=vi.hoisted(()=>({get:vi.fn(),push:vi.fn(),user:null,agency:null,route:null}));
-vi.mock('../../../services/api',()=>({default:{get:m.get,put:vi.fn(),post:vi.fn()},isApiRateLimited:()=>false}));
+const m=vi.hoisted(()=>({get:vi.fn(),put:vi.fn().mockResolvedValue({}),post:vi.fn(),push:vi.fn(),user:null,agency:null,route:null}));
+vi.mock('../../../services/api',()=>({default:{get:m.get,put:m.put,post:m.post},isApiRateLimited:()=>false}));
 vi.mock('vue-router',()=>({useRoute:()=>m.route,useRouter:()=>({push:m.push,replace:vi.fn(),resolve:()=>({href:'/dashboard'})})}));
 vi.mock('../../../store/auth',()=>({useAuthStore:()=>({get user(){return m.user;},isAuthenticated:true})}));
 vi.mock('../../../store/agency',()=>({useAgencyStore:()=>({get currentAgency(){return m.agency;},agencies:[],userAgencies:[],hydrateAgencyById:vi.fn()})}));
@@ -23,6 +23,29 @@ async function mountGrid(compactPageChrome){
  wrapper=shallowMount(Grid,{props:{userId:1496,agencyId:453,mode:'self',weekStartYmd:'2026-11-09',compactPageChrome},global:{stubs:{Teleport:false,RouterLink:true,ClinicalWorkspaceFrame:{template:'<div><slot /></div>'}}}});
  await flushPromises();const state=wrapper.vm.$.setupState;await state.load({forceRefresh:true});await flushPromises();return state;
 }
+it('saves the viewer’s time-zone choice without changing appointments, office assignment or Google settings',async()=>{
+ m.agency.timezone='America/Denver';
+ const state=await mountGrid(true);
+ expect(state.bookingTimezoneIana).toBe('America/Denver');
+ const writes=m.post.mock.calls.length;
+ state.setCalendarDisplayTimezone('America/New_York');await flushPromises();
+ expect(state.bookingTimezoneIana).toBe('America/New_York');
+ expect(m.get.mock.calls.some(([url,options])=>url.includes('/schedule-summary') && options?.params?.timeZone==='America/New_York')).toBe(true);
+ expect(state.parseGridEventDate('2026-11-24T19:00:00Z').getHours()).toBe(14);
+ expect(state.officeTimezoneIana).toBe('America/Denver');
+ expect(m.agency.timezone).toBe('America/Denver');
+ expect(m.post.mock.calls.length).toBe(writes);
+ expect(m.put.mock.calls.every(([url])=>url==='/users/1496/preferences')).toBe(true);
+ expect(JSON.parse(localStorage.getItem('schedule.displayPrefs.v1:1496')).calendarDisplayTimezone).toBe('America/New_York');
+ await state.saveDisplayPrefsToServer();
+ expect(m.put).toHaveBeenCalledWith('/users/1496/preferences',expect.objectContaining({schedule_display_prefs:expect.objectContaining({calendarDisplayTimezone:'America/New_York'})}),expect.any(Object));
+ await state.beginEditScheduleStackItem({eventId:88,eventKind:'TEAM_MEETING',meetingSubtype:'interview',agencyId:453,providerId:1496,
+   timeZone:'America/Denver',startAt:'2026-11-24T19:00:00Z',endAt:'2026-11-24T20:00:00Z',label:'Synthetic interview'});
+ expect(state.scheduleEventEditTimeZone).toBe('America/Denver');
+ expect(state.scheduleEventEditForm.startAt.slice(0,16)).toBe('2026-11-24T12:00');
+ state.viewMode='office_layout';expect(state.bookingTimezoneIana).toBe('America/Denver');
+ state.viewMode='open_finder';expect(state.bookingTimezoneIana).toBe('America/New_York');
+});
 it.each([true,false])('keeps tutoring booking available and omits clinical note entry in calendar chrome %s',async compact=>{
  const state=await mountGrid(compact);
  expect(wrapper.find('button[title="Open Note Workspace"]').exists()).toBe(false);

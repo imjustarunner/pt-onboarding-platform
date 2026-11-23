@@ -23,3 +23,13 @@ it('discards a late response for another company',async()=>{
  const w=mount(View,{global:{stubs:{RouterLink:true}}});m.route.params.agencySlug='maple';m.get.mockResolvedValue({data:{agency:{id:464,name:'Maple'},jobs:[]}});await flushPromises();
  finish({data});await flushPromises();expect(w.find('.application-form').exists()).toBe(false);expect(w.text()).not.toContain('published-job-key');w.unmount();
 });
+it('keeps the same application instance and state when starting or resuming adds a session query',async()=>{
+ const w=mount(View,{global:{stubs:{RouterLink:true}}});await flushPromises();
+ const application=w.getComponent('.application-form').vm;
+ // Real router navigation replaces the params object, including on query-only changes.
+ m.route.params={agencySlug:'juniper',jobId:'42'};m.route.query={session:'synthetic-session'};
+ await flushPromises();
+ expect(m.get).toHaveBeenCalledTimes(1);
+ expect(w.getComponent('.application-form').vm).toBe(application);
+ expect(w.find('[role="status"]').exists()).toBe(false);w.unmount();
+});

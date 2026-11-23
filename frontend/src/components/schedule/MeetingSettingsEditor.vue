@@ -3,8 +3,9 @@
     <div class="settings-heading"><strong>Meeting options</strong><div class="settings-actions"><button type="button" class="btn btn-ghost btn-sm" :disabled="disabled || saving" @click="deselectAll">Deselect all</button><button v-if="canEdit" type="button" class="btn btn-ghost btn-sm" :disabled="disabled || saving" @click="editingDefaults = !editingDefaults">{{ editingDefaults ? 'Back to this meeting' : 'Edit meeting type defaults' }}</button></div></div>
     <p v-if="editingDefaults">Defaults for {{ types.find(t => t.key === type)?.label || type }}. These apply to newly scheduled meetings.</p>
     <div class="settings-checks">
-      <label v-for="(label, key) in labels" :key="key"><input type="checkbox" :checked="current[key]" :disabled="disabled || (key === 'compensation' && !canEdit)" @change="change(key, $event.target.checked)" /> {{ label }}</label>
+      <label v-for="(label, key) in labels" :key="key"><input type="checkbox" :checked="current[key]" :disabled="disabled || (key === 'compensation' && (!canEdit || type === 'interview'))" @change="change(key, $event.target.checked)" /> {{ label }}</label>
     </div>
+    <p v-if="type === 'interview'">Interview staff time uses recorded attendance and an assigned administrative or indirect-time rate. Salaried coverage and payroll review still apply.</p>
     <p>Google Meet phone instructions are included only when Google returns a number and PIN for this meeting. This option does not enable phone access in Google Workspace.</p>
     <fieldset><legend>Confirm reminders</legend>
       <p>A booking invitation is sent when email invitations are enabled.</p>
@@ -22,15 +23,18 @@ const props = defineProps({ agencyId: Number, type: { type: String, default:'gen
 const emit = defineEmits(['update:modelValue']);
 const types = ref([]), canEdit = ref(false), editingDefaults = ref(false), defaultsDraft = ref({}), saving = ref(false), error = ref(''), customMinutes = ref(null);
 const labels = { dialIn:'Allow phone dial-in for app video', includeGoogleDialIn:'Include available Google Meet phone instructions in emails and reminders', agenda:'Agenda', goals:'Goals', actionItems:'Action items', attendance:'Track attendance', transcription:'Transcribe by default', screenShare:'Allow everyone to share their screen', compensation:'Attendance time claims for eligible participants' };
-const fallback = () => ({agenda:props.type!=='interview',goals:props.type!=='interview',actionItems:props.type!=='interview',dialIn:false,attendance:true,transcription:true,screenShare:true,compensation:['huddle','cpa','mentorship','admin','town_hall','evaluation','leadership_circle','supervisors_meeting'].includes(props.type),reminders:['business_days_3',1440,5]});
-const current = computed(() => editingDefaults.value ? defaultsDraft.value : (props.modelValue || types.value.find(t=>t.key===props.type)?.settings || fallback()));
+const fallback = () => ({agenda:props.type!=='interview',goals:props.type!=='interview',actionItems:props.type!=='interview',dialIn:false,attendance:true,transcription:true,screenShare:true,compensation:['interview','huddle','cpa','mentorship','admin','town_hall','evaluation','leadership_circle','supervisors_meeting'].includes(props.type),reminders:['business_days_3',1440,5]});
+const current = computed(() => {
+ const value = editingDefaults.value ? defaultsDraft.value : (props.modelValue || types.value.find(t=>t.key===props.type)?.settings || fallback());
+ return props.type === 'interview' ? {...value,compensation:true} : value;
+});
 const reminderOptions = computed(() => [...new Set(['business_days_3',1440,5,...(current.value.reminders||[])])].map(key=>({key,label:key==='business_days_3'?'3 business days before':key===1440?'24 hours before':`${key} minutes before`}))); 
 function change(key,value) { const next={...current.value,[key]:value}; if(editingDefaults.value) defaultsDraft.value=next; else emit('update:modelValue',next); }
 function deselectAll() {
   if (props.disabled || saving.value) return;
   const next = { ...current.value, reminders: [] };
   for (const key of Object.keys(labels)) {
-    if (key !== 'compensation' || canEdit.value) next[key] = false;
+    if (key !== 'compensation' || (canEdit.value && props.type !== 'interview')) next[key] = false;
   }
   customMinutes.value = null;
   if (editingDefaults.value) defaultsDraft.value = next;
@@ -38,6 +42,9 @@ function deselectAll() {
 }
 function toggleReminder(key,on) { change('reminders',on?[...new Set([...(current.value.reminders||[]),key])]:(current.value.reminders||[]).filter(v=>v!==key)); }
 function addReminder() { if(Number.isInteger(customMinutes.value)&&customMinutes.value>0&&customMinutes.value<=10080) { toggleReminder(customMinutes.value,true);customMinutes.value=null; } }
+watch(()=>[props.type,props.modelValue?.compensation],()=>{
+ if(props.type==='interview' && props.modelValue?.compensation===false) emit('update:modelValue',{...props.modelValue,compensation:true});
+},{immediate:true});
 watch(editingDefaults,on=>{if(on) defaultsDraft.value={...(types.value.find(t=>t.key===props.type)?.settings||fallback())};});
 watch(()=>[props.agencyId,props.type],async()=>{const agencyId=props.agencyId,type=props.type; if(!agencyId)return; try{const {data}=await api.get('/team-meetings/types',{params:{agencyId},skipGlobalLoading:true});if(agencyId!==props.agencyId||type!==props.type)return;types.value=data.types||[];canEdit.value=!!data.canEdit;if(!props.modelValue)emit('update:modelValue',{...(types.value.find(t=>t.key===props.type)?.settings||fallback())});}catch(e){error.value=e.response?.data?.error?.message||'Could not load meeting defaults.';}},{immediate:true});
 async function saveDefaults(){saving.value=true;error.value='';try{await api.put(`/team-meetings/types/${props.type}`,{agencyId:props.agencyId,settings:defaultsDraft.value});const found=types.value.find(t=>t.key===props.type);if(found)found.settings={...defaultsDraft.value};editingDefaults.value=false;}catch(e){error.value=e.response?.data?.error?.message||'Could not save defaults.';}finally{saving.value=false;}}

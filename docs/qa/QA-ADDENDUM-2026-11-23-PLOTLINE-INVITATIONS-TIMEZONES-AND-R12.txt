@@ -1,0 +1,132 @@
+PLOTLINE — STAFF INVITATIONS, CALENDAR ZONES AND ROUND 12 RETEST
+November 23, 2026
+
+Preserve the round 11–12 CSV, screenshots and open findings. This is a retest
+assignment, not a completed live QA report or evidence of paid attendance.
+Use existing authorized QA automation Jordan 1434, Juniper 463 / Maple 464,
+the controlled testing inbox and retained synthetic applicants. No role grants,
+real employee impersonation, production interview join or payroll payment.
+
+PRODUCTION BOUNDARY
+- Real staff invitations and interviews are not synthetic fixtures. Engineering's
+  private readiness checks do not authorize the tester to use a real employee's
+  account, invitation, calendar, pay rate or attendance record.
+- Do not join, RSVP, move or resend a real staff interview for this test.
+  Keep employee-specific findings in the controlled private handoff.
+- Interview time uses actual eligible staff attendance and assigned rates;
+  invitations alone do not establish worked time or authorize payroll payment.
+
+1. RELEASE AND RETAINED APPLICATIONS
+- Record matching frontend / required backend / live backend build IDs,
+  ready=true and actual local date/time with America/Denver offset.
+- Juniper careers was already published in round 12. Preserve its publication
+  audit event and jobs 42/43. Do not create or republish the company/jobs again.
+- Retain Reese applicant 1871 / profile 253 / submitted application 1643 on
+  job 42, Rory 1849 and Quinn 1844. Search before creating any person.
+- Reese's application is already submitted. It is not an unsigned resumable
+  draft. Do not submit another application for Reese to repair consent.
+
+2. ROUND 12 APPLICATION START / UNSIGNED DRAFT
+- Open job 42 using its normal careers Apply action in a genuinely independent
+  signed-out browser profile. Incognito windows in one profile can share cookies.
+- Confirm Plotline / A People Operations Platform, company/job, no QA CAPTCHA,
+  and the normal application fields after Start job application.
+- The session query update must preserve the mounted application, display the
+  form and retain source state. It must not return silently to the start screen.
+- Record the session ID privately. A bearer return URL belongs in the vault,
+  not screenshots, CSV or a public report. Do not use another tester's token.
+- For the navigation test use one anonymous unsigned QA draft; no named
+  application submission is needed. If a draft is created, retain it and its
+  supported return link. Reopen that same link, confirm progress and avoid a
+  second person/application. Record blockers if no supported resume path appears.
+- Current two-page application asks for three professional references and a
+  resume; packet references steps can declare minReferences. Preserve job 42's
+  actual requirements and report mismatches with its configured preview. The
+  earlier brief's two-reference assumption is not permission to lower them.
+
+3. SIGNED APPLICATION CONSENT AND MANUAL REFERENCE SEND
+- Open Reese 1871 -> References. Expect a visible authorization explanation
+  identifying signed application 1643. No hiring-stage promotion is required.
+- The source application explicitly records digital reference authorization,
+  confidentiality acknowledgement and its signed release. The profile parser
+  had incorrectly read the nested packet location instead of the two-page
+  application's root fields. The original profile and signed source are retained.
+- Recovery is limited to that known all-false version-1 projection with matching
+  original submission/consent timestamps, candidate, agency, job, signed release
+  and reference email. Waived, withdrawn, unsigned, changed-contact or later
+  consent decisions must not be overridden by old evidence.
+- Review Taylor's existing reference/questions; Cancel must send nothing.
+  Check history first. If still not requested, manually Send once. Do not resend
+  a delivered request or completed reference to obtain another screenshot.
+- Record the new request ID, questionnaire snapshot, From/Reply-To and actual QA
+  inbox receipt. Continue referee desktop/390, validation, review/edit, submit,
+  repeat-submit, decline, old-question snapshot and marketing-link cases from
+  the November 22 reference brief. Original sample 7571 was group-dropped and
+  corrected sample 7574 was confirmed received; neither should be resent.
+- Applicant gets completion/by-whom only, never answers or ratings. The referee
+  is told this before submitting and in their thank-you email. Only current
+  hiring-permission recipients receive reference alerts: SSO email only,
+  password/group-login app notification only. Missing eligible fixtures remain
+  BLOCKED; never substitute a real staff member's login or invitation.
+
+4. STAFF INTERVIEW EMAIL, RSVP AND IDENTIFIED JOIN
+- Use a new or retained open SYNTHETIC interview in Juniper, with an eligible
+  automation staff invitee and controlled QA delivery. Do not reuse event 648.
+- Choose explicit ordinary send controls, one intended invitation. Capture the
+  staff email, not only Google Calendar's event-description popup.
+- Expect bounded bordered Plotline + employer branding, an obvious Join interview
+  button and Yes, I'm attending / I can't attend buttons. Check desktop/mobile.
+- Each RSVP link opens a confirmation page for that invitee. Merely fetching it
+  must not save a response. Confirm once, then verify the correct person/event.
+  RSVP or opening a link alone must never create attendance time or a pay claim.
+- Open the staff member's OWN delivered personal email link signed out. It
+  grants only the invited meeting, not a general app session. Expect identified
+  staff workspace and attendance identity after valid admission; no forced
+  app login and no applicant/guest identity. Never use Dayana's personal link.
+- Shared Google calendar descriptions are the same for all invitees; they do
+  not identify one recipient. Their shared link continues to require staff
+  sign-in for private interviewer access. A shared or forwarded calendar link
+  must never inherit a cached different person's personal grant.
+- Test a revoked/removed invitee, expired/ended meeting, wrong event and applicant
+  entry. No private interview questions/notes or another person's grant may leak.
+- In a valid synthetic actual-attendance exercise check lobby excluded,
+  admitted time only, leave/rejoin totals, applicant excluded, salary excluded,
+  and no duplicate claim on retry. Eligible staff use their own assigned Admin
+  Time rate if available, otherwise indirect; missing rates stay reviewable.
+  Do not invent a rate, time record, salary, bank data or payroll approval.
+
+5. INDEPENDENT APP CALENDAR TIME ZONE
+- Calendar time zone is a saved viewer display preference. Its default remains
+  Office / organization time; moving or connecting Google must not auto-switch it.
+- Use a permitted synthetic calendar. Record an event's original UTC start/end,
+  office assignment and persisted source zone before changing the viewer choice.
+- Choose Mountain, Eastern and Central, then another supported IANA zone. Verify
+  the same instant moves to the correct grid day/hour, with explicit zone labels.
+  At the November 24 example instant, Denver is 12 PM, New York 2 PM, Chicago 1 PM.
+- Reload/sign in again: the viewer's choice persists. Viewing a coworker must not
+  save the preference on that coworker's account. Test switching organizations.
+- Open an existing Denver event for editing while the grid shows Eastern. Its
+  original source-zone editor and UTC times remain intact; cancel without saving.
+  New time inputs explicitly show the zone they interpret. Office room layouts
+  and school/day-specific tools retain the office's date/time semantics.
+- Test a midnight date crossing, both sides of daylight-saving changes, a stale
+  response during a zone switch and clearing back to Office / organization time.
+- Google Calendar is independent: with an authorized QA account already set to
+  Central, compare a Denver-booked event with the app set to Eastern. Do not
+  change a real employee's Google zone, calendar connection or office assignment.
+  Do not claim live Google comparison if that authorized fixture is unavailable.
+
+6. OPEN NOTES AND REPORTING
+- The existing applicant confirmation From domain (Notifications@plottwistco.com)
+  remains a sender-configuration finding until a validated intended applicant
+  sender is configured and a real receipt is checked. Do not repurpose the
+  references mailbox or invent a po@ address to make the header look right.
+- Company careers canonical links may use /{company-slug}; the explicit
+  /careers/{slug}/jobs/{id}/apply route is retained. Both must resolve correctly.
+- Careers publication currently confirms in the UI and audit; no publication
+  email is specified. A direct uncredentialed /users/me request returning 401
+  is not evidence that an authenticated app session is broken.
+- Keep earlier media/interview-state and missing-persona findings open. Use
+  PASS / FAIL / BLOCKED / NOT RUN with exact actor, IDs, click path, screenshots,
+  UTC/local offsets and actual inbox receipt. Engineering tests and a local
+  design preview do not constitute completed live staff/audio/payroll QA.
