@@ -12,6 +12,46 @@
       </button>
     </div>
 
+    <section class="packet-drafts" aria-labelledby="packet-drafts-title">
+      <h2 id="packet-drafts-title">Unsubmitted Packets ({{ packetTotal }})</h2>
+      <p>These uploaded files are saved drafts. They have not created a client or reached the intake queue. Review each packet before submitting; older drafts may duplicate an existing client.</p>
+      <div v-if="packetLoading" role="status">Loading unfinished packets…</div>
+      <div v-else-if="packetError" class="error" role="alert">
+        {{ packetError }}
+        <button class="btn btn-secondary" type="button" @click="fetchPacketDrafts">Retry</button>
+      </div>
+      <p v-else-if="!packetDrafts.length">No unfinished packet uploads for the selected agencies.</p>
+      <div v-else class="table-wrap">
+        <table class="table">
+          <thead><tr><th>Packet</th><th>School / Program</th><th>Uploaded by</th><th>Uploaded</th><th>Status</th><th></th></tr></thead>
+          <tbody>
+            <tr v-for="draft in packetDrafts" :key="draft.id">
+              <td>#{{ draft.id }} · {{ draft.initials || 'Initials not set' }}</td>
+              <td>{{ draft.organization_name }}</td>
+              <td>{{ draft.uploader_name || 'Public upload' }}</td>
+              <td>{{ formatDate(draft.created_at) }}</td>
+              <td>{{ draft.status === 'failed' ? 'Needs retry' : draft.status === 'submitting' ? 'Submission in progress' : 'Unsubmitted draft' }}<span v-if="!draft.file_available"> · File unavailable</span></td>
+              <td><button class="btn btn-primary btn-sm" type="button" :disabled="!draft.file_available" @click="reviewPacket = draft">Review / Resume</button></td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="actions" v-if="packetTotal > packetLimit">
+          <button class="btn btn-secondary" type="button" :disabled="packetOffset === 0" @click="changePacketPage(-1)">Previous</button>
+          <span>{{ packetOffset + 1 }}–{{ packetOffset + packetDrafts.length }} of {{ packetTotal }}</span>
+          <button class="btn btn-secondary" type="button" :disabled="packetOffset + packetLimit >= packetTotal" @click="changePacketPage(1)">Next</button>
+        </div>
+      </div>
+    </section>
+
+    <ReferralUpload
+      v-if="reviewPacket"
+      :key="reviewPacket.id"
+      :organization-slug="reviewPacket.organization_slug"
+      :initial-draft-id="Number(reviewPacket.id)"
+      @close="reviewPacket = null"
+      @uploaded="packetSubmitted"
+    />
+
     <div class="filters">
       <select v-model="filterAgencyId" @change="fetch" class="filter-select">
         <option value="">All agencies</option>
@@ -127,6 +167,7 @@ import { ref, computed, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
+import ReferralUpload from '../../components/school/ReferralUpload.vue';
 
 const agencyStore = useAgencyStore();
 const route = useRoute();
@@ -136,6 +177,41 @@ const documents = ref([]);
 const agencies = ref([]);
 const filterAgencyId = ref('');
 const filterAssignable = ref('all');
+const packetDrafts = ref([]);
+const packetTotal = ref(0);
+const packetLoading = ref(false);
+const packetError = ref('');
+const packetOffset = ref(0);
+const packetLimit = 50;
+const reviewPacket = ref(null);
+let packetRequest = 0;
+
+const fetchPacketDrafts = async () => {
+  const request = ++packetRequest;
+  packetLoading.value = true;
+  packetError.value = '';
+  try {
+    const params = { limit: packetLimit, offset: packetOffset.value };
+    if (filterAgencyId.value) params.agencyId = filterAgencyId.value;
+    const { data } = await api.get('/unassigned-documents/packet-drafts', { params });
+    if (request !== packetRequest) return;
+    packetDrafts.value = data.drafts || [];
+    packetTotal.value = Number(data.total || 0);
+  } catch (e) {
+    if (request !== packetRequest) return;
+    packetDrafts.value = [];
+    packetTotal.value = 0;
+    packetError.value = e.response?.data?.error?.message || 'Could not load unfinished packets.';
+  } finally {
+    if (request === packetRequest) packetLoading.value = false;
+  }
+};
+
+const changePacketPage = async (direction) => {
+  packetOffset.value = Math.max(0, packetOffset.value + direction * packetLimit);
+  await fetchPacketDrafts();
+};
+const packetSubmitted = (result) => { if (result?.clientId) fetchPacketDrafts(); };
 
 const isAssignable = (d) => d.requires_assignment !== false && d.requires_assignment !== 0;
 const filteredDocuments = computed(() => {
@@ -170,6 +246,8 @@ const formatDate = (d) => {
 };
 
 const fetch = async () => {
+  packetOffset.value = 0;
+  const packets = fetchPacketDrafts();
   try {
     loading.value = true;
     error.value = '';
@@ -183,6 +261,7 @@ const fetch = async () => {
   } finally {
     loading.value = false;
   }
+  await packets;
 };
 
 const downloadDoc = async (doc) => {
@@ -275,6 +354,7 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.packet-drafts { margin: 24px 0; padding: 20px; border: 1px solid var(--border-color, #ccc); border-radius: 8px; }
 .guardian-clients {
   display: flex;
   flex-wrap: wrap;
