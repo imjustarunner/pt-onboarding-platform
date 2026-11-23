@@ -33,7 +33,8 @@ describe.skipIf(!process.env.EVIDENCE_TEST_SOCKET && !process.env.EVIDENCE_TEST_
   await state.pool.query(`
    CREATE TABLE users (id INT PRIMARY KEY, first_name VARCHAR(255), last_name VARCHAR(255));
    CREATE TABLE clients (id INT PRIMARY KEY, agency_id INT, organization_id INT,
-    provider_id INT, client_status_id INT, ${CLIENT_MERGE_FIELDS.map(f => `${f.key} VARCHAR(255)`).join(',')});
+    provider_id INT, client_status_id INT, enrollment_reopened_at DATETIME NULL,
+    enrollment_reopened_source VARCHAR(32) NULL, ${CLIENT_MERGE_FIELDS.map(f => `${f.key} VARCHAR(255)`).join(',')});
    CREATE TABLE client_statuses (id INT PRIMARY KEY, label VARCHAR(100), status_key VARCHAR(100));
    CREATE TABLE client_organization_assignments(client_id INT,organization_id INT,is_primary INT,is_active INT,PRIMARY KEY(client_id,organization_id));
    CREATE TABLE client_contact_affiliations(id INT PRIMARY KEY,client_id INT,agency_contact_id INT,created_by_user_id INT,email_reminders_enabled INT,sms_reminders_enabled INT,is_active INT);

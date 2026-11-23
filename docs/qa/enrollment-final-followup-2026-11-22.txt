@@ -37,6 +37,8 @@ Validation:
 - Focused backend/frontend suites are included in scheduling regression CI.
 - Extended checks passed: 159 client/profile tests, 70 client-management tests,
   and 36 shared-school-inbox tests. A directory shortcut binding was corrected.
+- All 12 family-enrollment SQL integration cases passed against an isolated
+  temporary MySQL server after aligning the fixture with the reopening fields.
 - Enrollment replies are linked inside the inbox transaction. A shared family
   email or Gmail thread cannot attach one child's reply to a sibling's record.
 
