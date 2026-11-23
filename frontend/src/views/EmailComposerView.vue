@@ -3,18 +3,37 @@
     <header><div class="composer-heading"><ConversaBrand compact /><h1>{{ title }}</h1></div><button type="button" :disabled="busy || loading" @click="saveAndClose">Save &amp; close ×</button></header>
     <p v-if="error" role="alert" class="error">{{ error }} <button v-if="record?.state==='editing'" type="button" :disabled="busy" @click="retrySave">Retry saving</button></p>
     <p v-if="loading" role="status">Opening draft…</p>
+    <form v-else-if="!record && caseloadAgencies?.length" @submit.prevent="openDraft">
+      <label>Organization
+        <select v-model="caseloadAgencyId" required>
+          <option :value="null" disabled>Choose an organization</option>
+          <option v-for="agency in caseloadAgencies" :key="agency.id" :value="agency.id" :disabled="!agency.count">
+            {{ agency.name }} · {{ agency.count }} assigned {{ agency.count === 1 ? 'client' : 'clients' }}
+          </option>
+        </select>
+      </label>
+      <button class="send" type="submit" :disabled="!caseloadAgencyId">Continue</button>
+    </form>
+    <p v-else-if="!record && caseloadAgencies" role="status">No clients are assigned to you.</p>
     <button v-else-if="!record" type="button" @click="openDraft">Try opening draft again</button>
     <template v-else-if="record">
       <p class="status" role="status">{{ status }}<span v-if="senderPreview?.fromEmail"> · From {{ senderPreview.fromEmail }} · Replies to {{ senderPreview.replyTo }}</span></p>
       <p v-if="senderPreviewUnavailable" role="status">Sender details are temporarily unavailable. Your draft can still be saved; sending will recheck the mailbox.</p>
       <template v-if="record.state === 'editing'">
         <form @submit.prevent="send"><fieldset :disabled="busy">
+          <section v-if="isCaseloadEmail && record.audience" class="caseload-audience" aria-label="Recipients">
+            <strong>{{ record.audience.agencyName || 'My clients' }}</strong>
+            <p>{{ record.audience.count }} {{ record.audience.count === 1 ? 'address' : 'addresses' }} will receive a separate Bcc copy.</p>
+            <p v-if="record.audience.missing">{{ record.audience.missing }} assigned {{ record.audience.missing === 1 ? 'client has' : 'clients have' }} no eligible client or guardian email address.</p>
+          </section>
+          <template v-else>
           <div class="to-row"><EmailRecipientField :agency-id="qv ? null : record.agency_id" v-model="draft.to" label="To" required /><button v-if="!draft.cc && !draft.bcc" type="button" :aria-expanded="showCopyFields" @click="showCopyFields=!showCopyFields">Cc / Bcc</button></div>
           <div v-show="showCopyFields || draft.cc || draft.bcc" class="recipients"><EmailRecipientField :agency-id="qv ? null : record.agency_id" v-model="draft.cc" label="Cc" /><EmailRecipientField :agency-id="qv ? null : record.agency_id" v-model="draft.bcc" label="Bcc" /></div>
           <EmailRecipientCheck :recipients="{to:draft.to,cc:draft.cc,bcc:draft.bcc}" :check="checkRecipients" @blocked="recipientBlocked=$event" @replace="replaceRecipient" />
-          <label>Subject<input v-model="draft.subject" maxlength="998" /></label>
-          <label>Your message<textarea ref="bodyInput" v-model="draft.text" placeholder="Write your message…" rows="12" /></label>
-          <label class="files">Attach files<input type="file" multiple @change="attach" /></label>
+          </template>
+          <label>Subject<input v-model="draft.subject" maxlength="998" :required="isCaseloadEmail" /></label>
+          <label>Your message<textarea ref="bodyInput" v-model="draft.text" :required="isCaseloadEmail" placeholder="Write your message…" rows="12" /></label>
+          <label v-if="!isCaseloadEmail" class="files">Attach files<input type="file" multiple @change="attach" /></label>
           <ul v-if="draft.attachments.length"><li v-for="(a,i) in draft.attachments" :key="i">{{ a.filename }} <button type="button" @click="draft.attachments.splice(i,1)">Remove</button></li></ul>
           <div v-if="confirmAttachment" class="attachment-warning" role="alert">
             <p>Your message mentions an attachment, but no file is attached.</p>
@@ -31,7 +50,7 @@
           <EmailDeliveryChoice :info="availabilityPrompt" :busy="busy" @choose="send({confirmMissingAttachment:true,deliveryChoice:$event})" @cancel="availabilityPrompt=null" />
           <label>Send delay<select v-model.number="draft.undoDelaySeconds"><option v-if="![5,10,20,30,60,120,300,600].includes(draft.undoDelaySeconds)" :value="draft.undoDelaySeconds">{{ draft.undoDelaySeconds }} seconds</option><option :value="5">5 seconds</option><option :value="10">10 seconds</option><option :value="20">20 seconds</option><option :value="30">30 seconds</option><option :value="60">1 minute</option><option :value="120">2 minutes</option><option :value="300">5 minutes</option><option :value="600">10 minutes</option></select></label>
           <p>You can undo during the {{ draft.undoDelaySeconds }}-second delay. If delivery is scheduled for later, you can cancel until sending begins.</p>
-          <footer><button class="send" :disabled="busy || recipientBlocked" type="submit">{{ busy ? 'Working…' : `Send · ${draft.undoDelaySeconds}s Undo` }}</button><button :disabled="busy" type="button" @click="discard">Discard draft</button></footer>
+          <footer><button class="send" :disabled="busy || recipientBlocked || (isCaseloadEmail && !record.audience?.count)" type="submit">{{ busy ? 'Working…' : `Send · ${draft.undoDelaySeconds}s Undo` }}</button><button :disabled="busy" type="button" @click="discard">Discard draft</button></footer>
           <details v-if="draft.quotedHtml || draft.quotedText" open><summary>Original conversation — collapse or expand</summary><div v-if="draft.quotedHtml" class="quoted-email" v-html="readableEmailHtml({body_html:draft.quotedHtml},{collapseQuotes:false})" /><pre v-else v-html="readableEmailHtml({body_text:draft.quotedText})" /></details>
         </fieldset></form>
       </template>
@@ -75,11 +94,14 @@ const setDraftRoute=id=>props.composeContext ? Promise.resolve() : router.replac
 const record=ref(null),draft=ref({to:'',cc:'',bcc:'',subject:'',text:'',quotedText:'',quotedHtml:'',attachments:[],undoDelaySeconds:undefined});
 const error=ref(''),status=ref(''),loading=ref(true),busy=ref(false),fromEmail=ref(''),bodyInput=ref(null),sendResult=ref(null);
 const senderPreview=ref(null),senderPreviewUnavailable=ref(false);
-const title=computed(()=>({new:'New email',reply:'Reply',reply_all:'Reply all',forward:'Forward'})[record.value?.mode || context.mode] || 'Email draft');
+const caseloadAgencies = ref(null);
+const caseloadAgencyId = ref(null);
+const isCaseloadEmail = computed(() => record.value?.draft?._myClients === true || context.audience === 'my_clients');
+const title=computed(()=>isCaseloadEmail.value ? 'Email my clients' : ({new:'New email',reply:'Reply',reply_all:'Reply all',forward:'Forward'})[record.value?.mode || context.mode] || 'Email draft');
 const filingChoices=ref([]),filingRequired=ref(false);
 let filingGeneration=0;
 async function loadFilingChoices(){
- if(qv || !record.value?.agency_id || record.value.mode!=='new' || record.value.draft?._schoolContact)return;
+ if(qv || !record.value?.agency_id || record.value.mode!=='new' || record.value.draft?._schoolContact || isCaseloadEmail.value)return;
  const generation=++filingGeneration;
  try{const {data}=await request('get',`/client-filing-options?${new URLSearchParams({agencyId:record.value.agency_id,to:draft.value.to,cc:draft.value.cc,bcc:draft.value.bcc})}`);
  if(generation===filingGeneration)filingChoices.value=data.clients||[];}
@@ -87,12 +109,17 @@ async function loadFilingChoices(){
 }
 async function deferFiling(){draft.value.deferClientFiling=true;draft.value.clientIds=[];await send({confirmMissingAttachment:true});}
 const showCopyFields=ref(false),confirmAttachment=ref(false),availabilityPrompt=ref(null),confirmedDelivery=ref('');
-async function fetchDelivery(receipt){const {data}=await request('get',`/conversations/${receipt.conversationId}/messages/${receipt.messageId}/delivery`);return data.message;}
+async function fetchDelivery(receipt) {
+  const path = receipt.batchCount ? `/drafts/${record.value.id}/caseload-delivery`
+    : `/conversations/${receipt.conversationId}/messages/${receipt.messageId}/delivery`;
+  const { data } = await request('get', path);
+  return data.message;
+}
 function onDeliveryStatus({label}){confirmedDelivery.value=label;status.value=label;notify('delivery');}
 let saved='',timer=null,saveTask=null;
 const config=()=>{const session=context.session || sessionStorage.getItem('plottwist.quickViewSession');return messagingRequestOptions({withCredentials:true,headers:qv && session && session!=='cookie' ? {'X-Quick-View-Session':session} : {}});};
 const request=(method,path,data)=>qv ? axios({method,url:`${context.apiBase || '/api/quick-view'}${path}`,data,...config()}) : api({method,url:`/communications${path}`,data,...config()});
-const notify=(change='draft')=>{window.dispatchEvent(new CustomEvent('email-workspace-changed',{detail:{change,draft:record.value ? {id:record.value.id,agencyId:record.value.agency_id,mode:record.value.mode,state:record.value.state,to:draft.value.to,subject:draft.value.subject} : null}}));try{window.opener?.postMessage({type:'email-drafts-changed',change},window.location.origin);}catch{/* opener may be closed */}};
+const notify=(change='draft')=>{window.dispatchEvent(new CustomEvent('email-workspace-changed',{detail:{change,draft:record.value ? {id:record.value.id,agencyId:record.value.agency_id,mode:record.value.mode,state:record.value.state,to:isCaseloadEmail.value?'My clients':draft.value.to,subject:draft.value.subject} : null}}));try{window.opener?.postMessage({type:'email-drafts-changed',change},window.location.origin);}catch{/* opener may be closed */}};
 async function save() {
   clearTimeout(timer);
   if(saveTask) { await saveTask; return save(); }
@@ -111,11 +138,68 @@ function beforeUnload(event){if(record.value?.state==='editing' && JSON.stringif
 function onHidden(){if(document.visibilityState==='hidden')save().catch(()=>{});}
 function retrySave(){if(!busy.value)save().catch(()=>{});}
 async function discard(){busy.value=true;try{clearTimeout(timer);if(saveTask)await saveTask;await request('delete',`/drafts/${record.value.id}`);record.value.state='discarded';saved=JSON.stringify(draft.value);closeWindow();}catch(e){error.value=e.response?.data?.error?.message || 'Could not discard draft';}finally{busy.value=false;}}
-async function send({confirmMissingAttachment=false,deliveryChoice=null}={}){if(busy.value || recipientBlocked.value)return;if(!confirmMissingAttachment&&!draft.value.attachments.length&&/\battach(?:ed|ment|ments|ing)?\b/i.test(draft.value.subject+'\n'+draft.value.text)){confirmAttachment.value=true;return;}confirmAttachment.value=false;busy.value=true;error.value='';try{await save();const {data}=await request('post',`/drafts/${record.value.id}/send`,{version:record.value.version,deliveryChoice});availabilityPrompt.value=null;sendResult.value=data;confirmedDelivery.value='';record.value.state='sent';status.value=data.sent?'Sent':data.scheduled?'Email scheduled — not sent yet':'Delivery confirmation pending';notify('delivery');}catch(e){if(e.response?.data?.error?.code==='CLIENT_FILING_CHOICE_REQUIRED'){filingRequired.value=true;filingChoices.value=e.response.data.error.clients || [];if(!draft.value.clientIds)draft.value.clientIds=[];return;}if(e.response?.data?.error?.code==='RECIPIENT_AVAILABILITY_CHOICE_REQUIRED'){availabilityPrompt.value=e.response.data.error.availability;return;}error.value=e.response?.data?.error?.message || 'Could not confirm sending. Check the conversation before retrying.';try{const {data}=await request('get',`/drafts/${record.value.id}`);record.value.state=data.draft.state;}catch{/* retain original error */}}finally{busy.value=false;}}
+async function send({confirmMissingAttachment=false, deliveryChoice=null} = {}) {
+  if (busy.value || recipientBlocked.value) return;
+  if (!isCaseloadEmail.value && !confirmMissingAttachment && !draft.value.attachments.length &&
+      /\battach(?:ed|ment|ments|ing)?\b/i.test(draft.value.subject + '\n' + draft.value.text)) {
+    confirmAttachment.value = true;
+    return;
+  }
+  confirmAttachment.value = false;
+  busy.value = true;
+  error.value = '';
+  try {
+    await save();
+    const {data} = await request('post', `/drafts/${record.value.id}/send`, {
+      version: record.value.version,
+      deliveryChoice,
+      ...(isCaseloadEmail.value ? { fingerprint: record.value.audience?.fingerprint } : {})
+    });
+    availabilityPrompt.value = null;
+    sendResult.value = data;
+    confirmedDelivery.value = '';
+    record.value.state = 'sent';
+    status.value = data.sent ? 'Sent' : data.scheduled ? 'Email scheduled — not sent yet' : 'Delivery confirmation pending';
+    notify('delivery');
+  } catch (e) {
+    const detail = e.response?.data?.error;
+    if (detail?.code === 'CLIENT_FILING_CHOICE_REQUIRED') {
+      filingRequired.value = true;
+      filingChoices.value = detail.clients || [];
+      if (!draft.value.clientIds) draft.value.clientIds = [];
+      return;
+    }
+    if (detail?.code === 'RECIPIENT_AVAILABILITY_CHOICE_REQUIRED') {
+      availabilityPrompt.value = detail.availability;
+      return;
+    }
+    error.value = detail?.message || 'Could not confirm sending. Check the conversation before retrying.';
+    try {
+      const {data} = await request('get', `/drafts/${record.value.id}`);
+      record.value.state = data.draft.state;
+      if (isCaseloadEmail.value) {
+        record.value.audience = data.draft.audience;
+        sendResult.value = data.draft.result;
+      }
+    } catch { /* retain original error */ }
+  } finally {
+    busy.value = false;
+  }
+}
 async function undo(){
   if(busy.value)return;
   busy.value=true;error.value='';
   try{
+    if (sendResult.value.batchCount) {
+      const {data} = await request('post', `/drafts/${record.value.id}/caseload-delivery/undo`, {});
+      record.value = data.draft;
+      draft.value = { ...draft.value, ...data.draft.draft };
+      saved = JSON.stringify(draft.value);
+      sendResult.value = null;
+      status.value = 'Send cancelled. Draft saved — you can keep editing.';
+      notify('delivery');
+      return;
+    }
     if(!sendResult.value.cancelled){
       const {data:cancelled}=await request('post',`/conversations/${sendResult.value.conversationId}/messages/${sendResult.value.messageId}/undo`,{});
       if(!draft.value.text && !draft.value.quotedText && !draft.value.quotedHtml && !draft.value.attachments.length){
@@ -134,7 +218,21 @@ async function openDraft(){
   loading.value=true;error.value='';
   try{
     if(context.draftId){const {data}=await request('get',`/drafts/${context.draftId}`);record.value=data.draft;draft.value={...draft.value,...data.draft.draft};}
-    else {
+    else if (context.audience === 'my_clients') {
+      if (caseloadAgencies.value === null) {
+        const {data} = await request('get', '/drafts/my-clients');
+        caseloadAgencies.value = data.agencies || [];
+        const available = caseloadAgencies.value.filter(agency => agency.count > 0);
+        if (!available.length) caseloadAgencies.value = [];
+        if (available.length === 1) caseloadAgencyId.value = available[0].id;
+      }
+      if (!caseloadAgencyId.value) return;
+      const {data} = await request('post', '/drafts', { agencyId: caseloadAgencyId.value, audience: 'my_clients' });
+      record.value = data.draft;
+      draft.value = { ...draft.value, ...data.draft.draft };
+      await setDraftRoute(record.value.id);
+      notify();
+    } else {
       const mode=String(context.mode || 'new');let agencyId=Number(context.agencyId);const cid=Number(context.conversationId);let forwardedInquiry=false;draft.value.to=String(context.to || '');draft.value.clientIds=String(context.clientIds || context.clientId || '').split(',').map(Number).filter(id=>Number.isSafeInteger(id)&&id>0);
       if(cid){const {data}=await request('get',`/conversations/${cid}?markRead=0`);const c=data.conversation;forwardedInquiry=(data.messages||[]).some(message=>message.auto_reply_kind==='support_ticket_forward');agencyId=c.agency_id;fromEmail.value=c.inbox_from_email || '';const addresses=emailReplyRecipients(data.messages,{mode,inboxEmail:fromEmail.value});draft.value.to=addresses.to.join(', ');draft.value.cc=addresses.cc.join(', ');draft.value.subject=`${mode==='forward'?'Fwd:':'Re:'} ${String(c.subject || '').replace(/^(?:(?:re|fwd?)\s*:\s*)+/i,'')}`;draft.value.quotedText=quoteEmailHistory(data.messages);draft.value.quotedHtml=quoteEmailHistoryHtml(data.messages);}
       if(cid&&mode!=='forward'&&(context.forwardRecipient||forwardedInquiry)){draft.value.quotedText='';draft.value.quotedHtml='';}
@@ -163,11 +261,11 @@ onMounted(()=>{
 });
 onUnmounted(()=>{clearTimeout(timer);window.removeEventListener('beforeunload',beforeUnload);window.removeEventListener('online',retrySave);document.removeEventListener('visibilitychange',onHidden);});
 async function preparePopout(){if(busy.value||loading.value)return null;busy.value=true;try{await save();return record.value?.id;}finally{busy.value=false;}}
-watch([status,error,busy,loading,()=>record.value?.id,()=>draft.value.subject,()=>draft.value.to],()=>emit('composer-state',{draftId:record.value?.id,conversationId:record.value?.conversation_id,mode:record.value?.mode,subject:draft.value.subject,recipient:draft.value.to,status:error.value?'Needs attention':status.value,busy:busy.value,loading:loading.value}),{immediate:true});
+watch([status,error,busy,loading,()=>record.value?.id,()=>draft.value.subject,()=>draft.value.to],()=>emit('composer-state',{draftId:record.value?.id,conversationId:record.value?.conversation_id,mode:record.value?.mode,subject:draft.value.subject,recipient:isCaseloadEmail.value?'My clients':draft.value.to,status:error.value?'Needs attention':status.value,busy:busy.value,loading:loading.value}),{immediate:true});
 defineExpose({save,saveAndClose,preparePopout});
 </script>
 <style scoped>
-.quoted-email{overflow-wrap:anywhere;overflow-x:auto;line-height:1.5}.quoted-email :deep(img){max-width:100%;height:auto}.quoted-email :deep(table){max-width:100%}
+.caseload-audience{padding:12px 14px;background:var(--bg-secondary,#edf4ef);border-radius:8px}.caseload-audience p{margin:5px 0 0}.quoted-email{overflow-wrap:anywhere;overflow-x:auto;line-height:1.5}.quoted-email :deep(img){max-width:100%;height:auto}.quoted-email :deep(table){max-width:100%}
 .composer-heading{display:flex;align-items:center;gap:20px;flex-wrap:wrap}.composer-heading h1{font-size:18px}.email-composer header{flex-wrap:wrap;gap:12px}
 
 fieldset{border:0;padding:0;margin:0;min-width:0}.email-composer{max-width:1050px;margin:auto;padding:24px;color:var(--text-primary,#20352b);background:var(--bg-primary,#fff);min-height:100vh}header,footer,.recipients,.to-row{display:flex;gap:16px;justify-content:space-between;align-items:center;flex-wrap:wrap}h1{font-size:1.5rem}label{display:flex;flex-direction:column;gap:6px;margin:12px 0;flex:1}input,textarea,select,button{font:inherit;color:inherit;border:1px solid #a5b9af;border-radius:6px;padding:10px;background:transparent}textarea{min-height:250px;resize:vertical;line-height:1.5;width:100%;box-sizing:border-box}button{cursor:pointer}button:disabled{opacity:.5}.send{background:#0047b3;color:white;min-width:120px}.error{color:#af2929}.status{font-size:.85rem;color:#47755f}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;line-height:1.6}details{margin-top:24px;border-top:1px solid #a5b9af;padding-top:14px;opacity:.85}footer{justify-content:flex-start}@media(max-width:600px){.email-composer{padding:12px}.recipients{display:block}}

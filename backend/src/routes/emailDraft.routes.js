@@ -1,6 +1,7 @@
 import express from 'express';
 import { dayCancellationAttention } from '../services/dayCancellationAttention.service.js';
 import { createEmailDraft, getEmailDraft, getEmailDraftSender, getEmailDraftRecipientCheck, listEmailDrafts, saveEmailDraft, deleteEmailDraft, sendEmailDraft, getEmailDraftSummary, listEmailAttention } from '../services/emailDraft.service.js';
+import { cancelCaseloadEmail, caseloadEmailStatus, listCaseloadEmailAgencies } from '../services/caseloadEmail.service.js';
 const router = express.Router();
 const actor = (req) => req.quickView ? { id:req.quickView.userId, role:'provider', mobileDevice:!!req.quickView.mobileDeviceSessionId, scopedAgencyId:req.quickView.mobileDeviceSessionId?null:req.quickView.agencyId } : req.user;
 const handler = (fn) => async(req,res,next) => {
@@ -28,10 +29,20 @@ router.get('/attention',handler(async(req,res) => {
   const items=await listEmailAttention(who,agencyId);
   res.json({items:[...await dayCancellationAttention(who,agencyId),...items]});
 }));
+router.get('/my-clients',handler(async(req,res) => res.json({ agencies: await listCaseloadEmailAgencies(actor(req)) })));
+router.get('/:draftId/caseload-delivery',handler(async(req,res) => {
+  const who = actor(req);
+  res.json({ message: await caseloadEmailStatus(who, await getEmailDraft(who, req.params.draftId)) });
+}));
+router.post('/:draftId/caseload-delivery/undo',handler(async(req,res) => {
+  const who = actor(req);
+  await cancelCaseloadEmail(who, await getEmailDraft(who, req.params.draftId));
+  res.json({ draft: await getEmailDraft(who, req.params.draftId) });
+}));
 router.get('/:draftId',handler(async(req,res) => res.json({draft:await getEmailDraft(actor(req),req.params.draftId)})));
 router.get('/:draftId/sender',handler(async(req,res) => res.json(await getEmailDraftSender(actor(req),req.params.draftId))));
 router.post('/:draftId/recipients/check',handler(async(req,res) => res.json(await getEmailDraftRecipientCheck(actor(req),req.params.draftId,req.body))));
 router.put('/:draftId',handler(async(req,res) => res.json(await saveEmailDraft(actor(req),req.params.draftId,req.body))));
 router.delete('/:draftId',handler(async(req,res) => {await deleteEmailDraft(actor(req),req.params.draftId);res.json({ok:true});}));
-router.post('/:draftId/send',handler(async(req,res) => res.json(await sendEmailDraft(actor(req),req.params.draftId,req.body.version,req.body.deliveryChoice))));
+router.post('/:draftId/send',handler(async(req,res) => res.json(await sendEmailDraft(actor(req),req.params.draftId,req.body.version,req.body.deliveryChoice,req.body.fingerprint))));
 export default router;

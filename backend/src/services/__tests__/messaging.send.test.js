@@ -1,6 +1,6 @@
 vi.mock('../afterHoursEmailPolicy.service.js', () => ({ usesAppEmailAvailability: vi.fn(async () => false) }));
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn(async () => [[]]) } }));
+vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn(async () => [[]]), getConnection: vi.fn() } }));
 vi.mock('../../models/CommunicationConversation.model.js', () => ({ default: {
   findById: vi.fn(), findMessageById: vi.fn(), listParticipants: vi.fn(), listMessages: vi.fn(), addMessage: vi.fn(async () => 50), update: vi.fn(), updateMessage: vi.fn(), upsertParticipant: vi.fn(), create: vi.fn()
 } }));
@@ -145,4 +145,69 @@ it('does not create a message or conversation before the sender chooses',async()
  planEmailDelivery.mockRejectedValueOnce(Object.assign(new Error('Choose delivery'),{status:409}));
  await expect(composeNewEmail({agencyId:2,inboxId:3,userId:5,payload:{to:'a@example.org',text:'Hello',availabilityChoiceRequired:true}})).rejects.toMatchObject({status:409});
  expect(Conversation.create).not.toHaveBeenCalled();expect(Conversation.addMessage).not.toHaveBeenCalled();
+});
+
+
+describe('blind caseload email', () => {
+  const clients = [
+    { id: 21, agency_id: 2, agency_name: 'Test practice' },
+    { id: 22, agency_id: 2, agency_name: 'Test practice' },
+    { id: 23, agency_id: 2, agency_name: 'Test practice' },
+    { id: 24, agency_id: 2, agency_name: 'Test practice' }
+  ];
+  const draft = { id: 'bulk', agency_id: 2, version: 1, draft: { _myClients: true, subject: 'Schedule update', text: 'Please watch for an update.', undoDelaySeconds: 20 } };
+
+  it('deduplicates authorized household addresses, commits separate scheduled Bcc messages and rolls back a raced Undo', async () => {
+    const { cancellationRecipients } = await import('../cancellationRecipients.service.js');
+    const { caseloadEmailAudience, queueCaseloadEmail, cancelCaseloadEmail, validateQueuedCaseloadRecipient } = await import('../caseloadEmail.service.js');
+    const review = vi.spyOn(cancellationRecipients, 'review').mockImplementation(async id => ({
+      recipients: [{ email: id <= 22 ? 'household@sample.org' : id === 23 ? 'second@sample.org' : 'restricted@sample.org' }]
+    }));
+    const permitted = vi.spyOn(cancellationRecipients, 'permitted').mockImplementation(async id => id !== 24);
+    try {
+      pool.execute.mockImplementation(async sql => {
+        if (sql.includes('FROM clients c JOIN agencies')) return [clients];
+        if (sql.includes('FROM agencies WHERE id=')) return [[{ id: 2, slug: 'practice', is_active: 1, organization_type: 'agency' }]];
+        return [[]];
+      });
+      const { summary } = await caseloadEmailAudience(5, 2);
+      expect(summary).toMatchObject({ total: 4, count: 2, missing: 1 });
+      await expect(queueCaseloadEmail({ actor: { id: 5 }, draft, version: 1, fingerprint: 'changed' })).rejects.toMatchObject({ code: 'CASELOAD_EMAIL_CHANGED' });
+      expect(pool.getConnection).not.toHaveBeenCalled();
+
+      const db = {
+        execute: vi.fn(async sql => [{ affectedRows: sql.includes("SET send_status = 'scheduled'") ? 2 : 1 }]),
+        beginTransaction: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn()
+      };
+      pool.getConnection.mockResolvedValue(db);
+      Conversation.addMessage.mockResolvedValueOnce(50).mockResolvedValueOnce(51);
+      const receipt = await queueCaseloadEmail({ actor: { id: 5 }, draft, version: 1, fingerprint: summary.fingerprint });
+      expect(receipt).toMatchObject({ batchCount: 2, scheduled: true, sent: false });
+      expect(Conversation.addMessage.mock.calls.map(([message, executor]) => [message.bcc, message.to, executor === db])).toEqual([
+        [[{ email: 'household@sample.org' }], undefined, true],
+        [[{ email: 'second@sample.org' }], undefined, true]
+      ]);
+      expect(sendEmailFromIdentity).not.toHaveBeenCalled();
+      expect(db.commit).toHaveBeenCalledTimes(1);
+      await expect(cancelCaseloadEmail({ id: 5 }, { ...draft, state: 'sent', result: { messageIds: [50, 51] } })).rejects.toMatchObject({ status: 409 });
+      expect(db.rollback).toHaveBeenCalledTimes(1);
+      await expect(validateQueuedCaseloadRecipient({ agencyId: 2, userId: 5, to: [], cc: [], bcc: [{ email: 'previous@sample.org' }], clientIds: [21] })).rejects.toMatchObject({ status: 409 });
+    } finally {
+      pool.execute.mockImplementation(async () => [[]]);
+      review.mockRestore();
+      permitted.mockRestore();
+    }
+  });
+
+  it('writes no client address into To or Cc in the MIME delivered by the blind route', async () => {
+    const { blindClientEmailEnvelope, buildMimeMessage } = await import('../unifiedEmail/mime.js');
+    const mime = buildMimeMessage({
+      from: 'Messages <messages@sample.org>', subject: 'Schedule update',
+      ...blindClientEmailEnvelope({ to: 'client@sample.org', bcc: 'provider@sample.org' })
+    });
+    expect(mime).toContain('To: undisclosed-recipients:;');
+    expect(mime).toContain('Bcc: client@sample.org, provider@sample.org');
+    expect(mime).not.toContain('Cc:');
+    expect(() => blindClientEmailEnvelope({ to: 'client@sample.org, other@sample.org' })).toThrow();
+  });
 });

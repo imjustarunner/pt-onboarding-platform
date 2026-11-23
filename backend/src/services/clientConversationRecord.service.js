@@ -43,10 +43,10 @@ export async function resolveEmailClientFiling({agencyId,userId,to,cc,bcc,client
   return {clientIds:[],deferred:candidates.length>1};
 }
 
-export async function linkConversationClients(conversationId,clientIds,{deferred=false}={}) {
-  for(const id of clientIds || []) await pool.execute("INSERT INTO communication_links (conversation_id,entity_type,entity_id,label) VALUES (?,'client',?,'Email conversation') ON DUPLICATE KEY UPDATE label=label",[conversationId,id]);
-  if(deferred) await pool.execute("INSERT INTO communication_links (conversation_id,entity_type,entity_id,label) VALUES (?,'client_filing_review',1,'Choose client or clients for this thread') ON DUPLICATE KEY UPDATE label=label",[conversationId]);
-  else if(clientIds?.length) await pool.execute("DELETE FROM communication_links WHERE conversation_id=? AND entity_type='client_filing_review'",[conversationId]);
+export async function linkConversationClients(conversationId,clientIds,{deferred=false, executor=pool}={}) {
+  for(const id of clientIds || []) await executor.execute("INSERT INTO communication_links (conversation_id,entity_type,entity_id,label) VALUES (?,'client',?,'Email conversation') ON DUPLICATE KEY UPDATE label=label",[conversationId,id]);
+  if(deferred) await executor.execute("INSERT INTO communication_links (conversation_id,entity_type,entity_id,label) VALUES (?,'client_filing_review',1,'Choose client or clients for this thread') ON DUPLICATE KEY UPDATE label=label",[conversationId]);
+  else if(clientIds?.length) await executor.execute("DELETE FROM communication_links WHERE conversation_id=? AND entity_type='client_filing_review'",[conversationId]);
 }
 
 // Inbound messages and scheduled sends reach this through the message model.

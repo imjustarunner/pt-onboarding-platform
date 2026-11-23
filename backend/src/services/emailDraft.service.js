@@ -9,6 +9,8 @@ import User from '../models/User.model.js';
 import { requireConversationAccess } from './communicationAccess.service.js';
 import { composeNewEmail, replyToConversation } from './unifiedInbox.service.js';
 
+import { caseloadEmailAudience, listCaseloadEmailAgencies, queueCaseloadEmail } from './caseloadEmail.service.js';
+
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 const parse = (value) => typeof value === 'string' ? JSON.parse(value) : value;
 const map = (r) => ({ ...r, draft: parse(r.draft_json), result: r.send_result_json ? parse(r.send_result_json) : null, draft_json: undefined, send_result_json: undefined });
@@ -53,16 +55,20 @@ async function agencyAccess(actor, agencyId) {
   const agencies = await User.getAgencies(actor.id);
   if (!(agencies || []).some((a) => Number(a.id) === Number(agencyId))) throw fail('Mailbox not found',404);
 }
-export async function getEmailDraft(actor, id) {
+export async function getEmailDraft(actor, id, { includeAudience = true } = {}) {
   const [rows] = await pool.execute(`SELECT d.*, COALESCE((SELECT i.from_email FROM communication_conversations c JOIN communication_inboxes i ON i.id=c.inbox_id WHERE c.id=d.conversation_id), (SELECT i.from_email FROM communication_inboxes i WHERE i.agency_id=d.agency_id AND i.owner_user_id=d.user_id AND i.kind='personal' AND i.is_active=1 LIMIT 1)) AS from_email FROM communication_email_drafts d WHERE d.id=? AND d.user_id=?`, [id,actor.id]);
   if (!rows[0]) throw fail('Draft not found',404);
   await agencyAccess(actor, rows[0].agency_id);
   if (rows[0].conversation_id) await requireConversationAccess(actor,rows[0].conversation_id);
-  return map(rows[0]);
+  const draft = map(rows[0]);
+  if (includeAudience && draft.draft?._myClients && draft.state === 'editing') {
+    draft.audience = (await caseloadEmailAudience(actor.id, draft.agency_id)).summary;
+  }
+  return draft;
 }
 /** Separate from saving/opening drafts: a sender lookup must not block autosave. */
 export async function getEmailDraftSender(actor, id) {
-  const draft = await getEmailDraft(actor, id);
+  const draft = await getEmailDraft(actor, id, { includeAudience: false });
   let inbox = null;
   if (draft.conversation_id) {
     const conv = await requireConversationAccess(actor, draft.conversation_id);
@@ -89,7 +95,8 @@ export async function listEmailDrafts(actor, agencyId) {
   // Never return attachments in a list response.
   const [rows] = await pool.execute(`SELECT id,agency_id,conversation_id,mode,version,state,updated_at,
     JSON_UNQUOTE(JSON_EXTRACT(draft_json,'$.subject')) AS subject,
-    JSON_UNQUOTE(JSON_EXTRACT(draft_json,'$.to')) AS recipient,
+    CASE WHEN JSON_EXTRACT(draft_json,'$._myClients') = true THEN 'My clients'
+      ELSE JSON_UNQUOTE(JSON_EXTRACT(draft_json,'$.to')) END AS recipient,
     LEFT(JSON_UNQUOTE(JSON_EXTRACT(draft_json,'$.text')),400) AS preview
     FROM communication_email_drafts WHERE user_id=? AND agency_id=? AND state='editing' AND ${meaningfulDraftSql} ORDER BY updated_at DESC LIMIT 200`, [actor.id,agencyId]);
   return rows;
@@ -106,6 +113,12 @@ export async function createEmailDraft(actor, input) {
   await agencyAccess(actor,agencyId);
   const initial = { ...input.draft };
   let schoolContact;
+  const myClients = input.audience === 'my_clients';
+  if (myClients) {
+    if (mode !== 'new' || input.schoolContactWorkflowId || input.schoolStaffUserId) throw fail('Start a new caseload email.');
+    const organizations = await listCaseloadEmailAgencies({ ...actor, scopedAgencyId: agencyId });
+    if (!organizations.length) throw fail('No clients are assigned to you in this organization.');
+  }
   if (input.schoolContactWorkflowId || input.schoolStaffUserId) {
     if (mode !== 'new') throw fail('Start a new school coordination email.');
     const {schoolContactStaffEmailSeed} = await import('./schoolContactStaffEmail.service.js');
@@ -114,7 +127,10 @@ export async function createEmailDraft(actor, input) {
     schoolContact=seed.schoolContact;
   }
   if (initial.undoDelaySeconds == null) initial.undoDelaySeconds = (await getCommunicationPrefs(actor.id)).sendDelayEmailSeconds;
-  const data = draftWithMetadata(validateEmailDraft(initial));
+  const data = draftWithMetadata(validateEmailDraft(myClients
+    ? { subject: initial.subject, text: initial.text, undoDelaySeconds: initial.undoDelaySeconds }
+    : initial));
+  if (myClients) data._myClients = true;
   if (schoolContact) data._schoolContact=schoolContact;
   let id = randomUUID(), resumed = false;
   const insert = db => db.execute(`INSERT INTO communication_email_drafts(id,user_id,agency_id,conversation_id,mode,draft_json) VALUES(?,?,?,?,?,?)`,[id,actor.id,agencyId,cid,mode,JSON.stringify(data)]);
@@ -138,22 +154,26 @@ export async function createEmailDraft(actor, input) {
 }
 
 export async function saveEmailDraft(actor,id,input) {
-  const draft = await getEmailDraft(actor,id);
+  const draft = await getEmailDraft(actor,id, { includeAudience: false });
   if (draft.state !== 'editing') throw fail('This draft has already been submitted',409);
-  const data = draftWithMetadata(validateEmailDraft(input.draft), draft.draft);
+  const { subject, text, undoDelaySeconds } = input.draft || {};
+  const caseload = draft.draft._myClients === true;
+  const data = draftWithMetadata(validateEmailDraft(caseload ? { subject, text, undoDelaySeconds } : input.draft), draft.draft);
+  if (caseload) data._myClients = true;
   const [result] = await pool.execute(`UPDATE communication_email_drafts SET draft_json=?,version=version+1 WHERE id=? AND user_id=? AND version=? AND state='editing'`,[JSON.stringify(data),id,actor.id,Number(input.version)||0]);
   if (!result.affectedRows) throw fail('This draft changed in another window. Reopen it before editing.',409);
   return { version: draft.version + 1 };
 }
 export async function deleteEmailDraft(actor,id) {
-  const draft = await getEmailDraft(actor,id);
+  const draft = await getEmailDraft(actor,id, { includeAudience: false });
   if (draft.state !== 'editing') throw fail('Submitted email cannot be discarded as a draft',409);
   await pool.execute("DELETE FROM communication_email_drafts WHERE id=? AND user_id=? AND state='editing'",[id,actor.id]);
 }
-export async function sendEmailDraft(actor,id,version,deliveryChoice=null) {
-  const draft = await getEmailDraft(actor,id);
+export async function sendEmailDraft(actor,id,version,deliveryChoice=null,fingerprint=null) {
+  const draft = await getEmailDraft(actor,id,{ includeAudience: false });
   if (draft.state === 'sent') return draft.result;
   if (draft.state !== 'editing') throw fail('Submission is awaiting confirmation. Check the conversation before sending another copy.',409);
+  if (draft.draft._myClients) return queueCaseloadEmail({ actor, draft, version: Number(version) || 0, fingerprint });
   if (!draft.draft.to.trim() || (!draft.draft.text.trim() && !draft.draft.attachments.length && draft.mode !== 'forward')) throw fail('Add a recipient and a message or attachment');
   const recipients = [draft.draft.to,draft.draft.cc,draft.draft.bcc].flatMap(value => String(value || '').split(/[,;]/).map(s=>s.trim()).filter(Boolean));
   if (draft.draft._schoolContact) {

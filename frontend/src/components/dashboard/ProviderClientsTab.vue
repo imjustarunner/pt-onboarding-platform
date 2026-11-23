@@ -38,6 +38,11 @@
       </header>
 
       <div class="pct-toolbar">
+        <button v-if="!profileEmbed && currentUserId && currentUserId === Number(authStore.user?.id)"
+          type="button" class="pct-btn pct-btn--ghost" title="Email my clients" aria-label="Email my clients"
+          @click="openEmailComposer(router, { audience: 'my_clients' })">
+          <span aria-hidden="true">✉</span>
+        </button>
         <PostClientToExchangeButton v-if="!profileEmbed" />
         <button v-if="!profileEmbed && agencyId" class="pct-btn pct-btn--ghost" @click="showNewReferral = true">New exchange referral</button>
         <router-link v-if="!profileEmbed" class="pct-btn pct-btn--ghost" :to="{ path: `${route.params?.organizationSlug ? '/' + route.params.organizationSlug : ''}/admin/clients`, query: { new: '1' } }">Add client</router-link>
@@ -526,6 +531,7 @@ import { isSchoolCareBridgeOnly } from '../../utils/schoolCareBridgeTenant.js';
 import ClientCheckinSubmissions from '../kiosk/ClientCheckinSubmissions.vue';
 import PostClientToExchangeButton from '../clientExchange/PostClientToExchangeButton.vue';
 import { nextTick, computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { openEmailComposer } from '../../utils/emailComposerWindow';
 import { useRoute, useRouter } from 'vue-router';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';

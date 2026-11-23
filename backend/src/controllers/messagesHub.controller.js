@@ -213,6 +213,7 @@ export const searchMessagesHubPeople = async (req, res, next) => {
     const q = String(req.query?.q || '').trim();
     const browse = String(req.query?.browse || '').trim().toLowerCase();
     const limit = parseInt(String(req.query?.limit || '40'), 10);
+    if (browse === 'my_clients') res.set('Cache-Control', 'private, no-store');
     const primaryAgencyId = agencyIds[0];
     const directoryBrowse = ['staff', 'school_staff', 'guardians'].includes(browse);
 
@@ -256,7 +257,7 @@ export const searchMessagesHubPeople = async (req, res, next) => {
       q,
       viewerRole: req.user.role
     });
-    if (q.length === 1) {
+    if (q.length === 1 && browse !== 'my_clients') {
       const needle = q.toLowerCase();
       results = results.filter((p) =>
         `${p.displayName} ${p.relationshipMeta || ''} ${p.agencyName || ''} ${p.email || ''} ${p.phone || ''}`

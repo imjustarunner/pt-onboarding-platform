@@ -77,6 +77,16 @@ function utf8ToQuotedPrintable(text) {
  * Supports plain, html, or multipart/alternative.
  * Subject uses RFC 2047 when non-ASCII; bodies use quoted-printable UTF-8.
  */
+// Keep the actual family address in the logical envelope for consent, opt-out,
+// and audit checks. Only the transport envelope hides it from To/Cc.
+function blindClientEmailEnvelope({ to, cc, bcc }) {
+  const recipient = normalizeHeaderValue(to);
+  if (!/^[^\s<>,;@"\x00-\x1f]+@[^\s<>,;@"\x00-\x1f]+\.[^\s<>,;@"\x00-\x1f]+$/.test(recipient) || cc) {
+    throw new Error('A blind client email requires one individual recipient.');
+  }
+  return { to: 'undisclosed-recipients:;', cc: null, bcc: [recipient, bcc].filter(Boolean).join(', ') };
+}
+
 function buildMimeMessage({
   to,
   subject,
@@ -195,4 +205,4 @@ function buildMimeMessage({
   return [...headers, '', utf8ToQuotedPrintable(String(text || '')), ''].join('\r\n');
 }
 
-export { base64UrlEncode, buildMimeMessage, encodeRfc2047Subject, utf8ToQuotedPrintable };
+export { blindClientEmailEnvelope, base64UrlEncode, buildMimeMessage, encodeRfc2047Subject, utf8ToQuotedPrintable };

@@ -3,7 +3,8 @@ import { addDaysYmd } from '../utils/scheduleRecurrence.js';
 import { wallMysqlToUtcMysql } from '../utils/zonedWallTime.util.js';
 import { cancellationSchoolRoster } from './cancellationSchoolRoster.service.js';
 import { cancellationRecipients } from './cancellationRecipients.service.js';
-import { sendClientPortalEmail } from './clientPortalEmail.service.js';
+import { resolveEmailSendMailbox } from './emailSendMailbox.service.js';
+import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
 
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 
@@ -15,7 +16,8 @@ export function createProviderDayNoteEmail({
   database = pool,
   roster = cancellationSchoolRoster,
   contacts = cancellationRecipients,
-  send = sendClientPortalEmail
+  mailboxFor = resolveEmailSendMailbox,
+  send = sendEmailFromIdentity
 } = {}) {
   async function clientsForDay({ agencyId, providerId, date, timeZone = 'America/Denver' }) {
     const day = String(date || '').slice(0, 10);
@@ -47,7 +49,10 @@ export function createProviderDayNoteEmail({
 
   async function preview(input) {
     const clients = await clientsForDay(input);
-    return { date: String(input.date).slice(0, 10), count: clients.length, clients };
+    const mailbox = clients.length && input.actorUserId
+      ? await mailboxFor({ agencyId: input.agencyId, userId: input.actorUserId }).catch(() => null)
+      : null;
+    return { date: String(input.date).slice(0, 10), count: clients.length, clients, fromEmail: mailbox?.fromEmail || null };
   }
 
   async function sendNote({ agencyId, providerId, actorUserId, date, timeZone, subject, text }) {
@@ -57,6 +62,8 @@ export function createProviderDayNoteEmail({
     if (!body || body.length > 4000) throw fail('Write a message of up to 4,000 characters.');
     const clients = await clientsForDay({ agencyId, providerId, date, timeZone });
     if (!clients.length) throw fail('No clients are on this day.', 404);
+    const mailbox = await mailboxFor({ agencyId, userId: actorUserId });
+    if (!mailbox?.identity?.id) throw fail('Configure your work mailbox before sending email.');
     const results = [];
     for (const client of clients) {
       let reviewed;
@@ -72,31 +79,42 @@ export function createProviderDayNoteEmail({
         continue;
       }
       let sent = 0;
+      let attempted = 0;
       for (const recipient of recipients) {
         const allowed = await contacts.permitted(client.clientId, agencyId, recipient, 'email', { actorUserId });
         if (!allowed) continue;
-        await send({
-          agencyId,
-          clientId: client.clientId,
-          to: recipient.email,
-          userId: recipient.userId || null,
-          subject: title,
-          text: body,
-          html: `<p>${escapeHtml(body).replaceAll('\n', '<br>')}</p>`,
-          templateType: 'provider_day_note',
-          source: 'manual',
-          generatedByUserId: actorUserId
-        });
-        sent += 1;
+        attempted += 1;
+        try {
+          const delivered = await send({
+            senderIdentityId: mailbox.identity.id,
+            replyToOverride: mailbox.replyTo,
+            fromDisplayNameOverride: mailbox.displayName,
+            agencyId,
+            clientId: client.clientId,
+            to: recipient.email,
+            blindClientRecipient: true,
+            userId: recipient.userId || null,
+            subject: title,
+            text: body,
+            html: `<p>${escapeHtml(body).replaceAll('\n', '<br>')}</p>`,
+            templateType: 'provider_day_note',
+            source: 'manual',
+            generatedByUserId: actorUserId
+          });
+          if (delivered?.id && !delivered.skipped && !delivered.blocked) sent += 1;
+        } catch {
+          // Continue with other clients. A transport error may be ambiguous.
+        }
       }
       results.push(sent
-        ? { clientId: client.clientId, clientName: client.clientName, status: 'sent', sent }
-        : { clientId: client.clientId, clientName: client.clientName, status: 'skipped', reason: 'Email is not allowed for this contact.' });
+        ? { clientId: client.clientId, clientName: client.clientName, status: 'sent', sent, unconfirmed: attempted - sent }
+        : { clientId: client.clientId, clientName: client.clientName, status: attempted ? 'unconfirmed' : 'skipped', reason: attempted ? 'Delivery was not confirmed.' : 'Email is not allowed for this contact.' });
     }
     return {
       date: String(date).slice(0, 10),
       sent: results.filter(item => item.status === 'sent').length,
       skipped: results.filter(item => item.status === 'skipped').length,
+      unconfirmed: results.filter(item => item.status === 'unconfirmed' || item.unconfirmed > 0).length,
       results
     };
   }

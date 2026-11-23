@@ -53,7 +53,7 @@ export async function authorizeProtectedActivity(req,{kind,resource,units=1,forc
     await appendSecurityEvidence({...event,action:'file_view_requested',details:{...event.details,fileAccessIntent:'view'}});
     return;
   }
-  const db=await pool.getConnection(); let committed=false, denied=false, recorded;
+  const db=await pool.getConnection(); let committed=false, denied=false, recorded, emailRetryAfterSeconds;
   try {
     await db.beginTransaction();
     const state=userId ? await lockProtectionState(db,userId,kind) : {};
@@ -74,6 +74,9 @@ export async function authorizeProtectedActivity(req,{kind,resource,units=1,forc
     if(needsReview) {
       if(userId && (kind !== 'email' || hardLimit || forceReview)) await db.execute('UPDATE activity_protection_state SET held_at=COALESCE(held_at,UTC_TIMESTAMP(3)) WHERE user_id=? AND kind=?',[userId,kind]);
       recorded=await recordProtectionAlert(db,req,{kind,reason:hardLimit?'recipient_hard_limit':forceReview?'bulk_operation':state.held_at?'review_hold':'volume_limit',units});
+      if (kind === 'email' && recorded.details?.reason === 'volume_limit') {
+        emailRetryAfterSeconds = Number(usage.daily) + units > daily ? 24 * 60 * 60 : 15 * 60;
+      }
       denied=true;
     } else {
       if(!duplicate || ticket) await db.execute('INSERT INTO activity_protection_usage (user_id,kind,resource_ref,units,request_id,session_ref,ticket_id,occurred_at) VALUES (?,?,?,?,?,?,?,UTC_TIMESTAMP(3))',[userId,kind,ref,units,event.requestId,event.sessionRef,ticket]);
@@ -82,7 +85,11 @@ export async function authorizeProtectedActivity(req,{kind,resource,units=1,forc
     }
     await db.commit();committed=true;mirrorSecurityEvidence(recorded,recorded.eventId);
   } catch(e) {if(!committed)await db.rollback();throw e;} finally {db.release();}
-  if(denied) throw protectionError(kind==='email' ? (hardLimit ? 'This message exceeds the 50-recipient limit. A security reviewer must review the attempted bulk send.' : recorded?.details?.reason === 'volume_limit' ? 'Email sending is temporarily rate limited (50 recipients in 15 minutes or 200 in 24 hours). Your account is not locked. Retry after the sending window resets.' : 'Email sending is on a security review hold. Open Security & sign-in activity for the recorded reason.') :hasUnlimitedFileViews(req)?'Additional downloads, exports, and printing are paused for security review. You can still view client documents. Request additional access in Security & sign-in activity.':'To protect client privacy, additional file access is paused. Submit a request in Security & sign-in activity explaining why you need multiple files.');
+  if (denied) {
+    const error = protectionError(kind==='email' ? (hardLimit ? 'This message exceeds the 50-recipient limit. A security reviewer must review the attempted bulk send.' : recorded?.details?.reason === 'volume_limit' ? 'Email sending is temporarily rate limited (50 recipients in 15 minutes or 200 in 24 hours). Your account is not locked. Retry after the sending window resets.' : 'Email sending is on a security review hold. Open Security & sign-in activity for the recorded reason.') :hasUnlimitedFileViews(req)?'Additional downloads, exports, and printing are paused for security review. You can still view client documents. Request additional access in Security & sign-in activity.':'To protect client privacy, additional file access is paused. Submit a request in Security & sign-in activity explaining why you need multiple files.');
+    if (emailRetryAfterSeconds) error.emailRetryAfterSeconds = emailRetryAfterSeconds;
+    throw error;
+  }
 }
 export async function protectFileResource(resource, {req=evidenceRequestContext.getStore(),forceReview=false}={}) {
   if(!protectionActor(req)||['client_guardian','guardian','client','participant'].includes(req?.user?.role))return;

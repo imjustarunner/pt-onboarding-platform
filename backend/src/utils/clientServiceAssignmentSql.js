@@ -1,5 +1,5 @@
 /** Use the same active, agency-scoped service assignment in caseload and access checks. */
-export function clientServiceAssignmentSql({ providerId, agencyId = null, agencyIds = null, serviceKind = null, clientAlias = 'c' }) {
+export function clientServiceAssignmentSql({ providerId, agencyId = null, agencyIds = null, serviceKind = null, clientAlias = 'c', sameClientAgency = false }) {
   const c = clientAlias;
   const scopes = agencyId ? [agencyId] : agencyIds || [];
   return {
@@ -9,6 +9,7 @@ export function clientServiceAssignmentSql({ providerId, agencyId = null, agency
       WHERE assigned_service.client_id=${c}.id AND assigned_service.provider_user_id=?
         AND assigned_service.is_active=1 AND COALESCE(assigned_service.service_status,'active')='active'
         ${agencyId ? 'AND assigned_service.agency_id=?' : scopes.length ? `AND assigned_service.agency_id IN (${scopes.map(() => '?').join(',')})` : ''}
+        ${sameClientAgency ? `AND assigned_service.agency_id=${c}.agency_id` : ''}
         ${serviceKind ? 'AND assigned_service.service_kind=?' : ''}
         AND (${c}.agency_id=assigned_service.agency_id OR EXISTS
           (SELECT 1 FROM client_agency_assignments assigned_client_agency WHERE assigned_client_agency.client_id=${c}.id

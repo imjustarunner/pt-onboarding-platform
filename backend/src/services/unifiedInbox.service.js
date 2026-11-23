@@ -706,6 +706,7 @@ async function deliverOutboundEmail({
   referencesHeader = null,
   personalReminderId = null,
   schoolContactDraft = null,
+  blindClientRecipient = false,
   appointmentReplyRouting = false
 }) {
   if (conv.support_ticket_id) throw supportEmailError('Send this reply from the linked support ticket so its shared sender and history are preserved.', 409);
@@ -746,6 +747,7 @@ async function deliverOutboundEmail({
       references: referencesHeader || inReplyTo || null,
       threadId: conv.external_thread_id || null,
       source: 'manual',
+      blindClientRecipient,
       generatedByUserId: userId,
       userId: null,
       clientId: null,
@@ -799,6 +801,7 @@ export async function processScheduledOutboundSends({ limit = 40 } = {}) {
   let deferred = 0;
   let skipped = 0;
   for (const row of due) {
+    let caseloadDraftId;
     try {
       // Claim before any async work so concurrent workers cannot double-send.
       const claimed = await CommunicationConversation.claimScheduledMessage(row.id);
@@ -839,14 +842,23 @@ export async function processScheduledOutboundSends({ limit = 40 } = {}) {
         clientIds:storedFrom.schoolContactClientIds,
         to:to.map(x=>x.email).join(', '),cc:cc.map(x=>x.email).join(', '),bcc:bcc.map(x=>x.email).join(', ')
       }:null;
+      const blindClientRecipient = Array.isArray(storedFrom.caseloadClientIds);
+      if (blindClientRecipient) {
+        caseloadDraftId = storedFrom.caseloadDraftId;
+        const { validateQueuedCaseloadRecipient } = await import('./caseloadEmail.service.js');
+        await validateQueuedCaseloadRecipient({
+          agencyId: conv.agency_id, userId: row.author_user_id, to, cc, bcc, clientIds: storedFrom.caseloadClientIds
+        });
+      }
       const sendResult = await deliverOutboundEmail({
         conv,
         inbox,
         senderIdentityId: inbox.sender_identity_id,
         userId: row.author_user_id,
-        to,
+        to: blindClientRecipient ? bcc : to,
         cc,
-        bcc,
+        bcc: blindClientRecipient ? [] : bcc,
+        blindClientRecipient,
         subject: row.subject,
         text: row.body_text,
         html: row.body_html,
@@ -879,6 +891,20 @@ export async function processScheduledOutboundSends({ limit = 40 } = {}) {
       await cleanupScheduledAttachments(row.id);
       sent += 1;
     } catch (e) {
+      if (caseloadDraftId && e.emailRetryAfterSeconds) {
+        const nextSend = new Date(Date.now() + e.emailRetryAfterSeconds * 1000);
+        try {
+          await pool.execute(
+            `UPDATE communication_messages
+             SET send_status = 'scheduled', scheduled_send_at = ?, send_claimed_at = NULL
+             WHERE author_user_id = ? AND JSON_UNQUOTE(JSON_EXTRACT(from_json, '$.caseloadDraftId')) = ?
+               AND ((id = ? AND send_status = 'sending') OR (send_status = 'scheduled' AND scheduled_send_at < ?))`,
+            [nextSend, row.author_user_id, caseloadDraftId, row.id, nextSend]
+          );
+          deferred += 1;
+          continue;
+        } catch { /* mark the claimed email failed if the queue update failed */ }
+      }
       console.warn('[unifiedInbox] scheduled send failed:', e?.message || e);
       await CommunicationConversation.updateMessage(row.id, { sendStatus: 'failed' }).catch(() => {});
       failed += 1;

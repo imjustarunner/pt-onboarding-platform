@@ -51,9 +51,11 @@ export const previewProviderDayNote = async (req, res, next) => {
     const agencyId = Number(req.query?.agencyId);
     if (!agencyId) return res.status(400).json({ error: { message: 'Agency is required.' } });
     await assertProviderScheduleActor(req, providerId, agencyId);
+    res.set('Cache-Control', 'private, no-store');
     res.json(await providerDayNoteEmail.preview({
       agencyId,
       providerId,
+      actorUserId: Number(req.user.id),
       date: req.query?.date,
       timeZone: req.query?.timeZone || 'America/Denver'
     }));

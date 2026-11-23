@@ -90,7 +90,7 @@ it('searches Clients beyond the initial page and lets authorized staff add the c
   api.get.mockImplementation(async(url,config)=>({data:url.endsWith('/people') ? {results:config.params.q==='Jordan'?[client]:[]} : {sections:{}}}));
   wrapper=mount(Modal,{props:{agencyId:2,channel:'email'}});
   await flushPromises();
-  await wrapper.findAll('button').find(b=>b.text()==='Clients').trigger('click');
+  await wrapper.findAll('button').find(b=>b.text()==='Agency clients').trigger('click');
   await wrapper.get('.scm-search').setValue('Jordan');
   await vi.advanceTimersByTimeAsync(220);await flushPromises();
   const result=wrapper.get('.scm-person');
@@ -100,4 +100,29 @@ it('searches Clients beyond the initial page and lets authorized staff add the c
   expect(editor.props()).toMatchObject({clientId:37,agencyId:2,startEditing:true});
   editor.vm.$emit('saved',{clientId:37,agencyId:2,email:'jordan@example.test'});
   expect(wrapper.emitted('pick')[0][0]).toMatchObject({personKey:'client:37@2',email:'jordan@example.test',composeChannel:'email'});
+});
+
+
+it('keeps My clients search and sorting on the personal directory and opens the whole caseload composer', async () => {
+  const assigned = [
+    { personKey: 'client:1@2', displayName: 'Alex Example', email: 'alex@example.test', kinds: ['client'], agencyName: 'Zenith' },
+    { personKey: 'client:2@3', displayName: 'Blair Example', email: 'blair@example.test', kinds: ['client'], agencyName: 'Alpha' }
+  ];
+  api.get.mockImplementation(async (url) => ({ data: url.endsWith('/people') ? { results: assigned } : { sections: { staff: [alice] } } }));
+  wrapper = mount(Modal, { props: { agencyId: 2, channel: 'email', allClientAgencies: true, allowCaseloadEmail: true } });
+  await flushPromises();
+  await wrapper.findAll('button').find(b => b.text() === 'My clients').trigger('click');
+  await flushPromises();
+  expect(api.get.mock.calls.map(([url]) => url)).toEqual(['/messages/hub/start-directory', '/messages/hub/people']);
+  expect(api.get.mock.calls[1][1].params).toEqual({ agencyId: 2, allAgencies: true, browse: 'my_clients' });
+  const names = () => wrapper.findAll('.scm-person strong').map(person => person.text());
+  expect(names()).toEqual(['Alex Example', 'Blair Example']);
+  await wrapper.get('.scm-client-tools select').setValue('agency');
+  expect(names()).toEqual(['Blair Example', 'Alex Example']);
+  await wrapper.get('.scm-search').setValue('Zenith');
+  expect(names()).toEqual(['Alex Example']);
+  expect(api.get).toHaveBeenCalledTimes(2);
+  await wrapper.findAll('button').find(b => b.text() === 'Email my clients').trigger('click');
+  expect(wrapper.emitted('email-caseload')).toEqual([[]]);
+  expect(wrapper.emitted('pick')).toBeUndefined();
 });

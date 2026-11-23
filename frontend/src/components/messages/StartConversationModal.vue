@@ -1,9 +1,10 @@
 <template>
-  <div class="scm-overlay" @click.self="emitClose">
-    <div class="scm-card" role="dialog" aria-labelledby="scm-title">
+  <Teleport to="body" :disabled="!portaled">
+  <div class="scm-overlay" @click.self="emitClose" @keydown.esc.stop="emitClose">
+    <div class="scm-card" role="dialog" aria-modal="true" :aria-labelledby="titleId">
       <header class="scm-header">
         <div>
-          <h3 id="scm-title">{{ dialogTitle }}</h3>
+          <h3 :id="titleId">{{ dialogTitle }}</h3>
           <p class="scm-sub">{{ channel === 'email' ? 'Choose someone below, or enter a new email address. Add more people in To, Cc, or Bcc when writing.' : 'Choose a person, # channel, or group to message.' }}</p>
         </div>
         <button type="button" class="scm-close" aria-label="Close" @click="emitClose">×</button>
@@ -19,7 +20,7 @@
             type="search"
             class="scm-search"
             @keydown.enter.prevent
-            placeholder="Search people, groups, or enter an email address…"
+            :placeholder="activeChip === 'my_clients' ? 'Search my clients…' : 'Search people, groups, or enter an email address…'"
             @input="onSearchInput"
           />
         </div>
@@ -35,6 +36,13 @@
           >
             {{ chip.label }}
           </button>
+        </div>
+
+        <div v-if="activeChip === 'my_clients'" class="scm-client-tools">
+          <label>Sort <select v-model="clientSort">
+            <option v-for="option in clientContactSortOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+          </select></label>
+          <button v-if="allowCaseloadEmail" type="button" class="btn btn-primary" @click="openCaseloadEmail">Email my clients</button>
         </div>
 
         <p v-if="directoryError" class="scm-error" role="alert">{{ directoryError }} <button type="button" @click="loadDirectory">Try again</button></p>
@@ -186,13 +194,13 @@
                 </button>
               </div>
               <p v-else-if="activeChip !== 'groups'" class="scm-muted">
-                {{ searching ? 'No matches. Try a different search, or start with someone outside the system below.' : 'Nothing in this list yet.' }}
+                {{ activeChip === 'my_clients' ? (query.trim() ? 'No assigned clients match your search.' : 'No assigned clients.') : (searching ? 'No matches. Try a different search, or start with someone outside the system below.' : 'Nothing in this list yet.') }}
               </p>
               <p v-else-if="!chipPeople.length" class="scm-muted">No groups yet — start one above.</p>
             </section>
           </template>
 
-          <section v-if="['all', 'email', 'sms'].includes(channel)" class="scm-external">
+          <section v-if="activeChip !== 'my_clients' && ['all', 'email', 'sms'].includes(channel)" class="scm-external">
             <h4>Can’t find the person?</h4>
             <p class="scm-muted">Start a new conversation with someone outside your system.</p>
             <div class="scm-external-grid">
@@ -380,10 +388,12 @@
       </footer>
     </div>
   </div>
+  </Teleport>
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, useId, watch } from 'vue';
+import { clientContactSortOptions, sortClientContacts } from '../../utils/clientContactSorting';
 import ClientContactEmail from '../clients/ClientContactEmail.vue';
 import {isClientRecipient} from '../../utils/clientEmailComposer';
 import api from '../../services/messagingApi';
@@ -394,11 +404,20 @@ const props = defineProps({
   initialEmail: { type: String, default: '' },
   initialClient: Object,
   allClientAgencies: Boolean,
+  allowCaseloadEmail: Boolean,
+  portaled: Boolean,
   contactOnly: Boolean
 });
 
 const dialogTitle = computed(() => props.contactOnly ? 'Add contact' : ({email:'New email',internal:'New direct message',secure:'New secure message',group:'New group'})[props.channel] || 'Start a conversation');
-const emit = defineEmits(['close', 'pick', 'open-group']);
+const emit = defineEmits(['close', 'pick', 'open-group', 'email-caseload']);
+const titleId = useId();
+const clientSort = ref('name');
+
+function openCaseloadEmail() {
+  emit('email-caseload');
+  emitClose();
+}
 
 const previewCount = 3;
 const searchEl = ref(null);
@@ -466,7 +485,8 @@ let searchTimer = null;
 const chips = computed(() => [
   { id: 'all', label: 'Recent' },
   { id: 'contacts', label: 'Contacts & email groups' },
-  { id: 'clients', label: 'Clients' },
+  ...(props.channel === 'email' || (props.channel === 'all' && props.allowCaseloadEmail) ? [{ id: 'my_clients', label: 'My clients' }] : []),
+  { id: 'clients', label: props.channel === 'email' || (props.channel === 'all' && props.allowCaseloadEmail) ? 'Agency clients' : 'Clients' },
   { id: 'guardians', label: 'Guardians' },
   { id: 'staff', label: 'Staff' },
   { id: 'school_staff', label: 'School Staff' },
@@ -475,7 +495,7 @@ const chips = computed(() => [
 
 const categorySections = computed(() => [
   { id: 'contacts', label: 'Contacts & email groups' },
-  { id: 'clients', label: 'Clients' },
+  { id: 'clients', label: props.channel === 'email' || (props.channel === 'all' && props.allowCaseloadEmail) ? 'Agency clients' : 'Clients' },
   { id: 'guardians', label: 'Guardians' },
   { id: 'staff', label: 'Staff' },
   { id: 'school_staff', label: 'School staff' },
@@ -483,12 +503,20 @@ const categorySections = computed(() => [
 ].filter(section => props.channel !== 'email' || section.id !== 'groups'));
 
 const chipTitle = computed(() => {
+  if (activeChip.value === 'my_clients') return 'My clients';
   if (searching.value) return 'Search results';
   if (activeChip.value === 'recent') return 'Recent people';
   return chips.value.find((c) => c.id === activeChip.value)?.label || 'People';
 });
 
 const chipPeople = computed(() => {
+  if (activeChip.value === 'my_clients') {
+    const words = query.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const clients = (sections.value.my_clients || []).filter(person => words.every(word =>
+      [person.displayName, person.agencyName, person.schoolName, person.email].some(value => String(value || '').toLowerCase().includes(word))
+    ));
+    return sortClientContacts(clients, clientSort.value);
+  }
   if (searching.value && activeChip.value === 'all') {
     return sections.value.matches || [];
   }
@@ -690,6 +718,15 @@ async function loadDirectory() {
   const request = ++directoryRequest;
   loading.value = true; directoryError.value = '';
   try {
+    if (activeChip.value === 'my_clients') {
+      const { data } = await api.get('/messages/hub/people', {
+        params: { agencyId: props.agencyId, allAgencies: props.allClientAgencies, browse: 'my_clients' },
+        skipGlobalLoading: true
+      });
+      if (request !== directoryRequest) return;
+      sections.value = { ...sections.value, my_clients: (data.results || []).filter(isClient) };
+      return;
+    }
     if (activeChip.value === 'clients') {
       const {data} = await api.get('/messages/hub/people',{params:{agencyId:props.agencyId,allAgencies:props.allClientAgencies,browse:'caseload',q:query.value.trim() || undefined,limit:60},skipGlobalLoading:true});
       if (request !== directoryRequest) return;
@@ -722,6 +759,7 @@ async function loadDirectory() {
 }
 
 function onSearchInput() {
+  if (activeChip.value === 'my_clients') return;
   ++directoryRequest;
   clearTimeout(searchTimer);
   searchTimer = setTimeout(() => {
@@ -888,7 +926,9 @@ async function createAndContinue() {
   }
 }
 
-watch(activeChip, async (id) => {
+watch(activeChip, async (id, previous) => {
+  clearTimeout(searchTimer);
+  if (id === 'my_clients' || (previous === 'my_clients' && (query.value.trim() || id === 'all'))) { await loadDirectory(); return; }
   if (id === 'clients' && query.value.trim()) { await loadDirectory(); return; }
   if (id === 'all' || searching.value) { ++directoryRequest; loading.value = false; return; }
   if (!props.agencyId) return;
@@ -963,13 +1003,13 @@ watch(
 .scm-overlay {
   position: fixed;
   inset: 0;
-  z-index: 1200;
+  z-index: 22000;
   background: rgba(15, 23, 42, 0.45);
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
-  padding: 2vh 16px 20px;
-  overflow: auto;
+  box-sizing: border-box;
+  padding: 16px;
 }
 .scm-card {
   width: min(820px, 100%);
@@ -978,9 +1018,10 @@ watch(
   box-shadow: 0 18px 50px rgba(15, 23, 42, 0.22);
   display: flex;
   flex-direction: column;
-  max-height: min(96vh, 980px);
-  min-height: min(88vh, 720px);
+  max-height: min(calc(100dvh - 32px), 980px);
 }
+.scm-client-tools { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; padding: 8px 0; }
+.scm-client-tools select { color: inherit; background: #fff; border: 1px solid #cbd5e1; border-radius: 7px; padding: 6px; }
 .scm-header {
   display: flex;
   justify-content: space-between;

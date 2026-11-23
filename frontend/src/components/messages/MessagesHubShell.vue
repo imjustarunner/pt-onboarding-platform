@@ -235,6 +235,14 @@
               :placeholder="listSearchPlaceholder"
             />
           </label>
+          <div v-if="isPeopleBrowseMode && isMyClientsList" class="msg-hub-bulk-actions">
+            <label class="msg-hub-sort"><span class="sr-only">Sort my clients</span>
+              <select v-model="clientSort">
+                <option v-for="option in clientContactSortOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+              </select>
+            </label>
+            <button type="button" class="btn btn-primary btn-sm" @click="emailMyClients">Email my clients</button>
+          </div>
           <button v-if="emailSearchEnabled && listSearch.trim() && hasMoreEmailResults" type="button" :disabled="loadingList" @click="moreEmailResults">Show more search results</button>
           <div v-if="isConversationMode && selectableConversations.length" class="msg-hub-bulk-actions" role="toolbar" aria-label="Selected messages">
             <label><input type="checkbox" :checked="allVisibleSelected" :indeterminate="selectedMessageKeys.length > 0 && !allVisibleSelected" :disabled="bulkUpdating" @change="selectAllVisible($event.target.checked)" /> Select all shown</label>
@@ -1603,9 +1611,10 @@
       v-if="showNew"
       :agency-id="agencyId"
       :channel="newConversationChannel"
-      all-client-agencies :initial-client="emailEntryClient"
+      all-client-agencies allow-caseload-email portaled :initial-client="emailEntryClient"
       @close="showNew = false; emailEntryClient = null"
       @pick="startConversationWithPerson"
+      @email-caseload="emailMyClients"
       @open-group="onOpenGroupFromModal"
     />
 
@@ -1743,6 +1752,7 @@ import { useSessionLockStore } from '../../store/sessionLock';
 import {openCommunicationPrint} from '../../utils/communicationPrint';
 import EmailThreadReader from './EmailThreadReader.vue';
 import { emailPreviewText } from '../../utils/emailReading';
+import { clientContactSortOptions, sortClientContacts } from '../../utils/clientContactSorting';
 import { openEmailComposer } from '../../utils/emailComposerWindow';
 import { useEmailWorkspace } from '../../composables/useEmailWorkspace';
 import { useAgencyStore } from '../../store/agency';
@@ -2139,6 +2149,7 @@ const people = ref([]);
 const conversations = ref([]);
 const listFilter = ref('unread');
 const listSearch = ref('');
+const clientSort = ref('name');
 const unreadSort = ref('newest');
 const inboxSort = ref('newest'), loadingMoreList = ref(false), hubPagesExpanded = ref(false);
 let hubPageCursors = new Map();
@@ -2418,7 +2429,7 @@ const inboxNavItems = computed(() => {
 
 const peopleNavItems = [
   { id: 'contacts', label: 'Contacts' },
-  { id: 'caseload', label: 'Clients' },
+  { id: 'caseload', label: 'My clients' },
   { id: 'guardians', label: 'Guardians' },
   { id: 'staff', label: 'Staff' },
   { id: 'school_staff', label: 'School staff' },
@@ -2481,6 +2492,7 @@ const hasMoreEmailResults=ref(false);
 function moreEmailResults(){loadConversations({append:true});}
 const listSearchPlaceholder = computed(() => {
   if(emailSearchEnabled.value)return 'Search email in this folder…';
+  if (navSection.value === 'people' && isMyClientsList.value) return 'Search my clients…';
   if (navSection.value === 'people' && navId.value === 'contacts') {
     return 'Search contacts, staff, clients, guardians…';
   }
@@ -2621,12 +2633,17 @@ const newTabs = [
   { id: 'search', label: 'Search' }
 ];
 
+const isMyClientsList = computed(() => ['caseload', 'my_clients', 'clients'].includes(listFilter.value));
+function emailMyClients() {
+  openEmailComposer(router, { audience: 'my_clients' });
+}
+
 const filteredPeople = computed(() => {
   let list = [...(people.value || [])];
   const f = listFilter.value;
   if (f === 'guardians') {
     list = list.filter((p) => (p.kinds || []).includes('guardian'));
-  } else if (f === 'clients') {
+  } else if (isMyClientsList.value) {
     list = list.filter((p) => (p.kinds || []).includes('client'));
   } else if (f === 'staff') {
     list = list.filter((p) =>
@@ -2634,14 +2651,13 @@ const filteredPeople = computed(() => {
     );
   } else if (f === 'school_staff') {
     list = list.filter((p) => (p.kinds || []).includes('school_staff'));
-  } else if (f === 'caseload') {
-    list = list.filter((p) => (p.kinds || []).includes('client'));
   }
   const q = listSearch.value.trim().toLowerCase();
   if (q) {
-    list = list.filter((p) => fuzzyMatchPerson(p, q));
+    list = list.filter(p => fuzzyMatchPerson(p, q) || (isMyClientsList.value &&
+      [p.agencyName, p.schoolName].some(name => String(name || '').toLowerCase().includes(q))));
   }
-  return list;
+  return isMyClientsList.value ? sortClientContacts(list, clientSort.value) : list;
 });
 
 const filteredConversations = computed(() => {
@@ -2691,8 +2707,8 @@ const emptyListCopy = computed(() => {
   if (listFilter.value === 'contacts') {
     return `No contacts yet. Use + ${newMessageLabel.value} to message someone, or save an external email/phone as a contact.`;
   }
-  if (listFilter.value === 'caseload' || listFilter.value === 'clients') {
-    return 'No clients assigned to you across your agencies yet. Try Search, or open New conversation → Clients.';
+  if (isMyClientsList.value) {
+    return listSearch.value.trim() ? 'No assigned clients match your search.' : 'No clients are assigned to you.';
   }
   if (listFilter.value === 'recent') {
     return 'No recent people yet. Open New conversation and browse Clients.';
@@ -4997,20 +5013,18 @@ async function loadList() {
     }
 
     const browse =
-      f === 'caseload' || f === 'my_clients'
-        ? 'caseload'
+      isMyClientsList.value
+        ? 'my_clients'
         : f === 'recent'
           ? 'recent'
           : f === 'sent'
             ? 'sent'
             : f === 'staff' || f === 'school_staff' || f === 'guardians'
               ? f
-              : f === 'clients'
-                ? 'caseload'
-                : 'suggested';
+              : 'suggested';
     const rows = await fetchPeople({
       browse,
-      q: q.length >= 2 && ['staff', 'school_staff', 'guardians', 'caseload'].includes(browse) ? q : undefined
+      q: q.length >= 2 && ['staff', 'school_staff', 'guardians'].includes(browse) ? q : undefined
     });
     if (current()) people.value = rows;
   } catch (e) {
@@ -5850,7 +5864,7 @@ watch(listSearch, () => {
   clearTimeout(listSearchTimer);hasMoreEmailResults.value=false;
   if(emailSearchEnabled.value){listSearchTimer=setTimeout(()=>loadConversations(),300);return;}
   const f = listFilter.value;
-  if (!['staff', 'school_staff', 'guardians', 'caseload', 'my_clients', 'clients'].includes(f)) return;
+  if (!['staff', 'school_staff', 'guardians'].includes(f)) return;
   clearTimeout(listSearchTimer);
   listSearchTimer = setTimeout(() => loadList(), 280);
 });

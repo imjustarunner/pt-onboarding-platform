@@ -193,3 +193,47 @@ it('uses the chosen forward recipients without automatically quoting the private
  wrapper=shallowMount(Composer);await flushPromises();state=wrapper.vm.$.setupState;
  expect(state.draft.to).toBe('visitor@example.org');expect(state.draft.cc).toBe('sam@agency.test');expect(state.draft.quotedText).toBe('');expect(state.draft.quotedHtml).toBe('');
 });
+
+
+it('chooses the sender organization, submits the reviewed audience, and undoes the full batch', async () => {
+  wrapper.unmount();
+  mock.api.mockClear();
+  const editing = {
+    id: 'batch', agency_id: 3, mode: 'new', state: 'editing', version: 1,
+    draft: { _myClients: true, subject: '', text: '', undoDelaySeconds: 20 },
+    audience: { agencyName: 'Secondary organization', count: 2, missing: 1, fingerprint: 'roster' }
+  };
+  mock.api.mockImplementation(async ({ method, url }) => {
+    if (url.endsWith('/my-clients')) return { data: { agencies: [
+      { id: 2, name: 'Primary organization', count: 1 },
+      { id: 3, name: 'Secondary organization', count: 2 }
+    ] } };
+    if (method === 'post' && url === '/communications/drafts') return { data: { draft: { ...editing } } };
+    if (method === 'put') return { data: { version: 2 } };
+    if (url.endsWith('/send')) return { data: { batchCount: 2, messageId: 100, scheduled: true } };
+    if (url.endsWith('/undo')) return { data: { draft: { ...editing, version: 3, draft: { ...editing.draft, subject: 'Schedule', text: 'I am away this Friday.' } } } };
+    return { data: {} };
+  });
+  wrapper = shallowMount(Composer, { props: { composeContext: { audience: 'my_clients' } } });
+  await flushPromises();
+  expect(mock.api.mock.calls.map(([call]) => call.url)).toEqual(['/communications/drafts/my-clients']);
+  await wrapper.get('select').setValue(3);
+  await wrapper.get('form').trigger('submit');
+  await flushPromises();
+  expect(mock.api).toHaveBeenCalledWith(expect.objectContaining({ method: 'post', url: '/communications/drafts', data: { agencyId: 3, audience: 'my_clients' } }));
+  expect(wrapper.text()).toContain('2 addresses will receive a separate Bcc copy.');
+  expect(wrapper.text()).toContain('1 assigned client has no eligible client or guardian email address');
+  expect(wrapper.find('[label="To"]').exists()).toBe(false);
+  state = wrapper.vm.$.setupState;
+  state.draft.subject = 'Schedule';
+  state.draft.text = 'I am away this Friday.';
+  await nextTick();
+  await state.send();
+  expect(mock.api).toHaveBeenLastCalledWith(expect.objectContaining({
+    url: '/communications/drafts/batch/send', data: { version: 2, deliveryChoice: null, fingerprint: 'roster' }
+  }));
+  await state.undo();
+  expect(mock.api).toHaveBeenLastCalledWith(expect.objectContaining({ url: '/communications/drafts/batch/caseload-delivery/undo' }));
+  expect(state.record.state).toBe('editing');
+  expect(state.draft.text).toBe('I am away this Friday.');
+});

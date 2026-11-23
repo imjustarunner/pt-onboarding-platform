@@ -48,8 +48,8 @@ function mapMessage(row) {
 }
 
 class CommunicationConversation {
-  static async findById(id) {
-    const [rows] = await pool.execute(
+  static async findById(id, executor = pool) {
+    const [rows] = await executor.execute(
       `SELECT c.*,
               (CASE WHEN t.id IS NOT NULL THEN t.claimed_by_user_id ELSE c.owner_user_id END) AS owner_user_id,
               (SELECT e.direction FROM support_ticket_email_messages e WHERE e.ticket_id=c.support_ticket_id
@@ -93,8 +93,8 @@ class CommunicationConversation {
     return rows[0] || null;
   }
 
-  static async create(data) {
-    const [result] = await pool.execute(
+  static async create(data, executor = pool) {
+    const [result] = await executor.execute(
       `INSERT INTO communication_conversations
        (agency_id, inbox_id, channel, subject, status, priority, owner_user_id, due_at, snoozed_until,
         starred, archived_at, support_ticket_id, last_message_at, last_message_preview, external_thread_id)
@@ -117,7 +117,7 @@ class CommunicationConversation {
         data.externalThreadId ?? null
       ]
     );
-    return this.findById(result.insertId);
+    return this.findById(result.insertId, executor);
   }
 
   static async update(id, updates = {}) {
@@ -749,16 +749,16 @@ class CommunicationConversation {
     return rows;
   }
 
-  static async upsertParticipant(conversationId, data) {
+  static async upsertParticipant(conversationId, data, executor = pool) {
     if (data.email) {
-      const [existing] = await pool.execute(
+      const [existing] = await executor.execute(
         `SELECT id FROM communication_participants
          WHERE conversation_id = ? AND LOWER(email) = ? ORDER BY id ASC LIMIT 1`,
         [conversationId, String(data.email).trim().toLowerCase()]
       );
       if (existing[0]) return existing[0].id;
     }
-    const [result] = await pool.execute(
+    const [result] = await executor.execute(
       `INSERT INTO communication_participants
        (conversation_id, kind, email, display_name, linked_entity_type, linked_entity_id, is_primary)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -830,9 +830,9 @@ class CommunicationConversation {
     return messages.map((m) => ({ ...m, attachments: byMsg.get(m.id) || [] }));
   }
 
-  static async addMessage(data) {
+  static async addMessage(data, executor = pool) {
     const sendStatus = data.sendStatus || (data.scheduledSendAt ? 'scheduled' : 'sent');
-    const [result] = await pool.execute(
+    const [result] = await executor.execute(
       `INSERT INTO communication_messages
        (conversation_id, channel, direction, author_user_id, from_json, to_json, cc_json, bcc_json,
         subject, body_text, body_html, internet_message_id, in_reply_to, references_header,
@@ -870,7 +870,7 @@ class CommunicationConversation {
       .trim()
       .slice(0, 240);
     if (!['cancelled', 'preparing'].includes(sendStatus)) {
-      await pool.execute(
+      await executor.execute(
         `UPDATE communication_conversations
          SET last_message_at = COALESCE(?, last_message_at, NOW()),
              last_message_preview = COALESCE(?, last_message_preview)
@@ -965,7 +965,7 @@ class CommunicationConversation {
     const [result] = await pool.execute(
       `UPDATE communication_messages
        SET send_status = 'sending', send_claimed_at = NOW()
-       WHERE id = ? AND send_status = 'scheduled'`,
+       WHERE id = ? AND send_status = 'scheduled' AND scheduled_send_at <= NOW()`,
       [messageId]
     );
     return Number(result?.affectedRows || 0) === 1;

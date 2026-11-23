@@ -9,9 +9,22 @@ const state = computed(() => message.value?.send_status || (props.receipt.cancel
 const scheduledAt = computed(() => message.value?.scheduled_send_at || props.receipt.scheduledSendAt);
 const seconds = computed(() => Math.max(0, Math.ceil((new Date(scheduledAt.value).getTime() - now.value) / 1000)) || 0);
 const canUndo = computed(() => props.allowUndo && state.value === 'scheduled' && !!props.receipt.messageId);
-const label = computed(() => state.value === 'scheduled'
-  ? (seconds.value > 0 ? `Email scheduled for ${new Date(scheduledAt.value).toLocaleString()}. Not sent yet.` : 'Email queued for delivery. Not sent yet.')
-  : emailDeliveryLabel({ ...message.value, direction: 'outbound', send_status: state.value }));
+const label = computed(() => {
+  if (props.receipt.batchCount) {
+    if (state.value === 'scheduled') return `${props.receipt.batchCount} separate emails queued.`;
+    const batch = message.value?.batch;
+    if (batch) {
+      const details = [`${batch.sent} sent`];
+      if (batch.failed) details.push(`${batch.failed} failed`);
+      if (batch.remaining) details.push(`${batch.remaining} pending`);
+      if (batch.cancelled) details.push(`${batch.cancelled} cancelled`);
+      return details.join(' · ');
+    }
+  }
+  return state.value === 'scheduled'
+    ? (seconds.value > 0 ? `Email scheduled for ${new Date(scheduledAt.value).toLocaleString()}. Not sent yet.` : 'Email queued for delivery. Not sent yet.')
+    : emailDeliveryLabel({ ...message.value, direction: 'outbound', send_status: state.value });
+});
 const remaining = computed(() => seconds.value >= 60 ? `${Math.floor(seconds.value / 60)}m ${seconds.value % 60}s` : `${seconds.value}s`);
 async function refresh() {
   if (checking.value || !props.receipt.messageId) return;

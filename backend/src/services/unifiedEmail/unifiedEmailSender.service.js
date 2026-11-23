@@ -36,7 +36,7 @@ async function finishSessionCommentNotice(input) {
 }
 import { randomUUID } from 'node:crypto';
 import { getGmailClient, getImpersonatedUser } from './gmailClient.js';
-import { base64UrlEncode, buildMimeMessage } from './mime.js';
+import { base64UrlEncode, blindClientEmailEnvelope, buildMimeMessage } from './mime.js';
 import pool from '../../config/database.js';
 import EmailSenderIdentity from '../../models/EmailSenderIdentity.model.js';
 import NotificationTrigger from '../../models/NotificationTrigger.model.js';
@@ -1055,7 +1055,8 @@ export async function sendEmailFromIdentity({
   portalEmailBrand = null,
   schoolSessionScopeKey = null,
   reviewedCancellationToken = null,
-  reviewedCancellationItemKey = null
+  reviewedCancellationItemKey = null,
+  blindClientRecipient = false
 }) {
   if (templateType === 'vacation_auto_reply' && (!afterHoursReplyContext || !await eligibleVacationReply({...afterHoursReplyContext,ownerUserId:generatedByUserId,fromEmail:to}))) return {skipped:true,reason:'vacation_reply_not_allowed'};
   if (templateType === 'client_ooo_auto_reply' && (!afterHoursReplyContext || !await eligibleClientAfterHoursReply({ ...afterHoursReplyContext, ownerUserId: generatedByUserId, fromEmail: to }))) return { skipped: true, reason: 'after_hours_reply_not_allowed' };
@@ -1453,16 +1454,17 @@ export async function sendEmailFromIdentity({
     identity, generatedByUserId, source, to: redirected.to, cc: redirected.cc, bcc: redirected.bcc
   });
   const groupEnvelope = await managedGroupEnvelope({ to: redirected.to, cc: redirected.cc, bcc: deliveryBcc, actorUserId: generatedByUserId });
+  const deliveryEnvelope = blindClientRecipient ? blindClientEmailEnvelope(groupEnvelope) : groupEnvelope;
   const mime = buildMimeMessage({
     messageId: internetMessageId,
-    to: groupEnvelope.to,
+    to: deliveryEnvelope.to,
     subject: redirected.subject,
     text: signedContent.text,
     html: htmlWithPixel,
     from,
     replyTo,
-    cc: groupEnvelope.cc,
-    bcc: groupEnvelope.bcc,
+    cc: deliveryEnvelope.cc,
+    bcc: deliveryEnvelope.bcc,
     inReplyTo,
     references,
     attachments
@@ -1472,7 +1474,7 @@ export async function sendEmailFromIdentity({
   const requestBody = threadId ? { raw, threadId } : { raw };
   let result;
   try {
-    await protectOutboundEmail({ ...groupEnvelope, actorUserId: generatedByUserId });
+    await protectOutboundEmail({ ...deliveryEnvelope, actorUserId: generatedByUserId });
     await assertVerifiedGmailSender(gmail, identity.from_email);
     await guardSessionCommentNotice({ templateType, userId, agencyId:identity.agency_id, to, cc, bcc, communicationId:comm?.id || null, claim:true });
     result = await deliverWorkspaceMime({ gmail, fromEmail: identity.from_email, requestBody, communicationId: comm?.id });

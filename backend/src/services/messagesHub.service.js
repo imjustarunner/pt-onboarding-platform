@@ -10,6 +10,7 @@ import { messageSender } from '../utils/messageSender.js';
 import pool from '../config/database.js';
 import { chatInboxVisibilitySql, CLAIMED_TICKET_NOTICE_CATEGORY } from './messageInboxPolicy.js';
 import { privateMailboxVisibilitySql } from './privateMailboxPolicy.js';
+import { ownClientCaseloadScope } from './myClientCaseload.service.js';
 import { hubClientScope, hubContactScope, scopeHubPeople, canAccessHubClient, canAccessHubContact, ownEmailCorrespondent } from './hubPeopleAccess.service.js';
 import { enrichHubSchoolStaff } from './hubSchoolProfiles.service.js';
 import { listMessageReactions } from './hubMessageReactions.service.js';
@@ -625,7 +626,7 @@ function upsertClientRow(map, c, agencyId, agencyName, agencyIcon = null) {
   });
 }
 
-async function finalizePeople(map, inboxByAgency, lim, { sortRecent = false, userId } = {}) {
+async function finalizePeople(map, inboxByAgency, lim, { sortRecent = false, userId, ownCaseload = false } = {}) {
   const people = [];
   const userIds = [...new Set([...map.values()].map((p) => Number(p.userId)).filter((n) => n > 0))];
   const photoByUser = new Map();
@@ -648,7 +649,8 @@ async function finalizePeople(map, inboxByAgency, lim, { sortRecent = false, use
     }
   }
 
-  for (const person of await enrichHubSchoolStaff(await scopeHubPeople([...map.values()], userId))) {
+  const visiblePeople = await scopeHubPeople([...map.values()], userId);
+  for (const person of await enrichHubSchoolStaff(visiblePeople)) {
     const aid = person.agencyId;
     const hasAppInbox = aid ? !!inboxByAgency.get(Number(aid)) : [...inboxByAgency.values()].some(Boolean);
     const { methods, preferredMethod, secureDefault, isActiveClient, canInviteToPortal, portalReady } =
@@ -667,6 +669,7 @@ async function finalizePeople(map, inboxByAgency, lim, { sortRecent = false, use
     const photoMeta = person.userId ? photoByUser.get(Number(person.userId)) : null;
     people.push({
       ...person,
+      ...(ownCaseload ? { accessLabel: 'Your client', relationshipMeta: [map.get(person.personKey)?.relationshipMeta, 'Your client'].filter(Boolean).join(' · ') } : {}),
       methods,
       preferredMethod,
       secureDefault,
@@ -1108,7 +1111,7 @@ export async function browseHubPeople({
     return query.length >= 2 ? rankPeopleByQuery(people, query).slice(0, lim) : people;
   }
 
-  const wantCaseload = mode === 'caseload' || mode === 'suggested';
+  const wantCaseload = mode === 'caseload' || mode === 'my_clients' || mode === 'suggested';
   const wantRecent = mode === 'recent' || mode === 'suggested';
   const wantSent = mode === 'sent';
 
@@ -1252,6 +1255,18 @@ export async function browseHubPeople({
     }
 
     return finalizePeople(map, inboxByAgency, lim, { userId, sortRecent: true });
+  }
+
+  if (mode === 'my_clients') {
+    const scope = ownClientCaseloadScope(userId);
+    const [rows] = await pool.execute(`SELECT ${CLIENT_SELECT_CORE}
+      ${CLIENT_FROM_JOIN} WHERE c.agency_id IN (${ph}) AND ${scope.sql}`, [...ids, ...scope.params]);
+    for (const row of rows) {
+      const aid = Number(row.agency_id);
+      upsertClientRow(map, row, aid, agencyDisplayName(nameMap, aid), agencyIconUrl(nameMap, aid));
+    }
+    // This list is already restricted to direct assignments and active tenant memberships.
+    return finalizePeople(map, inboxByAgency, rows.length, { userId, ownCaseload: true });
   }
 
   if (wantCaseload) {
