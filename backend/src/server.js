@@ -127,6 +127,7 @@ import referralOcrRoutes from './routes/referralOcr.routes.js';
 import referralPacketDraftRoutes from './routes/referralPacketDraft.routes.js';
 import publicIntakeRoutes from './routes/publicIntake.routes.js';
 import publicTreatmentPlanAckRoutes from './routes/publicTreatmentPlanAck.routes.js';
+import {clinicalDocumentShareRoutes,publicClinicalDocumentShareRoutes,portalClinicalDocumentShareRoutes} from './routes/clinicalDocumentShares.routes.js';
 import intakeLinksRoutes from './routes/intakeLinks.routes.js';
 import publicTranslationsRoutes from './routes/publicTranslations.routes.js';
 import adminTranslationsRoutes from './routes/adminTranslations.routes.js';
@@ -1083,6 +1084,9 @@ app.use('/api/referrals', referralOcrRoutes);
 app.use('/api/referral-packet-drafts', referralPacketDraftRoutes);
 app.use('/api/public-intake', publicIntakeRoutes);
 app.use('/api/public/treatment-plan-ack', publicTreatmentPlanAckRoutes);
+app.use('/api/public/clinical-document-requests', publicClinicalDocumentShareRoutes);
+app.use('/api/clinical-document-requests', clinicalDocumentShareRoutes);
+app.use('/api/portal/clinical-document-requests', portalClinicalDocumentShareRoutes);
 app.use('/api/intake-links', intakeLinksRoutes);
 app.use('/api/admin/translations', adminTranslationsRoutes);
 app.use('/api/directory', directoryRoutes);
@@ -2764,7 +2768,9 @@ if (shouldStartServerBackgroundJobs()) {
   const flushClinicalFormNotifications=async()=>{
     if(clinicalFormNotificationsBusy)return;
     clinicalFormNotificationsBusy=true;
-    try{const {processClinicalFormNotifications}=await import('./services/safetyPlans/notifications.js');await processClinicalFormNotifications();}
+    try{const {processClinicalFormNotifications}=await import('./services/safetyPlans/notifications.js');await processClinicalFormNotifications();
+      const {fileSignedReleaseContacts}=await import('./services/safetyPlans/releaseFiling.js');await fileSignedReleaseContacts();
+    }
     catch(error){console.warn('[Clinical form notification queue]',error.code||'retry_pending');}
     finally{clinicalFormNotificationsBusy=false;}
   };

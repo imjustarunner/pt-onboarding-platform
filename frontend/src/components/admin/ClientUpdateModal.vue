@@ -7,7 +7,7 @@
           <p>{{ agencyName ? agencyName + ' · ' : '' }}{{ activeName || 'Client portal' }}</p>
         </div>
         <div v-if="activeClientId && (enabled || clinicalMode)" class="heading-actions">
-          <button type="button" class="btn btn-primary" :disabled="saving" @click="openPicker('items')"><Send /> Assign forms &amp; assessments</button>
+          <button type="button" class="btn btn-primary" :disabled="saving" @click="openPicker('items')"><Send /> Share forms &amp; assessments</button>
           <button v-if="enabled" type="button" :disabled="saving" @click="openPicker('create')"><Layers /> Create package</button>
         </div><button v-if="!inline" type="button" class="btn btn-secondary btn-sm" @click="close">Close</button>
       </header>
@@ -47,19 +47,14 @@
           <SafetyPlansPanel :key="editorId" ref="editor" record-only :portal-signers-only="clinicalMode==='release'" :initial-record-id="editorId" :agency-id="Number(agencyId)" :client-id="activeClientId" />
         </template>
         <template v-else>
-          <section class="cu-metrics" aria-label="Assignment summary">
-            <button v-for="metric in metrics" :key="metric.label" type="button" :class="metric.tone" :aria-pressed="metric.filter===itemStatus" @click="itemStatus=metric.filter">
-              <component :is="metric.icon" aria-hidden="true" /><span><b>{{ busyLoading ? '…' : clinicalError || historyError ? '—' : metric.value }}</b> {{ metric.label }}<small>{{ metric.detail }}</small></span>
-            </button>
-          </section>
           <div class="cu-layout">
             <aside class="assignment-panel">
-              <h4>Assign to client portal</h4>
+              <h4>Choose documents</h4>
               <button v-if="enabled && clinicalMode === 'full'" class="choice" type="button" :disabled="saving || busyLoading" @click="assignProviderDisclosure"><FileSignature /> Assign provider disclosure <ChevronRight /></button>
               <button v-if="enabled" class="choice" type="button" @click="openPicker('packages')"><Layers /> Use a package <ChevronRight /></button>
               <button class="choice" type="button" @click="openPicker('items')"><ListChecks /> Select individual items <ChevronRight /></button>
               <button v-if="refreshAvailable" class="choice" type="button" @click="useRefreshPackage"><Layers /> Bring client records up to date <ChevronRight /></button>
-              <button v-if="clinicalMode && !recipientGuardianId" class="choice" type="button" :disabled="saving||preparing" @click="clinical.prepare({group:'release'})"><FileSignature /> Prepare a release <ChevronRight /></button>
+              <button v-if="clinicalMode && !recipientGuardianId" class="choice" type="button" :disabled="saving||preparing" @click="shareDocuments=[{release:true,title:'Release of information'}]"><FileSignature /> Send a release to complete <ChevronRight /></button>
               <template v-if="packages.length"><h5>Agency packages</h5>
                 <button type="button" class="package-link" v-for="pkg in packages.slice(0,4)" :key="pkg.id" @click="usePackage(pkg)">{{ pkg.name }} <small>{{ packageSize(pkg) }} items</small></button>
               </template>
@@ -100,7 +95,7 @@
                 <div v-if="clinicalMode==='full'" class="context-options">
                   <label v-for="field in contextOptions" :key="field.key">{{ field.label }}<select v-model="context[field.key]"><option v-for="[value,label] in field.options" :key="value" :value="value">{{ label }}</option></select></label>
                 </div>
-                <p v-if="picker !== 'create'" class="hint">Choose individual items for the selected client. The family completes them in their portal.</p>
+                <p v-if="picker !== 'create'" class="hint">Select items to send or share as a package.</p>
                 <input type="search" v-model.trim="catalogSearch" placeholder="Find a form or assessment" aria-label="Search available items" />
                 <div class="cu-grid">
                   <section v-for="group in selectionGroups" :key="group.key">
@@ -110,6 +105,7 @@
                       <small v-if="item.assignable === false" class="status-tag">{{ item.availabilityLabel || 'Coming soon' }}</small>
                       <button v-else type="button" class="text-action" @click="previewItems=[item]">Preview</button>
                       <button v-if="!recipientGuardianId && ['foundation','records'].includes(item.group) && !item.instrumentId" type="button" class="text-action" @click="clinical.prepare(item)">{{ item.group==='records'?'Open':'Prepare' }}</button>
+                      <button v-if="directItem(item) && picker!=='create'" type="button" class="text-action" @click="shareDocuments=[directItem(item)]">Share</button>
                     </div>
                   </section>
                   <p v-if="!selectionGroups.length && !busyLoading">No matching items.</p>
@@ -119,7 +115,7 @@
             </fieldset>
           </section>
           <section v-if="selectedItems.length && picker!=='create'" class="review-selection">
-            <h4>Review assignment <span>({{ selectedItems.length }})</span></h4>
+            <h4>Review selection <span>({{ selectedItems.length }})</span></h4>
             <ul><li v-for="s in selectedItems" :key="s.group+':'+s.id">{{ s.title }}</li></ul>
             <section v-if="releaseSelected" class="release-recipient">
               <label>Release recipient
@@ -130,7 +126,7 @@
               </label>
               <button v-if="contactError" type="button" @click="loadReleaseContacts">Retry loading contacts</button>
               <p v-if="contactError" role="alert">{{ contactError }}</p>
-              <small>Contact details entered by the signer are filed on the client’s profile after staff review.</small>
+              <small>The signer can enter or confirm this contact.</small>
               <details v-if="!attemptedDelivery"><summary>Add a contact to the client’s profile</summary>
                 <form @submit.prevent="addReleaseContact">
                   <label>Name <input v-model.trim="newContact.fullName" required maxlength="180" /></label>
@@ -140,6 +136,13 @@
                 </form>
               </details>
             </section>
+            <template v-if="canShareSelection">
+              <footer>
+                <button type="button" @click="previewItems=selectedItems.slice()">Preview selection</button>
+                <button type="button" class="btn btn-primary" @click="shareDocuments=directDocumentSelection">Choose recipients and delivery</button>
+              </footer>
+            </template>
+            <template v-else>
             <label>Portal recipient <select v-model="chosenId" :disabled="saving || attemptedDelivery"><option value="">Select a linked account</option><option v-for="r in eligible" :value="r.id" :key="r.id">{{ r.name }}{{ r.email?' · '+r.email:'' }}</option></select></label>
             <p v-if="assessmentRespondents.length > 1" class="hint">Assign client self-reports and parent reports separately so each person answers their own questionnaire.</p>
             <p v-else-if="assessmentRespondents.length" class="hint">{{ assessmentRespondents[0] === 'self' ? 'The client completes this selection in their own portal account.' : 'A parent or guardian completes this selection about the client.' }}</p>
@@ -153,8 +156,14 @@
             <footer><button v-if="chosen && includeUpdateEmail && !paymentOnly" type="button" @click="previewItems=[{group:'notice',id:'notice',title:'Email notice'}]">Preview email notice</button>
               <button type="button" @click="previewItems=selectedItems.slice()">Preview selection</button>
               <button type="button" class="btn btn-primary" :disabled="!canSend" @click="send()">{{ saving ? 'Assigning…' : includeUpdateEmail ? 'Send portal update' : 'Assign in portal' }}</button></footer>
+            </template>
           </section>
         </template>
+        <ClinicalDocumentShareDialog v-if="shareDocuments.length" :client-id="activeClientId" :agency-id="agencyId"
+          :documents="shareDocuments" :context="context" :initial-action="clinicalAction" :recipient-user-id="recipientGuardianId"
+          @close="shareDocuments=[]" @shared="sharedDocuments" />
+        <ClinicalDocumentShareActivity v-if="inline && clinicalMode==='full' && !editorId" :key="sharingVersion"
+          :client-id="activeClientId" />
         <PortalSelectionPreview v-if="previewItems.length" :items="previewItems" :client-id="activeClientId" :agency-id="agencyId" :client-name="activeName" :recipient="authorizationOnlyPackage && chosen ? {...chosen,cardAllowed:false} : chosen" :action="clinicalAction" :context="context" :release-contact="chosenReleaseContact" :branding="clinicalCatalog?.branding || {name:agencyName}" @reviewed="rememberSmartPreview" @close="previewItems=[]" />
       </template>
     </div>
@@ -163,10 +172,12 @@
 <script setup>
 import { computed, reactive, ref, watch, nextTick, onBeforeUnmount } from 'vue';
 import api from '../../services/api';
-import {Send,Layers,ListChecks,ChevronRight,FileSignature,Clock,PenLine,CircleCheck,ChartNoAxesColumnIncreasing} from '@lucide/vue';
+import {Send,Layers,ListChecks,ChevronRight,FileSignature} from '@lucide/vue';
 import {usePortalDocumentRecords} from '../enrollment/usePortalDocumentRecords';
 import PortalSelectionPreview from '../enrollment/PortalSelectionPreview.vue';
 import SafetyPlansPanel from '../safetyPlans/SafetyPlansPanel.vue';
+import ClinicalDocumentShareDialog from '../enrollment/ClinicalDocumentShareDialog.vue';
+import ClinicalDocumentShareActivity from '../enrollment/ClinicalDocumentShareActivity.vue';
 
 const props = defineProps({
   open: Boolean, inline:Boolean, agencyName:String,
@@ -230,6 +241,24 @@ const updateChoices=computed(()=>[
   ...catalog.portalSteps.map(s=>({group:'portalSteps',id:s.key,title:s.title,detail:s.detail}))
 ]);
 const selectedItems=computed(()=>[...typedForms.value.filter(isSelected),...updateChoices.value.filter(isSelected),...clinicalSelection.value]);
+const shareDocuments=ref([]),sharingVersion=ref(0);
+function directItem(item){
+  if(item.group==='release')return {release:true,contactId:releaseContactId.value,title:item.title};
+  if(item.group==='records')return {recordId:item.id,version:item.version,documentKey:item.documentKey,title:item.title};
+  if(item.group==='foundation')return {foundationKey:item.id,title:item.title,instrumentId:item.instrumentId};
+  if(item.group==='documents')return {templateId:item.id,title:item.title};
+  if(item.group==='assessments'&&item.respondent&&item.respondent!=='observer'&&item.assignable!==false)return {assessmentKey:item.id,title:item.title,instrumentId:item.id};
+  return null;
+}
+const directDocumentSelection=computed(()=>selectedItems.value.map(directItem).filter(Boolean));
+const canShareSelection=computed(()=>Boolean(props.clinicalMode&&selectedItems.value.length&&directDocumentSelection.value.length===selectedItems.value.length));
+async function sharedDocuments(){
+  shareDocuments.value=[];
+  sharingVersion.value+=1;
+  success.value='Sharing request saved.';
+  emit('sent');
+  await reloadWorkspace();
+}
 const groupLabels={smart:'School & provider forms',release:'Releases',foundation:'Current agreements',portalSteps:'Portal tasks',documents:'Other agency documents',records:'Saved documents',assessments:'Assessments'};
 const selectionGroups=computed(()=>{
   const choices=[...(picker.value==='create'?[]:typedForms.value),...updateChoices.value,...clinical.foundations.value,...clinical.saved.value];
@@ -281,7 +310,7 @@ function clearSelection(){
   clinical.foundationKeys.value=[];clinical.recordIds.value=[];smartKeys.value=[];releaseSelected.value=false;releaseContactId.value=null;authority.value=false;
 }
 async function reloadWorkspace(){await Promise.all([enabled.value?loadCatalog().catch(()=>{error.value='The assignment list could not be refreshed.';}):null,clinical.load()]);}
-function prepareToLeave(){return !saving.value && clinical.canLeave();}
+function prepareToLeave(){return !saving.value && !shareDocuments.value.length && clinical.canLeave();}
 defineExpose({prepareToLeave});
 const schoolClient=ref(false),schoolName=ref(''),schoolCity=ref(''),schoolExpiry=ref('');
 const packages=ref([]),items=ref([]),recipients=ref([]),chosenId=ref(''),packageName=ref(''),schoolOnly=ref(false),packageFilter=ref(''),search=ref('');
@@ -302,13 +331,6 @@ function progressLabel(item){
   return item.progress || ({in_progress:'Started',pending:'Awaiting action',complete:'Completed'}[item.status] || '—');
 }
 const statuses=computed(()=>[...new Set(['pending','in_progress','complete','result',...allItems.value.map(i=>i.status)])]);
-const metrics=computed(()=>[
-  {label:'Assigned',filter:'',tone:'assigned',detail:'Total assignments',icon:Send},
-  {label:'Pending',filter:'pending',tone:'pending',detail:'Awaiting recipient',icon:Clock},
-  {label:'In progress',filter:'in_progress',tone:'started',detail:'Started',icon:PenLine},
-  {label:'Completed',filter:'complete',tone:'complete',detail:'Finished',icon:CircleCheck},
-  {label:'With results',filter:'result',tone:'result',detail:'Assessment results',icon:ChartNoAxesColumnIncreasing}
-].map(m=>({...m,value:allItems.value.filter(i=>matchesStatus(i,m.filter)).length})));
 function matchesStatus(i,status){return !status || (status==='result'?!!Number(i.has_result):i.status===status);}
 const filteredItems=computed(()=>allItems.value.filter(i=>(!itemType.value || typeName(i)===itemType.value) && matchesStatus(i,itemStatus.value) && i.title.toLowerCase().includes(search.value.toLowerCase())));
 const paymentSelected=computed(()=>selected.portalSteps.some(k=>['payment','authorization'].includes(k)));
@@ -663,7 +685,7 @@ watch(() => [props.open,props.clientId,props.agencyId,props.canUpdate], async ([
   selected.assessments = [];
   selected.portalSteps = [];
   itemType.value='';itemStatus.value='';schoolClient.value=false;schoolName.value='';schoolCity.value='';schoolExpiry.value='';
-  smartKeys.value=[];releaseSelected.value=false;releaseContactId.value=null;releaseContacts.value=[];contactError.value='';packages.value=[];items.value=[];recipients.value=[];chosenId.value='';packageName.value='';schoolOnly.value=false;packageFilter.value='';search.value='';saving.value=false;
+  shareDocuments.value=[];sharingVersion.value+=1;smartKeys.value=[];releaseSelected.value=false;releaseContactId.value=null;releaseContacts.value=[];contactError.value='';packages.value=[];items.value=[];recipients.value=[];chosenId.value='';packageName.value='';schoolOnly.value=false;packageFilter.value='';search.value='';saving.value=false;
   context.channel='office';
   catalog.documents=[];catalog.assessments=[];catalog.portalSteps=[];organizations.value=[];providers.value=[];
   enabled.value=false;requestId.value=null;attemptedDelivery.value=false;readinessLoading.value=true;
@@ -699,4 +721,14 @@ onBeforeUnmount(()=>{generation++;});
 .cu-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(270px,100%),1fr));align-items:start;gap:15px;margin-top:12px}.cu-grid section{border:1px solid #d4dfe9;border-radius:9px;padding:0 12px 8px}.pick-row{display:flex;align-items:center;gap:6px;border-top:1px solid #e7edf2;padding:8px 0}.pick-row label{flex:1}.cu-modal .text-action{padding:3px;border:0;color:#205d93;text-decoration:underline}.review-selection label,.cu-shell label,.context-options label{display:block;margin:10px 0}.context-options select,.cu-shell input,.cu-shell select{display:block;margin-top:4px}.review-selection footer{justify-content:flex-end;margin-top:12px}.cu-error,.cu-ok{padding:10px;border-radius:6px}.cu-error{color:#883221;background:#fdf1ed}.cu-ok{color:#235b3c;background:#edf7ee}
 @media(max-width:950px){.cu-layout{grid-template-columns:1fr}.cu-metrics{grid-template-columns:repeat(auto-fit,minmax(130px,1fr))}}
 @media(max-width:540px){.cu-backdrop{padding:6px}.cu-modal{padding:12px}.cu-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.cu-metrics button{padding:10px}.heading-actions{width:100%}.cu-grid{display:block}.cu-grid section{margin:8px 0}}
+</style>
+
+<style scoped>
+.cu-modal .cu-layout{display:grid;grid-template-columns:minmax(0,1fr);gap:.9rem}
+.cu-modal .assignment-panel{display:flex;flex-wrap:wrap;gap:.55rem;align-items:center}
+.cu-modal .assignment-panel .choice{width:auto;grid-template-columns:auto auto auto;gap:.45rem}
+.cu-modal .assignment-panel h4{width:100%;margin-bottom:0}
+.cu-modal .cu-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:.65rem}
+.cu-modal .cu-grid .pick-row{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap}
+.cu-modal .cu-grid .pick-row label{flex:1;min-width:12rem}
 </style>

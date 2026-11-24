@@ -14,7 +14,7 @@
 
     <div v-if="loading" class="muted">Loading documents…</div>
     <div v-else-if="error" class="error">{{ error }}</div>
-    <div v-else class="cdg-grid">
+    <div v-else class="cdg-list">
       <article
         v-for="card in cards"
         :key="card.id"
@@ -51,27 +51,6 @@
           </button>
         </div>
       </article>
-    </div>
-
-    <div v-if="!operationalOnly" class="cdg-copy-blocks">
-      <h4 class="cdg-title">Copy-ready text</h4>
-      <p class="hint">
-        Demographics stay on the chart (never sent to the note writer). Clinical blocks are de-identified.
-      </p>
-      <div v-if="copyLoading" class="muted">Loading copy blocks…</div>
-      <div v-else-if="copyError" class="error">{{ copyError }}</div>
-      <template v-else>
-        <div v-for="block in copyBlocks" :key="block.key" class="cdg-block">
-          <div class="cdg-block__head">
-            <strong>{{ block.label }}</strong>
-            <button type="button" class="btn btn-secondary btn-sm" :disabled="!block.text" @click="copy(block.text, block.label)">
-              Copy
-            </button>
-          </div>
-          <p v-if="block.note" class="hint" style="margin: 4px 0 8px;">{{ block.note }}</p>
-          <pre class="cdg-block__body">{{ block.text || '—' }}</pre>
-        </div>
-      </template>
     </div>
 
     <div
@@ -137,45 +116,11 @@ const opening = ref(false);
 const error = ref('');
 const openError = ref('');
 const openFallbackUrl = ref('');
-const copyLoading = ref(false);
-const copyError = ref('');
-const copyPayload = ref(null);
 const artifacts = ref([]);
 const signedPackets = ref([]);
 const selectedPacket = ref(null);
 
 const cards = computed(() => artifacts.value || []);
-
-const copyBlocks = computed(() => {
-  const p = copyPayload.value || {};
-  return [
-    {
-      key: 'demographics',
-      label: 'Demographics',
-      note: 'Chart only — never sent to the note writer.',
-      text: p.demographics || ''
-    },
-    {
-      key: 'clinical',
-      label: 'Clinical questionnaire (de-identified)',
-      note: 'Answers without names, DOB, address, phones, emails, or member IDs.',
-      text: p.clinicalDeidentified || ''
-    },
-    {
-      key: 'narrative',
-      label: 'Full intake narrative (scrubbed)',
-      note: 'Ready to paste into the intake note writer after scrub.',
-      text: p.intakeNarrative || ''
-    }
-  ];
-});
-
-function formatWhen(v) {
-  if (!v) return '';
-  const d = new Date(v);
-  if (Number.isNaN(d.getTime())) return String(v).slice(0, 10);
-  return d.toLocaleString();
-}
 
 async function loadArtifacts() {
   const id = Number(props.clientId || 0);
@@ -210,31 +155,6 @@ async function loadArtifacts() {
     signedPackets.value = [];
   } finally {
     loading.value = false;
-  }
-}
-
-async function loadCopyBlocks() {
-  if (props.operationalOnly) return;
-  const id = Number(props.clientId || 0);
-  if (!id) return;
-  copyLoading.value = true;
-  copyError.value = '';
-  try {
-    const r = await api.get(`/clients/${id}/records-copy-blocks`, { skipGlobalLoading: true });
-    copyPayload.value = r.data || {};
-  } catch (e) {
-    copyError.value = e.response?.data?.error?.message || 'Failed to load copy-ready text';
-    copyPayload.value = null;
-  } finally {
-    copyLoading.value = false;
-  }
-}
-
-async function copy(text, label) {
-  try {
-    await navigator.clipboard.writeText(String(text || ''));
-  } catch {
-    openError.value = `Could not copy ${label || 'text'}`;
   }
 }
 
@@ -366,7 +286,6 @@ async function openViewKey(viewKey) {
 
 function reload() {
   loadArtifacts();
-  loadCopyBlocks();
 }
 
 defineExpose({ openViewKey, reload });
@@ -379,9 +298,9 @@ watch(() => props.clientId, reload);
 .cdg { margin-top: 12px; }
 .cdg-head { margin-bottom: 10px; }
 .cdg-title { margin: 0 0 4px; font-size: 14px; font-weight: 750; color: var(--text-primary); }
-.cdg-grid {
+.cdg-list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  grid-template-columns: 1fr;
   gap: 10px;
   margin-bottom: 18px;
 }
@@ -450,4 +369,10 @@ watch(() => props.clientId, reload);
 }
 .modal-header { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
 .signed-packet-contents { margin: 12px 0 0; padding-left: 18px; }
+</style>
+
+<style scoped>
+.cdg-list .cdg-card{display:grid;grid-template-columns:1.3fr 2.5fr 1.4fr auto;align-items:center;gap:.75rem;min-height:unset}
+.cdg-list .cdg-card__actions{margin:0}
+@media(max-width:650px){.cdg-list .cdg-card{grid-template-columns:minmax(0,1fr) auto}.cdg-list .cdg-card__title{grid-column:1/-1}}
 </style>

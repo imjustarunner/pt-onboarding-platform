@@ -527,6 +527,12 @@ const routes = [
     meta: { requiresGuest: false }
   },
   {
+    path: '/sign/documents',
+    name: 'ClinicalDocumentRequest',
+    component: () => import('../views/public/ClinicalDocumentRequestView.vue'),
+    meta: { requiresGuest: false, public: true, hideNav: true }
+  },
+  {
     path: '/sign/treatment-plan/:publicKey',
     name: 'PublicTreatmentPlanAck',
     component: () => import('../views/PublicTreatmentPlanAckView.vue'),

@@ -1,3 +1,4 @@
+import { maybeEncryptNotePayload as encryptPrivateRequest } from '../clinicalNoteCrypto.service.js';
 import { blockDemoExchangeEmail } from '../clientExchangeDemo.service.js';
 import { assertInternalEmailRecipients } from '../internalEmailRecipients.service.js';
 import { resolveRecipientUserIdByEmail } from '../emailRecipientLookup.service.js';
@@ -1060,7 +1061,8 @@ export async function sendEmailFromIdentity({
   schoolSessionScopeKey = null,
   reviewedCancellationToken = null,
   reviewedCancellationItemKey = null,
-  blindClientRecipient = false
+  blindClientRecipient = false,
+  privateDocumentDeliveryId = null
 }) {
   if (templateType === 'vacation_auto_reply' && (!afterHoursReplyContext || !await eligibleVacationReply({...afterHoursReplyContext,ownerUserId:generatedByUserId,fromEmail:to}))) return {skipped:true,reason:'vacation_reply_not_allowed'};
   if (templateType === 'client_ooo_auto_reply' && (!afterHoursReplyContext || !await eligibleClientAfterHoursReply({ ...afterHoursReplyContext, ownerUserId: generatedByUserId, fromEmail: to }))) return { skipped: true, reason: 'after_hours_reply_not_allowed' };
@@ -1267,6 +1269,8 @@ export async function sendEmailFromIdentity({
     clientId,
     source
   });
+  const isPrivateDocument=Number(privateDocumentDeliveryId)>0;
+  const privateBody='Secure AuricWell document request. See Sharing activity for the delivery status.';
   const ttForQuality = String(templateType || 'identity_send').trim().toLowerCase();
   const skipQualityForLoginRecovery = [
     'password_reset',
@@ -1278,8 +1282,8 @@ export async function sendEmailFromIdentity({
       flags: quality.flags,
       to,
       subject,
-      text: signedContent.text,
-      html: signedContent.html,
+      text: isPrivateDocument?privateBody:signedContent.text,
+      html: isPrivateDocument?null:signedContent.html,
       agencyId: identity?.agency_id || null,
       userId,
       clientId,
@@ -1299,7 +1303,7 @@ export async function sendEmailFromIdentity({
   if (!resolvedUserId && to) {
     resolvedUserId = await resolveRecipientUserIdByEmail(to);
   }
-  const trackingToken = signedContent.html ? UserCommunication.generateTrackingToken() : null;
+  const trackingToken = signedContent.html && !isPrivateDocument ? UserCommunication.generateTrackingToken() : null;
   const htmlWithPixel = signedContent.html ? injectTrackingPixel(signedContent.html, trackingToken) : signedContent.html;
   const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
   const fallbackMeta = usedFallbackSender
@@ -1333,7 +1337,7 @@ export async function sendEmailFromIdentity({
     if (preloggedReceipt) {
       await pool.execute(`UPDATE user_communications SET subject=?,body=?,
         metadata=JSON_MERGE_PATCH(COALESCE(metadata,JSON_OBJECT()),CAST(? AS JSON)) WHERE id=? AND agency_id=?`,
-      [redirected.subject || subject, htmlWithPixel || signedContent.text || '', JSON.stringify({senderIdentityId:identity.id,
+      [redirected.subject || subject, (isPrivateDocument?privateBody:htmlWithPixel || signedContent.text || ''), JSON.stringify({senderIdentityId:identity.id,
         fromEmail:identity.from_email,fromDisplayName:effectiveDisplayName,replyTo,source,
         ...(cc ? {cc} : {}),...(schoolSessionScopeKey ? {schoolSessionScopeKey} : {}),
         ...(hasAttachments ? {hadAttachments:true,attachmentCount:attachments.length} : {}),...fallbackMeta,...redirectMeta}), comm.id,identity.agency_id]);
@@ -1378,12 +1382,16 @@ export async function sendEmailFromIdentity({
         templateType: templateType || 'identity_send',
         templateId: templateId || null,
         subject: redirected.subject || subject,
-        body: htmlWithPixel || signedContent.text || '',
+        body: isPrivateDocument?privateBody:(htmlWithPixel || signedContent.text || ''),
         generatedByUserId: generatedByUserId || null,
         channel: 'email',
         recipientAddress: to,
         trackingToken,
         metadata: {
+          ...(isPrivateDocument?{
+            privateDocumentDeliveryId:Number(privateDocumentDeliveryId),
+            privateDocumentEnvelope:encryptPrivateRequest(JSON.stringify({text:signedContent.text,html:signedContent.html}))
+          }:{}),
           senderIdentityId: identity.id,
           fromEmail: identity.from_email,
           fromDisplayName: effectiveDisplayName,
@@ -1435,15 +1443,15 @@ export async function sendEmailFromIdentity({
       templateType: resolvedTemplateType,
       agencyId: identity?.agency_id || null,
       metadata: { source, ...fallbackMeta, ...redirectMeta },
-      bodyPreview: htmlWithPixel || signedContent.text || null
+      bodyPreview: isPrivateDocument?privateBody:(htmlWithPixel || signedContent.text || null)
     }).catch(() => {});
     return {
       queued: true,
       pendingApproval: true,
       communicationId: comm.id,
       reason: usedFallbackSender ? 'fallback_sender_requires_approval' : 'requires_approval',
-      bodyText: signedContent.text,
-      bodyHtml: signedContent.html
+      bodyText: isPrivateDocument?privateBody:signedContent.text,
+      bodyHtml: isPrivateDocument?null:signedContent.html
     };
   }
 
@@ -1571,7 +1579,7 @@ export async function sendEmailFromIdentity({
     redirected: !!redirected.redirected,
     testInboxRedirect: redirected.redirected ? { agencyId: Number(identity.agency_id), deliveredTo: extractEmailAddresses(redirected.to) } : null,
     originalTo: redirected.originalTo || null,
-    bodyText: signedContent.text,
-    bodyHtml: signedContent.html
+    bodyText: isPrivateDocument?privateBody:signedContent.text,
+    bodyHtml: isPrivateDocument?null:signedContent.html
   };
 }

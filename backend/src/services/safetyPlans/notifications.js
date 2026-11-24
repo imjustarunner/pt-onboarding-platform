@@ -25,7 +25,7 @@ export function clinicalPortalNotice({agencyName,portalUrl,locale='en'}) {
 async function contextFor(batch,db) {
  const [shares]=await db.execute(`SELECT p.*,s.signer_kind FROM clinical_form_signers s
   JOIN clinical_form_records p ON p.id=s.plan_id
-  WHERE p.agency_id=? AND s.recipient_user_id=? AND s.revoked_at IS NULL AND s.signed_at IS NULL
+  WHERE p.agency_id=? AND s.recipient_user_id=? AND s.revoked_at IS NULL AND s.signed_at IS NULL AND s.delivery_managed=0
   AND s.version=p.current_version AND s.portal_shared_at>=FROM_UNIXTIME(?)
   AND s.portal_shared_at<FROM_UNIXTIME(?+1800)`,[batch.agency_id,batch.recipient_user_id,batch.batch_key,batch.batch_key]);
  let share;

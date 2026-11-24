@@ -2,6 +2,7 @@
 import {beforeEach,afterEach,expect,it,vi} from 'vitest';
 import {mount,flushPromises} from '@vue/test-utils';
 import Modal from '../ClientUpdateModal.vue';
+import ClinicalDocumentShareDialog from '../../enrollment/ClinicalDocumentShareDialog.vue';
 import api from '../../../services/api';
 vi.mock('../../../services/api',()=>({default:{get:vi.fn(),post:vi.fn()}}));
 let wrapper;
@@ -67,7 +68,7 @@ it('combines both histories and previews multiple actual forms in recipient orde
   combinedWorkspace();
   await flushPromises();
   expect(wrapper.find('.picker-panel').exists()).toBe(false);
-  expect(wrapper.findAll('.cu-metrics button')).toHaveLength(5);
+  expect(wrapper.get('[aria-label="Filter by status"]').exists()).toBe(true);
   expect(wrapper.get('.assigned-list').text()).toContain('Signed release');
   expect(wrapper.get('.assigned-list').text()).not.toContain('Unshared draft');
   expect(wrapper.get('progress').attributes('max')).toBe('2');
@@ -192,7 +193,7 @@ it.each([true,false])('uses the provider disclosure shortcut with recorded signi
   }
 });
 
-it('assigns a general release with the selected chart contact and leaves the signer pinned', async () => {
+it('previews a release request with the selected chart contact and pinned signer', async () => {
   api.get.mockImplementation(async url => {
     if (url.endsWith('/status')) return {data:{enabled:true}};
     if (url==='/clinical-forms') return {data:{plans:[]}};
@@ -201,18 +202,18 @@ it('assigns a general release with the selected chart contact and leaves the sig
     if (url.endsWith('/catalog')) return {data:{recipients:[recipient],documents:[]}};
     throw new Error('Unexpected request '+url);
   });
-  api.post.mockResolvedValue({data:{assignedCount:1}});
-  wrapper=mount(Modal,{props:{...props,inline:true,clinicalMode:'full',recipientGuardianId:3}});
+  api.post.mockResolvedValue({data:{items:[],recipients:[]}});
+  wrapper=mount(Modal,{props:{...props,inline:true,clinicalMode:'full',recipientGuardianId:3},global:{stubs:{Teleport:true}}});
   await flushPromises();
   await button('Select individual items').trigger('click');
   const release = wrapper.findAll('.pick-row').find(row=>row.text().startsWith('Release of information'));
   await release.get('input').setValue(true);
   await flushPromises();
   await wrapper.get('.release-recipient select').setValue(12);
-  await wrapper.get('.review-selection > label input[type=checkbox]').setValue(true);
-  await button('Assign in portal').trigger('click');
+  await button('Choose recipients and delivery').trigger('click');
   await flushPromises();
-  expect(api.post).toHaveBeenCalledExactlyOnceWith('/enrollment-portal/clients/5/assignments',expect.objectContaining({
-    recipient:{id:3,kind:'guardian'},authorityConfirmed:true,documents:[{release:true,contactId:12}]
+  expect(wrapper.getComponent(ClinicalDocumentShareDialog).props('recipientUserId')).toBe(3);
+  expect(api.post).toHaveBeenCalledExactlyOnceWith('/clinical-document-requests/clients/5/preview',expect.objectContaining({
+    documents:[expect.objectContaining({release:true,contactId:12})]
   }));
 });

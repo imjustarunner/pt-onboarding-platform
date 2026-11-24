@@ -124,6 +124,20 @@ export async function saveAssignedOutcomeResponse({ clientId, agencyId, userId, 
   [clientId, agencyId, measure.id, measure.version, requestId, userId, encrypted]);
 }
 
+// The signed form version and its scored outcome are committed together.
+export async function saveSharedOutcomeResponse({db,clientId,agencyId,actorId,signerId,measure,answers:submitted,respondentName}) {
+  const {answers,result}=scoreOutcomeMeasure(measure,submitted);
+  if(!result.complete)fail(400,'Answer all required questions before submitting.');
+  const requestId=createHash('sha256').update('clinical-document-signer:'+signerId).digest('hex').slice(0,32)
+    .replace(/^(........)(....)(....)(............)$/, '$1-$2-$3-$4-$5');
+  const type=measure.respondent==='caregiver'?'guardian':'client';
+  const payload={questionnaire:measure,answers,result,source:'clinical_document_request',administration:measure.respondent||'self',
+    respondent:{type,label:respondentName,clientId:Number(clientId)},respondentUserId:actorId};
+  await db.execute(`INSERT INTO client_outcome_measure_responses
+    (client_id,agency_id,measure_id,measure_version,request_id,recorded_by_user_id,payload_encrypted) VALUES(?,?,?,?,?,?,?)`,
+  [clientId,agencyId,measure.id,measure.version,requestId,actorId,maybeEncryptNotePayload(JSON.stringify(payload))]);
+}
+
 export async function reviewOutcomeResponse(user, clientId, responseId, input) {
   const client = await assertOutcomeClientAccess(user, clientId, { write: true });
   if (!Number.isSafeInteger(Number(responseId)) || Number(responseId) <= 0) fail(400, 'Invalid response.');

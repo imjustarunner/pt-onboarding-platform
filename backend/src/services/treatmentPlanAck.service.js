@@ -1,3 +1,4 @@
+import {maybeEncryptNotePayload} from './clinicalNoteCrypto.service.js';
 import pool from '../config/database.js';
 import { assertTreatmentPlanShareApproval } from './treatmentPlanApproval.service.js';
 import { requireStaffPlanActor } from '../utils/planStaffAccess.js';
@@ -30,7 +31,7 @@ function hashIp(ip) {
   return crypto.createHash('sha256').update(raw).digest('hex').slice(0, 64);
 }
 
-async function markPlanAckStatus({ planId, status, at = true }) {
+export async function markPlanAckStatus({ planId, status, at = true }) {
   const pid = safeInt(planId);
   if (!pid || !status) return;
   try {
@@ -362,6 +363,8 @@ async function signAcknowledgmentUnderLock({
   witnessUserId = null,
   witnessName = null,
   actorUserId = null,
+  verifiedRequestItemId = null,
+  privateSignatureEvidence = null,
   ip = null,
   userAgent = null
 }) {
@@ -374,7 +377,15 @@ async function signAcknowledgmentUnderLock({
     throw err;
   }
   await requireAckRecipient(link);
-  if (link.meta_json?.portalOnly && Number(actorUserId) !== Number(link.recipient_user_id)) {
+  const verifiedRequest = verifiedRequestItemId && Number(verifiedRequestItemId)===Number(link.meta_json?.clinicalRequestItemId);
+  if (link.meta_json?.clinicalRequestItemId) {
+    const clinicalPool=(await import('../config/clinicalDatabase.js')).default;
+    const [[request]]=await clinicalPool.execute(`SELECT r.revoked_at FROM clinical_document_request_items i
+      JOIN clinical_document_requests r ON r.id=i.request_id WHERE i.id=? AND i.source_kind='treatment_plan'
+      AND i.source_id=? AND i.client_id=? AND r.agency_id=?`,[link.meta_json.clinicalRequestItemId,link.treatment_plan_id,link.client_id,link.agency_id]);
+    if(!request||request.revoked_at)throw Object.assign(new Error('This request was withdrawn.'),{status:410});
+  }
+  if (link.meta_json?.portalOnly && !verifiedRequest && (!actorUserId || Number(actorUserId) !== Number(link.recipient_user_id))) {
     throw Object.assign(new Error('Sign in with the account this plan was shared with.'), { status: 403 });
   }
   if (link.expires_at && new Date(link.expires_at) < new Date() && link.status !== 'signed') {
@@ -428,7 +439,9 @@ async function signAcknowledgmentUnderLock({
     actorLabel: name,
     ipHash: hashIp(ip),
     userAgent,
-    meta: signatureDataUrl ? { hasSignatureImage: true } : null
+    meta: verifiedRequest&&privateSignatureEvidence
+      ? {hasSignatureImage:true,method:'direct_link',evidence:maybeEncryptNotePayload(JSON.stringify(privateSignatureEvidence))}
+      : signatureDataUrl ? {hasSignatureImage:true} : null
   });
   if (fields.witnessUserId) {
     await TreatmentPlanAckEvent.create({

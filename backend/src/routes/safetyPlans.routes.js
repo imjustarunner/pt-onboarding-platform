@@ -8,11 +8,17 @@ router.use(authenticate);
 router.use((req,res,next)=>{res.set({'Cache-Control':'no-store','Referrer-Policy':'no-referrer'});next();});
 const handle=fn=>async(req,res)=>{try{res.json(await fn(req));}catch(e){res.status(e.status||503).json({error:{message:e.status?e.message:'Safety plans are temporarily unavailable. Your changes have not been confirmed saved.'}});}};
 router.get('/portal',handle(req=>records.portalList(req.user,req.query.clientId)));
+router.post('/portal/optional-release',handle(req=>records.portalStartRelease(req.user,req.body.clientId)));
 router.get('/portal/:shareId',handle(req=>records.portalRead(req.user,req.params.shareId)));
 router.post('/portal/:shareId/sign',handle(async req=>{const plan=await records.portalRead(req.user,req.params.shareId);return records.signPlan(req.user,plan.id,plan.mySignerId,req.body,{portal:true});}));
 router.post('/portal/:shareId/submit-update',handle(req=>records.portalSubmitUpdate(req.user,req.params.shareId,req.body)));
 router.post('/portal/:shareId/revoke-authorization',handle(async req=>{const plan=await records.portalRead(req.user,req.params.shareId);return records.revokeAuthorization(req.user,plan.id,req.body,{portalShareId:req.params.shareId});}));
 router.use(requireClinicalStaffSecurity);
+router.get('/filed',handle(async req=>{
+ const {listFiledRequestFiles}=await import('../services/clinicalDocumentShares.service.js');
+ const [forms,files]=await Promise.all([records.listFiledClinicalForms(req.user,req.query.clientId),listFiledRequestFiles(req.user,req.query.clientId)]);
+ return {forms:[...forms.forms,...files].sort((a,b)=>Number(new Date(b.signedAt))-Number(new Date(a.signedAt)))};
+}));
 router.get('/template',handle(req=>records.templateFor(req.user,req.query)));
 router.get('/',handle(req=>records.listPlans(req.user,req.query)));
 router.post('/',handle(req=>records.savePlan(req.user,req.body)));
@@ -25,6 +31,7 @@ router.get('/:id/attendance-pdf',async(req,res)=>{
 });
 router.get('/:id',handle(req=>records.readPlan(req.user,req.params.id,req.query.version)));
 router.put('/:id',handle(req=>records.savePlan(req.user,req.body,req.params.id)));
+router.post('/:id/release-contact',handle(async req=>(await import('../services/safetyPlans/releaseFiling.js')).reviewReleaseContact(req.user,req.params.id,req.body)));
 router.post('/:id/review-update',handle(req=>records.reviewUpdate(req.user,req.params.id,req.body)));
 router.post('/:id/revoke-authorization',handle(req=>records.revokeAuthorization(req.user,req.params.id,req.body)));
 router.post('/:id/link',handle(req=>records.linkPlan(req.user,req.params.id,req.body)));

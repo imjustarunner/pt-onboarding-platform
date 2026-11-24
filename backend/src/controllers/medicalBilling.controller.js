@@ -3969,7 +3969,7 @@ async function shareSavedPlanToGuardians(plan, actorUserId) {
   try {
     await (await import('../services/guardianPlanDelivery.service.js')).queueGuardianPlanDelivery(plan);
     const { shareGuardianPlanRevision } = await import('../services/guardianPlanProgress.service.js');
-    return await shareGuardianPlanRevision({ plan, actorUserId });
+    return await shareGuardianPlanRevision({ plan, actorUserId, notify:false });
   } catch (error) {
     console.warn('[treatment-plan] Guardian sharing needs a retry:', error?.code || error?.status || 'unavailable');
     return { shared: 0, needsRetry: true, message: 'The plan was saved. Portal review is pending and will resume automatically when an authorized recipient and delivery are ready.' };

@@ -1,3 +1,4 @@
+import {normalizeMeasureAnswers} from '../outcomeMeasureScoring.js';
 import {matchesShowIf} from '../../utils/intakeShowIf.js';
 import {cssrsTemplate,validateCssrsComplete} from './cssrs.js';
 import {buildCounselingSelfEnSteps} from '../../data/counselingIntakeSelfEn.js';
@@ -47,6 +48,7 @@ export function normalizeClinicalData(input,template){
   if(spec.type==='multi'){if(input[key]!=null&&!Array.isArray(input[key]))fail(400,'Choose the applicable options.');out[key]=[...new Set(input[key]||[])];if(out[key].some(v=>!options.includes(v)))fail(400,'Select a listed option.');}
   else {out[key]=clean(input[key]);if(['select','radio'].includes(spec.type)&&out[key]&&!options.includes(out[key]))fail(400,'Select a listed option.');if(spec.type==='date'&&out[key]&&!validDate(out[key]))fail(400,'Enter a valid date.');if(spec.type==='time'&&out[key]&&!/^([01]\d|2[0-3]):[0-5]\d$/.test(out[key]))fail(400,'Enter a valid time.');}
  }
+ if(template.outcomeMeasure)out.answers=normalizeMeasureAnswers(template.outcomeMeasure,input.answers||{});
  if(out.planDate&&!validDate(out.planDate))fail(400,'Enter a valid date.');
  if(template.key==='cssrs-screener'&&out.screenStatus==='completed')validateCssrsComplete(out);
  return out;

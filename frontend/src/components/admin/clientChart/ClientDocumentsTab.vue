@@ -2,8 +2,7 @@
   <div class="detail-section cc-docs-tab">
     <div class="cc-enc-toolbar">
       <div class="cc-enc-toolbar__meta">
-        <h3>Documents</h3>
-        <p>The signed school packet, HIPAA, ROI, clinical summary, and enrollment answers for this client.</p>
+        <h3>Client documents</h3>
       </div>
       <button v-if="canProcessPaper" type="button" class="btn btn-primary" @click="$emit('client-actions', 'process')">Process paper packet</button>
       <button type="button" class="btn btn-secondary btn-sm" :disabled="refreshing" @click="refreshAll">
@@ -17,8 +16,11 @@
       Documentation may contain PHI. Access is logged. Only open files when you have a legitimate need.
     </div>
 
-    <details v-if="canOpenClinicalDocuments" class="cc-docs-extra" :open="portalDocumentsOpen" @toggle="syncPortalDocumentsToggle"><summary @click.prevent="togglePortalDocuments">AuricWell · Portal documents &amp; enrollment</summary><ClientUpdateModal v-if="portalDocumentsOpen" inline open clinical-mode="full" :can-update="['admin','super_admin'].includes(authStore.user?.role)" :client-name="client?.full_name || client?.initials" ref="portalDocumentsRef" :client-id="clientId" :agency-id="Number(client?.agency_id||0)||undefined" /></details>
+    <ClientUpdateModal v-if="canOpenClinicalDocuments && client?.agency_id" inline open clinical-mode="full"
+      :can-update="['admin','super_admin'].includes(authStore.user?.role)" :client-name="client?.full_name || client?.initials"
+      :client-id="clientId" :agency-id="Number(client.agency_id)" />
 
+    <FiledClinicalForms v-if="canOpenClinicalDocuments && client?.agency_id" :client-id="clientId" :agency-id="Number(client.agency_id)" />
     <ClientDocumentsGallery
       :key="clientId"
       :operational-only="!canOpenClinicalDocuments"
@@ -57,6 +59,7 @@
             v-if="phiSection"
             :key="`phi-${activeCategory}-${clientId}`"
             :client-id="clientId"
+            :agency-id="Number(client?.agency_id||0)"
             :highlight-document-id="effectiveHighlightId"
             :section="phiSection"
             :default-document-type="activeCategory==='paper'?'full_paper_enrollment':''"
@@ -77,6 +80,7 @@ import PhiDocumentsPanel from '../PhiDocumentsPanel.vue';
 import ClientUpdateModal from '../ClientUpdateModal.vue';
 import {useAuthStore} from '../../../store/auth';
 import ClientDocumentsGallery from './ClientDocumentsGallery.vue';
+import FiledClinicalForms from './FiledClinicalForms.vue';
 import '../../../styles/client-documents-tab.css';
 import '../../../styles/client-encounters-tab.css';
 
@@ -99,21 +103,9 @@ const currentPaperDocumentId = computed(() => {
 });
 const authStore=useAuthStore();
 const canOpenClinicalDocuments=computed(()=>['admin','super_admin','provider','provider_plus','intern','intern_plus','supervisor','facilitator','qbha'].includes(authStore.user?.role));
-const portalDocumentsOpen=ref(false);
-const portalDocumentsRef=ref(null);
-function togglePortalDocuments(){
-  if(portalDocumentsOpen.value&&portalDocumentsRef.value?.prepareToLeave?.()===false)return;
-  portalDocumentsOpen.value=!portalDocumentsOpen.value;
-}
-function syncPortalDocumentsToggle(event){
-  const open=event.currentTarget.open;
-  if(open===portalDocumentsOpen.value)return;
-  if(!open&&portalDocumentsRef.value?.prepareToLeave?.()===false){event.currentTarget.open=true;return;}
-  portalDocumentsOpen.value=open;
-}
 const activeCategory = ref('files');
+const phiStats=ref({fileCount:0,ocrCount:0});
 const refreshing = ref(false);
-const phiStats = ref({ fileCount: 0, intakeCount: 0, ocrCount: 0 });
 const galleryRef = ref(null),phiPanelRef=ref(null),extraFilesRef=ref(null);
 async function openUpload(){if(!canOpenClinicalDocuments.value)return false;activeCategory.value='files';await nextTick();if(extraFilesRef.value)extraFilesRef.value.open=true;await nextTick();phiPanelRef.value?.openUpload?.();return true;}
 const galleryHighlight = ref(null);
@@ -135,7 +127,6 @@ const effectiveHighlightId = computed(() => Number(galleryHighlight.value || pro
 const categories = computed(() => [
   { id: 'paper', label: 'Full paper enrollment' },
   { id: 'files', label: 'Extra files', count: phiStats.value.fileCount },
-  { id: 'intake', label: 'Raw intake export', count: phiStats.value.intakeCount },
   { id: 'audit', label: 'Audit trail' },
   { id: 'ocr', label: 'Extracted text', count: phiStats.value.ocrCount }
 ]);
@@ -143,7 +134,6 @@ const categories = computed(() => [
 function onDocsLoaded(stats) {
   phiStats.value = {
     fileCount: Number(stats?.fileCount || 0),
-    intakeCount: Number(stats?.intakeCount || 0),
     ocrCount: Number(stats?.ocrCount || 0)
   };
 }
@@ -158,17 +148,14 @@ async function loadPhiStats({ reloadGallery = false } = {}) {
   if (!canOpenClinicalDocuments.value) { if (reloadGallery) galleryRef.value?.reload?.(); return; }
   if (statsLoaded.value && !reloadGallery) return;
   try {
-    const [docsR, intakeR, ocrR] = await Promise.all([
+    const [docsR, ocrR] = await Promise.all([
       api.get(`/phi-documents/clients/${props.clientId}`, { skipGlobalLoading: true }),
-      api.get(`/phi-documents/clients/${props.clientId}/intake-responses`, { skipGlobalLoading: true }),
       api.get(`/referrals/${props.clientId}/ocr`, { skipGlobalLoading: true })
     ]);
     const docs = Array.isArray(docsR.data) ? docsR.data : [];
-    const submissions = Array.isArray(intakeR.data?.submissions) ? intakeR.data.submissions : [];
     if (reloadGallery) galleryRef.value?.reload?.();
     onDocsLoaded({
       fileCount: docs.filter((d) => !d?.removed_at).length,
-      intakeCount: submissions.length,
       ocrCount: (ocrR.data?.requests || []).length
     });
     statsLoaded.value = true;

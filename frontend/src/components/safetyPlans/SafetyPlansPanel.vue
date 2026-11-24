@@ -29,24 +29,37 @@
      <div v-if="!record&&!clientId" class="plan-linkage"><h3>Save in a client’s medical record</h3><NoteAidClientPicker v-if="!allowUnlinked" v-model="selectedClientId" :agency-id="agencyId" :search-all-tenants="false" @select="selectClient" /><label class="check"><input v-model="allowUnlinked" type="checkbox" @change="selectedClientId=null" />The client record is not available yet. Start a private unlinked draft.</label><label v-if="allowUnlinked">Reason for starting without a client record<textarea v-model="overrideReason" maxlength="2000" required /></label></div>
      <p v-if="record" class="notice">Saving creates a new version. Existing signatures stay with the version they signed. Share the revised version again when ready.</p>
      <SafetyPlanDocument :model-value="form" :template="record?.template||catalog.template" :branding="record?.branding||catalog.branding" editable @update:model-value="form=$event;dirty=true" />
-     <div class="actions"><button :disabled="busy||(!record&&!clientId&&!selectedClientId&&!allowUnlinked)">{{ busy?'Saving…':form.screenStatus==='completed'?'Save completed screening':'Save draft' }}</button><button type="button" :disabled="busy" @click="cancelEdit">Cancel</button><span v-if="dirty">Unsaved changes</span></div>
+     <div class="actions"><button v-if="documentKey==='release-of-information'&&(clientId||selectedClientId)" type="button" class="btn btn-primary" :disabled="busy" @click="saveForSharing('complete')">Send a release to complete</button><button v-if="documentKey==='release-of-information'&&(clientId||selectedClientId)" type="button" :disabled="busy" @click="saveForSharing('sign')">Prepare for signature</button><button :disabled="busy||(!record&&!clientId&&!selectedClientId&&!allowUnlinked)">{{ busy?'Saving…':form.screenStatus==='completed'?'Save completed screening':'Save draft' }}</button><button type="button" :disabled="busy" @click="cancelEdit">Cancel</button><span v-if="dirty">Unsaved changes</span></div>
     </form>
     <template v-else-if="record">
-     <div class="actions"><button type="button" :disabled="busy||!!record.revocation" @click="edit">Edit as a new version</button><button v-if="record.clientId&&record.version===record.currentVersion&&!record.revocation" type="button" @click="focusSharing">Share to client portal</button><label>Saved version<select :value="record.version" :disabled="busy" @change="open(record.id,Number($event.target.value))"><option v-for="v in record.history" :key="v.version" :value="v.version">Version {{ v.version }} · {{ date(v.created_at) }}</option></select></label><button type="button" :disabled="busy" @click="open(record.id)">Refresh current version</button></div>
+     <div class="actions"><button type="button" :disabled="busy||!!record.revocation" @click="edit">Edit as a new version</button><button v-if="record.clientId&&record.version===record.currentVersion&&!record.revocation" type="button" @click="focusSharing">Share</button><label>Saved version<select :value="record.version" :disabled="busy" @change="open(record.id,Number($event.target.value))"><option v-for="v in record.history" :key="v.version" :value="v.version">Version {{ v.version }} · {{ date(v.created_at) }}</option></select></label><button type="button" :disabled="busy" @click="open(record.id)">Refresh current version</button></div>
      <p v-if="record.version!==record.currentVersion" class="notice">You are viewing an earlier version. Open the current version to edit, share, or sign.</p>
      <p v-else-if="!record.clientId" class="notice"><strong>Needs client link.</strong> This saved form is private and is not yet in a client’s medical record. Attach it to the correct client when their record is available.</p>
      <p v-if="record.revocation" role="status">Authorization revoked on {{ date(record.revocation.recordedAt) }}. Prior signed versions are retained.</p>
      <p v-if="record.reviewStatus" class="notice">Form review: {{ record.reviewStatus==='reviewed'?'Reviewed by staff':'Awaiting staff review' }}. Submitted answers do not automatically overwrite the chart.</p>
+     <section v-if="record.releaseContact?.state==='needs_review'" class="notice">
+       <p>Review the matching contact before linking this release.</p>
+       <button v-if="!releaseContactMatches.length" class="btn btn-secondary" type="button" @click="loadReleaseContactMatches">Choose chart contact</button>
+       <form v-else class="actions" @submit.prevent="resolveReleaseContact">
+         <label>Named contact<select v-model="releaseAffiliationId" required>
+           <option value="" disabled>Select a contact</option>
+           <option v-for="entry in releaseContactMatches" :key="entry.id" :value="entry.id">{{ entry.contact?.fullName }}</option>
+         </select></label>
+         <label class="check"><input v-model="confirmedReleaseContact" type="checkbox" required />This contact is named in the signed release.</label>
+         <button type="submit" :disabled="busy || !releaseAffiliationId || !confirmedReleaseContact">Link contact</button>
+       </form>
+     </section>
+     <p v-if="record.releaseContact?.state==='linked'" class="notice">Recipient linked in the client’s contacts.</p>
      <p v-if="record.screeningResult" class="notice">Questionnaire total · {{ record.screeningResult.total }}</p>
       <details v-if="!record.clientId&&record.version===record.currentVersion&&!record.revocation" class="plan-linkage"><summary>Attach to a client’s medical record</summary><p>Choose the assigned client and confirm their identity. The document and its version history will be kept in their medical record.</p><NoteAidClientPicker v-model="linkClientId" :agency-id="record.agencyId" :search-all-tenants="false" /><label class="check"><input v-model="confirmIdentity" type="checkbox" />I verified this is the same individual. The organization and client link will be retained.</label><button type="button" :disabled="busy||!linkClientId||!confirmIdentity" @click="link">Attach to client record</button></details>
      <p v-if="record.clientId" class="notice">Saved in the client’s medical record. Authorized staff can open it from the client’s file.</p>
      <ClinicalDocumentCopy :document-element="()=>readDocument?.$el" :attendance="record.template.key==='attendance-verification'" />
-     <SafetyPlanDocument ref="readDocument" :model-value="record.data" :template="record.template" :branding="record.branding" :version="record.version" :signers="record.signers" />
+     <SafetyPlanDocument ref="readDocument" omit-empty :model-value="record.data" :template="record.template" :branding="record.branding" :version="record.version" :signers="record.signers" />
      <template v-if="record.version===record.currentVersion&&!record.revocation">
 
       <div class="actions"><button v-if="record.template.key==='release-of-information'" type="button" @click="revokeAuthorization">Record authorization revocation</button><button v-if="record.reviewStatus==='pending'" type="button" @click="reviewUpdate">Mark reviewed</button></div>
-      <section ref="sharingSection" class="signers" tabindex="-1"><h3>Sign together or share to the portal</h3><p>Share a saved document for review and signature, or ask the client to complete an eligible form. Portal access follows the client’s current disclosure permissions. Email and enabled text notifications are grouped so adding documents does not send a separate alert for each one.</p>
-       <div v-for="s in record.signers" :key="s.id" class="signer-row"><span>{{ s.name }} · {{ s.kind==='clinician'?'Staff':s.kind }} · {{ s.signedAt?'Signed':s.revokedAt?'Withdrawn':s.copyOnly?'Shared copy':s.sharedAt?'Available in portal':'Ready to sign together' }}</span><button v-if="!portalSignersOnly&&!s.signedAt&&!s.revokedAt&&!s.copyOnly" type="button" :disabled="busy" @click="signing=s">{{ s.kind==='clinician'?'Sign as staff':'Sign together' }}</button><button v-if="s.sharedAt && !s.signedAt && !s.revokedAt && !s.copyOnly" :disabled="busy" @click="remindSigner(s)">Resend reminder</button><button v-if="!s.revokedAt" type="button" :disabled="busy" @click="revoke(s)">{{ s.sharedAt?'Withdraw portal access':'Withdraw request' }}</button></div>
+      <section ref="sharingSection" class="signers" tabindex="-1"><h3>Sign in person</h3><p>Use this when the signer is present and can sign on this device.</p>
+       <div v-for="s in record.signers" :key="s.id" class="signer-row"><span>{{ s.name }} · {{ s.kind==='clinician'?'Staff':s.kind }} · {{ s.signedAt?'Signed':s.revokedAt?'Withdrawn':s.copyOnly?'Shared copy':s.sharedAt?'Available in portal':'Ready to sign together' }}</span><button v-if="!portalSignersOnly&&!s.managed&&!s.signedAt&&!s.revokedAt&&!s.copyOnly" type="button" :disabled="busy" @click="signing=s">{{ s.kind==='clinician'?'Sign as staff':'Sign together' }}</button><button v-if="!s.managed && s.sharedAt && !s.signedAt && !s.revokedAt && !s.copyOnly" :disabled="busy" @click="remindSigner(s)">Resend reminder</button><button v-if="!s.revokedAt" type="button" :disabled="busy" @click="revoke(s)">{{ s.sharedAt?'Withdraw portal access':'Withdraw request' }}</button></div>
        <form v-if="!signing" class="signer-setup" @submit.prevent="addSigner"><label>Signer<select aria-label="Signer" v-model="signerKind"><option value="client">Client</option><option value="guardian">Parent / guardian</option><option v-if="!portalSignersOnly" value="clinician">Me · staff signer</option></select></label><label v-if="signerKind!=='clinician'">Signing method<select v-model="signerUserId"><option v-if="!portalSignersOnly" value="">Together on this device</option><option v-else disabled value="">Select a linked account</option><option v-for="r in record.recipients.filter(r=>r.kind===signerKind)" :key="r.id" :value="r.id">Share to {{ r.name }}’s portal</option></select></label><label v-if="signerUserId&&signerKind!=='clinician'&&['safety-plan','release-of-information','client-information-update','enrollment-document'].includes(documentKey)">Portal action<select v-model="portalAction"><option value="complete">Complete and sign this form</option><option v-if="documentKey!=='client-information-update'" value="sign">Review and sign the saved document</option></select></label><p v-if="signerUserId&&portalAction==='complete'" class="notice">Client completion creates a new version for staff review. Share that version again for any additional signatures.</p><label v-if="!signerUserId||signerKind==='clinician'">Signer’s name<input v-model="signerName" maxlength="200" required /></label><label v-if="signerKind==='guardian'" class="check"><input v-model="authorityConfirmed" type="checkbox" required />I verified this guardian is authorized to review and sign this document.</label><button :disabled="busy||(portalSignersOnly&&!signerUserId)">{{ signerUserId&&signerKind!=='clinician'?(documentKey==='attendance-verification'?'Share copy to portal':portalAction==='complete'?'Share to portal to complete':'Share to portal for signature'):'Add signer' }}</button></form>
        <p v-if="record.clientId&&!record.recipients.length" class="notice">No portal accounts currently have permission to access this document. Configure the client’s portal relationship and clinical disclosure permission in their record, or have an authorized clinician sign together with them.</p>
        <SafetyPlanSigning v-if="signing" :key="signing.id" :plan="record" :signer="signing" @cancel="signing=null" @signed="signatureSaved" />
@@ -55,7 +68,7 @@
     </template>
    </div>
   </div>
-  <PortalDocumentAssignmentDialog v-if="portalAssignmentOpen&&record" :client-id="record.clientId" :agency-id="record.agencyId" :documents="[{recordId:record.id,version:record.version,title:record.data.documentName||record.template.title}]" :recipients="record.recipients" :initial-action="portalAction" @close="portalAssignmentOpen=false" @assigned="assignmentSaved" />
+  <ClinicalDocumentShareDialog v-if="portalAssignmentOpen&&record" :client-id="record.clientId" :agency-id="record.agencyId" :documents="[{recordId:record.id,version:record.version,documentKey:record.documentKey,title:record.data.documentName||record.template.title}]" :initial-action="portalAction" @close="portalAssignmentOpen=false" @shared="assignmentSaved" />
  </section>
 </template>
 <script setup>
@@ -68,17 +81,40 @@ import NoteAidClientPicker from '../clinical/NoteAidClientPicker.vue';
 import SafetyPlanDocument from './SafetyPlanDocument.vue';
 import ClinicalDocumentCopy from './ClinicalDocumentCopy.vue';
 import SafetyPlanSigning from './SafetyPlanSigning.vue';
-import PortalDocumentAssignmentDialog from '../enrollment/PortalDocumentAssignmentDialog.vue';
-const props=defineProps({agencyId:[Number,String],initialRecordId:[Number,String],clientId:[Number,String],initialDocumentKey:{type:String,default:'safety-plan'},eventType:String,eventId:[Number,String],mine:Boolean,recordOnly:Boolean,portalSignersOnly:Boolean});
+import ClinicalDocumentShareDialog from '../enrollment/ClinicalDocumentShareDialog.vue';
+const props=defineProps({agencyId:[Number,String],initialRecordId:[Number,String],initialVersion:[Number,String],clientId:[Number,String],initialDocumentKey:{type:String,default:'safety-plan'},eventType:String,eventId:[Number,String],mine:Boolean,recordOnly:Boolean,portalSignersOnly:Boolean});
 const route=useRoute();
 const documentKey=ref(props.initialDocumentKey);
 const crisisPath=computed(()=>`${route.params.organizationSlug?'/'+encodeURIComponent(route.params.organizationSlug):catalog.value?.branding?.slug?'/'+encodeURIComponent(catalog.value.branding.slug):''}/library?companyDocument=crisis-response-guide#crisis-response-guide-safety-planning`);
 const portalAction=ref('sign'),sharingSection=ref(null),portalAssignmentOpen=ref(false);
 function focusSharing(){
- if(props.portalSignersOnly){sharingSection.value?.focus();return;}
  portalAssignmentOpen.value=true;
 }
-async function assignmentSaved(result){portalAssignmentOpen.value=false;await open(record.value.id);notice.value=result.assignedCount?`Document assigned to ${result.recipientName||'the recipient'}’s portal. Notification delivery has not been confirmed.`:'This document is already assigned to this portal.';}
+async function assignmentSaved(){
+ portalAssignmentOpen.value=false;
+ await open(record.value.id);
+ notice.value='Document request saved. See sharing activity for delivery status.';
+}
+async function saveForSharing(mode){
+ await save();
+ if(!editing.value&&record.value){portalAction.value=mode;focusSharing();}
+}
+
+const releaseContactMatches=ref([]),releaseAffiliationId=ref(''),confirmedReleaseContact=ref(false);
+async function loadReleaseContactMatches(){
+ const id=record.value?.id;
+ try{
+  const {data}=await api.get(`/clients/${record.value.clientId}/contacts`);
+  if(record.value?.id!==id)return;
+  releaseContactMatches.value=(data.items||[]).filter(entry=>entry.isActive&&entry.contact?.isActive&&entry.contact.fullName);
+  if(!releaseContactMatches.value.length)error.value='Add the named recipient to the client’s contacts first.';
+ }catch(e){if(record.value?.id===id)error.value=message(e);}
+}
+async function resolveReleaseContact(){
+ await action(()=>api.post(`/clinical-forms/${record.value.id}/release-contact`,{
+  version:record.value.version,affiliationId:releaseAffiliationId.value,confirm:confirmedReleaseContact.value
+ }),'Contact linked.');
+}
 const readDocument=ref(null),formHeading=ref(null),formTypes=ref([]);
 const formDescriptions={
  'cssrs-screener':'Record screening responses and follow-up.',
@@ -88,6 +124,7 @@ const formDescriptions={
  'attendance-verification':'Prepare a letter confirming an appointment.'
 };
 const catalog=ref(null),plans=ref([]),record=ref(null),editing=ref(false),form=ref({}),dirty=ref(false),loading=ref(false),busy=ref(false),error=ref(''),notice=ref('');
+watch(()=>record.value?.id,()=>{releaseContactMatches.value=[];releaseAffiliationId.value='';confirmedReleaseContact.value=false;});
 const selectedClientId=ref(null),allowUnlinked=ref(false),overrideReason=ref(''),linkClientId=ref(null),confirmIdentity=ref(false),signing=ref(null),signerKind=ref('client'),signerName=ref(''),signerUserId=ref(''),authorityConfirmed=ref(false);
 let generation=0,timer;
 const savedSearch=ref('');
@@ -97,7 +134,7 @@ const message=e=>e.response?.data?.error?.message||'Clinical documents could not
 function discard(){if(portalAssignmentOpen.value)return false;return !dirty.value||window.confirm('Leave without saving your document changes?');}
 defineExpose({confirmDiscard:discard,prepareToLeave:()=>!busy.value&&discard()});
 function reset(){portalAssignmentOpen.value=false;catalog.value=null;plans.value=[];record.value=null;editing.value=false;dirty.value=false;form.value={};signing.value=null;allowUnlinked.value=false;selectedClientId.value=null;linkClientId.value=null;confirmIdentity.value=false;overrideReason.value='';error.value='';notice.value='';}
-async function load({startNew=false}={}){const g=++generation;reset();loading.value=true;busy.value=false;if(props.recordOnly&&props.initialRecordId){await open(props.initialRecordId);if(record.value)catalog.value={template:record.value.template,branding:record.value.branding};loading.value=false;return;}try{const params={...(props.clientId?{clientId:props.clientId}:{agencyId:props.agencyId}),documentKey:documentKey.value,...(props.mine?{mine:'1'}:{}),...(props.eventId?{eventId:props.eventId,eventType:props.eventType}:{})};const c=await api.get('/clinical-forms/template',{params});if(g!==generation)return;const p=await api.get('/clinical-forms',{params:c.data.client?.id?{clientId:c.data.client.id,documentKey:documentKey.value}:params});if(g!==generation)return;catalog.value=c.data;formTypes.value=c.data.catalog||[];plans.value=p.data.plans;if(startNew||(props.eventId&&!props.initialRecordId))start();}catch(e){if(g===generation)error.value=message(e);}finally{if(g===generation)loading.value=false;}if(g===generation&&catalog.value&&props.initialRecordId&&!startNew)await open(props.initialRecordId);}
+async function load({startNew=false}={}){const g=++generation;reset();loading.value=true;busy.value=false;if(props.recordOnly&&props.initialRecordId){await open(props.initialRecordId,props.initialVersion);if(record.value)catalog.value={template:record.value.template,branding:record.value.branding};loading.value=false;return;}try{const params={...(props.clientId?{clientId:props.clientId}:{agencyId:props.agencyId}),documentKey:documentKey.value,...(props.mine?{mine:'1'}:{}),...(props.eventId?{eventId:props.eventId,eventType:props.eventType}:{})};const c=await api.get('/clinical-forms/template',{params});if(g!==generation)return;const p=await api.get('/clinical-forms',{params:c.data.client?.id?{clientId:c.data.client.id,documentKey:documentKey.value}:params});if(g!==generation)return;catalog.value=c.data;formTypes.value=c.data.catalog||[];plans.value=p.data.plans;if(startNew||(props.eventId&&!props.initialRecordId))start();}catch(e){if(g===generation)error.value=message(e);}finally{if(g===generation)loading.value=false;}if(g===generation&&catalog.value&&props.initialRecordId&&!startNew)await open(props.initialRecordId,props.initialVersion);}
 function start(){record.value=null;form.value={documentName:catalog.value.template.title,personLabel:catalog.value.client?.name||'',planDate:new Intl.DateTimeFormat('en-CA',{year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date()),reviewDate:'',supports:[{name:'',phone:'',role:''}],professionals:[{name:'988 Suicide & Crisis Lifeline',phone:'988',details:'Call or text for crisis support.'}],...(catalog.value.prefill||{})};selectedClientId.value=props.clientId||catalog.value.client?.id||null;allowUnlinked.value=false;overrideReason.value='';editing.value=true;dirty.value=true;signing.value=null;notice.value='';nextTick(()=>formHeading.value?.focus());}
 async function open(id,version){if(!discard())return;const g=++generation;busy.value=true;error.value='';signing.value=null;try{const {data}=await api.get(`/clinical-forms/${id}`,{params:version?{version}:{}});if(g!==generation)return;if((props.agencyId&&Number(data.agencyId)!==Number(props.agencyId))||(props.clientId&&Number(data.clientId)!==Number(props.clientId)))throw new Error('Record context mismatch');record.value=data;portalAction.value=['client-information-update','enrollment-document'].includes(data.template.key)||(data.template.key==='release-of-information'&&(!data.data?.direction?.length||!data.data?.information?.length||!data.data?.purpose))?'complete':'sign';documentKey.value=data.documentKey||data.template.key;editing.value=false;dirty.value=false;signerUserId.value='';signerName.value='';}catch(e){if(g===generation){record.value=null;error.value=message(e);}}finally{if(g===generation)busy.value=false;}}
 async function startType(key){if(busy.value||loading.value||!discard())return;if(key===documentKey.value&&catalog.value?.template.key===key){start();return;}documentKey.value=key;await load({startNew:true});}

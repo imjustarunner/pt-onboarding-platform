@@ -1,3 +1,4 @@
+import { maybeDecryptNotePayload } from './clinicalNoteCrypto.service.js';
 import EmailService from './email.service.js';
 import UserCommunication from '../models/UserCommunication.model.js';
 import {sendEmailFromIdentity} from './unifiedEmail/unifiedEmailSender.service.js';
@@ -13,6 +14,17 @@ export async function communicationRecordAttachments(comm,meta,userId){
 }
 export async function sendCommunicationRecord(comm,meta,userId,{attachments=null}={}){
   if(meta.isSiblingMirror)throw Object.assign(new Error('This is a history copy of the family email. Review or retry the original communication instead.'),{status:409});
+  if(meta.privateDocumentDeliveryId){
+    const {assertDocumentEmailRetry,recordDocumentEmailRetry}=await import('./clinicalDocumentShares.service.js');
+    await assertDocumentEmailRetry(meta.privateDocumentDeliveryId,comm.agency_id,comm.recipient_address);
+    const body=JSON.parse(maybeDecryptNotePayload(meta.privateDocumentEnvelope));
+    const result=await sendEmailFromIdentity({senderIdentityId:meta.senderIdentityId,to:comm.recipient_address,
+      subject:comm.subject,text:body.text,html:body.html,clientId:comm.client_id,userId:comm.user_id,
+      templateType:comm.template_type,generatedByUserId:userId,existingCommunicationId:comm.id,
+      privateDocumentDeliveryId:meta.privateDocumentDeliveryId,replyToOverride:meta.replyTo,fromDisplayNameOverride:meta.fromDisplayName});
+    if(result?.id&&!result.redirected)await recordDocumentEmailRetry(meta.privateDocumentDeliveryId,result.id);
+    return result;
+  }
   const subject=String(comm.subject||'').trim(),body=String(comm.body||'').trim(),looksLikeHtml=/<[a-z][\s\S]*>/i.test(body);
   const senderIdentityId=Number(meta.senderIdentityId||meta.sender_identity_id||0)||null,linkUrl=meta.linkUrl||meta.link_url||null;
   attachments||=await communicationRecordAttachments(comm,meta,userId);
@@ -44,7 +56,7 @@ export async function recordCommunicationSent(comm,meta,result,actorUserId,{appr
   if(!providerMessageId||result.queued||result.pendingApproval||result.skipped||result.blocked)throw Object.assign(new Error('Delivery has not been confirmed. Review this communication before retrying.'),{status:409});
   const at=new Date().toISOString();
   const sentMeta={...meta,...(approved?{approvedByUserId:actorUserId,approvedAt:at}:{retriedByUserId:actorUserId,retriedAt:at}),...(result.threadId?{threadId:result.threadId}:{}),...(result.relay?{relay:result.relay,internetMessageId:result.internetMessageId||result.relay.messageId}:{})};
-  for(const key of ['qualityFlags','qualityBlockedAt','failedListRemovedAt','failedListRemovedByUserId'])delete sentMeta[key];
+  for(const key of ['privateDocumentEnvelope','qualityFlags','qualityBlockedAt','failedListRemovedAt','failedListRemovedByUserId'])delete sentMeta[key];
   // The fourth model argument is a delivery timestamp, never Gmail's thread ID.
   return UserCommunication.updateDeliveryStatus(comm.id,'sent',providerMessageId,null,null,sentMeta);
 }

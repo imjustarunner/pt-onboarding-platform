@@ -4,8 +4,7 @@
       <div>
         <h4 class="cc-docs-panel__title">Client acknowledgment</h4>
         <p class="cc-docs-panel__hint">
-          Share this treatment plan for guardian or client signature — via dashboard, email link,
-          in-person session, or signed paper upload.
+          Share this treatment plan for client or guardian signature.
           <span v-if="clientName"> For {{ clientName }}.</span>
         </p>
       </div>
@@ -36,44 +35,12 @@
         </div>
       </div>
 
-<p v-if="planSummary?.client_ack_status==='awaiting_portal'" role="status">Ready for portal review. Sharing and email delivery will resume automatically when an authorized account and email are available. Existing access and communication preferences still apply.</p>
+<p v-if="planSummary?.client_ack_status==='awaiting_portal'" role="status">Ready to share for signature. Use Share to check this client’s available delivery methods.</p>
       <div class="tp-ack-actions">
         <article class="tp-ack-action-card">
-          <h5>Share to dashboard</h5>
-          <p class="muted tiny">Creates a separate request for each authorized guardian. Each person signs through their own account.</p>
-          <button
-            type="button"
-            class="cdp-btn-primary btn-sm"
-            :disabled="busyAction === 'dashboard'"
-            @click="shareDashboard"
-          >
-            {{ busyAction === 'dashboard' ? 'Sharing…' : 'Share to dashboard' }}
-          </button>
-        </article>
-
-        <article class="tp-ack-action-card">
-          <h5>Email signing link</h5>
-          <form class="tp-ack-form" @submit.prevent="sendEmailLink">
-            <label>
-              Recipient name
-              <input v-model="emailForm.recipientName" type="text" class="filters-input" maxlength="255" />
-            </label>
-            <label>
-              Email
-              <input v-model="emailForm.email" type="email" required class="filters-input" maxlength="255" />
-            </label>
-            <button type="submit" class="cdp-btn-primary btn-sm" :disabled="busyAction === 'email'">
-              {{ busyAction === 'email' ? 'Sending…' : 'Email link' }}
-            </button>
-          </form>
-          <div v-if="lastSigningUrl" class="tp-ack-url">
-            <span class="muted tiny">Signing URL</span>
-            <div class="tp-ack-url-row">
-              <input :value="lastSigningUrl" readonly class="filters-input" />
-              <button type="button" class="cdp-btn-soft btn-sm" @click="copySigningUrl">Copy</button>
-            </div>
-            <p v-if="lastEmailError" class="warn tiny">Email failed: {{ lastEmailError }}</p>
-          </div>
+          <h5>Share treatment plan</h5>
+          <p class="muted tiny">Send the approved plan for electronic signature by email, text, or portal.</p>
+          <button type="button" class="cdp-btn-primary btn-sm" @click="shareOpen=true">Share</button>
         </article>
 
         <article class="tp-ack-action-card">
@@ -160,6 +127,9 @@
       </div>
     </template>
 
+    <ClinicalDocumentShareDialog v-if="shareOpen" :client-id="clientId" :agency-id="agencyId"
+      :documents="[{treatmentPlanId:planId,title:planSummary?.title||'Treatment plan'}]"
+      @close="shareOpen=false" @shared="shareComplete" />
   </section>
 </template>
 
@@ -169,6 +139,7 @@ import { toUploadsUrl } from '../../../utils/uploadsUrl.js';
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../../services/api';
 import SignaturePad from '../../SignaturePad.vue';
+import ClinicalDocumentShareDialog from '../../enrollment/ClinicalDocumentShareDialog.vue';
 
 const props = defineProps({
   agencyId: { type: [Number, String], required: true },
@@ -185,11 +156,9 @@ const success = ref('');
 const busyAction = ref('');
 const acknowledgments = ref([]);
 const planSummary = ref(null);
-const lastSigningUrl = ref('');
-const lastEmailError = ref('');
+const shareOpen=ref(false);
 const sessionLinkId = ref(null);
 
-const emailForm = ref({ email: '', recipientName: '' });
 const sessionForm = ref({ signedByName: '', signatureDataUrl: '' });
 const printForm = ref({ phiDocumentId: '', signedByName: '' });
 
@@ -269,51 +238,9 @@ async function afterMutation(message) {
   emit('updated');
 }
 
-async function shareDashboard() {
-  clearMessages();
-  busyAction.value = 'dashboard';
-  try {
-    await api.post(`${basePath.value}/dashboard-share`, {
-      agencyId: Number(props.agencyId),
-      recipientKind: 'guardian'
-    });
-    await afterMutation('Shared to guardian dashboard.');
-  } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Dashboard share failed';
-  } finally {
-    busyAction.value = '';
-  }
-}
-
-async function sendEmailLink() {
-  clearMessages();
-  busyAction.value = 'email';
-  lastEmailError.value = '';
-  try {
-    const res = await api.post(`${basePath.value}/email`, {
-      agencyId: Number(props.agencyId),
-      email: emailForm.value.email.trim(),
-      recipientName: emailForm.value.recipientName.trim() || undefined
-    });
-    if (res.data?.signingUrl) lastSigningUrl.value = res.data.signingUrl;
-    if (res.data?.emailError) lastEmailError.value = res.data.emailError;
-    const emailed = res.data?.emailed ? 'Email sent.' : 'Link created (email may have failed — copy URL below).';
-    await afterMutation(emailed);
-  } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Email link failed';
-  } finally {
-    busyAction.value = '';
-  }
-}
-
-async function copySigningUrl() {
-  if (!lastSigningUrl.value) return;
-  try {
-    await navigator.clipboard.writeText(lastSigningUrl.value);
-    success.value = 'Signing URL copied.';
-  } catch {
-    error.value = 'Could not copy URL.';
-  }
+async function shareComplete(){
+  shareOpen.value=false;
+  await afterMutation('Treatment plan request saved.');
 }
 
 async function startSession() {
@@ -400,7 +327,7 @@ watch(
   () => [props.agencyId, props.clientId, props.planId],
   () => {
     sessionLinkId.value = null;
-    lastSigningUrl.value = '';
+    shareOpen.value = false;
     load();
   }
 );

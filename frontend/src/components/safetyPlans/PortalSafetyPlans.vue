@@ -1,5 +1,13 @@
-<template><section class="portal-safety"><header v-if="!compact" class="auricwell-documents"><img src="/auricwell/mark.svg" alt="" /><div><strong>AuricWell</strong><h3>Documents &amp; forms</h3></div></header><h3 v-if="compact">Shared forms &amp; documents</h3><p v-if="notice" role="status">{{ notice }}</p><p v-if="!loading&&pendingItems.length" class="notice">{{ pendingItems.length }} {{ pendingItems.length===1?'item needs':'items need' }} your attention. Open each item below to complete it.</p><p v-if="error" role="alert">{{ error }}</p><p v-if="loading">Loading shared plans…</p><p v-else-if="!shares.length&&!error">No forms are waiting for you here.</p><nav aria-label="Shared clinical documents"><button v-for="s in orderedShares" :key="s.id" type="button" @click="open(s.id)">{{ s.title||'Clinical document' }} · version {{ s.version }} · {{ s.signedAt?'Completed':s.superseded?'Earlier version':s.copyOnly?'Shared copy':s.allowCompletion?'Complete & sign →':'Review & sign →' }}</button></nav><template v-if="plan"><p v-if="plan.version!==plan.currentVersion" class="notice">This is an earlier version. Your care team will share the revised plan when it is ready. This copy remains available for reference.</p><p v-if="plan.revocation" class="notice">This release authorization was revoked on {{ new Date(plan.revocation.recordedAt).toLocaleDateString() }}. The signed copy is retained for your records.</p><p v-if="plan.reviewStatus" class="notice">Form review: {{ plan.reviewStatus==='reviewed'?'Reviewed':'Awaiting staff review' }}.</p><button v-if="!readOnly&&plan.template.key==='release-of-information'&&!plan.revocation" type="button" @click="revokeAuthorization">Revoke authorization</button>
-    <p v-if="editingUpdate" class="notice">Complete the fields below, then sign to submit your form for staff review.</p><ClinicalDocumentCopy v-if="!editingUpdate" :document-element="()=>readDocument?.$el" :attendance="plan.template.key==='attendance-verification'" /><SafetyPlanDocument ref="readDocument" :model-value="editingUpdate?updateData:plan.data" :editable="editingUpdate" @update:model-value="updateData=$event" :template="plan.template" :branding="plan.branding" :version="plan.version" :signers="plan.signers" /><SafetyPlanSigning v-if="!readOnly&&mySigner&&!mySigner.copyOnly&&!mySigner.signedAt&&!plan.revocation&&plan.version===plan.currentVersion" :key="`${shareId}:${plan.version}`" :plan="plan" :signer="mySigner" :share-id="shareId" :update-data="editingUpdate?updateData:undefined" portal @signed="signed" @cancel="plan=null" /><p v-else-if="mySigner?.signedAt" role="status">Your signature has been saved with this version.</p></template></section></template>
+<template><section class="portal-safety"><header v-if="!compact" class="auricwell-documents"><img src="/auricwell/mark.svg" alt="" /><div><strong>AuricWell</strong><h3>Documents &amp; forms</h3></div></header><h3 v-if="compact">Shared forms &amp; documents</h3><p v-if="notice" role="status">{{ notice }}</p><p v-if="!loading&&pendingItems.length" class="notice">{{ pendingItems.length }} {{ pendingItems.length===1?'item needs':'items need' }} your attention. Open each item below to complete it.</p><p v-if="error" role="alert">{{ error }}</p><p v-if="loading">Loading shared plans…</p><p v-else-if="!shares.length&&!error">No forms are waiting for you here.</p><nav aria-label="Shared clinical documents"><button v-for="s in orderedShares.filter(item=>item.documentKey!=='release-of-information')" :key="s.id" type="button" @click="open(s.id)">{{ s.title||'Clinical document' }} · version {{ s.version }} · {{ s.signedAt?'Completed':s.superseded?'Earlier version':s.copyOnly?'Shared copy':s.allowCompletion?'Complete & sign →':'Review & sign →' }}</button></nav>
+  <section v-if="!readOnly" class="optional-forms">
+    <h4>Optional forms</h4>
+    <button type="button" :disabled="starting" @click="startRelease">Release of information</button>
+    <button v-for="share in orderedShares.filter(item=>item.documentKey==='release-of-information' && !item.superseded)" :key="share.id"
+      type="button" @click="open(share.id)">{{ share.title }} · {{ share.signedAt?'Signed copy':'Open request' }}</button>
+  </section>
+  <PortalRequestFiles v-if="!readOnly && clientId" :client-id="clientId" />
+  <template v-if="plan"><p v-if="plan.version!==plan.currentVersion" class="notice">This is an earlier version. Your care team will share the revised plan when it is ready. This copy remains available for reference.</p><p v-if="plan.revocation" class="notice">This release authorization was revoked on {{ new Date(plan.revocation.recordedAt).toLocaleDateString() }}. The signed copy is retained for your records.</p><p v-if="plan.reviewStatus" class="notice">Form review: {{ plan.reviewStatus==='reviewed'?'Reviewed':'Awaiting staff review' }}.</p><button v-if="!readOnly&&plan.template.key==='release-of-information'&&mySigner?.signedAt&&!plan.revocation" type="button" @click="revokeAuthorization">Revoke authorization</button>
+    <p v-if="editingUpdate" class="notice">Complete the fields below, then sign to submit your form for staff review.</p><ClinicalDocumentCopy v-if="!editingUpdate" :document-element="()=>readDocument?.$el" :attendance="plan.template.key==='attendance-verification'" /><SafetyPlanDocument ref="readDocument" :model-value="editingUpdate?updateData:plan.data" :editable="editingUpdate" :lock-client="editingUpdate&&mySigner?.managed" :omit-empty="!editingUpdate" @update:model-value="updateData=$event" :template="plan.template" :branding="plan.branding" :version="plan.version" :signers="plan.signers" /><SafetyPlanSigning v-if="!readOnly&&mySigner&&!mySigner.copyOnly&&!mySigner.signedAt&&!plan.revocation&&plan.version===plan.currentVersion" :key="`${shareId}:${plan.version}`" :plan="plan" :signer="mySigner" :share-id="shareId" :update-data="editingUpdate?updateData:undefined" portal @signed="signed" @cancel="plan=null" /><p v-else-if="mySigner?.signedAt" role="status">Your signature has been saved with this version.</p></template></section></template>
 <script setup>
 import {computed,ref,watch,onMounted,onBeforeUnmount} from 'vue';
 import liveApi from '../../services/api';
@@ -8,11 +16,12 @@ const api=inject('clinicalFormsHttp',liveApi);
 import SafetyPlanDocument from './SafetyPlanDocument.vue';
 import ClinicalDocumentCopy from './ClinicalDocumentCopy.vue';
 import SafetyPlanSigning from './SafetyPlanSigning.vue';
+import PortalRequestFiles from './PortalRequestFiles.vue';
 const props=defineProps({clientId:[Number,String],compact:Boolean,readOnly:Boolean});
 const readDocument=ref(null);
 const shares=ref([]),plan=ref(null),shareId=ref(null),loading=ref(false),error=ref(''),notice=ref('');let generation=0,timer;
 const updateData=ref({});
-const pendingItems=computed(()=>shares.value.filter(s=>!s.signedAt&&!s.copyOnly&&!s.superseded));
+const pendingItems=computed(()=>shares.value.filter(s=>!s.signedAt&&!s.copyOnly&&!s.superseded&&s.documentKey!=='release-of-information'));
 const orderedShares=computed(()=>[...pendingItems.value,...shares.value.filter(s=>!pendingItems.value.includes(s))]);
 const editingUpdate=computed(()=>!props.readOnly&&(mySigner.value?.allowCompletion||plan.value?.template.key==='client-information-update')&&!mySigner.value?.copyOnly&&!plan.value?.revocation&&!mySigner.value?.signedAt&&plan.value?.version===plan.value?.currentVersion);
 const mySigner=computed(()=>plan.value?.signers.find(s=>s.id===plan.value.mySignerId));
@@ -20,7 +29,25 @@ const message=e=>e.response?.data?.error?.message||'Shared safety plans are temp
 async function load(){const g=++generation;shares.value=[];plan.value=null;shareId.value=null;error.value='';notice.value='';if(!props.clientId)return;loading.value=true;try{const {data}=await api.get('/clinical-forms/portal',{params:{clientId:props.clientId}});if(g===generation)shares.value=data.shares;}catch(e){if(g===generation)error.value=message(e);}finally{if(g===generation)loading.value=false;}}
 async function open(id){const g=++generation;plan.value=null;shareId.value=id;error.value='';try{const {data}=await api.get(`/clinical-forms/portal/${id}`);if(g===generation){plan.value=data;updateData.value=JSON.parse(JSON.stringify(data.data));}}catch(e){if(g===generation)error.value=message(e);}}
 async function refresh(){if(!plan.value||document.hidden)return;const g=generation,id=shareId.value;try{const {data}=await api.get(`/clinical-forms/portal/${id}`,{skipGlobalLoading:true});if(g===generation)plan.value=data;}catch(e){if(g===generation){plan.value=null;error.value=message(e);}}}
-async function signed(){await load();const next=pendingItems.value[0];if(next){await open(next.id);notice.value=`Saved. ${pendingItems.value.length} ${pendingItems.value.length===1?'item remains':'items remain'}.`;}else notice.value='All assigned items are complete. Your responses and signatures have been saved.';}
+const starting=ref(false);
+async function startRelease(){
+  starting.value=true;error.value='';
+  try{
+    const {data}=await api.post('/clinical-forms/portal/optional-release',{clientId:props.clientId});
+    await load();await open(data.shareId);
+  }catch(e){error.value=message(e);}
+  finally{starting.value=false;}
+}
+async function signed(){
+  const completedPlan=plan.value?.id;
+  const release=plan.value?.template.key==='release-of-information';
+  await load();
+  const copy=release&&shares.value.find(item=>Number(item.planId)===Number(completedPlan)&&item.signedAt);
+  if(copy){await open(copy.id);notice.value='Your authorization is saved.';return;}
+  const next=pendingItems.value[0];
+  if(next){await open(next.id);notice.value=`Saved. ${pendingItems.value.length} ${pendingItems.value.length===1?'item remains':'items remain'}.`;}
+  else notice.value='Your response and signature have been saved.';
+}
 async function revokeAuthorization(){const reason=window.prompt('Write your request to revoke this release authorization. Past disclosures cannot be undone.');if(!reason)return;try{const {data}=await api.post(`/clinical-forms/portal/${shareId.value}/revoke-authorization`,{version:plan.value.currentVersion,reason,confirm:true});plan.value=data;}catch(e){error.value=message(e);}}
 watch(()=>props.clientId,load,{immediate:true});onMounted(()=>{if(!props.readOnly)timer=setInterval(refresh,15000);});onBeforeUnmount(()=>{++generation;clearInterval(timer);plan.value=null;shares.value=[];});
 </script>

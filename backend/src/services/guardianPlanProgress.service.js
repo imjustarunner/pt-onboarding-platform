@@ -171,7 +171,7 @@ export async function signGuardianPlan(context, input) {
 
 // New sharing follows matching provider and supervisor approval. Each authorized
 // recipient gets a distinct link per revision; prior signatures remain in the audit.
-export async function shareGuardianPlanRevision({ plan, actorUserId }) {
+export async function shareGuardianPlanRevision({ plan, actorUserId, notify = true }) {
   if (!plan || !isSharedPlanStatus(plan.status)) return { shared: 0 };
   const context = { agencyId: plan.agency_id, clientId: plan.client_id, treatmentPlanId: plan.id };
   const lock = `guardian-plan-share:${plan.id}`;
@@ -208,6 +208,7 @@ export async function shareGuardianPlanRevision({ plan, actorUserId }) {
         shared++;
       }
       currentLinks.push(link);
+      if(!notify||link.meta_json?.clinicalRequestItemId)continue;
       const [notified] = await db.execute("SELECT id FROM notifications WHERE type='guardian_plan_review' AND related_entity_type='guardian_plan_ack' AND related_entity_id=? AND user_id=? LIMIT 1", [link.id, guardian.guardian_user_id]);
       if (!notified.length) await Notification.create({ type: 'guardian_plan_review', severity: 'info',
         title: recipient?.portal_language==='es'?'Su plan está listo para revisar':'A plan is ready for your review', message: recipient?.portal_language==='es'?'Inicie sesión para revisar el plan y dar su aprobación.':'Sign in to review the plan and add your own acknowledgment.',

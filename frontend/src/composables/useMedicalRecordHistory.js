@@ -10,12 +10,15 @@ export function useMedicalRecordHistory(clientId, agencyId) {
     if (!id || !agency) return;
     loading.value = true;
     const config = {params:{agencyId:agency}, headers:{'X-Agency-Id':String(agency)}, skipGlobalLoading:true};
-    const entry = (kind, key, date, title, tab, action = '') => ({
-      record_key:kind + ':' + key, historyKind:kind, sourceId:key, service_date:date, title, tab, action
+    const entry = (kind, key, date, title, tab, action = '', detail = {}) => ({
+      record_key:kind + ':' + key, historyKind:kind, sourceId:key, service_date:date, title, tab, action, ...detail
     });
     const sources = [
+      ['Clinical forms','/clinical-forms/filed',data=>(data.forms||[]).map(form=>
+        entry(form.category,form.id+':'+(form.version||form.source),form.signedAt,form.title,'medical-record',form.source==='request-file'?'request-file':'clinical-form',
+          {sourceId:form.id,version:form.version,respondent:form.respondent,recordStatus:form.revoked?'Revoked':form.reviewStatus==='pending'?'Awaiting review':'Signed'}))],
       ['Documents', '/phi-documents/clients/' + id + '/chart-artifacts', data => (data.artifacts || []).filter(d => !d.missing && d.viewKey)
-        .map(d => entry('Document', d.viewKey, d.signedAt || d.uploadedAt, d.title, 'documents','document'))],
+        .map(d => entry(({smart_roi:'School release of information',disclosure:'Provider disclosure',clinical_summary:'Clinical summary',intake_responses:'Enrollment responses',packet:'Enrollment packet',session_material:'Session material',questionnaire_responses:'Questionnaire answers'})[d.kind]||'Document', d.viewKey, d.signedAt || d.uploadedAt, d.title, 'documents','document'))],
       ['Treatment plans','/medical-billing/clients/' + id + '/chart', data => (data.plans || [])
         .map(p => entry('Treatment plan', p.id, p.effective_date || p.created_at, p.title || 'Treatment plan', 'treatment-plans','plan'))],
       ['Assessments','/assessment-deliverables/clients/' + id, data => [

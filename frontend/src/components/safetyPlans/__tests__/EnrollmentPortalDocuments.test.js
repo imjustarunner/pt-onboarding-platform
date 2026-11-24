@@ -46,14 +46,14 @@ it('opens medical record history first and guards clinical answers when leaving 
  await tabs[2].trigger('click');expect(confirmDiscard).toHaveBeenCalled();expect(wrapper.find('.clinical-editor').exists()).toBe(true);
  confirmDiscard.mockReturnValue(true);await tabs[2].trigger('click');expect(wrapper.find('.clinical-editor').exists()).toBe(false);expect(wrapper.find('.paper-enrollment-upload').exists()).toBe(true);
 });
-it('keeps the portal section expanded when its editor blocks closing',async()=>{
- const prepareToLeave=vi.fn(()=>false);
- wrapper=shallowMount(ClientDocumentsTab,{props:{clientId:41,client:{agency_id:2}},global:{stubs:{ClientUpdateModal:{template:'<div class="portal-editor" />',methods:{prepareToLeave}}}}});
- await flushPromises();const details=wrapper.find('details'),summary=details.find('summary');
- await summary.trigger('click');expect(wrapper.find('.portal-editor').exists()).toBe(true);
- await summary.trigger('click');expect(prepareToLeave).toHaveBeenCalled();expect(details.element.open).toBe(true);expect(wrapper.find('.portal-editor').exists()).toBe(true);
- details.element.open=false;await details.trigger('toggle');expect(details.element.open).toBe(true);expect(wrapper.find('.portal-editor').exists()).toBe(true);
- prepareToLeave.mockReturnValue(true);await summary.trigger('click');expect(details.element.open).toBe(false);expect(wrapper.find('.portal-editor').exists()).toBe(false);
+it('presents document sharing directly on the chart',async()=>{
+ wrapper=shallowMount(ClientDocumentsTab,{props:{clientId:41,client:{agency_id:2}},global:{
+  stubs:{ClientUpdateModal:{props:['clientId','agencyId'],template:'<div class="portal-editor" />'}}
+ }});
+ await flushPromises();
+ expect(wrapper.find('.portal-editor').exists()).toBe(true);
+ expect(wrapper.findAll('summary').map(summary=>summary.text())).not.toContain('AuricWell · Portal documents & enrollment');
+ expect(api.get.mock.calls.some(([url])=>url.endsWith('/intake-responses'))).toBe(false);
 });
 it('renders the official source read-only and removes active HTML and fake inputs',()=>{
  wrapper=mount(SafetyPlanDocument,{props:{modelValue:{personLabel:'Synthetic'},template:{key:'enrollment-document',title:'Privacy',sourceHtml:'<h2>Official source</h2><script>bad()</script><input value="Forged"><p onclick="bad()">Read it</p>',sections:[]},branding:{name:'Synthetic Agency'},editable:true}});

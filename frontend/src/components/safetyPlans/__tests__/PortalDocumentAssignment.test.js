@@ -4,6 +4,7 @@ import {createRouter,createMemoryHistory} from 'vue-router';
 vi.mock('../../../services/api',()=>({default:{get:vi.fn(),post:vi.fn()}}));
 import api from '../../../services/api';
 import Assignment from '../../enrollment/PortalDocumentAssignmentDialog.vue';
+import Share from '../../enrollment/ClinicalDocumentShareDialog.vue';
 import Enrollment from '../../enrollment/EnrollmentPortalDocuments.vue';
 import Panel from '../SafetyPlansPanel.vue';
 import Portal from '../PortalSafetyPlans.vue';
@@ -30,15 +31,22 @@ it('selects new forms and saved documents together from the portal section',asyn
  api.get.mockImplementation(async url=>({data:url.includes('/catalog')?{branding:{name:'Synthetic'},client:{name:'Synthetic Client'},recipients,documents:[{key:'privacy',title:'Privacy notice'},{key:'insurance',title:'Insurance information'}]}:{plans:[{id:7,version:3,documentName:'Saved consent',title:'Consent'}]}}));
  wrapper=mount(Enrollment,{props:{agencyId:2,clientId:41},global:{stubs:{SafetyPlansPanel:true,Teleport:true}}});await flushPromises();
  await wrapper.get('input[aria-label="Select Saved consent"]').setValue(true);await wrapper.get('input[aria-label="Select Privacy notice"]').setValue(true);
- const assign=wrapper.findAll('button').find(b=>b.text()==='Assign 2 to portal');await assign.trigger('click');await flushPromises();expect(wrapper.findComponent(Assignment).props('documents')).toEqual([{recordId:7,version:3,title:'Saved consent'},{foundationKey:'privacy',title:'Privacy notice'}]);
- await wrapper.get('input[type=checkbox]:not([aria-label])').setValue(true);await wrapper.getComponent(Assignment).get('form').trigger('submit');await flushPromises();expect(wrapper.get('[role=status]').text()).toContain('2 newly assigned');await wrapper.get('[role=status] button').trigger('click');await flushPromises();expect(wrapper.text()).toContain('2 items are now in Synthetic Guardian’s portal');
+ const share=wrapper.findAll('button').find(b=>b.text()==='Share 2');
+ await share.trigger('click');await flushPromises();
+ expect(wrapper.findComponent(Share).props('documents')).toEqual([
+  {recordId:7,version:3,title:'Saved consent'},{foundationKey:'privacy',title:'Privacy notice',instrumentId:undefined}
+ ]);
+ expect(api.post).toHaveBeenCalledWith('/clinical-document-requests/clients/41/preview',expect.objectContaining({
+  documents:expect.arrayContaining([expect.objectContaining({recordId:7,version:3}),expect.objectContaining({foundationKey:'privacy'})])
+ }));
+
 });
-it('opens a direct assignment dialog from Share to client portal without scrolling the chart',async()=>{
+it('opens a document sharing dialog from Share without scrolling the chart',async()=>{
  const record={id:4,agencyId:2,clientId:41,version:1,currentVersion:1,documentKey:'enrollment-document',template:{key:'enrollment-document',title:'Privacy',sections:[],sourceHtml:'<p>Official notice</p>'},branding:{name:'Synthetic'},data:{documentName:'Privacy'},history:[],recipients,signers:[]};api.get.mockResolvedValue({data:record});
  const router=createRouter({history:createMemoryHistory(),routes:[{path:'/:pathMatch(.*)*',component:{template:'<div />'}}]});await router.push('/synthetic');await router.isReady();
  wrapper=mount(Panel,{props:{agencyId:2,clientId:41,initialRecordId:4,recordOnly:true},global:{plugins:[router],stubs:{Teleport:true}}});await flushPromises();
- const scroll=vi.fn();wrapper.get('.signers').element.scrollIntoView=scroll;await wrapper.findAll('button').find(b=>b.text()==='Share to client portal').trigger('click');await flushPromises();
- expect(wrapper.findComponent(Assignment).exists()).toBe(true);expect(scroll).not.toHaveBeenCalled();expect(wrapper.get('[role=dialog]').text()).toContain('Assign 1 document');expect(wrapper.vm.confirmDiscard()).toBe(false);
+ const scroll=vi.fn();wrapper.get('.signers').element.scrollIntoView=scroll;await wrapper.findAll('button').find(b=>b.text()==='Share').trigger('click');await flushPromises();
+ expect(wrapper.findComponent(Share).exists()).toBe(true);expect(scroll).not.toHaveBeenCalled();expect(wrapper.get('[role=dialog]').text()).toContain('Share document');expect(wrapper.vm.confirmDiscard()).toBe(false);
 });
 it('takes the recipient through remaining forms and confirms when everything is completed',async()=>{
  let completed=0;
@@ -46,7 +54,7 @@ it('takes the recipient through remaining forms and confirms when everything is 
  wrapper=mount(Portal,{props:{clientId:41},global:{stubs:{SafetyPlanDocument:true,ClinicalDocumentCopy:true,SafetyPlanSigning:{emits:['signed'],template:'<button class="submit-synthetic-form" @click="$emit(\'signed\')">Submit form</button>'}}}});
  await flushPromises();expect(wrapper.text()).toContain('2 items need your attention');await wrapper.get('nav button').trigger('click');await flushPromises();
  completed=1;await wrapper.get('.submit-synthetic-form').trigger('click');await flushPromises();expect(api.get).toHaveBeenCalledWith('/clinical-forms/portal/2');expect(wrapper.text()).toContain('1 item remains');
- completed=2;await wrapper.get('.submit-synthetic-form').trigger('click');await flushPromises();expect(wrapper.text()).toContain('All assigned items are complete');expect(wrapper.find('.submit-synthetic-form').exists()).toBe(false);
+ completed=2;await wrapper.get('.submit-synthetic-form').trigger('click');await flushPromises();expect(wrapper.text()).toContain('Your response and signature have been saved');expect(wrapper.find('.submit-synthetic-form').exists()).toBe(false);
 });
 
 it('requires a fresh authority confirmation when switching guardian recipients',async()=>{

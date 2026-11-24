@@ -138,11 +138,16 @@ it('names a client-profile form while retaining the automatic client link',async
  await w.get('input[aria-label="Document name"]').setValue('Fall support plan');await w.get('form').trigger('submit');await flushPromises();
  expect(api.post).toHaveBeenCalledWith('/clinical-forms',expect.objectContaining({clientId:41,data:expect.objectContaining({documentName:'Fall support plan'})}));w.unmount();
 });
-it('offers portal completion from a saved linked form',async()=>{
- const shared={...record,recipients:[{id:21,kind:'client',name:'Synthetic Client'}]};api.get.mockImplementation(async url=>({data:url.endsWith('/template')?{template:safetyPlanTemplate,branding,catalog:clinicalFormCatalog}:url==='/clinical-forms'?{plans:[]}:shared}));api.post.mockResolvedValue({data:shared});
- const w=await mounted(Panel,{agencyId:2,clientId:41,initialRecordId:4});await flushPromises();expect(button(w,'Share to client portal')).toBeTruthy();
- await w.findAll('.signer-setup select')[1].setValue(21);await w.findAll('.signer-setup select')[2].setValue('complete');await w.get('.signer-setup').trigger('submit');await flushPromises();
- expect(api.post).toHaveBeenCalledWith('/clinical-forms/4/signers',expect.objectContaining({userId:21,allowCompletion:true,copyOnly:false}));expect(w.text()).toContain('notifications are grouped');w.unmount();
+it('shares a saved linked form through the common request preview',async()=>{
+ const shared={...record,recipients:[{id:21,kind:'client',name:'Synthetic Client'}]};
+ api.get.mockImplementation(async url=>({data:url.endsWith('/template')?{template:safetyPlanTemplate,branding,catalog:clinicalFormCatalog}:url==='/clinical-forms'?{plans:[]}:shared}));
+ api.post.mockResolvedValue({data:{recipients:[],items:[]}});
+ const w=await mounted(Panel,{agencyId:2,clientId:41,initialRecordId:4});await flushPromises();
+ await button(w,'Share').trigger('click');await flushPromises();
+ expect(api.post).toHaveBeenCalledWith('/clinical-document-requests/clients/41/preview',expect.objectContaining({
+  documents:[expect.objectContaining({recordId:4,version:record.version})]
+ }));
+ w.unmount();
 });
 it('only makes a safety plan editable in the portal when completion was requested',async()=>{
  let allowed=false;api.get.mockImplementation(async url=>({data:url==='/clinical-forms/portal'?{shares:[{id:3,version:1,title:'Safety plan'}]}:{...record,mySignerId:3,signers:[{id:3,kind:'client',name:'Synthetic',allowCompletion:allowed}]}}));

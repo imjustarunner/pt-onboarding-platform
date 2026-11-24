@@ -110,7 +110,7 @@
               autocomplete="off"
             />
             <datalist id="phi-doc-type-list">
-              <option v-for="t in uploadTypeOptions" :key="t" :value="t" :label="t==='full_paper_enrollment'?'Full paper enrollment':t" />
+              <option v-for="t in uploadTypeOptions" :key="t" :value="t" :label="t==='full_paper_enrollment'?'Full paper enrollment':t==='client_document'?'Client-facing document':t" />
             </datalist>
           </label>
         </div>
@@ -173,6 +173,8 @@
               <span v-if="d.removed_at" class="pill pill-removed">Removed</span>
               <span v-else-if="d.scan_status && d.scan_status !== 'clean'" class="pill pill-pending">Scanning</span>
               <span v-else class="pill pill-ready">Ready</span>
+              <button v-if="canShareFile(d)" type="button" class="btn btn-secondary btn-xs" @click="shareFile(d,'sign')">Share for signature</button>
+              <button v-if="canShareFile(d)" type="button" class="btn btn-secondary btn-xs" @click="shareFile(d,'view')">Share copy</button>
             </td>
             <td class="actions">
               <button class="btn btn-primary btn-sm" :disabled="!!d.removed_at" @click="confirmOpen(d)">View</button><button v-if="!ownOnly && ['super_admin','admin','support','staff','provider','provider_plus','intern','intern_plus','supervisor','clinical_practice_assistant'].includes(roleNorm)" class="btn btn-secondary btn-sm" :disabled="!!d.removed_at" @click="sharingDocument=d.id">Share to portal</button>
@@ -378,11 +380,15 @@
         </div>
       </div>
     </div>
+    <ClinicalDocumentShareDialog v-if="sharingFile" :client-id="clientId" :agency-id="agencyId || sharingFile.agency_id"
+      :documents="[{fileId:sharingFile.id,title:sharingFile.title || 'Document',action:sharingFile.action}]"
+      @close="sharingFile=null" @shared="sharingFile=null" />
   </div>
 <PortalFileSharing v-if="sharingDocument" :document-id="Number(sharingDocument)" @close="sharingDocument=null" />
 </template>
 
 <script setup>
+import ClinicalDocumentShareDialog from '../enrollment/ClinicalDocumentShareDialog.vue';
 import PortalFileSharing from './PortalFileSharing.vue';
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
@@ -390,6 +396,7 @@ import { useAuthStore } from '../../store/auth';
 
 const props = defineProps({
   clientId: { type: Number, required: true },
+  agencyId: Number,
   highlightDocumentId: { type: Number, default: null },
   /** all | files | intake | audit | ocr */
   section: { type: String, default: 'all' },
@@ -419,6 +426,14 @@ function emitDocsLoaded() {
 const authStore = useAuthStore();
 const sharingDocument = ref(null);
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
+const sharingFile=ref(null);
+function shareFile(file,action){sharingFile.value={...file,action};}
+watch(()=>props.clientId,()=>{sharingFile.value=null;});
+function canShareFile(file){
+  return !props.ownOnly && (props.agencyId||file.agency_id) && !file.removed_at && file.scan_status==='clean' &&
+    file.mime_type==='application/pdf' && /^(client_document|client_shared_document|general_document|assigned_document)$/i.test(file.document_type||'') &&
+    ['admin','super_admin','provider','provider_plus','intern','intern_plus','supervisor','facilitator','qbha'].includes(roleNorm.value);
+}
 const canUpload = computed(() => ['super_admin', 'admin', 'support', 'staff', 'school_staff', 'provider', 'provider_plus', 'intern', 'intern_plus', 'supervisor', 'facilitator', 'qbha'].includes(roleNorm.value));
 const attachSubtitle = computed(() => {
   if (props.ownOnly) {
@@ -459,6 +474,7 @@ const uploadTitle = ref(props.defaultDocumentType==='full_paper_enrollment'?'Ful
 const uploadType = ref(props.defaultDocumentType);
 const showOcrLinesById = ref({});
 const uploadTypeOptions = [
+  'client_document',
   'full_paper_enrollment',
   'Intake packet',
   'Consent',

@@ -230,7 +230,7 @@ export async function recordSuperviseeDocumentReview(req,res,next) {
     if (reviewedPlan) {
       const approvedPlan = await completeTreatmentPlanSupervisorApproval(reviewedPlan);
       const { shareGuardianPlanRevision } = await import('../services/guardianPlanProgress.service.js');
-      try { planSharing = await shareGuardianPlanRevision({ plan: approvedPlan, actorUserId: req.user.id }); }
+      try { planSharing = await shareGuardianPlanRevision({ plan: approvedPlan, actorUserId: req.user.id, notify:false }); }
       catch { planSharing = { shared: 0, followUpRequired: true }; }
     }
     if(type==='note' && req.body.outcome==='changes_requested') {

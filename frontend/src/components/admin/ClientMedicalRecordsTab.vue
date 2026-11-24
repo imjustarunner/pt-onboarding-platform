@@ -1,6 +1,11 @@
 <template>
   <div class="cc-enc-tab">
-    <section v-if="openedIntake" aria-label="Imported intake record"><button type="button" class="btn btn-secondary" @click="openedIntake=null">← Medical record</button><ClientIntakeNotePanel :key="openedIntake.intake_draft_id" :client-id="openedIntake.source_client_id || clientId" :initial-draft-id="openedIntake.intake_draft_id" :client="client" @removed="openedIntake=null;load()" /></section>
+    <section v-if="openedForm" aria-label="Filed clinical form">
+      <button type="button" class="btn btn-secondary" @click="closeFiledForm">← Medical record</button>
+      <SafetyPlansPanel ref="clinicalDocumentsRef" :key="openedForm.record_key" record-only
+        :initial-record-id="openedForm.sourceId" :initial-version="openedForm.version" :client-id="clientId" :agency-id="agencyId" />
+    </section>
+    <section v-else-if="openedIntake" aria-label="Imported intake record"><button type="button" class="btn btn-secondary" @click="openedIntake=null">← Medical record</button><ClientIntakeNotePanel :key="openedIntake.intake_draft_id" :client-id="openedIntake.source_client_id || clientId" :initial-draft-id="openedIntake.intake_draft_id" :client="client" @removed="openedIntake=null;load()" /></section>
     <template v-else>
     <SchoolAbsenceRecords :client-id="clientId" />
     <nav v-if="clientId" class="medical-document-tabs" aria-label="Medical documents"><button v-for="tab in documentTabs" :key="tab.key" :aria-pressed="documentTab===tab.key" @click="selectDocumentTab(tab.key)">{{ tab.label }}</button></nav>
@@ -31,6 +36,7 @@
 
     <p v-if="history.loading.value" role="status">Loading record history…</p>
     <p v-if="history.unavailable.value.length" role="status">Unavailable in this view · {{ history.unavailable.value.join(', ') }}</p>
+    <p v-if="recordFileError" role="alert">{{ recordFileError }}</p>
     <p v-if="error" class="cc-enc-error">{{ error }}</p>
     <p v-else-if="loading" class="muted">Loading sessions…</p>
     <p v-else-if="!chronologicalRows.length && !history.loading.value" class="cc-enc-empty">
@@ -51,6 +57,12 @@
             {{ f.label }}
           </button>
         </div>
+        <label class="cc-enc-select">Entry type
+          <select v-model="recordType"><option value="">All types</option><option v-for="type in entryTypes" :key="type">{{ type }}</option></select>
+        </label>
+        <label class="cc-enc-select">Sort by
+          <select v-model="recordSort"><option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="type">Entry type</option></select>
+        </label>
         <input
           v-model="searchQuery"
           type="search"
@@ -68,33 +80,20 @@
             :class="{ 'cc-enc-list-item--active': encounterKey(row) === selectedId }"
             @click="toggleEncounter(row)"
           >
-            <template v-if="row.historyKind"><div class="cc-enc-list-item__row"><strong>{{ formatEncounterDate(row.service_date) }}</strong><span>{{ row.historyKind }}</span></div><div>{{ row.title }}</div></template>
-            <template v-else><div class="cc-enc-list-item__row">
-              <span class="cc-enc-list-item__date">{{ formatEncounterDate(row.service_date) }}</span>
-              <span class="cc-enc-note-pill" :class="noteStatusClass(row)">
-                {{ noteStatusLabel(row) }}
-              </span>
-            </div>
-            <div class="cc-enc-list-item__meta">
-              <span class="cc-enc-mono">{{ row.service_code || '—' }}</span>
-              · {{ formatEncounterProvider(row) }}
-              <span v-if="row.is_recurring" class="muted"> · Recurring</span>
-              <span v-else-if="row.display_state === 'planned'" class="muted"> · Upcoming</span>
-            </div>
-            <div v-if="encounterScheduleLabel(row)" class="cc-enc-list-item__meta muted tiny">{{ encounterScheduleLabel(row) }}</div>
-            <div v-if="row.records_import" class="cc-enc-list-item__meta muted tiny">Imported intake · nonbillable · Added {{ formatEncounterDate(row.created_at) }}</div>
-            <div v-else-if="row.billing_attached" class="cc-enc-list-item__meta muted tiny">
-              Billing attached
-            </div>
-            <div v-else-if="canViewMissingClaimFlag && row.billing_attached === false && !row.non_billable && row.display_state !== 'planned'" class="cc-enc-list-item__meta muted tiny">
-              No claim / billing info attached
-            </div>
-          </template>
+            <span class="timeline-date">{{ formatEncounterDate(row.service_date) }}</span>
+            <span class="timeline-title">
+              <strong>{{ row.historyKind ? row.title : formatEncounterProvider(row) }}</strong>
+              <span v-if="row.respondent" class="muted">{{ row.respondent }}</span>
+              <span v-else-if="!row.historyKind" class="muted">{{ row.service_code || '—' }}<span v-if="encounterScheduleLabel(row)"> · {{ encounterScheduleLabel(row) }}</span></span>
+            </span>
+            <span class="timeline-type">{{ recordKind(row) }}</span>
+            <span v-if="row.historyKind" class="timeline-status">{{ row.recordStatus || '' }}</span>
+            <span v-else class="cc-enc-note-pill timeline-status" :class="noteStatusClass(row)">{{ noteStatusLabel(row) }}</span>
           </button>
           <template v-if="encounterKey(row) === selectedId">
       <section v-if="selectedRow?.historyKind" class="cc-enc-detail-panel">
         <h3>{{ selectedRow.title }}</h3><p>{{ selectedRow.historyKind }} · {{ formatEncounterDate(selectedRow.service_date) }}</p>
-        <button type="button" class="btn btn-secondary" @click="selectedRow.action==='document' ? emit('open-document',selectedRow.sourceId) : emit('navigate',selectedRow.tab)">Open {{ selectedRow.historyKind.toLowerCase() }}</button>
+        <button type="button" class="btn btn-secondary" @click="openHistoryEntry(selectedRow)">Open {{ selectedRow.historyKind.toLowerCase() }}</button>
         <button v-if="['assessment','conversation','message'].includes(selectedRow.action)" type="button" class="btn btn-secondary" @click="downloadEntry(selectedRow)">Download this record</button>
         <ClinicalRecordDownloads v-if="selectedRow.action==='plan'" :agency-id="agencyId" :client-id="clientId" :plan-id="selectedRow.sourceId" />
       </section>
@@ -253,6 +252,7 @@ import { computed, ref, watch } from 'vue';
 import { useMedicalRecordHistory } from '../../composables/useMedicalRecordHistory.js';
 import { confirmRecordDownload } from '../../utils/recordDownloadNotice';
 import api from '../../services/api';
+import {downloadSignedPdf} from '../../utils/downloadSignedPdf';
 import { useClientEncounters } from '../../composables/useClientEncounters.js';
 import { useClientEncounterNote } from '../../composables/useClientEncounterNote.js';
 import {
@@ -268,7 +268,7 @@ import {
 } from '../../utils/clientEncounterUtils.js';
 import '../../styles/client-encounters-tab.css';
 
-const openedIntake=ref(null);
+const openedIntake=ref(null),openedForm=ref(null);
 const props = defineProps({
   agencyId: { type: Number, default: null },
   clientId: { type: Number, default: null },
@@ -279,7 +279,7 @@ const props = defineProps({
 
 const documentTab=ref('record');
 const clinicalDocumentsRef=ref(null);
-function prepareToLeave(){return documentTab.value!=='clinical' || clinicalDocumentsRef.value?.confirmDiscard?.()!==false;}
+function prepareToLeave(){return (!openedForm.value&&documentTab.value!=='clinical') || clinicalDocumentsRef.value?.confirmDiscard?.()!==false;}
 defineExpose({prepareToLeave});
 function selectDocumentTab(tab){
   if(tab===documentTab.value)return;
@@ -300,9 +300,27 @@ const {
 } = useClientEncounters(agencyRef, clientRef, { medicalOnly: true });
 
 const { openingId, openClinicalNote } = useClientEncounterNote();
+function closeFiledForm(){if(prepareToLeave()){openedForm.value=null;history.load();}}
+function openHistoryEntry(row){
+  if(row.action==='clinical-form')openedForm.value=row;
+  else if(row.action==='request-file')return openSignedFile(row);
+  else if(row.action==='document')emit('open-document',row.sourceId);
+  else emit('navigate',row.tab);
+}
+async function openSignedFile(row){
+ try{
+  const {data}=await api.get(`/clinical-document-requests/clients/${props.clientId}/filed-files/${row.sourceId}`,{responseType:'blob'});
+  downloadSignedPdf(data);
+ }catch(e){recordFileError.value=e.response?.data?.error?.message||'The signed document could not be opened.';}
+}
+const recordFileError=ref('');
+const recordType=ref(''),recordSort=ref('newest');
+const recordKind=row=>row.historyKind || (row.records_import?'Imported intake':'Encounter');
 const history = useMedicalRecordHistory(clientRef, agencyRef);
 const chronologicalRows = computed(() => [...sortedEncounters.value, ...history.entries.value]
   .sort((a,b) => (Date.parse(b.scheduled_start_at || b.service_date) || 0) - (Date.parse(a.scheduled_start_at || a.service_date) || 0)));
+const entryTypes=computed(()=>[...new Set(chronologicalRows.value.map(recordKind))].sort((a,b)=>a.localeCompare(b)));
+watch(()=>props.clientId,()=>{openedForm.value=null;recordType.value='';recordFileError.value='';});
 async function downloadEntry(row) {
   if (!confirmRecordDownload()) return;
   const config = {responseType:'blob',headers:{'X-Agency-Id':String(props.agencyId)}};
@@ -409,7 +427,10 @@ const filteredEncounters = computed(() => {
     rows = rows.filter((row) => row?.billing_attached === false && !row.non_billable);
   }
   const q = searchQuery.value;
-  if (q) rows = rows.filter(row => row.historyKind ? (row.title + ' ' + row.historyKind + ' ' + (row.service_date || '')).toLowerCase().includes(q.toLowerCase()) : matchesEncounterSearch(row, q));
+  if(recordType.value) rows=rows.filter(row=>recordKind(row)===recordType.value);
+  if (q) rows = rows.filter(row => row.historyKind ? (row.title + ' ' + row.historyKind + ' ' + (row.service_date || '') + ' ' + (row.respondent || '')).toLowerCase().includes(q.toLowerCase()) : matchesEncounterSearch(row, q));
+  if(recordSort.value==='oldest')return rows.slice().reverse();
+  if(recordSort.value==='type')return rows.slice().sort((a,b)=>recordKind(a).localeCompare(recordKind(b)));
   return rows;
 });
 
@@ -502,3 +523,10 @@ watch(
 
 <style scoped>
 .medical-document-tabs{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0}.medical-document-tabs button{font:inherit;padding:12px 16px;border:1px solid #bdd0c6;border-radius:8px;background:white;color:#234d40;cursor:pointer}.medical-document-tabs button[aria-pressed=true]{background:#175b48;color:white}.paper-enrollment-upload{padding:20px;background:white;border:1px solid #d9e5df;border-radius:12px;margin-bottom:20px}.paper-enrollment-upload p{font-size:13px;line-height:1.7;max-width:900px}</style>
+
+<style scoped>
+.cc-enc-select{display:flex;align-items:center;gap:.4rem;font-size:.85rem}
+.cc-enc-list-item{display:grid;grid-template-columns:minmax(6rem,1fr) minmax(11rem,3fr) minmax(7rem,1.4fr) minmax(6rem,1fr);align-items:center;gap:.8rem;text-align:left}
+.timeline-title{display:grid;gap:.2rem}.timeline-status{justify-self:start}.timeline-date{font-variant-numeric:tabular-nums}
+@media(max-width:650px){.cc-enc-list-item{grid-template-columns:1fr 1fr}.timeline-title{grid-row:1;grid-column:1/-1}}
+</style>
