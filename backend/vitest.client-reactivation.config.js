@@ -4,6 +4,8 @@ export default {
  test:{environment:'node',restoreMocks:true,env:{SKIP_DB_CONNECT:'1'},include:[
   'src/services/__tests__/clientReactivation.test.js',
   'src/services/__tests__/clientReactivationIntegrations.test.js',
+  'src/services/__tests__/clientServiceAssignmentReactivation.test.js',
+  'src/services/__tests__/clientServiceEnrollment.test.js',
   'src/models/__tests__/Client.reactivation.test.js',
   'src/models/__tests__/Appointment.reactivation.test.js',
   'src/services/__tests__/clientInactiveScheduling.test.js',
