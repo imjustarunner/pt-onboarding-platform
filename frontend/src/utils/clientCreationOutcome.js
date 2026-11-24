@@ -9,20 +9,24 @@ export async function finishClientCreation({ api, clientId, agencyId, organizati
   }
   if (outcome === 'assign') {
     if (!providerId) throw new Error('Select a provider for Assign and save');
-    if (serviceKind === 'tutoring') {
+    if (!isSchool && ['counseling', 'tutoring', 'coaching'].includes(serviceKind)) {
       const resource = `/clients/${clientId}/service-enrollments`;
       const selectedOrg = Number(organizationId) === Number(agencyId) ? 0 : Number(organizationId) || 0;
       const { data } = await api.get(resource, {params:{agencyId:Number(agencyId)}});
       const active = (data.services || []).filter(row => row.service_kind === serviceKind && Number(row.is_active) === 1
-        && Number(row.organization_id || 0) === selectedOrg);
-      if (active.some(row => Number(row.provider_user_id) === Number(providerId))) return null;
-      const vacant = active.find(row => !Number(row.provider_user_id) && /^(tutoring|learning)$/i.test(row.label));
+        && (serviceKind === 'counseling' || Number(row.organization_id || 0) === selectedOrg));
+      const hasProvider = row => [row, ...(row.providers || [])].some(provider => Number(provider.provider_user_id) === Number(providerId));
+      if (active.some(hasProvider)) return null;
+      const vacant = active.find(row => !Number(row.provider_user_id));
+      const target = vacant || (serviceKind === 'counseling' ? active[0] : null);
+      const label = { counseling: 'Counseling', tutoring: 'Tutoring', coaching: 'Coaching' }[serviceKind];
       const response = await api.post(resource, {
         agencyId:Number(agencyId), serviceKind, providerUserId:Number(providerId),
-        organizationId:selectedOrg, label:vacant?.label || 'Tutoring', ...(vacant ? {serviceId:vacant.id} : {})
+        organizationId:target ? Number(target.organization_id)||0 : selectedOrg, label:target?.label || label, ...(target ? {serviceId:target.id} : {}),
+        ...(target && !vacant ? {addProvider:true} : {})
       });
-      if (!response.data?.services?.some(row => row.service_kind === serviceKind && Number(row.is_active) === 1 && Number(row.organization_id || 0) === selectedOrg && Number(row.provider_user_id) === Number(providerId))) {
-        throw new Error('The Learning assignment could not be confirmed. Reopen Assignments to review the saved client.');
+      if (!response.data?.services?.some(row => row.service_kind === serviceKind && Number(row.is_active) === 1 && (serviceKind === 'counseling' || Number(row.organization_id || 0) === selectedOrg) && hasProvider(row))) {
+        throw new Error(`The ${label} assignment could not be confirmed. Reopen Assignments to review the saved client.`);
       }
       return null;
     }

@@ -12,6 +12,7 @@ import ClientGuardian from '../models/ClientGuardian.model.js';
 import { normalizeSmsPhone } from '../utils/smsThreadIdentity.js';
 import { prepareGuardianAccount } from './guardianAccountPreparation.service.js';
 import {seedImportedGuardianNotifications} from './importedGuardianNotifications.service.js';
+import { queueInsuranceVerificationSafely } from './insuranceVerificationTask.service.js';
 
 export const chartSections = ['demographics', 'intake', 'plan', 'insurance', 'contacts', 'comments', 'payer', 'billingComments'];
 export {readChartRecord} from './clientChartRecordRead.service.js';
@@ -89,6 +90,7 @@ export async function importSupplementaryChartSection(scope, section, text, acto
         await saveLockedChartRecord(scope, 'payerLinks', 0, evidence, actorId, null, db);
       }
       await db.commit();
+      if(Object.keys(changed).some(slot=>!linked[slot] && !changed[slot].payerId))await queueInsuranceVerificationSafely({...scope,actorUserId:actorId,reason:'missing_payer'});
       return { primary: insurance.primary, secondary: insurance.secondary, needsBillingReview: true, automaticEligibility: insurance.automaticEligibility, eligibilityQueueWarning: insurance.eligibilityQueueWarning };
     } catch (error) { await db.rollback(); throw error; } finally { db.release(); }
   }
@@ -173,4 +175,47 @@ export async function importSupplementaryChartSection(scope, section, text, acto
     return Object.values(imported);
   }
   throw Object.assign(new Error('Use the clinical import for this section'), { status: 400 });
+}
+
+/** Match saved policies without asking import staff to choose a billing route.
+ * Only exact names/approved aliases in the verified catalog are eligible.
+ * Repeated requests reuse the durable eligibility job and never run paid checks here. */
+export async function automaticallyLinkChartPayers(scope, actorId) {
+  const db=await pool.getConnection();
+  let result;
+  try {
+    await db.beginTransaction();
+    await db.execute('SELECT id FROM clients WHERE id=? AND agency_id=? FOR UPDATE',[scope.clientId,scope.agencyId]);
+    const previous=await readClientInsurance(scope.clientId,scope.agencyId,db);
+    if(!previous){await db.commit();return {linked:[],unresolved:[],automaticEligibility:null};}
+    const catalog=await clientInsurancePayers(scope.agencyId,db);
+    const proof=(await readChartRecord(scope,'payerLinks',0,db)).value || {};
+    const changes={},linked=[],unresolved=[];
+    for(const slot of ['primary','secondary']) {
+      const policy=previous[slot];
+      if(!policy || !['insurerName','memberId','payerId','sourcePayerId'].some(key=>policy[key]))continue;
+      const known=policy.payerId && catalog.some(row=>row.payerId===policy.payerId);
+      if(known && (previous.verifiedForClaims===true || proof[slot]?.payerId===policy.payerId && proof[slot].policyFingerprint===payerLinkFingerprint(policy))){linked.push(slot);continue;}
+      const match=exactCatalogPayer(policy,catalog);
+      if(!match){unresolved.push(slot);continue;}
+      changes[slot]={...policy,payerId:String(match.payerId),eligibilityPayerId:match.eligibilityPayerId,payerCatalogId:String(match.id),...(match.isMedicaid?{isMedicaid:true}:{})};
+      linked.push(slot);
+    }
+    const needsPatientDefaults=linked.length && ['firstName','lastName','dateOfBirth','state'].some(key=>!previous.patient?.[key]);
+    const insurance=Object.keys(changes).length || needsPatientDefaults
+      ? await writeClientInsurance({...previous,...changes,...scope,confirmedBy:actorId,verifiedForClaims:Object.keys(changes).length?false:previous.verifiedForClaims===true,queueEligibility:true},db)
+      : previous;
+    if(Object.keys(changes).length || needsPatientDefaults)await saveLockedChartRecord(scope,'payerLinks',0,Object.fromEntries(linked.map(slot=>[slot,
+      {payerId:insurance[slot].payerId,policyFingerprint:payerLinkFingerprint(insurance[slot]),checkedAt:new Date().toISOString(),method:'automatic_catalog_match'}])),actorId,null,db);
+    let automaticEligibility=insurance.automaticEligibility || null,eligibilityQueueWarning=insurance.eligibilityQueueWarning || null;
+    if(linked.length && !automaticEligibility && !eligibilityQueueWarning) {
+      try {const {enqueueIntakeEligibility}=await import('./intakeEligibility.service.js');automaticEligibility=await enqueueIntakeEligibility({...scope,submissionId:0},db);}
+      catch {eligibilityQueueWarning='Payer matching is saved. Automatic coverage verification needs billing follow-up.';}
+    }
+    await db.commit();
+    result={linked,unresolved,automaticEligibility,eligibilityQueueWarning};
+  } catch(error){await db.rollback();throw error;} finally{db.release();}
+  if(result.unresolved.length || result.eligibilityQueueWarning || ['disabled','waiting_for_information','review_required'].includes(result.automaticEligibility?.status))
+    result.billingFollowUpId=await queueInsuranceVerificationSafely({...scope,actorUserId:actorId,reason:result.unresolved.length?'missing_payer':'verification_pending'});
+  return result;
 }

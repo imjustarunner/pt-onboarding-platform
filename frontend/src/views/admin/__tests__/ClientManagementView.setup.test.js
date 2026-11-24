@@ -20,11 +20,48 @@ it('binds every Vue runtime helper used by Client Management setup', () => {
 });
 
 const apiMock=vi.hoisted(()=>({get:vi.fn(),post:vi.fn(),put:vi.fn(),delete:vi.fn()}));
+const authMock=vi.hoisted(()=>({user:{id:10,role:'support'},isAuthenticated:true}));
 vi.mock('../../../services/api',()=>({default:apiMock}));
-vi.mock('../../../store/auth',()=>({useAuthStore:()=>({user:{id:10,role:'support'},isAuthenticated:true})}));
-vi.mock('vue-router',()=>({useRoute:()=>({params:{organizationSlug:'synthetic'},query:{},path:'/synthetic/admin/clients',meta:{}}),useRouter:()=>({push:vi.fn(),replace:vi.fn(),hasRoute:()=>false})}));
+vi.mock('../../../store/auth',()=>({useAuthStore:()=>authMock}));
+vi.mock('vue-router',()=>({onBeforeRouteLeave:vi.fn(),useRoute:()=>({params:{organizationSlug:'synthetic'},query:{},path:'/synthetic/admin/clients',meta:{}}),useRouter:()=>({push:vi.fn(),replace:vi.fn(),hasRoute:()=>false})}));
 import ClientManagement from '../ClientManagementView.vue';
 import { useAgencyStore } from '../../../store/agency';
+import { clearClientManagementWorkspaces } from '../../../utils/clientManagementWorkspace';
+const creationLaunchCases=['admin','support','super_admin'].flatMap(role=>
+ ['All Clients','New Enrollments','Client Exchange','Possible duplicates','Inactive'].map(tab=>({role,tab})));
+it.each(creationLaunchCases)('opens the office records dialog for $role from $tab',async({role,tab})=>{
+ localStorage.clear();sessionStorage.clear();clearClientManagementWorkspaces();vi.clearAllMocks();authMock.user.role=role;
+ apiMock.get.mockImplementation(async url=>({data:
+  String(url).startsWith('/clients?')?{items:[],total:0}:
+  url==='/clients/creation-draft'?{revision:0,value:null}:
+  url==='/office-clients/providers'?{providers:[]}:
+  url==='/agencies/2'?{id:2,name:'Synthetic agency',portal_url:'synthetic',organization_type:'agency'}:[]}));
+ apiMock.put.mockResolvedValue({data:{revision:1}});
+ const pinia=createPinia();setActivePinia(pinia);const agency=useAgencyStore(pinia);
+ agency.userAgencies=[{id:2,name:'Synthetic agency',portal_url:'synthetic',organization_type:'agency'}];agency.agencies=agency.userAgencies;agency.currentAgency=agency.userAgencies[0];
+ const wrapper=shallowMount(ClientManagement,{attachTo:document.body,global:{plugins:[pinia],stubs:{RouterLink:true,ClientRecordsCreateModal:false,Teleport:false}}});
+ try {
+  await flushPromises();await wrapper.findAll('.cm-view-tab').find(button=>button.text().trim().startsWith(tab)).trigger('click');
+  await wrapper.findAll('button').find(button=>button.text()==='+ Add client from TherapyNotes').trigger('click');await flushPromises();
+  expect(document.body.querySelector('[role=dialog] h2')?.textContent).toBe('Add client from TherapyNotes');
+  expect(apiMock.get).toHaveBeenCalledWith('/clients/creation-draft',expect.objectContaining({headers:{'X-Agency-Id':'2'}}));
+  expect(document.body.querySelector('.create-records-modal select')?.value).toBe('2');
+  expect(wrapper.get('.cm-view-tab.active').text()).toContain(tab);
+  const dialog=document.body.querySelector('.create-records-modal');
+  const otherTab=tab==='All Clients'?'New Enrollments':'All Clients';
+  await wrapper.findAll('.cm-view-tab').find(button=>button.text().trim().startsWith(otherTab)).trigger('click');await flushPromises();
+  expect(document.body.querySelector('.create-records-modal')).toBe(dialog);
+  expect(apiMock.get.mock.calls.filter(([url])=>url==='/clients/creation-draft')).toHaveLength(1);
+  await wrapper.findAll('.cm-view-tab').find(button=>button.text().trim().startsWith(tab)).trigger('click');
+  document.body.querySelector('.create-records-modal header button').click();await flushPromises();
+  expect(document.body.querySelector('.create-records-modal')).toBeNull();
+  await wrapper.findAll('.cm-header-actions button').find(button=>button.text()==='+ Add client').trigger('click');await flushPromises();
+  expect(document.body.querySelector('[role=dialog] h2')?.textContent).toBe('Add client from TherapyNotes');
+  document.body.querySelector('.create-records-modal header button').click();await flushPromises();
+  await wrapper.findAll('.cm-header-actions button').find(button=>button.text()==='Add client for selected updates').trigger('click');
+  expect(wrapper.getComponent({name:'ClientUpdateModal'}).props('open')).toBe(true);
+ } finally {wrapper.unmount();clearClientManagementWorkspaces();authMock.user.role='support';}
+});
 it('mounts and loads the client dashboard without runtime setup errors',async()=>{
  localStorage.clear();sessionStorage.clear();apiMock.get.mockImplementation(async url=>({data:String(url).startsWith('/clients?')?{items:[],total:0}:url==='/agencies/2'?{id:2,name:'Synthetic agency',portal_url:'synthetic',organization_type:'agency'}:[]}));
  const pinia=createPinia();setActivePinia(pinia);const agency=useAgencyStore(pinia);agency.userAgencies=[{id:2,name:'Synthetic agency',portal_url:'synthetic',organization_type:'agency'}];agency.agencies=agency.userAgencies;agency.currentAgency=agency.userAgencies[0];

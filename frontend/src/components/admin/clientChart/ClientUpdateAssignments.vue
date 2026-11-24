@@ -36,6 +36,7 @@ import { canAccessMedicalBilling } from '../../../config/medicalBillingAccess';
 import { meaningfulProgram } from '../../../utils/clientRosterContext.js';
 import { serviceLocationForOffice,billingServiceLocationOptions } from '../../../utils/officeBillingDefaults.js';
 import { assignmentOfficesForAgency, primaryAssignmentProvider, providerOfficeDefaults } from '../../../utils/clientAssignmentDefaults.js';
+import { finishClientCreation } from '../../../utils/clientCreationOutcome.js';
 import ClientServiceEnrollments from '../ClientServiceEnrollments.vue';
 const props=defineProps({clientId:{type:[Number,String],required:true},agencyId:{type:[Number,String],required:true},initialAssignment:{type:Object,default:()=>({})}});
 const emit=defineEmits(['updated','busy','ready']);const auth=useAuthStore();
@@ -129,6 +130,18 @@ async function savePendingAssignments(){
  const own=generation;
  if(busy.value)return false;
  if(await servicesPanel.value?.savePendingAssignments?.()===false){error.value='The provider assignment could not be saved. Review Services & providers above and retry.';section.value?.scrollIntoView?.({block:'center'});return false;}
+ // Legacy chart assignments also need a service enrollment. Staff should not
+ // have to find Add service after choosing the client's clinical provider.
+ if(!isSchool.value && client.value?.client_type==='clinical' && providerId.value
+   && ['super_admin','admin','support','staff'].includes(auth.user?.role)
+   && !services.value.some(service=>service.service_kind==='counseling' && Number(service.is_active)===1)) {
+  try {
+   await finishClientCreation({api,clientId:props.clientId,agencyId:props.agencyId,organizationId:props.agencyId,
+    outcome:'assign',providerId:providerId.value,serviceKind:'counseling',isSchool:false});
+   if(own!==generation)return false;
+   await servicesPanel.value?.refresh?.();emit('updated');
+  } catch(e) {error.value=e.response?.data?.error?.message||e.message||'The clinical service assignment could not be saved.';return false;}
+ }
  // A saved provider may trigger a fresh office suggestion before draft saving.
  await nextTick();await providerSuggestion;
  if(own!==generation)return false;

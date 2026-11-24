@@ -7,7 +7,7 @@ import Panel from '../TaskDetailSidePanel.vue';
 it('opens the three-record importer after a support claim and allows marking the task done afterward', async () => {
   const item = { id: 4, task_type: 'custom', task_list_id: 2, title: 'Complete client record', status: 'pending', metadata: { source: 'client_exchange_setup', clientId: 15, agencyId: 2 } };
   const wrapper = shallowMount(Panel, { props: { item, agencyId: 2 }, global: { stubs: { RouterLink: true } } }); await flushPromises();
-  expect(wrapper.text()).toContain('Import demographics, intake and treatment plan');
+  expect(wrapper.text()).toContain('Import patient info, intake and treatment plan');
   wrapper.findComponent({ name: 'TaskClaimButton' }).vm.$emit('claimed', { ...item, assigned_to_user_id: 8 }); await flushPromises();
   const importer = wrapper.findComponent({ name: 'ClientEhrBringUpToDatePanel' });
   expect(importer.props()).toMatchObject({ open: true, clientId: 15, agencyId: 2, creationFlow: true });

@@ -64,8 +64,8 @@
           <a href="https://colorado-hcp-portal.coxix.gainwelltechnologies.com/hcp/provider/Home/tabid/135/Default.aspx" target="_blank" rel="noopener noreferrer">Colorado Medicaid provider portal</a>
         </section>
         <section v-if="exchangeSetup" class="client-action-banner">
-          <p>Complete this client's record from the EHR. Paste demographics, the intake, and the latest treatment plan here, or review records the provider already supplied.</p>
-          <button type="button" class="btn btn-primary btn-sm" @click="showExchangeImport = true">Import demographics, intake and treatment plan</button>
+          <p>Complete this client's record from the EHR. Paste patient info, the intake, and the latest treatment plan here, or review records the provider already supplied.</p>
+          <button type="button" class="btn btn-primary btn-sm" @click="showExchangeImport = true">Import patient info, intake and treatment plan</button>
           <router-link :to="{ path: `${route.params.organizationSlug ? '/' + route.params.organizationSlug : ''}/admin/clients`, query: { clientId: exchangeSetup.clientId } }">Review client record</router-link>
           <p v-if="exchangeEhrReference">EHR reference: {{ exchangeEhrReference }}</p>
           <p v-if="exchangeRecordsImported">Records saved. Review the imported information, then mark this task done.</p>
