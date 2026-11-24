@@ -65,3 +65,6 @@ try{
  else throw Error('Choose setup, preview, activate, tick or status.');
 }catch(error){console.error(JSON.stringify({mode,error:error.status?'TRANSITION_REVIEW_REQUIRED':error.code||'TRANSITION_OPERATION_FAILED',message:/token|private|secret|credential/i.test(String(error.message))?'Operation failed; review access configuration.':String(error.message).slice(0,300)}));process.exitCode=1;}
 finally{await pool.end();}
+// Imported application transports can retain background timers. All requested
+// work and database cleanup are awaited above; this one-shot job must terminate.
+process.exit(process.exitCode||0);
