@@ -1,4 +1,5 @@
 <script setup>
+import MessageLinkControl from '../messages/MessageLinkControl.vue';
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
 import EmailSendReceipt from '../messages/EmailSendReceipt.vue';
@@ -7,6 +8,8 @@ import SecureMessageBanner from '../conversa/SecureMessageBanner.vue';
 import SecureFamilyAudience from '../session-comments/SecureFamilyAudience.vue';
 import { useAuthStore } from '../../store/auth';
 import { getActivePinia } from 'pinia';
+
+const messageInput = ref(null);
 const auth = getActivePinia() ? useAuthStore() : { user: null };
 const sharedAudience = ref(null);
 import EmailDeliveryChoice from '../messages/EmailDeliveryChoice.vue';
@@ -95,7 +98,8 @@ watch(() => [props.clientId, props.agencyId], () => { emailReceipt.value = null;
     <p v-if="target">{{ method === 'secure' ? 'Shared care conversation' : `To: ${target.displayName || clientName}${address ? ` · ${address}` : ''}` }}</p>
     <p v-if="!loading && !activeMethod?.available" role="status">{{ activeMethod?.reason || 'This channel is not available for this recipient.' }}</p>
     <label v-if="method !== 'sms'">Subject<input v-model="subject" :disabled="busy" maxlength="200" /></label>
-    <label>Message<textarea v-model="body" :disabled="busy || loading || !activeMethod?.available" rows="5" maxlength="10000" :placeholder="method === 'secure' ? 'Write to all listed eligible recipients…' : 'Write to the selected contact…'" /></label>
+    <label>Message<textarea ref="messageInput" v-model="body" :disabled="busy || loading || !activeMethod?.available" rows="5" maxlength="10000" :placeholder="method === 'secure' ? 'Write to all listed eligible recipients…' : 'Write to the selected contact…'" /></label>
+    <MessageLinkControl :textarea="messageInput" :disabled="busy || loading || !activeMethod?.available" />
     <p v-if="method === 'sms'" class="hint">Texts follow existing consent and opt-out rules. Use secure messages for private care details.</p>
     <EmailDeliveryChoice :info="deliveryChoice" :busy="busy" @choose="send($event)" @cancel="deliveryChoice = null" />
     <p v-if="error" role="alert">{{ error }}</p><p v-if="status" role="status">{{ status }}</p>

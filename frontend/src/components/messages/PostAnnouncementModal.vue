@@ -1,8 +1,10 @@
 <script setup>
+import MessageLinkControl from './MessageLinkControl.vue';
 import { computed, ref, watch } from 'vue';
 import api from '@/services/api';
 import { useRoute, useRouter } from 'vue-router';
 
+const messageInput = ref(null);
 const props = defineProps({
   open: { type: Boolean, default: false },
   /** 'team' or 'club' */
@@ -148,7 +150,8 @@ function openInMessages() {
         </div>
         <div class="form-row">
           <label>Message</label>
-          <textarea v-model="messageVal" rows="4" maxlength="1200" class="form-control" />
+          <textarea ref="messageInput" v-model="messageVal" rows="4" maxlength="1200" class="form-control" />
+          <MessageLinkControl :textarea="messageInput" />
         </div>
         <div v-if="displayType === 'splash'" class="form-row">
           <label>Splash image URL (optional)</label>

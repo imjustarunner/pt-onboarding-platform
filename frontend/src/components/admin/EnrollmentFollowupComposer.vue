@@ -22,7 +22,8 @@
         <label for="followup-subject">Subject</label>
         <input id="followup-subject" v-model="draft.subject" required maxlength="200" @input="edited" />
         <label for="followup-message">Message</label>
-        <textarea id="followup-message" v-model="draft.text" required rows="14" maxlength="20000" @input="edited" />
+        <textarea ref="messageInput" id="followup-message" v-model="draft.text" required rows="14" maxlength="20000" @input="edited" />
+        <MessageLinkControl :textarea="messageInput" />
       </fieldset>
       <button type="button" :disabled="previewLoading || !draft.text" @click="preview">{{ previewLoading ? 'Preparing preview…' : 'Preview branded email' }}</button>
       <iframe v-if="previewHtml" title="Final follow-up email preview" sandbox="" :srcdoc="previewHtml" class="followup-preview" />
@@ -31,9 +32,12 @@
 </template>
 
 <script setup>
+import MessageLinkControl from '../messages/MessageLinkControl.vue';
 import { computed, onMounted, ref } from 'vue';
 import api from '../../services/api';
 import { ENROLLMENT_FOLLOWUP_REASONS as reasons, enrollmentFollowupDraft } from '../../constants/enrollmentFollowup.js';
+
+const messageInput = ref(null);
 const props = defineProps({ clientId: { type: Number, required: true }, agencyId: Number, locked: Boolean, modelValue: { type: Object, required: true } });
 const draft = computed(() => props.modelValue);
 const emit = defineEmits(['ready', 'resume']);

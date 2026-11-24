@@ -13,7 +13,7 @@
               <span class="cc-messages-item__date">{{ formatDateTime(note.created_at) }}</span>
               <span v-if="note.category" class="cc-messages-pill">{{ formatCategory(note.category) }}</span>
             </div>
-            <div class="cc-messages-item__body">{{ note.message }}</div>
+            <div class="cc-messages-item__body"><MessageLinkText :text="note.message" /></div>
           </article>
         </div>
       </details>
@@ -61,7 +61,7 @@
           </div>
         </div>
         <form class="cc-messages-compose" @submit.prevent="createAlert">
-          <textarea
+          <textarea ref="alertInput"
             v-model="alertDraft"
             class="cc-messages-textarea"
             rows="3"
@@ -69,6 +69,7 @@
             placeholder="Add a client alert…"
             aria-label="Client Alert"
           />
+          <MessageLinkControl :textarea="alertInput" :disabled="creatingAlert" />
           <div class="cc-messages-compose__foot">
             <span class="cc-messages-char">{{ alertDraft.length }}/2000</span>
             <button
@@ -88,7 +89,7 @@
               <span class="cc-messages-item__date">{{ formatDateTime(alert.created_at) }}</span>
               <span class="cc-messages-pill">Client Alert</span>
             </div>
-            <div class="cc-messages-item__body">{{ alert.body }}</div>
+            <div class="cc-messages-item__body"><MessageLinkText :text="alert.body" /></div>
           </article>
         </div>
         <div v-else class="cc-messages-empty">
@@ -106,13 +107,14 @@
           </div>
           <button type="button" class="cc-btn-soft" style="width: auto;" @click="closeInternalComposer">✕</button>
         </div>
-        <textarea
+        <textarea ref="noteInput"
           v-model="internalNoteMessage"
           class="cc-messages-textarea"
           rows="6"
           maxlength="2000"
           placeholder="Add an internal admin note…"
         />
+        <MessageLinkControl :textarea="noteInput" :disabled="creatingInternal" />
         <div class="cc-messages-compose__foot">
           <span class="cc-messages-char">{{ internalNoteMessage.length }}/2000</span>
           <div style="display: flex; gap: 8px;">
@@ -134,8 +136,13 @@
 </template>
 
 <script setup>
+import MessageLinkText from '../../messages/MessageLinkText.vue';
+import MessageLinkControl from '../../messages/MessageLinkControl.vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../../services/api';
+
+const alertInput = ref(null);
+const noteInput = ref(null);
 import '../../../styles/client-messages-tab.css';
 
 const props = defineProps({

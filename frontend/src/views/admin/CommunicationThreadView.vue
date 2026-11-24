@@ -39,7 +39,7 @@
                 <img :src="url" :alt="`Image ${i + 1}`" class="bubble-media-img" loading="lazy" />
               </a>
             </div>
-            <div v-if="m.body && m.body !== '[MMS]'" class="text">{{ m.body }}</div>
+            <div v-if="m.body && m.body !== '[MMS]'" class="text"><MessageLinkText :text="m.body" /></div>
           </div>
         </div>
       </div>
@@ -57,7 +57,8 @@
         </div>
         <div class="field">
           <label>Message</label>
-          <textarea v-model="draft" rows="5" placeholder="Type your message…" />
+          <textarea ref="replyInput" v-model="draft" rows="5" placeholder="Type your message…" />
+          <MessageLinkControl :textarea="replyInput" />
           <div v-if="pendingMediaUrls.length" class="pending-media">
             <span v-for="(url, i) in pendingMediaUrls" :key="i" class="pending-media-item">
               <img :src="url" alt="Attached" class="pending-media-thumb" />
@@ -82,10 +83,13 @@
 </template>
 
 <script setup>
+import MessageLinkText from '../../components/messages/MessageLinkText.vue';
+import MessageLinkControl from '../../components/messages/MessageLinkControl.vue';
 import { computed, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
 
+const replyInput = ref(null);
 const route = useRoute();
 const smsInboxLink = computed(() => {
   const slug = route.params.organizationSlug;

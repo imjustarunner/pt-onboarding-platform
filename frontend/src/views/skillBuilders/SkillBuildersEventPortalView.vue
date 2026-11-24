@@ -2887,10 +2887,11 @@
                     <div class="sbep-chat-meta">
                       {{ m.sender_first_name }} {{ m.sender_last_name }} · {{ formatPostTime(m.created_at) }}
                     </div>
-                    <div class="sbep-chat-body">{{ m.body }}</div>
+                    <div class="sbep-chat-body"><MessageLinkText :text="m.body" /></div>
                   </li>
                 </ul>
-                <textarea v-model="chatDraft" class="input" rows="3" placeholder="Message the event group…" />
+                <textarea ref="chatInput" v-model="chatDraft" class="input" rows="3" placeholder="Message the event group…" />
+                <MessageLinkControl :textarea="chatInput" />
                 <button
                   type="button"
                   class="btn btn-primary btn-sm sbep-chat-send"
@@ -2935,6 +2936,8 @@
 </template>
 
 <script setup>
+import MessageLinkText from '../../components/messages/MessageLinkText.vue';
+import MessageLinkControl from '../../components/messages/MessageLinkControl.vue';
 import { ref, computed, watch, reactive, nextTick } from 'vue';
 import { useRoute, useRouter, isNavigationFailure } from 'vue-router';
 import { useAgencyStore } from '../../store/agency';
@@ -2954,6 +2957,7 @@ import UserAvatar from '../../components/common/UserAvatar.vue';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import ClientDetailPanel from '../../components/admin/ClientDetailPanel.vue';
 
+const chatInput = ref(null);
 const route = useRoute();
 const router = useRouter();
 const agencyStore = useAgencyStore();

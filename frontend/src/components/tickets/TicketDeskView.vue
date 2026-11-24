@@ -385,7 +385,7 @@
                   <div v-if="originalInquiry && !newestFirst" class="bubble">
                     <div class="bubble-meta"><strong>{{ selected.source_email_from || 'Original inquiry' }}</strong><span>{{ formatDateTime(selected.created_at) }}</span></div>
                     <ConversationEmailBody v-if="selected.source_channel === 'email'" :message="{ body_text: originalInquiry }" />
-                    <div v-else class="bubble-body">{{ originalInquiry }}</div>
+                    <div v-else class="bubble-body"><MessageLinkText :text="originalInquiry" /></div>
                   </div>
                   <div
                     v-for="m in visibleMessages"
@@ -407,14 +407,14 @@
                       <strong>{{ deliveryLabel(m.email_delivery) }}</strong>
                     </div>
                     <ConversationEmailBody v-if="m.email_delivery && !m.is_internal && !m.is_deleted" :message="{ body_text: m.body }" />
-                    <div v-else class="bubble-body">{{ m.body || '(deleted)' }}</div>
+                    <div v-else class="bubble-body"><MessageLinkText :text="m.body || '(deleted)'" /></div>
                   </div>
 
                   <p v-if="attachmentOpenError" class="error" role="alert">{{ attachmentOpenError }}</p>
                   <div v-if="showOriginalInquiry && newestFirst" class="bubble">
                     <div class="bubble-meta"><strong>{{ selected.source_email_from || 'Original inquiry' }}</strong><span>{{ formatDateTime(selected.created_at) }}</span></div>
                     <ConversationEmailBody v-if="selected.source_channel === 'email'" :message="{ body_text: originalInquiry }" />
-                    <div v-else class="bubble-body">{{ originalInquiry }}</div>
+                    <div v-else class="bubble-body"><MessageLinkText :text="originalInquiry" /></div>
                   </div>
                   <TicketAttachmentFiling
                     v-if="ticketAttachments.length && !threadQuery.trim()"
@@ -922,13 +922,14 @@
                   <button type="button" class="btn btn-secondary btn-xs" @click="startFreshReply">I reviewed the conversation; keep my reply</button>
                 </div>
                 <p v-if="emailNotice" class="email-delivery-notice" role="status">{{ emailNotice }}</p>
-                <textarea
+                <textarea ref="replyInput"
                   v-model="draft"
                   class="composer-textarea"
                   :disabled="messagesLoading"
                   :rows="composerTextRows"
                   :placeholder="composerPlaceholder"
                 />
+                <MessageLinkControl :textarea="replyInput" :disabled="messagesLoading" />
                 <details v-if="visibleDraftSources.length && composerMode !== 'internal'" class="draft-sources composer-draft-sources"><summary>Draft sources ({{ visibleDraftSources.length }})</summary>
                   <div class="draft-sources-label">Draft based on:</div>
                   <ul class="draft-sources-list">
@@ -1077,6 +1078,8 @@
 </template>
 
 <script setup>
+import MessageLinkText from '../messages/MessageLinkText.vue';
+import MessageLinkControl from '../messages/MessageLinkControl.vue';
 import FaxReferralIntake from './FaxReferralIntake.vue';
 import FaxTriageQueue from './FaxTriageQueue.vue';
 import { renderEmailContent } from '../../utils/emailPresentation';
@@ -1105,6 +1108,7 @@ import {
   ticketTopicLabel
 } from '../../utils/ticketTopics';
 
+const replyInput = ref(null);
 const ReferralUpload = defineAsyncComponent(() => import('../school/ReferralUpload.vue'));
 
 const props = defineProps({

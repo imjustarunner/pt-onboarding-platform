@@ -1,5 +1,9 @@
 <script setup>
+import MessageLinkText from '../messages/MessageLinkText.vue';
+import MessageLinkControl from '../messages/MessageLinkControl.vue';
 import {useFamilyLocale} from '../../composables/useFamilyLocale';
+
+const messageInput = ref(null);
 const {ft}=useFamilyLocale();
 import {computed,nextTick,onBeforeUnmount,ref,watch} from 'vue';
 import {useAuthStore} from '../../store/auth';
@@ -237,7 +241,7 @@ onBeforeUnmount(()=>{++loadIntent;++openIntent;++sendIntent;drafts.clear();});
           <div v-else ref="threadEl" class="subject-messages">
             <button v-if="Object.keys(replyCursors).length" type="button" :disabled="opening" @click="earlierReplies">{{ ft("Earlier replies") }}</button>
             <article v-for="m in messages" :key="m.id" :data-message-id="m.id" class="gmsg-bubble" :class="{mine:Number(m.sender_user_id)===Number(auth.user?.id),'is-notified':Number(m.id)===Number(highlightedMessageId)}">
-              <p class="message-meta">{{ name(m) }} · {{ when(m.created_at) }}</p><div class="gmsg-message-text">{{ m.body }}</div>
+              <p class="message-meta">{{ name(m) }} · {{ when(m.created_at) }}</p><div class="gmsg-message-text"><MessageLinkText :text="m.body" /></div>
               <button v-for="a in m.attachments||[]" :key="a.id" type="button" @click="downloadAttachment(a.downloadPath||`/chat/attachments/${a.id}`,a.original_filename)">{{ a.original_filename||'Secure attachment' }}</button>
             </article>
           </div>
@@ -246,7 +250,8 @@ onBeforeUnmount(()=>{++loadIntent;++openIntent;++sendIntent;drafts.clear();});
             <label v-if="newSubject">{{ ft("Subject") }}<input v-model="subject" required maxlength="200" autocomplete="off" :disabled="sending" :placeholder="ft('What is this message about?')" /></label>
             <div class="conversation-audience"><strong>{{ ft("Who can read and reply") }}</strong><ul><li v-for="p in audience" :key="p.id">{{ p.name }} · {{ ft(participantRole(p)) }}{{ Number(p.id)===Number(auth.user?.id)?' (you)':'' }}</li></ul><p>{{ ft("Secure messages are shared with the eligible family portal users listed here and the") }} {{ ft(teamLabel) }}. {{ learning ? 'They do not replace a scheduled tutoring session.' : 'They are not therapy and do not replace a scheduled session.' }}</p></div>
             <FamilySharingNotice ref="sharing" :agency-id="context?.agency_id" :scope-key="`${auth.user?.id}:${contextKey}:${selected?.id||'new'}`" />
-            <label>{{ ft("Message") }}<textarea v-model="draft" required rows="4" :disabled="sending" placeholder="Write to everyone listed above…" /></label>
+            <label>{{ ft("Message") }}<textarea ref="messageInput" v-model="draft" required rows="4" :disabled="sending" placeholder="Write to everyone listed above…" /></label>
+            <MessageLinkControl :textarea="messageInput" :disabled="sending" />
             <button type="submit" :disabled="sending||opening||!draft.trim()||(newSubject&&!subject.trim())||!audience.length||audienceChanged">{{ sending?'Sending…':newSubject?'Send new subject':'Send reply' }}</button>
           </form>
           <details v-if="selected"><summary>{{ ft("Message security & activity") }}</summary><SecureMessageBanner :show-product-brand="false" :thread-id="selected.thread.thread_id" /></details>
