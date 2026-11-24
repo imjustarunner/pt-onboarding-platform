@@ -22,7 +22,10 @@ beforeAll(async()=>{
  const settings={host:'127.0.0.1',port,user:'root',password:'',timezone:'+00:00',dateStrings:true};
  admin=await mysql.createConnection(settings);await admin.query(`CREATE DATABASE ${name}`);created=true;db=mysql.createPool({...settings,database:name,connectionLimit:6});
  for(const sql of [
-  'CREATE TABLE clients (id INT PRIMARY KEY,agency_id INT,client_type VARCHAR(30),status VARCHAR(30),client_status_id INT)',
+  `CREATE TABLE clients (id INT PRIMARY KEY,agency_id INT,client_type VARCHAR(30),status VARCHAR(30),client_status_id INT,
+   is_demo BOOL DEFAULT 0,created_via_dev_fill BOOL DEFAULT 0,compliance_archived_at DATETIME,
+   termination_reason TEXT,terminated_at DATETIME,terminated_by_user_id INT,termination_last_provider_id INT,
+   termination_last_provider_name VARCHAR(255),termination_effective_date DATE,updated_at DATETIME)`,
   'CREATE TABLE users (id INT PRIMARY KEY,first_name VARCHAR(80),last_name VARCHAR(80),role VARCHAR(24) DEFAULT \'provider\',is_active BOOL DEFAULT 1,is_archived BOOL DEFAULT 0)',
   'CREATE TABLE user_agencies (user_id INT,agency_id INT,is_active BOOL)',
   'CREATE TABLE client_provider_assignments (client_id INT,organization_id INT,provider_user_id INT,is_active BOOL,created_at DATETIME)',
@@ -48,7 +51,7 @@ beforeAll(async()=>{
  for(const sql of (await readFile(new URL('../../../../database/migrations/1820_client_service_lifecycle.sql',import.meta.url),'utf8')).split(';').filter(sql=>sql.trim()))await db.query(sql);
  for(const sql of (await readFile(new URL('../../../../database/migrations/1752_client_update_workflows.sql',import.meta.url),'utf8')).replace(/^--.*$/gm,'').split(';').filter(sql=>sql.trim()))await db.query(sql);
  for(const sql of (await readFile(new URL('../../../../database/migrations/1821_client_reenrollment_packages.sql',import.meta.url),'utf8')).replace(/^--.*$/gm,'').split(';').filter(sql=>sql.trim()))await db.query(sql);
- await db.query("INSERT INTO clients VALUES (8,2,'clinical','CURRENT',1),(99,2,'clinical','CURRENT',1)");
+ await db.query("INSERT INTO clients (id,agency_id,client_type,status,client_status_id) VALUES (8,2,'clinical','CURRENT',1),(99,2,'clinical','CURRENT',1)");
  await db.query("INSERT INTO users (id,first_name,last_name) VALUES (7,'Provider','One'),(99,'Provider','Two')");
  await db.query('INSERT INTO user_agencies VALUES (7,2,1),(99,2,1)');
  await db.query("INSERT INTO agencies(id,name) VALUES (2,'Agency One'),(3,'Agency Two')");
