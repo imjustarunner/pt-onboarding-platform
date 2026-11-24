@@ -18,7 +18,12 @@ it('keeps dashboard interviewers on their signed-in origin and opens the workspa
  expect(m.get.mock.calls.some(([url])=>url.endsWith('/video-token'))).toBe(true);
  expect(m.replace).not.toHaveBeenCalled();
  expect(wrapper.findComponent({name:'InterviewLiveWorkspace'}).exists()).toBe(true);
- expect(wrapper.findComponent({name:'SupervisionVideoLobbyPanel'}).exists()).toBe(false);
+ const lobby=wrapper.findComponent({name:'SupervisionVideoLobbyPanel'});
+ expect(lobby.exists()).toBe(true);
+ expect(lobby.props()).toMatchObject({sessionId:9,isSupervisor:true,admissionOnly:true});
+ expect(wrapper.findComponent({name:'SupervisionVideoRoom'}).props('isHost')).toBe(false);
+ lobby.vm.$emit('update:waiting-count',1);await flushPromises();
+ expect(wrapper.get('.join-waiting-chip').text()).toBe('1 waiting');
  expect(wrapper.findComponent({name:'SupervisionVideoRoom'}).exists()).toBe(true);
 });
 it('never shows interviewer materials to an applicant',async()=>{

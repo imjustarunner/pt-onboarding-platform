@@ -6,7 +6,7 @@
     {{ overlayOpen ? 'Hide waiting room' : (waitingCount ? `Waiting room (${waitingCount})` : 'Waiting room') }}
   </button>
   <div v-show="!overlay || overlayOpen" class="lobby-host-float__panel">
-  <CalendarGuestLobby v-if="isSupervisor && !unavailable && sessionId && calendarGuestsEnabled && calendarAvailable" ref="calendarLobby" :session-id="sessionId" :meeting-kind="meetingKind" @update:guests="calendarGuests = $event" @update:busy="calendarBusy = $event" @unavailable="calendarAvailable=false; calendarGuests=[]" />
+  <CalendarGuestLobby v-if="isSupervisor && !admissionOnly && !unavailable && sessionId && calendarGuestsEnabled && calendarAvailable" ref="calendarLobby" :session-id="sessionId" :meeting-kind="meetingKind" @update:guests="calendarGuests = $event" @update:busy="calendarBusy = $event" @unavailable="calendarAvailable=false; calendarGuests=[]" />
   <div
     v-if="waitingRoomEnabled"
     class="lobby-panel"
@@ -17,7 +17,7 @@
     </div>
     <div class="lobby-panel-head">
       <h4 class="lobby-panel-title">Waiting room — Admit participants</h4>
-      <div class="lobby-panel-actions">
+      <div v-if="!admissionOnly" class="lobby-panel-actions">
         <button
           v-if="participants.length > 1"
           type="button"
@@ -75,6 +75,8 @@ import WaitingRoomAlerts from '../meetings/WaitingRoomAlerts.vue';
 const props = defineProps({
   sessionId: { type: [Number, String], default: null },
   isSupervisor: { type: Boolean, default: false },
+  /** Interviewers may admit participants without changing host room settings. */
+  admissionOnly: { type: Boolean, default: false },
   calendarGuestsEnabled: { type: Boolean, default: true },
   /** supervision | team-meeting */
   meetingKind: { type: String, default: 'supervision' },
@@ -218,7 +220,7 @@ async function admit(p) {
 }
 
 async function openWaitingRoom() {
-  if (!props.sessionId || disablingWaitingRoom.value) return;
+  if (props.admissionOnly || !props.sessionId || disablingWaitingRoom.value) return;
   disablingWaitingRoom.value = true;
   admitError.value = '';
   admitSuccess.value = false;
@@ -239,7 +241,7 @@ async function openWaitingRoom() {
 }
 
 async function admitAll() {
-  if (!props.sessionId || participants.value.length < 2 || admittingAll.value) return;
+  if (props.admissionOnly || !props.sessionId || participants.value.length < 2 || admittingAll.value) return;
   admittingAll.value = true;
   admittingKey.value = null;
   admitError.value = '';

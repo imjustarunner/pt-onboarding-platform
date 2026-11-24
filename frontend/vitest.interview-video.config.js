@@ -9,6 +9,7 @@ export default {
     'src/components/meetings/__tests__/MeetingRouteHost.test.js',
     'src/components/supervision/__tests__/SupervisionShareLink.test.js',
     'src/components/supervision/__tests__/SupervisionLeaveControls.test.js',
+    'src/components/supervision/__tests__/SupervisionVideoLobbyPanel.test.js',
     'src/views/__tests__/hire.applicantInterview.test.js',
     'src/views/__tests__/InterviewStaffJoin.test.js',
     'src/views/__tests__/MeetingJoinEntry.test.js',

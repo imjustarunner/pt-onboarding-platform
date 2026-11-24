@@ -74,6 +74,26 @@ describe('SupervisionVideoLobbyPanel admit-all behavior', () => {
     expect(document.querySelector('.lobby-panel-admit-all').textContent).toContain('Admit all');
     wrapper.unmount();
   });
+
+  it('lets interviewers admit candidates without host room settings or calendar polling', async () => {
+    apiMock.get.mockResolvedValue({ data: { waitingRoomEnabled: true, participants: [
+      { joinIdentity: 'guest-iv-candidate', displayName: 'Applicant', isGuest: true }
+    ] } });
+    const wrapper = mount(SupervisionVideoLobbyPanel, {
+      props: { sessionId: 42, isSupervisor: true, meetingKind: 'team-meeting', admissionOnly: true }
+    });
+    await flushPromises();
+    expect(apiMock.get.mock.calls.every(([path]) => path.endsWith('/lobby-participants'))).toBe(true);
+    expect(wrapper.find('.lobby-panel-actions').exists()).toBe(false);
+    const alerts = wrapper.findComponent({ name: 'WaitingRoomAlerts' });
+    expect(alerts.props('participants')).toHaveLength(1);
+    await wrapper.get('.lobby-panel-item button').trigger('click');
+    await flushPromises();
+    expect(apiMock.post).toHaveBeenCalledWith('/team-meetings/42/admit/guest-iv-candidate', { joinIdentity: 'guest-iv-candidate' });
+    expect(wrapper.find('.lobby-panel-success').exists()).toBe(true);
+    expect(wrapper.find('.lobby-panel').exists()).toBe(true);
+    wrapper.unmount();
+  });
 });
 
 describe('host and cohost waiting-room alerts',()=>{

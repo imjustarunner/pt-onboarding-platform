@@ -192,7 +192,7 @@
           </div>
           </div>
           <span
-            v-if="isHost && waitingLobbyCount > 0"
+            v-if="canAdmitParticipants && waitingLobbyCount > 0"
             class="join-waiting-chip"
             title="People waiting to be admitted"
           >
@@ -229,12 +229,13 @@
           </div>
         </aside>
         <div class="join-video" :class="{ 'join-video--lobby': isInLobby && !videoFullscreen }">
-          <!-- Host admit controls stay above the video so flex layout cannot squeeze them away. -->
+          <!-- Admission controls stay above the video so flex layout cannot squeeze them away. -->
           <SupervisionVideoLobbyPanel
-            v-if="(isHost || isCoHostBySignal || trainingState?.proctor) && resolvedEventId && !meetingCompletedAt"
+            v-if="canAdmitParticipants && resolvedEventId && !meetingCompletedAt"
             class="join-host-lobby"
             :session-id="resolvedEventId"
-            :is-supervisor="isHost || isCoHostBySignal || !!trainingState?.proctor"
+            :is-supervisor="canAdmitParticipants"
+            :admission-only="isInterviewMeeting && !isHost"
             :calendar-guests-enabled="canReviewCalendarGuests"
             meeting-kind="team-meeting"
             theme="dark"
@@ -1176,6 +1177,11 @@ const MUTE_PARTICIPANT_ROLES = new Set([
 
 const canMuteParticipants = computed(() => isTraining.value ? !!trainingState.value?.proctor : (
   isHost.value || isCoHostBySignal.value || MUTE_PARTICIPANT_ROLES.has(actorRole.value)
+));
+
+const canAdmitParticipants = computed(() => (
+  isHost.value || isCoHostBySignal.value || !!trainingState.value?.proctor
+  || (isInterviewMeeting.value && isInterviewer.value)
 ));
 
 /** Who may invite/add people mid-meeting — host, admin, support, or super admin. */

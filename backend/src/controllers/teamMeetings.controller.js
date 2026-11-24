@@ -214,6 +214,13 @@ async function isMeetingHost(event, userId) {
   return !!rows.length;
 }
 
+async function canAdmitMeetingParticipants(req, event) {
+  // Interview admission follows staff assignment and tenant hiring access,
+  // independently of whether the scheduled host is available.
+  if (isInterviewMeeting(event)) return canAccessInterviewMeeting(req, event);
+  return isMeetingHost(event, Number(req.user?.id || 0));
+}
+
 async function canAccessTeamMeeting(req, event) {
   if (isInterviewMeeting(event)) return canAccessInterviewMeeting(req, event);
   const actorId = Number(req.user?.id || 0);
@@ -1018,8 +1025,8 @@ export const getTeamMeetingLobbyParticipants = async (req, res, next) => {
     if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
 
     const actorUserId = Number(req.user?.id || 0);
-    if (!(await isMeetingHost(row,actorUserId))) {
-      return res.status(403).json({ error: { message: 'Only the host can view the waiting room' } });
+    if (!(await canAdmitMeetingParticipants(req, row))) {
+      return res.status(403).json({ error: { message: 'Only the host or an authorized interviewer can view the waiting room' } });
     }
 
     const hostId = Number(row.provider_id || 0);
@@ -1077,9 +1084,8 @@ export const admitTeamMeetingParticipant = async (req, res, next) => {
     if (!row?.id) return res.status(404).json({ error: { message: 'Event not found' } });
     const eventId = Number(row.id);
 
-    const actorUserId = Number(req.user?.id || 0);
-    if (!(await isMeetingHost(row,actorUserId))) {
-      return res.status(403).json({ error: { message: 'Only the host can admit participants' } });
+    if (!(await canAdmitMeetingParticipants(req, row))) {
+      return res.status(403).json({ error: { message: 'Only the host or an authorized interviewer can admit participants' } });
     }
 
     const admitted = await admitJoinIdentity({
