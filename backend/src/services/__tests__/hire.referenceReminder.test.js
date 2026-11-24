@@ -4,7 +4,7 @@ vi.mock('../../models/HiringReferenceRequest.model.js', () => ({ default:{ expir
 vi.mock('../hiringReferenceIdentity.service.js', () => ({ resolveHiringReferenceSenderIdentity:vi.fn(async () => ({id:1})) }));
 vi.mock('../../models/User.model.js', () => ({ default:{findById:vi.fn(async () => ({first_name:'Applicant'}))} }));
 vi.mock('../../models/Agency.model.js', () => ({ default:{findById:vi.fn(async () => ({name:'Agency'}))} }));
-vi.mock('../hiringReferenceRequests.service.js', () => ({ buildReferenceFormUrl:token=>`https://example.test/${token}`,buildPeopleOpsContactFooter:()=>({text:'PO',html:'PO'}),sendHiringReferenceOutboundEmail:mocks.send }));
+vi.mock('../hiringReferenceRequests.service.js', () => ({ buildReferenceFormUrl:token=>`https://example.test/${token}`,resolveReferencePeopleOpsContact:async()=>({text:'PO',html:'PO'}),sendHiringReferenceOutboundEmail:mocks.send }));
 vi.mock('../hiringReferenceActivity.service.js', () => ({logHiringReferenceEvent:vi.fn()}));
 import { runHiringReferenceReminderTick } from '../hiringReferenceReminder.service.js';
 const row = { id:1,agency_id:2,candidate_user_id:3,reference_email:'ref@example.test',public_link_token:'secure',sent_at:'2026-10-06T12:00:00Z',token_expires_at:'2026-10-13T12:00:00Z' };

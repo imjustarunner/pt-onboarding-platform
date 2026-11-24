@@ -1,13 +1,14 @@
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 
 const db = vi.hoisted(() => ({ execute: vi.fn() }));
-vi.mock('../../config/database.js', () => ({ default: db }));
+vi.mock('../../config/database.js', () => ({ default: db, onTableWrite:vi.fn() }));
 vi.mock('../agencySocialLinks.service.js', () => ({
   listSignatureSocialLinks: async () => [],
   getAgencySignatureTagline: async () => null,
   platformLabel: value => value
 }));
-import { brandedReferenceEmail, referenceEmailFrame, referenceEmployerBrand } from '../hiringReferenceEmail.service.js';
+import { brandedReferenceEmail, referenceEmailFrame, referenceEmployerBrand, referenceRequestsSentEmail } from '../hiringReferenceEmail.service.js';
+import { buildPeopleOpsContactFooter } from '../hiringReferenceRequests.service.js';
 import { resolveDepartmentSignatureContext, buildStaffSignatureHtml } from '../staffHtmlEmailSignature.service.js';
 
 beforeEach(() => {
@@ -22,7 +23,9 @@ it('keeps Plotline prominent and includes the employer logo, name and selected c
   const agency = { name: 'ITSCO', slug: 'itsco', color_palette: '{"primary":"#16457c"}' };
   const messages = [
     referenceEmailFrame({ agency, heading: 'Thank you for submitting a reference', body: '<p>Fictional example.</p>' }),
-    brandedReferenceEmail({ agency, candidateName: 'QA Applicant', referenceName: 'QA Referee', url: 'https://plotlinepo.com/reference/example', deadline: '2026-12-01' })
+    brandedReferenceEmail({ agency, candidateName: 'QA Applicant', referenceName: 'QA Referee', url: 'https://plotlinepo.com/reference/example', deadline: '2026-12-01' }),
+    brandedReferenceEmail({ agency, candidateName: 'QA Applicant', referenceName: 'QA Referee', url: 'https://plotlinepo.com/reference/example', deadline: '2026-12-01', reminder:true }),
+    referenceRequestsSentEmail({ agency, candidateName:'QA Applicant', references:[{name:'QA Referee',email:'referee@example.test'}] })
   ];
   for (const html of messages) {
     expect(html).toContain('plotline-primary-transparent.png');
@@ -33,6 +36,42 @@ it('keeps Plotline prominent and includes the employer logo, name and selected c
     expect(html).toContain('#16457c');
     expect(html.indexOf('plotline-primary-transparent.png')).toBeLessThan(html.indexOf('itsco-logo.png'));
   }
+});
+
+it('uses a real mail link instead of the organization-name fallback in the contact sentence', () => {
+  const contact = buildPeopleOpsContactFooter({name:'Juniper Consulting QA'}, {replyTo:'testing@itsco.health'});
+  expect(contact.html).toContain('href="mailto:testing@itsco.health"');
+  expect(contact.html).toContain('Contact People Operations');
+  expect(contact.text).toContain('testing@itsco.health');
+  expect(contact.html.match(/Juniper Consulting QA/g)).toHaveLength(1);
+  expect(contact.html).not.toContain('please contact Juniper');
+  expect(contact.teamLabel).toBe('People Operations');
+});
+
+it('honors the selected reply route and configured team label and makes phone contact clickable', () => {
+  const contact = buildPeopleOpsContactFooter({name:'ITSCO',terminology_settings:{peopleOpsTerm:'People & Culture'},people_ops_email:'old@example.test',phone_number:'(719) 555-0100',phone_extension:'12'}, {replyTo:'po@itsco.health'});
+  expect(contact.html).toContain('href="mailto:po@itsco.health"');
+  expect(contact.html).toContain('Contact People &amp; Culture');
+  expect(contact.html).toContain('href="tel:7195550100;ext=12"');
+  expect(contact.html).not.toContain('old@example.test');
+});
+
+it('never invents an address or renders placeholder/unsafe contact links', () => {
+  for (const email of ['', '___@___', 'javascript:alert(1)', 'references@plotlinepo.com']) {
+    const contact = buildPeopleOpsContactFooter({name:'Agency <X>',people_ops_email:email});
+    expect(contact.html).toContain('Reply to this email to reach the hiring team.');
+    expect(contact.html).not.toContain('href="mailto:');
+    expect(contact.html).toContain('Agency &lt;X&gt;');
+    expect(contact.text).not.toMatch(/undefined|___|javascript:/);
+  }
+});
+
+it('brands the request-sent notice and escapes applicant/referee data without changing company identity', () => {
+  const html = referenceRequestsSentEmail({agency:{name:'Juniper QA',logo_url:'https://example.test/juniper.png'},candidateName:'Applicant <QA>',references:[{name:'Referee <QA>',email:'referee@example.test'}]});
+  expect(html).toContain('Reference requests sent');expect(html).toContain('Applicant &lt;QA&gt;');expect(html).toContain('Referee &lt;QA&gt;');
+  expect(html).toContain('juniper.png');expect(html).not.toContain('itsco-logo.png');
+  expect(html).toContain('Their answers and ratings remain private.');
+  expect(html).toContain('Want to use Plotline for your organization?');
 });
 
 it('uses each company’s public logo route and careers color without copying ITSCO branding', () => {

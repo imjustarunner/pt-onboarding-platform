@@ -5,7 +5,7 @@ import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import {
   buildReferenceFormUrl,
-  buildPeopleOpsContactFooter,
+  resolveReferencePeopleOpsContact,
   sendHiringReferenceOutboundEmail
 } from './hiringReferenceRequests.service.js';
 import { logHiringReferenceEvent } from './hiringReferenceActivity.service.js';
@@ -26,7 +26,7 @@ async function sendReminderEmail({ row, label, identity }) {
   const user = await User.findById(row.candidate_user_id);
   const cand = [user?.first_name, user?.last_name].filter(Boolean).join(' ').trim() || 'the applicant';
   const url = buildReferenceFormUrl(String(row.public_link_token || '').trim());
-  const contactFooter = buildPeopleOpsContactFooter(agency);
+  const contactFooter = await resolveReferencePeopleOpsContact(agency, identity);
   const subject = `${agencyName} — reminder: reference for ${cand} (${label})`;
   const text = [
     `Hello,`,
