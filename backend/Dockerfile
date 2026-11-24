@@ -138,8 +138,7 @@ COPY frontend/src/constants/enrollmentFollowup.js /frontend/src/constants/enroll
 
 # Copy database migrations (run automatically on startup via bootstrap.js)
 COPY database/migrations ./database/migrations
-COPY database/clinical_migrations/025_client_safety_plans.sql ./database/clinical_migrations/025_client_safety_plans.sql
-COPY database/clinical_migrations/033_portal_document_assignment_batches.sql ./database/clinical_migrations/033_portal_document_assignment_batches.sql
+COPY database/clinical_migrations ./database/clinical_migrations
 
 # Offline Hogwarts demo zip templates (README, local Node server, start scripts)
 COPY tools/hogwarts-offline-demo ./tools/hogwarts-offline-demo
