@@ -11,7 +11,7 @@ import {
 } from '../controllers/clientAlerts.controller.js';
 import { getClientChartSetup } from '../controllers/chartSetup.controller.js';
 import { getChartImportDraft, getChartImportDrafts, saveChartImportDraft, importChartSection, getChartSupplementaryRecords,startChartRecordsImport,finishChartRecordsImport,prepareChartContactGuardian } from '../controllers/clientChartImport.controller.js';
-import { getClientPayerReadiness, searchClientPayers, linkClientPayer } from '../controllers/clientChartPayer.controller.js';
+import { getClientPayerReadiness, searchClientPayers, linkClientPayer, automateClientPayers } from '../controllers/clientChartPayer.controller.js';
 import {getClientImportCandidates} from '../controllers/clientImportCandidates.controller.js';
 import {getStaffReminderConsent,saveStaffReminderConsent} from '../controllers/staffVerbalReminderConsent.controller.js';
 import { listSchoolAbsenceHistory } from '../controllers/schoolAbsenceHistory.controller.js';
@@ -348,6 +348,7 @@ router.post('/:id/chart-import/sections/:section', requireActiveStatus, importCh
 router.get('/:id/chart-import/records', requireActiveStatus, getChartSupplementaryRecords);
 router.post('/:id/chart-import/contacts/:affiliationId/portal-account',requireActiveStatus,prepareChartContactGuardian);
 router.get('/:id/chart-import/payer-readiness', requireActiveStatus, getClientPayerReadiness);
+router.post('/:id/chart-import/payer-automation', requireActiveStatus, automateClientPayers);
 router.post('/:id/chart-import/payer-search', requireActiveStatus, searchClientPayers);
 router.post('/:id/chart-import/payer-link', requireActiveStatus, linkClientPayer);
 

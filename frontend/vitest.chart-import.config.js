@@ -6,6 +6,7 @@ export default defineConfig({
     'src/components/admin/clientChart/__tests__/ClientImportGuardianAccounts.test.js',
     'src/components/admin/clientChart/__tests__/ClientStatusEditor.test.js','src/components/admin/clientChart/__tests__/ClientRecordsUpdateLauncher.test.js',
     'src/utils/__tests__/officeBillingDefaults.test.js',
+    'src/utils/__tests__/clientCreationOutcome.test.js',
     'src/components/billing/__tests__/AssignmentCoverageReview.test.js','src/components/billing/__tests__/InsuranceVerificationGate.test.js',
     'src/components/admin/clientChart/__tests__/ClientSchedulePanel.test.js',
     'src/components/admin/clientChart/__tests__/ClientUpdateAssignments.test.js',

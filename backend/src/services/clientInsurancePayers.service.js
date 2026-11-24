@@ -23,7 +23,10 @@ export async function clientInsurancePayers(agencyId, db) {
     const isMedicaid = (row.sharedDirectory ? String(snapshot.payer_type || '').toLowerCase()==='medicaid' : names.some(insurerName => policyIsMedicaid({insurerName}))) || ['COCHA', 'SKCO0'].includes(row.claimmd_payer_id);
     const colorado = isMedicaid && (row.claimmd_payer_id === 'COCHA' || names.some(name => /colorado|\bccha\b/i.test(name)));
     return {id: row.sharedDirectory?row.id:Number(row.id), sharedDirectory:row.sharedDirectory===true, sourcePayerId: row.source_payer_id || null, name: row.sharedDirectory ? (row.directory_name || snapshot.payer_name || row.payer_name) : (row.payer_name || row.directory_name), names, payerId: row.claimmd_payer_id,
-      eligibilityPayerId: colorado ? 'SKCO0' : row.claimmd_payer_id, isMedicaid};
+      eligibilityPayerId: colorado ? 'SKCO0' : row.claimmd_payer_id, isMedicaid,
+      directoryName:row.directory_name || snapshot.payer_name || row.payer_name,
+      directoryCheckedAt:row.directory_checked_at || null,
+      claimsSupport:snapshot['1500_claims'] || 'unknown',eligibilitySupport:snapshot.eligibility || 'unknown'};
   });
 }
 

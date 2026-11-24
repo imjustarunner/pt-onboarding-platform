@@ -26,7 +26,7 @@ beforeEach(() => {
 });
 async function open() { const wrapper = shallowMount(Workbench, { props: { scopedAgencyId: 2 } }); await flushPromises(); await wrapper.get('.aw-context select').setValue('7'); await flushPromises(); return wrapper; }
 async function click(wrapper, text) { const button = wrapper.findAll('button').find(b => b.text() === text); expect(button, text).toBeTruthy(); await button.trigger('click'); await flushPromises(); }
-async function identity(wrapper) { await wrapper.get('.aw-identity textarea').setValue('Legal Name: Taylor Example\nDate of Birth: 2/3/2010'); await click(wrapper, 'Read demographics and find matches'); }
+async function identity(wrapper) { await wrapper.get('.aw-identity textarea').setValue('Legal Name: Taylor Example\nDate of Birth: 2/3/2010'); await click(wrapper, 'Read patient info and find matches'); }
 it('reuses an incomplete school chart and preserves its primary provider and identity', async () => {
   searchRows = [chart]; const wrapper = await open(); await identity(wrapper); await click(wrapper, 'Use this existing chart');
   expect(mocks.api.post).toHaveBeenCalledWith('/clients/41/provider-assignments', expect.objectContaining({ provider_user_id: 7, is_primary: false }), expect.anything());

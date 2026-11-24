@@ -101,20 +101,19 @@ it('places patient comments first and contacts directly below demographics, with
  const keys=wrapper.findAll('textarea[data-section]').map(node=>node.attributes('data-section'));
  expect(keys.slice(0,3)).toEqual(['comments','demographics','contacts']);expect(keys.filter(key=>['insurance','payer'].includes(key))).toEqual(['insurance']);wrapper.unmount();
 });
-it('keeps independent coverage pastes across selector changes and autosaves both',async()=>{
+it('shows primary and secondary coverage together and autosaves both',async()=>{
  const wrapper=mount(Panel,{props:{open:true,clientId:12,agencyId:2},global:{stubs}});await flushPromises();
- const coverage=wrapper.get('section[aria-label=Insurance] select[aria-label="Coverage position"]');
- await wrapper.get('textarea[data-section=insurance]').setValue('Primary policy');await coverage.setValue('secondary');
- expect(wrapper.get('textarea[data-section=insurance]').element.value).toBe('');
- await wrapper.get('textarea[data-section=insurance]').setValue('Secondary policy');await coverage.setValue('primary');
+
+ await wrapper.get('textarea[data-section=insurance]').setValue('Primary policy');
+ expect(wrapper.get('textarea[data-section=secondaryInsurance]').element.value).toBe('');
+ await wrapper.get('textarea[data-section=secondaryInsurance]').setValue('Secondary policy');
  expect(wrapper.get('textarea[data-section=insurance]').element.value).toBe('Primary policy');await wrapper.vm.prepareLeave();
  expect(mocks.put).toHaveBeenLastCalledWith('/clients/12/chart-import/drafts/insurance',expect.objectContaining({metadata:expect.objectContaining({position:'primary',coverageDrafts:{primary:{text:'Primary policy',imported:false},secondary:{text:'Secondary policy',imported:false}}})}),expect.anything());wrapper.unmount();
 });
 it('imports all filled coverage slots with their own position even while the selected slot is empty',async()=>{
  mocks.post.mockResolvedValue({data:{result:{secondary:{}}}});
  const wrapper=mount(Panel,{props:{open:true,clientId:12,agencyId:2},global:{stubs}});await flushPromises();
- const coverage=wrapper.get('section[aria-label=Insurance] select[aria-label="Coverage position"]');await coverage.setValue('secondary');
- await wrapper.get('textarea[data-section=insurance]').setValue('Secondary policy');await coverage.setValue('primary');
+ await wrapper.get('textarea[data-section=secondaryInsurance]').setValue('Secondary policy');
  await wrapper.findAll('button').find(b=>b.text()==='Import all filled sections').trigger('click');await flushPromises();
  expect(mocks.post).toHaveBeenCalledWith('/clients/12/chart-import/sections/insurance',{text:'Secondary policy',position:'secondary'},expect.anything());
  expect(wrapper.emitted('section-imported')).toHaveLength(1);wrapper.unmount();
@@ -122,15 +121,16 @@ it('imports all filled coverage slots with their own position even while the sel
 it('requires payer linkage for a secondary-only draft after returning to blank primary',async()=>{
  mocks.get.mockResolvedValue({data:{drafts:{insurance:{revision:1,value:{text:'Secondary policy',position:'secondary',imported:true,coverageDrafts:{primary:{text:'',imported:false},secondary:{text:'Secondary policy',imported:true}}}}}}});
  const wrapper=mount(Panel,{props:{open:true,clientId:12,agencyId:2,creationFlow:true,requireVerifiedPayers:true},global:{stubs}});await flushPromises();
- await wrapper.get('section[aria-label=Insurance] select[aria-label="Coverage position"]').setValue('primary');
+ expect(wrapper.get('textarea[data-section=insurance]').element.value).toBe('');
+ expect(wrapper.get('textarea[data-section=secondaryInsurance]').element.value).toBe('Secondary policy');
  const finish=wrapper.findAll('button').find(b=>b.text()==='Finish client import');expect(finish.attributes('disabled')).toBeUndefined();expect(wrapper.emitted('imported')).toBeUndefined();wrapper.unmount();
 });
 it('routes source guardian channels separately and reimports demographics after correcting their owner',async()=>{
  mocks.post.mockResolvedValue({data:{parsed:{fullName:'Synthetic Client',contactPhone:'555-111-2222',email:'parent@example.test'}}});
  const wrapper=mount(Panel,{props:{open:true,clientId:12,agencyId:2,initialTexts:{demographics:'Legal Name\nSynthetic Client'}},global:{stubs}});await flushPromises();
- const button=()=>wrapper.findAll('button').find(b=>b.text()==='Import demographics');await button().trigger('click');await flushPromises();
+ const button=()=>wrapper.findAll('button').find(b=>b.text()==='Import patient info');await button().trigger('click');await flushPromises();
  expect(mocks.post).toHaveBeenCalledWith('/clients/12/demographics/import',expect.objectContaining({contactOwner:'guardian'}),expect.anything());
- await wrapper.get('section[aria-label=Demographics] select').setValue('client');await button().trigger('click');await flushPromises();
+ await wrapper.get('section[aria-label="Patient info"] select').setValue('client');await button().trigger('click');await flushPromises();
  expect(mocks.post.mock.calls.filter(([url])=>url.endsWith('/demographics/import'))).toHaveLength(2);
  expect(mocks.post).toHaveBeenLastCalledWith('/clients/12/demographics/import',expect.objectContaining({contactOwner:'client'}),expect.anything());wrapper.unmount();
 });
@@ -161,7 +161,7 @@ it('keeps assignments and the portal invitation inside the creation flow before 
 it('explains the remaining steps and distinguishes a saved paste from a successful import',async()=>{
  mocks.post.mockResolvedValue({data:{}});
  const wrapper=mount(Panel,{props:{open:true,clientId:12,agencyId:2,creationFlow:true,requireVerifiedPayers:true,autoImport:false,pendingProviderAssignment:true,initialTexts:{demographics:'Legal Name\nSynthetic Client'}},global:{stubs}});await flushPromises();
- expect(wrapper.text()).toContain('Demographics · Ready to import');expect(wrapper.get('[aria-label="Remaining import steps"]').text()).toContain('Import demographics.');expect(wrapper.text()).toContain('Resolve the provider assignment');expect(wrapper.findAll('button').find(button=>button.text()==='Finish client import').attributes('disabled')).toBeUndefined();wrapper.unmount();
+ expect(wrapper.text()).toContain('Patient info · Ready to import');expect(wrapper.get('[aria-label="Remaining import steps"]').text()).toContain('Import patient info.');expect(wrapper.text()).toContain('Resolve the provider assignment');expect(wrapper.findAll('button').find(button=>button.text()==='Finish client import').attributes('disabled')).toBeUndefined();wrapper.unmount();
 });
 it('keeps the import open when server completion fails after sections have saved',async()=>{
  mocks.post.mockImplementation(async url=>{if(url.endsWith('/chart-import/complete'))throw{response:{status:409,data:{error:{message:'Review a remaining section'}}}};return{data:{parsed:{fullName:'Synthetic Client'}}};});
@@ -186,7 +186,7 @@ it('marks imported intake and plan drafts done without attesting to clinical fin
 it('restores the latest coverage slot and contact owner rather than stale creation defaults',async()=>{
  mocks.get.mockResolvedValue({data:{drafts:{demographics:{value:{text:'Saved demographics',imported:true,contactOwner:'client'}},insurance:{value:{text:'Saved secondary',position:'secondary',coverageDrafts:{primary:{text:'Latest primary',imported:true},secondary:{text:'Saved secondary',imported:true}},imported:true}}}}});
  const wrapper=mount(Panel,{props:{open:true,clientId:12,agencyId:2,creationFlow:true,autoImport:false,initialTexts:{insurance:'Stale primary'}},global:{stubs}});await flushPromises();
- expect(wrapper.get('section[aria-label=Demographics] select').element.value).toBe('client');expect(wrapper.get('textarea[data-section=insurance]').element.value).toBe('Saved secondary');await wrapper.get('section[aria-label=Insurance] select[aria-label="Coverage position"]').setValue('primary');expect(wrapper.get('textarea[data-section=insurance]').element.value).toBe('Latest primary');wrapper.unmount();
+ expect(wrapper.get('section[aria-label="Patient info"] select').element.value).toBe('client');expect(wrapper.get('textarea[data-section=insurance]').element.value).toBe('Latest primary');expect(wrapper.get('textarea[data-section=secondaryInsurance]').element.value).toBe('Saved secondary');expect(wrapper.find('select[aria-label="Coverage position"]').exists()).toBe(false);expect(wrapper.get('textarea[data-section=insurance]').element.value).toBe('Latest primary');wrapper.unmount();
 });
 it('requires remaining pasted data to import and blank sections to be confirmed before completion',async()=>{
  mocks.post.mockResolvedValue({data:{result:{message:'Saved'}}});const wrapper=mount(Panel,{props:{open:true,clientId:12,agencyId:2},global:{stubs}});await flushPromises();
@@ -208,4 +208,15 @@ it('updates contacts alone without making hidden old insurance or intake drafts 
  mocks.get.mockResolvedValue({data:{drafts:{insurance:{value:{text:'Unimported old primary',coverageDrafts:{primary:{text:'Unimported old primary',imported:false},secondary:{text:'',imported:false}}}},intake:{value:{text:'Unimported old intake'}}}}});mocks.post.mockResolvedValue({data:{result:[]}});
  const w=mount(Panel,{props:{open:true,clientId:12,agencyId:2,onlySections:['contacts'],autoImport:false},global:{stubs}});await flushPromises();expect(w.find('textarea[data-section=insurance]').exists()).toBe(false);expect(w.find('textarea[data-section=intake]').exists()).toBe(false);expect(w.findComponent({name:'ClientUpdateAssignments'}).exists()).toBe(false);
  await w.get('textarea[data-section=contacts]').setValue('Synthetic parent contact');await w.findAll('button').find(b=>b.text()==='Import additional contacts').trigger('click');await flushPromises();expect(w.findComponent({name:'ClientTransitionInvitation'}).props('sendingEnabled')).toBe(true);await w.findAll('button').find(b=>b.text()==='Mark done').trigger('click');await confirmCompletion(w);expect(mocks.post).toHaveBeenCalledWith('/clients/12/chart-import/start',{sections:['contacts']},expect.anything());expect(mocks.post).toHaveBeenCalledWith('/clients/12/chart-import/complete',{keptBlankSections:[]},expect.anything());expect(w.emitted('done')).toHaveLength(1);w.unmount();
+});
+
+it('accepts a later secondary paste while primary coverage stays imported and imports only the new box',async()=>{
+ mocks.get.mockResolvedValue({data:{drafts:{insurance:{value:{text:'Saved primary',position:'primary',imported:true,coverageDrafts:{primary:{text:'Saved primary',imported:true},secondary:{text:'',imported:false}}}}}}});
+ mocks.post.mockResolvedValue({data:{result:{secondary:{}}}});
+ const wrapper=mount(Panel,{props:{open:true,clientId:12,agencyId:2},global:{stubs}});await flushPromises();
+ expect(wrapper.get('textarea[data-section=insurance]').attributes('disabled')).toBeDefined();expect(wrapper.get('textarea[data-section=secondaryInsurance]').attributes('disabled')).toBeUndefined();
+ await wrapper.get('textarea[data-section=secondaryInsurance]').setValue('New secondary policy');
+ await wrapper.findAll('button').find(button=>button.text()==='Import insurance').trigger('click');await flushPromises();
+ expect(mocks.post.mock.calls.filter(([url])=>url.endsWith('/sections/insurance')).map(([,body])=>[body.position,body.text])).toEqual([['secondary','New secondary policy']]);
+ expect(wrapper.get('textarea[data-section=insurance]').element.value).toBe('Saved primary');wrapper.unmount();
 });
