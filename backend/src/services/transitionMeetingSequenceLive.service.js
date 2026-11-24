@@ -9,6 +9,8 @@ import {personalMeetingInvitation} from './meetingInvitations.service.js';
 import {tenantMeetingBase} from '../utils/tenantMeetingUrl.js';
 import {generateJoinToken} from '../utils/joinToken.js';
 import {parseUtcDate} from '../utils/officeEventDateTime.util.js';
+import {verifiedTransitionDeliveryReceipt} from './transitionMeetingDeliveryReceipt.js';
+export {verifiedTransitionDeliveryReceipt} from './transitionMeetingDeliveryReceipt.js';
 
 const error=(message,status=409)=>Object.assign(new Error(message),{status});
 const mysqlTime=value=>new Date(value).toISOString().slice(0,19).replace('T',' ');
@@ -94,11 +96,6 @@ export async function createEvent(db,plan,session){
 async function liveMember(uid,db=pool){const [[u]]=await db.execute(`SELECT u.id,u.email,u.work_email,u.first_name,u.preferred_name,u.last_name FROM users u JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=2 AND ua.is_active=1 WHERE u.id=? AND u.is_active=1 AND COALESCE(u.is_archived,0)=0 AND UPPER(COALESCE(u.status,'')) IN ('ACTIVE','ACTIVE_EMPLOYEE')`,[uid]);if(!u)throw error('The recipient is no longer active in ITSCO.');return u;}
 async function eventFor(number,db=pool){const [[e]]=await db.execute('SELECT e.* FROM transition_meeting_sequence_events m JOIN provider_schedule_events e ON e.id=m.event_id WHERE m.sequence_id=? AND m.meeting_number=? AND e.agency_id=2',[SEQUENCE_ID,number]);return e;}
 async function linksFor(event,uid){const invitation=await personalMeetingInvitation(event,uid,{queue:false});const base=await tenantMeetingBase(2),path=`${base}/join/invitation/${encodeURIComponent(invitation.join_token)}`;return {invitation,acceptedUrl:`${path}?rsvp=1&eventId=${event.id}&response=accepted`,declinedUrl:`${path}?rsvp=1&eventId=${event.id}&response=declined`};}
-export function verifiedTransitionDeliveryReceipt(result,action){
- if(result?.pendingApproval||result?.queued||result?.skipped||result?.blocked||result?.redirected||!result?.id)throw error('Delivery is held, redirected or unconfirmed; reconcile its receipt before retrying.');
- if(result.internetMessageId)action.internetMessageId=result.internetMessageId;
- return {status:'sent',reference:`email:${result.id}`};
-}
 async function deliver(data,action){
  const {plan}=data;const user=await liveMember(action.userId);const sender=await identity();let links={};
  if(action.kind==='submit_time_claim')return upsertClaim(plan,action);
