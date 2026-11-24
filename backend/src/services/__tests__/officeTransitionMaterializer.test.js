@@ -20,9 +20,11 @@ beforeEach(() => {
 });
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
 const run = () => Materializer.materializeWeek({ officeLocationId: 8, weekStartRaw: '2026-10-05', force: true });
-it('automatically books an approved assignment without an appointment before transition', async () => {
- await run(); expect(Event.upsertSlotState).toHaveBeenCalledWith(expect.objectContaining({ slotState: 'ASSIGNED_BOOKED', bookedProviderId: 3, bookingPlanId: null }));
- expect(pool.execute.mock.calls.some(([sql,args]) => sql.includes('bookingSource') && args.includes('automatic_office_reservation'))).toBe(true);
+it('keeps approved availability unbooked without a client appointment series', async () => {
+ // Retained transition policy reserves rooms through actual client series;
+ // an approved standing assignment alone only establishes availability.
+ await run(); expect(Event.upsertSlotState).toHaveBeenCalledWith(expect.objectContaining({ slotState: 'ASSIGNED_AVAILABLE', bookedProviderId: null, bookingPlanId: null }));
+ expect(pool.execute.mock.calls.some(([sql,args]) => sql.includes('bookingSource') && args.includes('automatic_office_reservation'))).toBe(false);
 });
 it('ignores automatic legacy booking plans after transition, keeping the assignment available', async () => {
  pool.execute.mockResolvedValue([[{ agency_id: 4, transition_date: '2026-10-05' }]]);
