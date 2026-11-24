@@ -6,6 +6,7 @@ export const HIRING_WORKFORCE_ROLES = [
   'intern_plus', 'supervisor', 'facilitator', 'clinician', 'employee', 'assistant'
 ];
 export const isHiringWorkforceRole = role => HIRING_WORKFORCE_ROLES.includes(String(role || '').toLowerCase());
+const LEGACY_WORKFORCE_STATUSES = ['PROSPECTIVE', 'PREHIRE_OPEN', 'PREHIRE_REVIEW', 'ONBOARDING', 'ACTIVE_EMPLOYEE', 'INACTIVE_EMPLOYEE', 'TERMINATED_PENDING'];
 const workforceSql = user => `LOWER(COALESCE(${user}.role, '')) IN (${HIRING_WORKFORCE_ROLES.map(role => `'${role}'`).join(',')})`;
 const soleMembershipSql = (user, agency) => `NOT EXISTS (
   SELECT 1 FROM user_agencies hiring_other_membership
@@ -34,7 +35,7 @@ export function hiringProfileJoinSql({ user = 'u', agency = 'ua.agency_id', prof
 
 export function hiringCandidateScopeSql({ user = 'u', agency = 'ua.agency_id', profile = 'hp' } = {}) {
   return `(${profile}.id IS NOT NULL OR ${journeySql(user, agency)} OR (
-    ${workforceSql(user)} AND ${user}.hired_at IS NOT NULL
+    ${workforceSql(user)} AND (${user}.hired_at IS NOT NULL OR ${user}.status IN (${LEGACY_WORKFORCE_STATUSES.map(status => `'${status}'`).join(',')}))
     AND ${soleMembershipSql(user, agency)}
     AND NOT EXISTS (SELECT 1 FROM hiring_profiles hiring_any_profile WHERE hiring_any_profile.candidate_user_id = ${user}.id)
     AND NOT EXISTS (SELECT 1 FROM hire_journeys hiring_any_journey WHERE hiring_any_journey.user_id = ${user}.id)

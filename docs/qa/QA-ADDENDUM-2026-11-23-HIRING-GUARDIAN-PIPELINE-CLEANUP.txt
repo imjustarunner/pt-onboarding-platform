@@ -10,8 +10,9 @@ CAUSE AND EXPECTED BEHAVIOR
 - PENDING_SETUP is used by ordinary guardian/client account creation as well as
   hiring. The pipeline previously accepted that status without hiring evidence.
 - Status alone now qualifies nobody. A row needs a scoped hiring profile, an
-  explicit hire journey for this company, or a workforce role plus hired_at and
-  unambiguous legacy company membership. Clinical enrollment remains unchanged.
+  explicit hire journey for this company, or a workforce role plus hired_at / an
+  explicit workforce lifecycle stage and unambiguous legacy company membership.
+  PENDING_SETUP alone never qualifies. Clinical enrollment remains unchanged.
 - School affiliations do not count as another hiring company for that legacy
   check. A job in another company is not evidence of an application here.
 - Jobless profiles use their explicit company journey or sole-company ownership.

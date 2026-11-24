@@ -45,6 +45,11 @@ it('does not borrow a candidate’s job in another agency for direct hiring acce
  const req=request({agencyId:'464'});req.params.userId='20';const res=response();
  await getCandidate(req,res,vi.fn());expect(res.status).toHaveBeenCalledWith(404);expect(m.findUser).not.toHaveBeenCalled();
 });
+it('permits the normal record lookup for legacy employees with no historical hire timestamp',async()=>{
+ db.exec("UPDATE users SET status='ACTIVE_EMPLOYEE',hired_at=NULL WHERE id=30");
+ const req=request();req.params.userId='30';m.findUser.mockResolvedValue(null);
+ await getCandidate(req,response(),vi.fn());expect(m.findUser).toHaveBeenCalledWith(30);
+});
 it('keeps a legacy hired staff member in pre-hire and excludes portal-only accounts',async()=>{
  const res=response(),next=vi.fn();await listPrehireCandidates(request(),res,next);
  expect(next).not.toHaveBeenCalled();expect(res.json.mock.calls[0][0].map(person=>person.id)).toEqual([30]);

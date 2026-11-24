@@ -59,6 +59,13 @@ it('does not infer a hire from a workforce setup status without hiring evidence'
  expect((await loadPipelineBoard({userId:1434,role:'support',agencyId:463})).candidates.find(c=>c.userId===30)?.bucket).toBe('inPrehire');
 });
 
+it.each(['PROSPECTIVE','PREHIRE_OPEN','PREHIRE_REVIEW','ONBOARDING'])('preserves explicit legacy workforce %s without inventing a historical hired_at value',async status=>{
+ sql.prepare("INSERT INTO users(id,first_name,role,status,is_archived) VALUES(30,'Synthetic legacy workforce','staff',?,0)").run(status);
+ sql.exec('INSERT INTO user_agencies VALUES(30,463)');
+ expect((await loadPipelineBoard({userId:1434,role:'support',agencyId:463})).candidates.some(c=>c.userId===30)).toBe(true);
+ expect(sql.prepare('SELECT hired_at FROM users WHERE id=30').get().hired_at).toBeNull();
+});
+
 it('does not confuse an affiliated school with a second hiring company for a legacy hire',async()=>{
  sql.exec("INSERT INTO agencies VALUES(465,'Synthetic school','school',1);INSERT INTO users(id,first_name,role,status,hired_at,is_archived) VALUES(30,'Synthetic legacy hire','provider','PENDING_SETUP','2026-11-23',0);INSERT INTO user_agencies VALUES(30,463),(30,465)");
  expect((await loadPipelineBoard({userId:1434,role:'support',agencyId:463})).candidates.some(c=>c.userId===30)).toBe(true);
