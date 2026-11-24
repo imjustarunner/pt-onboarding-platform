@@ -20,7 +20,7 @@ it('uses only scoped provider options and updates the existing service by id',as
  const input=wrapper.get('#service-provider-11');await input.trigger('focus');
  expect(wrapper.findAll('[role="option"]')).toHaveLength(1);expect(wrapper.text()).not.toContain('Unrelated');
  await wrapper.get('[role="option"]').trigger('click');await wrapper.get('.service-assignment').trigger('submit');await flushPromises();
- expect(mocks.post).toHaveBeenCalledWith('/clients/7/service-enrollments',{agencyId:2,serviceId:11,serviceKind:'counseling',label:'Counseling',organizationId:8,providerUserId:20});
+ expect(mocks.post).toHaveBeenCalledWith('/clients/7/service-enrollments',{agencyId:2,serviceId:11,serviceKind:'counseling',label:'Counseling',organizationId:8,providerUserId:20},expect.objectContaining({headers:{'X-Agency-Id':'2'}}));
  expect(wrapper.text()).toContain('Assigned provider');expect(wrapper.emitted('updated')).toHaveLength(1);
 });
 it('shows a single counseling service with its existing provider and program',async()=>{
@@ -33,7 +33,7 @@ it('changes one provider inside a shared counseling service without replacing th
  mocks.get.mockImplementation(async url=>url==='/office-clients/providers'?{data:{providers:[provider]}}:{data:{services:[unified]}});
  await render();expect(wrapper.findAll('.services-list > li')).toHaveLength(1);expect(wrapper.findAll('.service-providers-list > li')).toHaveLength(2);
  await wrapper.findAll('.service-providers-list button').filter(button=>button.text()==='Change')[1].trigger('click');const input=wrapper.get('#service-provider-11');await input.trigger('focus');await wrapper.get('[role="option"]').trigger('click');await wrapper.get('.service-assignment').trigger('submit');await flushPromises();
- expect(mocks.post).toHaveBeenCalledWith('/clients/7/service-enrollments',expect.objectContaining({serviceId:12,providerUserId:20,organizationId:0}));
+ expect(mocks.post).toHaveBeenCalledWith('/clients/7/service-enrollments',expect.objectContaining({serviceId:12,providerUserId:20,organizationId:0}),expect.objectContaining({headers:{'X-Agency-Id':'2'}}));
 });
 it('routes an attempted duplicate counseling creation to the existing provider editor',async()=>{
  await render();wrapper.vm.draft.serviceKind='counseling';await wrapper.vm.save();await flushPromises();expect(mocks.post).not.toHaveBeenCalled();expect(wrapper.find('.service-assignment').exists()).toBe(true);
@@ -64,7 +64,7 @@ it('opens the office provider editor directly without requiring a weekday',async
  wrapper=mount(Services,{props:{clientId:7,agencyId:2,startAssigning:true}});await flushPromises();
  expect(wrapper.find('.service-assignment').exists()).toBe(true);expect(wrapper.text()).not.toContain('Assigned day');
  await wrapper.get('#service-provider-11').trigger('focus');await wrapper.get('[role="option"]').trigger('click');await wrapper.get('.service-assignment').trigger('submit');await flushPromises();
- expect(mocks.post).toHaveBeenCalledWith('/clients/7/service-enrollments',expect.objectContaining({serviceId:11,providerUserId:20}));
+ expect(mocks.post).toHaveBeenCalledWith('/clients/7/service-enrollments',expect.objectContaining({serviceId:11,providerUserId:20}),expect.objectContaining({headers:{'X-Agency-Id':'2'}}));
  expect(mocks.post.mock.calls[0][1]).not.toHaveProperty('service_day');
 });
 it('opens service creation for an office client with no enrollments yet',async()=>{
@@ -72,7 +72,7 @@ it('opens service creation for an office client with no enrollments yet',async()
  wrapper=mount(Services,{props:{clientId:7,agencyId:2,startAssigning:true}});await flushPromises();
  expect(wrapper.get('.add-service').attributes()).toHaveProperty('open');
  await wrapper.get('#new-service-provider').trigger('focus');await wrapper.get('[role="option"]').trigger('click');await wrapper.get('.add-service-form').trigger('submit');await flushPromises();
- expect(mocks.post).toHaveBeenCalledWith('/clients/7/service-enrollments',expect.objectContaining({agencyId:2,serviceKind:'counseling',providerUserId:20}));
+ expect(mocks.post).toHaveBeenCalledWith('/clients/7/service-enrollments',expect.objectContaining({agencyId:2,serviceKind:'counseling',providerUserId:20}),expect.objectContaining({headers:{'X-Agency-Id':'2'}}));
 });
 it('offers only the agency’s enabled service types',async()=>{
  mocks.get.mockImplementation(async url=>url==='/office-clients/providers'?{data:{providers:[provider]}}:{data:{services:[],availableServiceKinds:['counseling']}});
@@ -84,11 +84,11 @@ it('adds a second counselor within the counseling service and leaves the first a
  await render();await wrapper.findAll('button').find(button=>button.text()==='Add provider').trigger('click');await wrapper.get('#service-provider-11').trigger('focus');
  expect(wrapper.findAll('[role="option"]')).toHaveLength(2);
  await wrapper.findAll('[role="option"]').find(option=>option.text().includes('Other Counselor')).trigger('click');await wrapper.get('.service-assignment').trigger('submit');await flushPromises();
- expect(mocks.post).toHaveBeenCalledWith('/clients/7/service-enrollments',{agencyId:2,serviceId:11,serviceKind:'counseling',label:'Counseling',organizationId:0,providerUserId:21,addProvider:true});
+ expect(mocks.post).toHaveBeenCalledWith('/clients/7/service-enrollments',{agencyId:2,serviceId:11,serviceKind:'counseling',label:'Counseling',organizationId:0,providerUserId:21,addProvider:true},expect.objectContaining({headers:{'X-Agency-Id':'2'}}));
 });
 it('does not exclude a counselor from the picker for a different enabled service',async()=>{
  mocks.get.mockImplementation(async url=>url==='/office-clients/providers'?{data:{providers:[provider]}}:{data:{services:[{...service,provider_user_id:20,provider_name:'Sam Provider'}],availableServiceKinds:['counseling','tutoring']}});
  await render();await wrapper.get('#new-service-provider').trigger('focus');expect(wrapper.get('[role="option"]').text()).toContain('Sam Provider');
  await wrapper.get('[role="option"]').trigger('click');await wrapper.get('.add-service-form').trigger('submit');await flushPromises();
- expect(mocks.post).toHaveBeenCalledWith('/clients/7/service-enrollments',expect.objectContaining({serviceKind:'tutoring',providerUserId:20}));
+ expect(mocks.post).toHaveBeenCalledWith('/clients/7/service-enrollments',expect.objectContaining({serviceKind:'tutoring',providerUserId:20}),expect.objectContaining({headers:{'X-Agency-Id':'2'}}));
 });

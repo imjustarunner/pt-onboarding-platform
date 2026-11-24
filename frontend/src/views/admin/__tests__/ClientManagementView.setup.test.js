@@ -108,7 +108,7 @@ it('assigns directly from the directory provider column and refreshes the list a
   expect(editor.props()).toMatchObject({clientId:71,agencyId:2,startAssigning:true});
   editor.getComponent({name:'ProviderSearchSelect'}).vm.$emit('update:modelValue',501);await flushPromises();
   await editor.get('.service-assignment').trigger('submit');await flushPromises();
-  expect(apiMock.post).toHaveBeenCalledWith('/clients/71/service-enrollments',expect.objectContaining({agencyId:2,serviceId:201,serviceKind:'counseling',providerUserId:501}));
+  expect(apiMock.post).toHaveBeenCalledWith('/clients/71/service-enrollments',expect.objectContaining({agencyId:2,serviceId:201,serviceKind:'counseling',providerUserId:501}),expect.objectContaining({headers:{'X-Agency-Id':'2'}}));
   expect(apiMock.put).not.toHaveBeenCalled();
   expect(wrapper.get('.cm-provider-assign').text()).toBe('Michael Synthetic');
   await wrapper.get('.cm-provider-dialog-header button').trigger('click');

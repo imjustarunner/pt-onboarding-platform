@@ -22,7 +22,7 @@ it('saves the provider selected for a new service when completing records import
  wrapper=mount(ClientServiceEnrollments,{props:{clientId:2434,agencyId:450}});await flushPromises();
  await wrapper.findComponent(ProviderSearchSelect).vm.$emit('update:modelValue',1433);await flushPromises();
  expect(await wrapper.vm.savePendingAssignments()).toBe(true);
- expect(post).toHaveBeenCalledExactlyOnceWith('/clients/2434/service-enrollments',expect.objectContaining({agencyId:450,serviceKind:'counseling',providerUserId:1433}));
+ expect(post).toHaveBeenCalledExactlyOnceWith('/clients/2434/service-enrollments',expect.objectContaining({agencyId:450,serviceKind:'counseling',providerUserId:1433}),expect.objectContaining({headers:{'X-Agency-Id':'450'}}));
  expect(wrapper.text()).toContain('Avery QA');expect(wrapper.vm.hasWorkingDraft()).toBe(false);
 });
 it('retains a selected provider after a failed completion save and permits retry',async()=>{
@@ -38,7 +38,7 @@ it('saves an edited existing service assignment through the same completion path
  wrapper=mount(ClientServiceEnrollments,{props:{clientId:2434,agencyId:450,startAssigning:true}});await flushPromises();
  wrapper.findAllComponents(ProviderSearchSelect)[0].vm.$emit('update:modelValue',1433);await flushPromises();
  expect(await wrapper.vm.savePendingAssignments()).toBe(true);
- expect(post).toHaveBeenCalledExactlyOnceWith('/clients/2434/service-enrollments',expect.objectContaining({agencyId:450,serviceId:15,providerUserId:1433}));
+ expect(post).toHaveBeenCalledExactlyOnceWith('/clients/2434/service-enrollments',expect.objectContaining({agencyId:450,serviceId:15,providerUserId:1433}),expect.objectContaining({headers:{'X-Agency-Id':'450'}}));
 });
 it('leaves an unchosen provider and an unconfirmed closure pending without saving either',async()=>{
  get.mockResolvedValue({data:{services:[{id:15,service_kind:'counseling',label:'Counseling',is_active:1,provider_user_id:null}],availableServiceKinds:['counseling']}});
@@ -50,7 +50,7 @@ it('leaves an unchosen provider and an unconfirmed closure pending without savin
 it('uses the authorized limited provider projection for Support instead of an admin user directory', async () => {
   wrapper = mount(ClientServiceEnrollments, { props: { clientId: 2434, agencyId: 450 } });
   await flushPromises();
-  expect(get).toHaveBeenCalledWith('/office-clients/providers', { params: { clientId:2434,agencyIds:'450',serviceAssignments:'1' },skipGlobalLoading:true });
+  expect(get).toHaveBeenCalledWith('/office-clients/providers', { params: { clientId:2434,agencyIds:'450',serviceAssignments:'1' },skipGlobalLoading:true,headers:{'X-Agency-Id':'450'} });
   expect(get.mock.calls.some(([url]) => url === '/users')).toBe(false);
   await wrapper.findComponent(ProviderSearchSelect).get('input').trigger('focus');
   expect(wrapper.get('[role=option]').text()).toContain('Avery QA');
@@ -64,7 +64,7 @@ it('preserves the normal authorized admin provider choices', async () => {
   ]} }));
   wrapper = mount(ClientServiceEnrollments, { props: { clientId: 2434, agencyId: 450 } });
   await flushPromises();
-  expect(get).toHaveBeenCalledWith('/office-clients/providers', { params: { clientId:2434,agencyIds:'450',serviceAssignments:'1' },skipGlobalLoading:true });
+  expect(get).toHaveBeenCalledWith('/office-clients/providers', { params: { clientId:2434,agencyIds:'450',serviceAssignments:'1' },skipGlobalLoading:true,headers:{'X-Agency-Id':'450'} });
   expect(wrapper.findComponent(ProviderSearchSelect).props('options').map(provider=>provider.id)).toEqual([10]);
   expect(get.mock.calls.some(([url])=>url==='/users')).toBe(false);
 });
@@ -97,7 +97,7 @@ it('clears the prior draft and ignores its delayed save after changing child', a
   release({ data: { services: [{ id: 1, label: 'Prior child service', is_active: true }] } });
   await flushPromises();
   expect(wrapper.text()).not.toContain('Prior child service');
-  expect(post).toHaveBeenCalledWith('/clients/2434/service-enrollments', expect.objectContaining({ agencyId: 450 }));
+  expect(post).toHaveBeenCalledWith('/clients/2434/service-enrollments', expect.objectContaining({ agencyId: 450 }),expect.objectContaining({headers:{'X-Agency-Id':'450'}}));
 });
 
 it('does not replace the next child’s services with a delayed End response', async () => {

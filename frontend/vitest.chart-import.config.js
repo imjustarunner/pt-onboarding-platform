@@ -3,6 +3,9 @@ import vue from '@vitejs/plugin-vue';
 export default defineConfig({
   root: new URL('.', import.meta.url).pathname, plugins:[vue()],
   test: { environment:'jsdom', include:[
+    'src/components/admin/__tests__/ClientServiceEnrollments.providers.test.js',
+    'src/components/admin/__tests__/ClientServiceAssignments.test.js',
+    'src/views/admin/__tests__/ClientManagementView.setup.test.js',
     'src/components/admin/clientChart/__tests__/ClientImportGuardianAccounts.test.js',
     'src/components/admin/clientChart/__tests__/ClientStatusEditor.test.js','src/components/admin/clientChart/__tests__/ClientRecordsUpdateLauncher.test.js',
     'src/utils/__tests__/officeBillingDefaults.test.js',
