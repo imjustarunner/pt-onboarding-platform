@@ -1,6 +1,8 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
+import CancellationLetterEditor from './CancellationLetterEditor.vue';
+import { cancellationClientLabel, selectedCancellationLetters } from '../../utils/cancellationEmailReview';
 import ReplacementOpeningBuilder from './ReplacementOpeningBuilder.vue';
 import PlannedOutModal from '../admin/opsDashboard/PlannedOutModal.vue';
 const props = defineProps({ deferredToken: String, reviewToken: String, schoolId: Number, schoolName: String, providerId: { type: Number, required: true }, agencyId: Number, date: { type: String, required: true }, timeZone: { type: String, default: 'America/Denver' } });
@@ -93,7 +95,7 @@ async function review(finalReview = false) {
     const body = { schoolId: props.schoolId, agencyIds: selected.value, date: props.date, dates: dates.value, scopeMode: finalReview ? scopeMode.value : 'days', appointmentIds: selectedSessions.value,
       deferredToken: props.deferredToken,unsentToken:recoveryToken.value || undefined,urgent: urgent.value, reasonCategory: reasonCategory.value, followupOwner: followupOwner.value, internalReason: internalReason.value, notificationMode: notificationMode.value, suppressionReason: suppressionReason.value,
       followUpAction: followUpAction.value, followUpMessage: followUpMessage.value, offerDays: offerDays.value, offeredSlots: offeredSlots.value,
-      messagesReviewed: finalReview, ...(finalReview ? { contactChoices, messages, schoolChoices } : {}) };
+      messagesReviewed: finalReview, ...(finalReview ? { contactChoices, messages: reviewedMessages(), schoolChoices } : {}) };
     plan.value = (await api.post(`${base.value}/preview`, body, { skipGlobalLoading: true })).data;
     if (props.deferredToken || recoveryToken.value) { dates.value = plan.value.dates || [props.date]; scopeMode.value = plan.value.scopeMode || 'days'; }
     reviewed.value = finalReview; signed.value = false;
@@ -118,25 +120,21 @@ async function loadSlots() {
   try { const { data } = await api.get(`/appointments/${anchor.value.id}/change/replacement-options`, { params: { slots: true }, skipGlobalLoading: true }); slotOptions.value = [...new Map([...(data.alreadyOffered || []), ...(data.slots || [])].map(s => [s.key, s])).values()]; }
   catch (e) { error.value = e.response?.data?.error?.message || 'Could not load replacement times.'; } finally { slotBusy.value = false; }
 }
-async function restyleSchool(key, tone) {
-  const current = schoolChoices[key]?.message;
-  if (!current?.text) return;
-  busy.value = true; error.value = '';
-  try {
-    const { data } = await api.post(`${base.value}/rewrite`, { agencyId: selected.value[0], text: current.text, tone, audience: 'school' }, { skipGlobalLoading: true });
-    if (data?.text) current.text = data.text;
-  } catch (e) { error.value = e.response?.data?.error?.message || 'The letter could not be rewritten. Your current wording is unchanged.'; }
-  finally { busy.value = false; }
+function letters(item, reviewed = false) {
+  return selectedCancellationLetters(item, reviewed ? item.message : messages[item.key], reviewed ? null : contactChoices);
 }
-async function restyle(key, audience, tone) {
-  const current = audience ? messages[key]?.[audience] : messages[key];
-  if (!current?.text) return;
-  busy.value = true; error.value = '';
-  try {
-    const { data } = await api.post(`${base.value}/rewrite`, { agencyId: selected.value[0], text: current.text, tone, audience: audience || 'guardian' }, { skipGlobalLoading: true });
-    if (data?.text) current.text = data.text;
-  } catch (e) { error.value = e.response?.data?.error?.message || 'The letter could not be rewritten. Your current wording is unchanged.'; }
-  finally { busy.value = false; }
+function setLetterText(item, audience, text) {
+  const message = messages[item.key];
+  if (message[audience]) message[audience].text = text;
+  else message.text = text;
+}
+function reviewedMessages() {
+  return Object.fromEntries(Object.entries(messages).map(([key, message]) => {
+    const item = plan.value.items.find(item => item.key === key);
+    const selectedLetters = letters(item);
+    return [key, { ...message, text: selectedLetters[0]?.message.text || message.text,
+      ...Object.fromEntries(['client', 'guardian'].filter(audience => message[audience]).map(audience => [audience, { ...message[audience], subject: message.subject }])) }];
+  }));
 }
 async function apply(retryFailed = false) {
   busy.value = true; error.value = ''; applyAttempted.value = true;
@@ -160,7 +158,7 @@ async function apply(retryFailed = false) {
       <template v-if="!plan">
         <p v-if="!emailReview"><button type="button" :disabled="busy || !resumeChecked || !selected.length" @click="showPlannedOut = true">Use Planned Out instead</button></p>
         <label class="day-field">Absence type <select v-model="urgent" @change="reasonCategory = urgent ? 'provider_unavailable' : 'facility'; followUpAction = 'none'"><option :value="true">Urgent — sickness, weather, unexpected absence</option><option :value="false">Nonurgent — planned school closure or holiday</option></select></label>
-        <p>Parents, clients, and the school each get their own letter. Parents who already opted into texts also get a short text with the portal link. Replies go to support, with support and any supervisor copied. The letter does not mention rescheduling unless you add that yourself.</p>
+        <p>Each selected recipient gets the email you review below. Parents who already opted into texts also get a short text with the portal link. Replies go to support, with support and any supervisor copied. The letter does not mention rescheduling unless you add that yourself.</p>
         <p v-if="urgent && dateTooFar" class="day-error" role="alert">Please use Planned Out. Cancel Day is only for today, tomorrow, and the next day.</p>
         <div class="reason-choices" role="group" aria-label="Reason for the absence"><button v-for="reason in reasons" :key="reason.key" type="button" :aria-pressed="reasonKey === reason.key" @click="chooseReason(reason)">{{ reason.label }}</button></div>
         <p class="reason-preview">The letters will say this is {{ reasonKey === 'illness' ? 'because of illness' : reasonKey === 'family_emergency' ? 'because of a family emergency' : reasonKey === 'weather' ? 'because of weather' : reasonKey === 'personal_emergency' ? 'because of a personal emergency' : reasonKey === 'transportation' ? 'because of a transportation issue' : 'because of unforeseen circumstances' }}.</p>
@@ -171,7 +169,7 @@ async function apply(retryFailed = false) {
         <label v-if="notificationMode === 'none'" class="day-field">Follow-up note (internal record) <textarea v-model="suppressionReason" maxlength="500" rows="2" /></label>
         <label v-if="notificationMode === 'none'" class="day-field">Assign email review to <select v-model="followupOwner"><option value="provider">The provider</option><option value="support">Support</option></select></label>
         <label class="day-field">Internal note (not included in email or text) <textarea v-model="internalReason" maxlength="2000" rows="2" /></label>
-        <label class="day-field">Optional detail. This replaces the reason inside the letter. <textarea v-model="followUpMessage" maxlength="1000" rows="2" placeholder="Example: I woke up with a fever and need to stay home." /></label>
+        <label class="day-field">What would you like the email to say? We’ll use this to draft a natural message for you to review. <textarea v-model="followUpMessage" maxlength="1000" rows="2" placeholder="Example: I woke up with a fever and need to stay home." /></label>
         <details v-if="urgent"><summary>Add reschedule instructions</summary><label class="day-field">Follow-up <select v-model="followUpAction"><option value="none">Do not mention rescheduling</option><option value="keep_next_or_support">Keep the next appointment; contact support if none is scheduled</option><option value="client_contact_support">Ask the client to contact support to reschedule</option></select></label></details>
       </template>
       <template v-else>
@@ -183,7 +181,7 @@ async function apply(retryFailed = false) {
             <h3>Family recipients</h3>
             <fieldset v-for="client in clients" :key="client.clientId" class="day-contact"><legend>{{ client.clientName }}</legend>
               <p v-if="client.emailOnly && !client.recipients.some(r => r.email)" class="day-error">{{ client.contactIssue || 'No email is available on the selected authorized contacts.' }} Cancellation can continue; this client will be marked as needing contact follow-up.</p>
-              <label>Contact <select v-model="contactChoices[client.clientId].mode"><option value="client">Client</option><option value="guardian">Guardian</option><option value="both">Both</option><option value="none">No contact</option></select></label>
+              <label>Contact <select v-model="contactChoices[client.clientId].mode"><option value="client">Client</option><option v-if="client.contacts.some(contact => contact.role === 'guardian')" value="guardian">Parent / guardian</option><option v-if="client.contacts.some(contact => contact.role === 'guardian') && client.contacts.some(contact => contact.role === 'client')" value="both">Client and parent / guardian</option><option value="none">No contact</option></select></label>
               <span>Email</span>
               <div v-for="recipient in contactChoices[client.clientId].recipients.filter(r => contactChoices[client.clientId].mode === 'both' || r.role === contactChoices[client.clientId].mode)" :key="recipient.key" class="day-recipient">
                 <label><input v-model="recipient.enabled" type="checkbox"> {{ recipient.name }} · {{ recipient.role }}</label>
@@ -201,18 +199,21 @@ async function apply(retryFailed = false) {
               <label v-for="slot in slotOptions" :key="slot.key" class="day-field"><span><input type="checkbox" :checked="offeredSlots.some(s => s.key === slot.key)" :disabled="slot.requested || (offeredSlots.length >= 24 && !offeredSlots.some(s => s.key === slot.key))" @change="toggleSlot(slot)"> {{ slot.label }}</span></label>
               <p v-for="slot in offeredSlots" :key="slot.key">{{ slot.label }} <button type="button" @click="toggleSlot(slot)">Remove time</button></p>
             </section>
-            <h3>Review and edit emails</h3><p>Parent, client, and school letters stay separate. Replies go to support. Support is copied, and a supervisor is copied when one is assigned. Parents who opted into texts receive one short text. Internal notes stay private.</p>
+            <h3>Review and edit emails</h3><p>Only emails for the selected recipients appear below. Replies go to support. Support is copied, and a supervisor is copied when one is assigned. Parents who opted into texts receive one short text. Internal notes stay private.</p>
             <template v-for="item in plan.items" :key="item.key">
               <p v-for="email in (item.emailPreviews || []).filter(e => e.redirected)" :key="`${email.clientId}:${email.intendedTo}`" class="day-review day-delivery-preview">Demo routing: intended for {{ email.intendedTo }}; delivery goes to {{ email.deliveryTo }}. Final review refreshes routing and subjects after your edits.</p>
               <fieldset v-if="item.kind === 'school'" class="day-contact"><legend>{{ item.title }}</legend>
                 <div v-for="(_, i) in schoolChoices[item.key].recipients" :key="i" class="day-recipient"><label>School email <input v-model="schoolChoices[item.key].recipients[i]" type="email"></label><button type="button" @click="schoolChoices[item.key].recipients.splice(i, 1)">Remove recipient</button></div>
                 <button type="button" @click="schoolChoices[item.key].recipients.push('')">Add school recipient</button>
-                <label class="day-field">Subject <input v-model="schoolChoices[item.key].message.subject" maxlength="200"></label><label class="day-field">School letter <textarea v-model="schoolChoices[item.key].message.text" rows="5" maxlength="6000" /></label><div class="tone-choices"><button type="button" @click="schoolChoices[item.key].message.text && restyleSchool(item.key,'warmer')">Warmer</button><button type="button" @click="restyleSchool(item.key,'formal')">More formal</button><button type="button" @click="restyleSchool(item.key,'shorter')">Fewer words</button><button type="button" @click="restyleSchool(item.key,'longer')">More words</button><button type="button" @click="restyleSchool(item.key,'regenerate')">Rewrite</button></div>
+                <label class="day-field">Subject <input v-model="schoolChoices[item.key].message.subject" maxlength="200"></label>
+                <CancellationLetterEditor :message="schoolChoices[item.key].message" label="School email" :base-url="base" :agency-id="item.agencyId" audience="school" :disabled="busy" @update:text="schoolChoices[item.key].message.text = $event" @busy="busy = $event" />
               </fieldset>
-              <fieldset v-else-if="item.message && (scopeMode === 'days' || selectedSessions.includes(item.id))" class="day-contact"><legend>{{ item.recipients.join(', ') }} · {{ when(item) }}</legend><label class="day-field">Subject <input v-model="messages[item.key].subject" maxlength="200"></label>
-                <template v-if="messages[item.key].guardian"><label class="day-field">Parent letter <textarea v-model="messages[item.key].guardian.text" rows="5" maxlength="6000" /></label><div class="tone-choices"><button type="button" @click="restyle(item.key,'guardian','warmer')">Warmer</button><button type="button" @click="restyle(item.key,'guardian','formal')">More formal</button><button type="button" @click="restyle(item.key,'guardian','shorter')">Fewer words</button><button type="button" @click="restyle(item.key,'guardian','longer')">More words</button><button type="button" @click="restyle(item.key,'guardian','regenerate')">Rewrite</button></div></template>
-                <template v-if="messages[item.key].client"><label class="day-field">Client letter <textarea v-model="messages[item.key].client.text" rows="5" maxlength="6000" /></label><div class="tone-choices"><button type="button" @click="restyle(item.key,'client','warmer')">Warmer</button><button type="button" @click="restyle(item.key,'client','formal')">More formal</button><button type="button" @click="restyle(item.key,'client','shorter')">Fewer words</button><button type="button" @click="restyle(item.key,'client','longer')">More words</button><button type="button" @click="restyle(item.key,'client','regenerate')">Rewrite</button></div></template>
-                <label v-if="!messages[item.key].guardian && !messages[item.key].client" class="day-field">Message <textarea v-model="messages[item.key].text" rows="5" maxlength="6000" /></label>
+              <fieldset v-else-if="item.message && (scopeMode === 'days' || selectedSessions.includes(item.id))" class="day-contact"><legend>{{ cancellationClientLabel(item) }} · {{ when(item) }}</legend>
+                <template v-if="letters(item).length">
+                  <label class="day-field">Subject <input v-model="messages[item.key].subject" maxlength="200"></label>
+                  <CancellationLetterEditor v-for="letter in letters(item)" :key="letter.audience" :message="letter.message" :label="letter.label" :base-url="base" :agency-id="item.agencyId" :audience="letter.audience" :disabled="busy" @update:text="setLetterText(item, letter.audience, $event)" @busy="busy = $event" />
+                </template>
+                <p v-else>No email recipient is selected for this client. Choose a contact above to review their email.</p>
               </fieldset>
             </template>
           </template>
@@ -228,7 +229,7 @@ async function apply(retryFailed = false) {
             <span>{{ emailReview ? 'Cancellation email notice' : item.kind === 'appointment' ? 'Provider absence + signed nonbillable note' : item.kind === 'school_roster' ? 'Assigned-day family email (no booked appointment)' : item.kind === 'school' ? 'School email' : ['meeting','supervision'].includes(item.kind) ? plan.notificationMode === 'none' ? 'Cancel without a notice' : 'Cancel + notify participants' : item.kind === 'office_reservation' ? 'Release this office time for other bookings' : 'Remove this opening only' }}</span></div>
             <span v-if="plan.results[item.key]" :class="{ 'day-error': plan.results[item.key].status === 'failed' }">{{ plan.results[item.key].status === 'completed' ? 'Updated' : plan.results[item.key].message }}</span>
             <p v-if="plan.results[item.key]?.notificationDelivery">Sent: {{ plan.results[item.key].notificationDelivery.sent || 0 }} · Needs follow-up: {{ (plan.results[item.key].notificationDelivery.held || 0) + (plan.results[item.key].notificationDelivery.skipped || 0) + (plan.results[item.key].notificationDelivery.failed || 0) }}</p>
-            <details v-if="item.message"><summary>Reviewed email</summary><div v-for="email in item.emailPreviews || []" :key="`${email.clientId}:${email.intendedTo}`" class="day-review day-delivery-preview"><span>Intended recipient: {{ email.intendedTo }}</span><strong v-if="email.redirected">Demo delivery to: {{ email.deliveryTo }}</strong><span v-else>Delivery to: {{ email.deliveryTo }}</span><strong>Subject at delivery: {{ email.subject }}</strong></div><strong v-if="!item.emailPreviews?.length">{{ item.message.subject }}</strong><p class="day-message">{{ item.message.text }}</p><p v-if="item.followUpPreview">{{ item.followUpPreview }}</p><p v-if="item.kind === 'appointment'">A secure link to the latest appointment options will be included. Urgent family notices also include a tracked receipt button.</p></details>
+            <details v-if="item.message"><summary>Reviewed email</summary><div v-for="email in item.emailPreviews || []" :key="`${email.clientId}:${email.intendedTo}`" class="day-review day-delivery-preview"><span>Intended recipient: {{ email.intendedTo }}</span><strong v-if="email.redirected">Demo delivery to: {{ email.deliveryTo }}</strong><span v-else>Delivery to: {{ email.deliveryTo }}</span><strong>Subject at delivery: {{ email.subject }}</strong></div><strong v-if="!item.emailPreviews?.length">{{ item.message.subject }}</strong><CancellationLetterEditor v-for="letter in item.kind === 'school' ? [{audience:'school',label:'School email',message:item.message}] : letters(item, true)" :key="letter.audience" :message="letter.message" :label="letter.label" :base-url="base" :agency-id="item.agencyId" :audience="letter.audience" :disabled="busy" read-only @busy="busy = $event" /><p v-if="item.followUpPreview">{{ item.followUpPreview }}</p><p v-if="item.kind === 'appointment'">A secure link to the latest appointment options will be included. Urgent family notices also include a tracked receipt button.</p></details>
             <details v-if="item.note"><summary>Review session note</summary><p>{{ item.note }}</p></details></li></ul>
           <p v-for="slot in plan.offeredSlots || []" :key="slot.key">Offered: {{ slot.label }}</p><p v-if="plan.followUpAction === 'private_slots'">Offers expire after {{ plan.offerDays }} day(s), or when their last offered time begins. Clients may decline; other scheduled sessions remain in place.</p>
           <section v-if="!changed && plan.contactFollowUpPreview?.length" class="day-review">

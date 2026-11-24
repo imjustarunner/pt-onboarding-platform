@@ -58,6 +58,16 @@ export async function rewriteDayCancellation(req, res, next) {
     res.json(await rewriteAbsenceLetter({ text: req.body?.text, tone: req.body?.tone, audience: req.body?.audience }));
   } catch (e) { if (e.status) return res.status(e.status).json({ error: { message: e.message } }); next(e); }
 }
+export async function previewDayCancellationEmail(req, res, next) {
+  try {
+    const agencyId = Number(req.body?.agencyId);
+    if (!agencyId) throw Object.assign(new Error('Choose the agency for this letter.'), { status: 400 });
+    await authorizeDayCancellation(req.user, Number(req.params.providerId), [agencyId]);
+    const { previewCancellationEmail } = await import('../services/cancellationEmailPreview.service.js');
+    res.set('Cache-Control', 'no-store');
+    res.json(await previewCancellationEmail({ agencyId, subject: req.body?.subject, text: req.body?.text }));
+  } catch (e) { if (e.status) return res.status(e.status).json({ error: { message: e.message } }); next(e); }
+}
 export async function applyDayCancellation(req, res, next) {
   try {
     // Token ownership is enforced by the service; provider path must match too.

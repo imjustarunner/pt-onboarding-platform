@@ -61,6 +61,30 @@ afterEach(() => {
 });
 
 describe('day cancellation review', () => {
+  it('reviews only the adult client email, shows their actual name, and keeps edited subjects aligned with the outgoing version', async () => {
+    const adult = { clientId: 8, clientName: 'Example Adult', mode: 'client', channels: ['email'],
+      contacts: [{ key: 'client', role: 'client', name: 'Example Adult', email: 'adult@example.test' }],
+      recipients: [{ key: 'client', role: 'client', name: 'Example Adult', email: 'adult@example.test' }] };
+    m.post.mockImplementation(async (_url, body) => {
+      const plan = fixture();
+      plan.items = [{ ...plan.items[0], recipients: ['Client record #8'], clients: [adult],
+        message: body.messages?.['appointment:41'] || { subject: 'Original subject', text: 'Default parent body',
+          guardian: { subject: 'Original subject', text: 'Parent-only draft' }, client: { subject: 'Original subject', text: 'Email for the adult client' } } }];
+      return { data: plan };
+    });
+    open(); await review(false);
+    expect(wrapper.findAll('textarea').map(input => input.element.value)).toEqual(['Email for the adult client']);
+    expect(wrapper.text()).not.toContain('Parent-only draft');
+    expect(wrapper.findAll('.day-contact legend').at(-1).text()).toContain('Example Adult');
+    expect(wrapper.findAll('select option').some(option => option.element.value === 'guardian')).toBe(false);
+    await wrapper.findAll('input').find(input => input.element.value === 'Original subject').setValue('My edited subject');
+    await wrapper.find('textarea').setValue('I’m still sick. I look forward to our next scheduled session.');
+    await button('Review final cancellation').trigger('click'); await flushPromises();
+    const sent = m.post.mock.calls.findLast(([_url, body]) => body.messagesReviewed)[1].messages['appointment:41'];
+    expect(sent.client.subject).toBe('My edited subject'); expect(sent.text).toBe(sent.client.text);
+    expect(wrapper.text()).not.toContain('Parent-only draft'); expect(button('Preview HTML email')).toBeTruthy();
+    expect(m.post.mock.calls.some(([url]) => url.endsWith('/apply'))).toBe(false);
+  });
   it('opens an unsent-only email review explicitly and requires fresh approval without repeating the school cancellation',async()=>{
     const key='school_roster:2:7:2026-10-15:8:4';
     const family={key,kind:'school_roster',id:8,agencyId:2,date:'2026-10-15',title:'AB family notice',recipients:['AB'],clients:[{clientId:8,clientName:'AB',mode:'guardian',channels:['email'],emailOnly:true,contacts:[{key:'enrollment:77',role:'guardian',name:'Caregiver',email:'family@example.test',operationalOnly:true}],recipients:[{key:'enrollment:77',role:'guardian',name:'Caregiver',email:'family@example.test'}]}],message:{subject:'Family cancellation',text:'School session canceled'}};

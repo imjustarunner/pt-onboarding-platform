@@ -8,6 +8,7 @@ vi.mock('../recurringScheduleCancellation.service.js', () => ({ cancelMeetingOcc
 vi.mock('../meetingInvitations.service.js', () => ({ sendMeetingScheduleChange: vi.fn() }));
 vi.mock('../../utils/invalidateAvailabilityReminders.js', () => ({ invalidateAvailabilityReminders: vi.fn() }));
 vi.mock('../clinicalNoteCrypto.service.js', () => ({ maybeEncryptNotePayload: vi.fn(), maybeDecryptNotePayload: vi.fn() }));
+import { dayAbsenceMessage } from '../dayAbsencePolicy.service.js';
 import { createDayCancellationService, dayBounds, dayCancellationFacts } from '../providerDayCancellation.service.js';
 
 const actor = { id: 9, role: 'provider' };
@@ -34,7 +35,7 @@ beforeEach(() => {
   });
   const conn = { execute, beginTransaction: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn() };
   database = { execute, getConnection: vi.fn(async () => conn) };
-  dependencies = { database, now: () => new Date('2026-11-04T15:00:00Z'), timeZone: async () => 'America/Denver', providerName: async () => 'Avery QA',
+  dependencies = { database, composeLetter: async letter => dayAbsenceMessage(letter), now: () => new Date('2026-11-04T15:00:00Z'), timeZone: async () => 'America/Denver', providerName: async () => 'Avery QA',
     encrypt: vi.fn(s => JSON.stringify({ testEncrypted: s })), decrypt: s => JSON.parse(s).testEncrypted,
     listAppointments: vi.fn(async () => structuredClone(appointments)), getAppointment: vi.fn(async id => structuredClone(appointments.find(a => a.id === id))),
     participants: vi.fn(async () => structuredClone(recipients)), previewAppointment: vi.fn(async () => ({ narrative: 'Provider unavailable. No service rendered.' })),
@@ -52,6 +53,13 @@ beforeEach(() => {
 });
 const preview = () => service.preview(input, actor, authorize, appointmentAccess);
 const apply = (plan, extra = {}) => service.apply(plan.token, { providerId: 9, signatureConfirmed: true, ...extra }, actor, authorize, appointmentAccess);
+
+it('shows the authorized client name when appointment participant display names were never saved', async () => {
+ recipients = [{clientId:12}];
+ const plan = await preview();
+ expect(plan.items.find(item => item.kind === 'appointment').recipients).toEqual(['Client One']);
+ expect(JSON.stringify(plan.items.find(item => item.kind === 'appointment').recipients)).not.toContain('Client record #');
+});
 
 describe('urgent and nonurgent day policy',()=>{
   it('always limits day cancellation to email and reserves planned holidays for nonurgent use',()=>{

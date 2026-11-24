@@ -40,14 +40,14 @@ export function absenceCause(reasonCategory, reason = '') {
   return ({ weather: 'due to weather conditions', illness: 'because I am unwell', emergency: 'due to an unexpected emergency', facility: 'because the location is closed', provider_unavailable: 'due to an unexpected absence' })[reasonCategory]
     || (/weather/i.test(reason) ? 'due to weather conditions' : 'due to an unexpected absence');
 }
-export function dayAbsenceMessage({ urgent = true, providerName = 'Your provider', providerAuthored = true, schoolName, clientName, date, when, reason, reasonCategory, note, audience }) {
+export function dayAbsenceMessage({ urgent = true, providerName = 'Your provider', providerAuthored = true, schoolName, clientName, date, when, reason, reasonCategory, note, audience, wholeDay }) {
   if (!urgent) return {
     subject: 'Your care team has canceled an upcoming session',
     text: `Hello,\n\nYour care team has canceled an upcoming session${clientName ? ` for ${clientName}` : ''}${when || date ? ` on ${when || absenceDate(date)}` : ''}. Please log in to your client portal to see any upcoming changes to your schedule.`
   };
   return composeAbsenceLetter({
     audience: audience || (clientName ? 'guardian' : 'client'), providerAuthored, providerName, clientName, schoolName,
-    when: when || absenceDate(date), reasonCategory, reason, note
+    when: when || absenceDate(date), reasonCategory, reason, note, wholeDay
   });
 }
 
