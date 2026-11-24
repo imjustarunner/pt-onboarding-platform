@@ -1,3 +1,4 @@
+import {transitionClientImportAccess} from '../middleware/transitionClientImport.middleware.js';
 import { getCobWorkspace, getCobPayers, createCob, reconcileCob } from '../controllers/stediCob.controller.js';
 import { getDiagnosisReview, postDiagnosisReview, getSupervisorDiagnosisPolicy, putSupervisorDiagnosisPolicy } from '../controllers/clinicalDiagnosisPolicy.controller.js';
 import { downloadClinicalNotePdf, downloadClinicalRecordPdf, downloadClinicalPlanPdf } from '../controllers/clinicalRecordExport.controller.js';
@@ -129,6 +130,7 @@ import {
 const router = express.Router();
 
 router.use(authenticate, requireActiveStatus, (req,res,next)=>{res.set('Cache-Control','no-store');next();});
+router.use(transitionClientImportAccess);
 router.get('/sessions/:sessionId/appointment-billing', excludeSupportClinicalContent, requireMedicalClaims, getAppointmentBilling);
 router.get('/planned-services', ...claimsGate, requireMedicalBillingFinancialAccess, getPlannedBillingServices);
 router.get('/payer-setup-requests', ...claimsGate, requireMedicalBillingFinancialAccess, payerSetupRequests);

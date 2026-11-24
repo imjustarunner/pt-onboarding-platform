@@ -60,5 +60,5 @@ it('automatically creates the clinical service for a legacy assigned chart when 
  const EmptyServices=defineComponent({name:'ClientServiceEnrollments',setup(_, {emit,expose}){expose({savePendingAssignments:()=>true,refresh:()=>emit('loaded',{services:[saved]})});onMounted(()=>emit('loaded',{services:[]}));},template:'<div>No service yet</div>'});
  const wrapper=mount(Assignments,{props:{clientId:7,agencyId:2},global:{stubs:{ClientServiceEnrollments:EmptyServices}}});await flushPromises();
  expect(m.post).not.toHaveBeenCalled();await expect(wrapper.vm.savePendingAssignments()).resolves.toBe(true);await expect(wrapper.vm.savePendingAssignments()).resolves.toBe(true);
- expect(m.post).toHaveBeenCalledTimes(1);expect(m.post).toHaveBeenCalledWith('/clients/7/service-enrollments',expect.objectContaining({serviceKind:'counseling',providerUserId:20,organizationId:0}));wrapper.unmount();
+ expect(m.post).toHaveBeenCalledTimes(1);expect(m.post).toHaveBeenCalledWith('/clients/7/service-enrollments',expect.objectContaining({serviceKind:'counseling',providerUserId:20,organizationId:0}),expect.objectContaining({headers:{'X-Agency-Id':'2'}}));wrapper.unmount();
 });

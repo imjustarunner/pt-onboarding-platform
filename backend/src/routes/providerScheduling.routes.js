@@ -1,5 +1,5 @@
 import express from 'express';
-import { requireTransitionManager, requireTransitionPractice, getTransitionPractices, getTransitionRoster, getTransitionClients, getTransitionMeetings, getTransitionEmailRecipients, getTransitionWeek, putTransitionWeek } from '../controllers/transitionWeek.controller.js';
+import { requireTransitionManager, requireTransitionPractice, getTransitionPractices, getTransitionClientImportAccess, getTransitionRoster, getTransitionClients, getTransitionMeetings, getTransitionEmailRecipients, getTransitionWeek, putTransitionWeek } from '../controllers/transitionWeek.controller.js';
 import { authenticate, requireAgencyAdmin } from '../middleware/auth.middleware.js';
 import {
   listProvidersForScheduling,
@@ -11,6 +11,7 @@ import {
 
 const router = express.Router();
 
+router.get('/transition-workspace/import-access', authenticate, getTransitionClientImportAccess);
 router.get('/transition-workspace/practices', authenticate, getTransitionPractices);
 router.get('/transition-workspace/roster', authenticate, requireTransitionManager, requireTransitionPractice, getTransitionRoster);
 router.get('/transition-workspace/clients', authenticate, requireTransitionManager, requireTransitionPractice, getTransitionClients);

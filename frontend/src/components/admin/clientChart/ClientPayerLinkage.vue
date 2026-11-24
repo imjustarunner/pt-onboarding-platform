@@ -37,7 +37,9 @@
 <script setup>
 import { automaticEligibilityNotice } from '../../../utils/automaticEligibilityNotice.js';
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
-import api from '../../../services/api';
+import sharedApi from '../../../services/api';
+import {transitionRequestScope} from '../../../utils/transitionRequestScope';
+const api={...sharedApi,...transitionRequestScope(sharedApi,()=>props.agencyId)};
 const props=defineProps({clientId:{type:[Number,String],required:true},agencyId:{type:[Number,String],required:true},refreshKey:{default:0}});
 const emit=defineEmits(['ready-change','busy']);
 const notice=ref(''),payerResponses=ref({});

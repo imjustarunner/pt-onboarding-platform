@@ -33,7 +33,9 @@
 <script setup>
 import {computed,onBeforeUnmount,ref,watch} from 'vue';
 import { portalContactRelationships as relationships } from '../../../navigation/recordsContactOwnership.js';
-import api from '../../../services/api';
+import sharedApi from '../../../services/api';
+import {transitionRequestScope} from '../../../utils/transitionRequestScope';
+const api={...sharedApi,...transitionRequestScope(sharedApi,()=>props.agencyId)};
 const props=defineProps({clientId:{type:[String,Number],required:true},agencyId:{type:[String,Number],required:true},contacts:{type:Array,default:()=>[]},disabled:Boolean});
 const emit=defineEmits(['busy','prepared']);
 const accounts=ref([]),selectedId=ref(''),relationship=ref(''),loading=ref(false),loaded=ref(false),saving=ref(false),error=ref(''),notice=ref('');let generation=0;

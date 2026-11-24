@@ -19,7 +19,9 @@
 
 <script setup>
 import { onBeforeUnmount, ref, watch } from 'vue';
-import api from '../../../services/api';
+import sharedApi from '../../../services/api';
+import {transitionRequestScope} from '../../../utils/transitionRequestScope';
+const api={...sharedApi,...transitionRequestScope(sharedApi,()=>props.agencyId)};
 
 const props = defineProps({ clientId:[Number,String], agencyId:[Number,String], contacts:Array, disabled:Boolean });
 const emit = defineEmits(['busy']);

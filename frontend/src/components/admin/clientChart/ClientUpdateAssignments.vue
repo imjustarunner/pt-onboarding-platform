@@ -28,9 +28,11 @@
   </section>
 </template>
 <script setup>
-import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue';
+import { inject, computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import {useChartImportDrafts} from '../../../composables/useChartImportDrafts.js';
-import api from '../../../services/api';
+import sharedApi from '../../../services/api';
+import {transitionRequestScope} from '../../../utils/transitionRequestScope';
+const api={...sharedApi,...transitionRequestScope(sharedApi,()=>props.agencyId)};
 import { useAuthStore } from '../../../store/auth';
 import { canAccessMedicalBilling } from '../../../config/medicalBillingAccess';
 import { meaningfulProgram } from '../../../utils/clientRosterContext.js';
@@ -40,6 +42,7 @@ import { finishClientCreation } from '../../../utils/clientCreationOutcome.js';
 import ClientServiceEnrollments from '../ClientServiceEnrollments.vue';
 const props=defineProps({clientId:{type:[Number,String],required:true},agencyId:{type:[Number,String],required:true},initialAssignment:{type:Object,default:()=>({})}});
 const emit=defineEmits(['updated','busy','ready']);const auth=useAuthStore();
+const delegatedImport=inject('transitionClientImportOperator',ref(false));
 const client=ref(null),memberships=ref([]),affiliations=ref([]),catalog=ref([]),offices=ref([]),locations=ref([]),services=ref([]);
 const loading=ref(false),loaded=ref(false),saving=ref(false),suggesting=ref(false),servicesBusy=ref(false),servicesError=ref(''),error=ref(''),hint=ref(''),section=ref(null),servicesPanel=ref(null);
 const assignmentDrafts=useChartImportDrafts({sectionKeys:['assignments'],singleSection:true}),workingDraftNotice=ref('');
@@ -133,7 +136,7 @@ async function savePendingAssignments(){
  // Legacy chart assignments also need a service enrollment. Staff should not
  // have to find Add service after choosing the client's clinical provider.
  if(!isSchool.value && client.value?.client_type==='clinical' && providerId.value
-   && ['super_admin','admin','support','staff'].includes(auth.user?.role)
+   && (['super_admin','admin','support','staff'].includes(auth.user?.role)||delegatedImport.value)
    && !services.value.some(service=>service.service_kind==='counseling' && Number(service.is_active)===1)) {
   try {
    await finishClientCreation({api,clientId:props.clientId,agencyId:props.agencyId,organizationId:props.agencyId,

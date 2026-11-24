@@ -1,3 +1,4 @@
+import {transitionClientImportAccess} from '../middleware/transitionClientImport.middleware.js';
 import * as guardianAccountWorkspace from '../controllers/guardianAccountWorkspace.controller.js';
 import { previewProviderDayNote, sendProviderDayNote, markProviderSchoolDayClosed } from '../controllers/providerScheduleDay.controller.js';
 import { requireAccountAdministrator, excludeSupportSettings, supportOwnAccountOnly, supportProfileUpdateOnly } from '../middleware/supportContentAccess.middleware.js';
@@ -142,7 +143,7 @@ router.delete('/:id/schedule-events/:eventId', authenticate, deleteUserScheduleE
 router.get('/:id/google-events/:eventId', authenticate, getUserGoogleEvent);
 router.patch('/:id/google-events/:eventId', authenticate, patchUserGoogleEvent);
 router.delete('/:id/google-events/:eventId', authenticate, deleteUserGoogleEvent);
-router.get('/:id/office-assignments', authenticate, requireBackofficeAdmin, getUserOfficeAssignments);
+router.get('/:id/office-assignments', authenticate, transitionClientImportAccess, requireBackofficeAdmin, getUserOfficeAssignments);
 router.put('/:id/office-assignments', authenticate, requireBackofficeAdmin, upsertUserOfficeAssignments);
 router.get('/:id/provider-clinical-focus', authenticate, getUserClinicalFocus);
 router.put('/:id/provider-clinical-focus', authenticate, putUserClinicalFocus);

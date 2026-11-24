@@ -1,3 +1,4 @@
+import {transitionClientImportAccess} from '../middleware/transitionClientImport.middleware.js';
 import express from 'express';
 import rateLimit from 'express-rate-limit';
 import {authenticate,requireActiveStatus} from '../middleware/auth.middleware.js';
@@ -8,6 +9,7 @@ import {prepareGuardianAccountsForClients} from '../services/guardianAccountPrep
 import {requireClientAccountSupport} from '../services/clientAccountSupportAccess.service.js';
 import {previewClientTransitionInvitation,prepareClientTransitionInvitation,sendClientTransitionInvitation} from '../services/clientTransitionInvitation.service.js';
 const router=express.Router();router.use(authenticate,requireActiveStatus,(req,res,next)=>{res.set({'Cache-Control':'no-store','Referrer-Policy':'no-referrer'});next();});
+router.use(transitionClientImportAccess);
 const run=fn=>async(req,res,next)=>{try{await fn(req,res);}catch(e){next(e);}};
 const context=req=>({user:req.user,clientId:positiveId(req.params.clientId),agencyId:positiveId(req.query.agencyId||req.body.agencyId)});
 router.get('/clients/:clientId',run(async(req,res)=>res.json(await portalMigrationOverview(context(req)))));

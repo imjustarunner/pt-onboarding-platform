@@ -40,7 +40,7 @@
        <dl v-if="demographicPreview.length" class="cr-identity" aria-label="Patient info preview"><template v-for="field in demographicPreview" :key="field.key"><dt>{{ field.label }}</dt><dd>{{ field.value }}</dd></template></dl>
        <section v-if="candidates.length" class="cr-matches" aria-label="Existing clients and possible siblings"><h3>Review existing clients and household matches</h3><p>Shared contact details can indicate siblings. Each child keeps a separate chart; an existing guardian login is reused by email and its access is reviewed for each child.</p><ul><li v-for="candidate in candidates" :key="candidate.id"><strong>{{candidate.full_name}}</strong> · {{candidate.date_of_birth || 'Birth date not recorded'}} · #{{candidate.id}} · {{candidate.reason}} <button type="button" class="cr-button" @click="openExisting(candidate)">Open existing client</button></li></ul><label v-if="candidates.some(row=>row.kind==='possible_duplicate')"><input v-model="duplicatesReviewed" type="checkbox" /> I reviewed these possible duplicates and this is a different client.</label></section>
        <section v-for="section in otherSections" :key="section.key" class="cr-record-section">
-        <template v-if="section.key==='insurance'"><label>Payment basis<select aria-label="Payment basis" v-model="form.coverageMode"><option value="insurance">Insurance</option><option value="self_pay">Self-pay — agreed client rate</option><option value="no_policy">No policy to import</option></select></label><ClientImportSelfPayFields v-if="form.coverageMode==='self_pay'" v-model="form.selfPay" :agency-id="agencyId" /></template>
+        <template v-if="section.key==='insurance'"><label>Payment basis<select aria-label="Payment basis" v-model="form.coverageMode"><option value="insurance">Insurance</option><option v-if="!delegatedImport" value="self_pay">Self-pay — agreed client rate</option><option value="no_policy">No policy to import</option></select></label><ClientImportSelfPayFields v-if="form.coverageMode==='self_pay'" v-model="form.selfPay" :agency-id="agencyId" /></template>
         <template v-if="section.key==='insurance' && form.coverageMode==='insurance'">
          <div v-for="position in ['primary','secondary']" :key="position"><label>{{ position==='primary'?'Primary insurance':'Secondary insurance (optional)' }} paste<textarea v-model="form.coverageDrafts[position].text" :data-section="position==='primary'?'insurance':'secondaryInsurance'" :aria-label="`${position==='primary'?'Primary':'Secondary'} insurance paste`" :rows="section.rows || 5" :placeholder="section.placeholder" /></label>
          <ClientImportPolicyholderBirthDate :text="form.coverageDrafts[position].text" :position="position" @update="form.coverageDrafts[position].text=$event" /></div>
@@ -68,10 +68,12 @@
 import { isLegacyClinicalOrganization, offersAssignmentService } from '../../../utils/clientRosterContext.js';
 import { CLIENT_RECORD_SECTIONS } from '../../../utils/clientRecordSections.js';
 import { primaryAssignmentProvider } from '../../../utils/clientAssignmentDefaults.js';
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { provide, computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { onBeforeRouteLeave } from 'vue-router';
 import { useAuthStore } from '../../../store/auth';
-import api from '../../../services/api';
+import sharedApi from '../../../services/api';
+import {transitionRequestScope} from '../../../utils/transitionRequestScope';
+const api={...sharedApi,...transitionRequestScope(sharedApi,()=>agencyId.value)};
 import { useModalFocus } from '../../../composables/useModalFocus';
 import { useClientCreationDrafts } from '../../../composables/useClientCreationDrafts';
 import { generatedClientInitials } from '../../../utils/clientInitials';
@@ -85,7 +87,9 @@ import ClientImportPolicyholderBirthDate from './ClientImportPolicyholderBirthDa
 import ClientImportSelfPayFields from './ClientImportSelfPayFields.vue';
 const props=defineProps({agencies:{type:Array,default:()=>[]},initialAgencyId:{type:[String,Number],default:null}});
 const emit=defineEmits(['close','created','open-existing']);const auth=useAuthStore();
-const isBackoffice=computed(()=>['super_admin','admin','support'].includes(auth.user?.role));
+const delegatedImport=ref(false);
+provide('transitionClientImportOperator',delegatedImport);
+const isBackoffice=computed(()=>['super_admin','admin','support'].includes(auth.user?.role)||delegatedImport.value);
 const dialog=ref(null),panel=ref(null),agencyId=ref(''),organizations=ref([]),providers=ref([]),created=ref(null),completed=ref(false),working=ref(false),panelBusy=ref(false),parsing=ref(false),error=ref('');
 const initializing=ref(false),startImport=ref(false);
 const assignmentError=ref('');
@@ -148,9 +152,10 @@ async function openExisting(client){if(await prepareLeave()){emit('open-existing
 async function changeAgency(value){
  chartDraftsSaved.value=false;candidates.value=[];candidateFingerprint='';duplicatesReviewed.value=false;initialAssignmentAttempted=false;
  if(created.value||working.value)return;if(agencyId.value&&!(await drafts.flush()))return;
- const version=++generation;parseVersion++;clearTimeout(parseTimer);hydrating=true;agencyId.value=String(value||'');Object.assign(form,defaults());created.value=null;completed.value=false;error.value='';organizations.value=[];providers.value=[];
+ const version=++generation;parseVersion++;clearTimeout(parseTimer);hydrating=true;delegatedImport.value=false;agencyId.value=String(value||'');Object.assign(form,defaults());created.value=null;completed.value=false;error.value='';organizations.value=[];providers.value=[];
  if(!agencyId.value){hydrating=false;return;}
  try{
+  if(!['super_admin','admin','support'].includes(auth.user?.role)){const permission=await api.get('/provider-scheduling/transition-workspace/import-access',{params:{agencyId:Number(agencyId.value)},skipGlobalLoading:true});if(version!==generation)return;delegatedImport.value=permission.data?.canImportClients===true;if(delegatedImport.value)form.providerId=null;}
   const[saved,orgs,providerResponse]=await Promise.all([drafts.load(agencyId.value),api.get(`/agencies/${agencyId.value}/affiliated-organizations`,{skipGlobalLoading:true}),isBackoffice.value?api.get('/office-clients/providers',{params:{agencyIds:String(agencyId.value),serviceAssignments:'1'},skipGlobalLoading:true}):Promise.resolve({data:{providers:[auth.user]}})]);
   if(version!==generation)return;
   organizations.value=(Array.isArray(orgs.data)?orgs.data:[]).filter(row=>row.is_active!==false&&row.is_active!==0);

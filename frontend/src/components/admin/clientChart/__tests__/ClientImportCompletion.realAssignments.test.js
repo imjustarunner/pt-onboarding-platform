@@ -83,7 +83,7 @@ it('keeps real portal access and preview controls usable while source text and o
  const access=w.get('[aria-label="Portal relationship access"] select');expect(access.element.disabled).toBe(false);expect(access.element.closest('fieldset[disabled]')).toBeNull();
  await access.setValue('care');await w.get('[aria-label="Portal relationship access"] input[placeholder]').setValue('Verified parent relationship and requested access');await w.findAll('button').find(b=>b.text()==='Save access').trigger('click');await flushPromises();
  expect(m.patch).toHaveBeenCalledWith('/clients/12/guardians/30',{accessMode:'care',accessReason:'Verified parent relationship and requested access'},expect.objectContaining({headers:{'X-Agency-Id':'2'}}));
- await w.findAll('button').find(b=>b.text()==='Preview transition invitation').trigger('click');await flushPromises();expect(m.post).toHaveBeenCalledWith('/portal-migration/staff/transition-preview',{agencyId:2,clientId:12});expect(m.post.mock.calls.some(([url])=>url.endsWith('transition-send'))).toBe(false);w.unmount();
+ await w.findAll('button').find(b=>b.text()==='Preview transition invitation').trigger('click');await flushPromises();expect(m.post).toHaveBeenCalledWith('/portal-migration/staff/transition-preview',{agencyId:2,clientId:12},expect.objectContaining({headers:{'X-Agency-Id':'2'}}));expect(m.post.mock.calls.some(([url])=>url.endsWith('transition-send'))).toBe(false);w.unmount();
 });
 
 it('saves and closes the outer add-client modal with a real unfinished provider editor',async()=>{

@@ -1,3 +1,4 @@
+import {hasTransitionClientImportAccess} from '../services/transitionClientImportAccess.service.js';
 import { readTransitionWeek, saveTransitionWeek } from '../services/transitionWeek.service.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
 
@@ -50,3 +51,5 @@ export async function putTransitionWeek(req, res, next) {
   try { res.json(await saveTransitionWeek({ agencyId: req.transitionAgencyId, actorUserId: req.user.id, input: req.body })); }
   catch (error) { next(error); }
 }
+
+export async function getTransitionClientImportAccess(req,res,next){try{const agencyId=Number(req.query.agencyId);res.set('Cache-Control','no-store');res.json({canImportClients:await hasTransitionClientImportAccess(req.user,agencyId)});}catch(error){next(error);}}

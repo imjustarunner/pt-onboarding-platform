@@ -1,3 +1,4 @@
+import {transitionClientImportAccess} from '../middleware/transitionClientImport.middleware.js';
 import { listClientRelationships, changeClientSibling } from '../controllers/clientRelationships.controller.js';
 import { getClientCreationDraft,saveClientCreationDraft } from '../controllers/clientCreationDraft.controller.js';
 import { requireClinicalStaffSecurity } from '../middleware/clinicalStaffSecurity.middleware.js';
@@ -185,6 +186,7 @@ const router = express.Router();
 
 // All client routes require authentication (controllers assume req.user is present)
 router.use(authenticate);
+router.use(transitionClientImportAccess);
 router.post('/portal-invites/preview', clientPortalInvites.preview);
 router.post('/portal-invites/send', clientPortalInvites.send);
 

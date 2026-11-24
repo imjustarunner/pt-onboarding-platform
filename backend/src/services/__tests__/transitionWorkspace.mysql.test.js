@@ -5,6 +5,7 @@ import mysql from 'mysql2/promise';
 const m=vi.hoisted(()=>({pool:null}));
 vi.mock('../../config/database.js',()=>({default:{execute:(...args)=>m.pool.execute(...args),getConnection:()=>m.pool.getConnection()}}));
 vi.mock('../clientSessionBookingRollout.service.js',()=>({sessionBookingProviders:async()=>[{id:1,name:'Example One'},{id:2,name:'Example Two'}]}));
+import {hasTransitionClientImportAccess} from '../transitionClientImportAccess.service.js';
 import {readTransitionWeek,saveTransitionWeek} from '../transitionWeek.service.js';
 import {transitionPractices,transitionWorkspaceData,transitionWorkspaceRoster,transitionClients,transitionMeetings} from '../transitionWorkspace.service.js';
 const port=Number(process.env.TRANSITION_WEEK_TEST_MYSQL_PORT);
@@ -36,6 +37,7 @@ describe.skipIf(!port)('native MySQL transition workspace',()=>{
    INSERT INTO payroll_summaries VALUES(1,2,1,1.25,2,1,4),(2,2,1,2,3,2,4),(3,2,1,3.25,4,3,4),(4,2,1,500,500,500,500),(5,2,1,500,500,500,500),(6,2,1,500,500,500,500),(9,6,1,500,500,500,500),(3,2,99,1,1,1,1),(3,2,2,0,0,0,0);
    INSERT INTO payroll_imports VALUES(1,3,2,'2020-02-12 01:00:00'),(2,3,2,'2020-02-12 02:00:00'),(9,9,6,'2020-02-26 02:00:00');
    INSERT INTO payroll_import_rows VALUES(1,1,3,2,1,1,'2020-02-01','old-import'),(2,2,3,2,1,30,'2020-02-01','same-entry'),(3,2,3,2,1,30,'2020-02-01','same-entry'),(4,2,3,2,1,1,'2019-01-01','old-service'),(5,9,9,6,1,1,'2020-02-13','other-practice');
+   ALTER TABLE agencies ADD COLUMN is_active TINYINT DEFAULT 1,ADD COLUMN is_archived TINYINT DEFAULT 0;
    ALTER TABLE users ADD COLUMN has_provider_access TINYINT DEFAULT 0;
    ALTER TABLE user_agencies ADD COLUMN agency_role VARCHAR(32) NULL;
    INSERT INTO clients VALUES(41,2,1,'Fictional client A','FCA','ACTIVE'),(42,2,2,'Fictional client B','FCB','DISCHARGED'),(49,6,1,'Foreign chart','FC','ACTIVE');
@@ -91,6 +93,12 @@ describe.skipIf(!port)('native MySQL transition workspace',()=>{
    await expect(transitionPractices({id:55,role:'provider_plus'})).rejects.toMatchObject({status:403});
    await m.pool.execute("UPDATE agencies SET feature_flags=JSON_SET(feature_flags,'$.practiceTransitionManagerUserIds',JSON_ARRAY(55)) WHERE id IN (2,377)");
    expect((await transitionPractices({id:55,role:'provider_plus'})).map(p=>p.id)).toEqual([2]);
+   expect(await hasTransitionClientImportAccess({id:55,role:'provider_plus'},2)).toBe(false);
+   await m.pool.execute("UPDATE agencies SET feature_flags=JSON_SET(feature_flags,'$.practiceTransitionClientImportUserIds',JSON_ARRAY(55)) WHERE id=2");
+   expect(await hasTransitionClientImportAccess({id:55,role:'provider_plus'},2)).toBe(true);
+   expect(await hasTransitionClientImportAccess({id:55,role:'provider_plus'},6)).toBe(false);
+   await m.pool.execute("UPDATE agencies SET feature_flags=JSON_REMOVE(feature_flags,'$.practiceTransitionClientImportUserIds') WHERE id=2");
+   expect(await hasTransitionClientImportAccess({id:55,role:'provider_plus'},2)).toBe(false);
    const saved=await saveTransitionWeek({agencyId:2,actorUserId:55,input:{revision:0,action:'workspace_item',kind:'people',key:'1',patch:{ownerUserId:99}}});
    expect(saved.state.workspace.people[1].ownerUserId).toBe(99);
    const [[actor]]=await m.pool.execute('SELECT actor_user_id FROM practice_transition_week_events');expect(actor.actor_user_id).toBe(55);

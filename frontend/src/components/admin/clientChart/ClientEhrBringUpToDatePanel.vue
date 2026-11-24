@@ -23,7 +23,7 @@
         <span v-for="section in visibleSections" :key="section.key" class="ehr-chip" :class="statusClass(status[section.key])">{{ section.label }} · {{ sectionStatusLabel(section.key) }}</span>
       </div>
       <section v-for="section in visibleSections" :key="section.key" class="ehr-section" :aria-label="section.label">
-        <template v-if="section.key === 'insurance'"><label class="ehr-label">Payment basis<select aria-label="Payment basis" v-model="coverageMode" :disabled="busy"><option value="insurance">Insurance</option><option value="self_pay">Self-pay — agreed client rate</option><option value="no_policy">No policy to import</option></select></label><ClientImportSelfPayFields v-if="coverageMode==='self_pay'" v-model="selfPay" :agency-id="agencyId" :client-id="clientId" :disabled="busy || sectionLocked('insurance')" /></template>
+        <template v-if="section.key === 'insurance'"><label class="ehr-label">Payment basis<select aria-label="Payment basis" v-model="coverageMode" :disabled="busy"><option value="insurance">Insurance</option><option v-if="!delegatedImport" value="self_pay">Self-pay — agreed client rate</option><option value="no_policy">No policy to import</option></select></label><ClientImportSelfPayFields v-if="coverageMode==='self_pay'" v-model="selfPay" :agency-id="agencyId" :client-id="clientId" :disabled="busy || sectionLocked('insurance')" /></template>
         <div v-if="section.key==='insurance' && coverageMode==='insurance'" class="ehr-coverage-pastes">
           <div v-for="position in ['primary','secondary']" :key="position">
             <label class="ehr-label">{{ position==='primary'?'Primary insurance':'Secondary insurance (optional)' }} paste
@@ -140,10 +140,12 @@
 import { isProBonoServiceCode } from '../../../utils/clinicalAfterHoursPolicy.js';
 import { automaticEligibilityNotice } from '../../../utils/automaticEligibilityNotice.js';
 import { CLIENT_RECORD_SECTIONS } from '../../../utils/clientRecordSections.js';
-import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
+import { inject, computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { getActivePinia } from 'pinia';
 import { useAuthStore } from '../../../store/auth';
-import api from '../../../services/api';
+import sharedApi from '../../../services/api';
+import {transitionRequestScope} from '../../../utils/transitionRequestScope';
+const api={...sharedApi,...transitionRequestScope(sharedApi,()=>props.agencyId)};
 import { useChartImportDrafts } from '../../../composables/useChartImportDrafts.js';
 import ClientPayerLinkage from './ClientPayerLinkage.vue';
 import { parseChartContacts } from '../../../navigation/chartPasteParser.js';
@@ -194,7 +196,8 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'done', 'imported', 'busy', 'drafts-saved', 'section-imported', 'review-intake', 'review-plan', 'sections-imported']);
 const auth = getActivePinia() ? useAuthStore() : null;
-const canPrepareAccounts = computed(() => ['super_admin','admin','support'].includes(auth?.user?.role));
+const delegatedImport=inject('transitionClientImportOperator',ref(false));
+const canPrepareAccounts = computed(() => ['super_admin','admin','support'].includes(auth?.user?.role)||delegatedImport.value);
 
 const demographicsText = ref('');
 const intakeText = ref('');

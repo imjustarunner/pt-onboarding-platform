@@ -51,8 +51,10 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
-import api from '../../services/api';
+import { inject, computed, onBeforeUnmount, ref, watch } from 'vue';
+import sharedApi from '../../services/api';
+import {transitionRequestScope} from '../../utils/transitionRequestScope';
+const api={...sharedApi,...transitionRequestScope(sharedApi,()=>props.agencyId)};
 import ProviderSearchSelect from '../clients/ProviderSearchSelect.vue';
 import { useAuthStore } from '../../store/auth';
 import ClientReenrollment from './ClientReenrollment.vue';
@@ -60,7 +62,8 @@ import { meaningfulProgram, chartServiceLabel, offersAssignmentService } from '.
 const props = defineProps({ clientId: [Number, String], agencyId: [Number, String], organizations: { type: Array, default: () => [] }, startAssigning: { type: Boolean, default: false },initialAssignment:{type:Object,default:()=>({})},autoSaveProvider:Boolean });
 const emit = defineEmits(['updated','loaded','busy','draft-change']);
 const auth=useAuthStore();
-const canAddService=computed(()=>['super_admin','admin','support','staff'].includes(auth.user?.role));
+const delegatedImport=inject('transitionClientImportOperator',ref(false));
+const canAddService=computed(()=>['super_admin','admin','support','staff'].includes(auth.user?.role)||delegatedImport.value);
 const returnService=ref(null),returnRequests=ref([]),returnMessages=ref({});
 const statusEdit=ref(null),statusDraft=ref({status:'active',reason:'',closureReason:'other',confirmed:false});
 const closureCopy={client_choice:'Services were discontinued at your request.',care_completed:'This course of services has been completed.',discontinued_contact:'Services were discontinued because we were unable to re-establish contact.',provider_transition:'Services with this provider have ended.',other:'Services with this provider have ended. Contact the team if you have questions.'};
