@@ -128,7 +128,9 @@ export async function previewClientSummary(req, res, next) {
     if (!allowedRoles.includes(req.user.role)) return res.status(403).json({ error: { message: 'Forbidden' } });
     const access = await resolveClientRecordAccess({ userId: req.user.id, role: req.user.role, client });
     if (!access.ok) return res.status(access.status || 403).json({ error: { message: access.message } });
-    const summary = await loadClientExchangeSummary({ client });
+    const summary = await loadClientExchangeSummary({
+      client, ...(req.query.includePlanSharing === '1' ? { includePlanSharing:true } : {})
+    });
     const existingListings = await ClientExchange.listOpenClientReferrals({ clientId, agencyId });
     res.json({ summary: req.user.role === 'support' ? supportExchangeSummary(summary) : summary, existingListings });
   } catch (error) { next(error); }

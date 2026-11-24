@@ -4238,7 +4238,7 @@ async function loadCareSummary() {
   }
   careSummaryLoading.value = true;
   try {
-    const { data } = await api.get(`/client-exchange/clients/${clientId}/summary`, { params: { agencyId }, skipGlobalLoading: true });
+    const { data } = await api.get(`/client-exchange/clients/${clientId}/summary`, { params: { agencyId, includePlanSharing:1 }, skipGlobalLoading: true });
     if (version === careSummaryVersion) careSummary.value = data.summary;
   } catch (error) {
     if (version === careSummaryVersion) careSummaryError.value = error?.response?.data?.error?.message || 'Unable to load clinical summary';
@@ -4361,7 +4361,8 @@ const overviewAlertItems = computed(() => {
       items.push({id:'intake-incomplete', label: summary.intakeReviewStatus === 'draft' ? 'Intake needs finalizing' : 'Intake missing',
         tone:'warning', tab:'intake-note'});
     }
-    if (!summary.treatmentPlanOnFile) items.push({id:'plan-incomplete',label:'Signed treatment plan needed',tone:'warning',tab:'treatment-plans'});
+    if (!summary.treatmentPlanOnFile) items.push({id:'plan-incomplete',label:'Prepare treatment plan to share',tone:'warning',tab:'treatment-plans'});
+    else if (summary.treatmentPlanShared === false) items.push({id:'plan-share',label:'Share treatment plan for review',tone:'warning',tab:'treatment-plans'});
     if (summary.intakeDiagnosisPending) items.push({id:'dx-review',label:'Review intake diagnosis',tone:'info',tab:'intake-note'});
     if (summary.planDiagnosisPending) items.push({id:'plan-dx-review',label:'Review treatment plan diagnoses',tone:'info',tab:'treatment-plans'});
   }

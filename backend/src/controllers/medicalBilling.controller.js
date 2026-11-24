@@ -356,7 +356,10 @@ export async function proposeNarrivaChartDraft(req,res,next) {
     // Workspace revisions produce suggestions from an existing signed plan without editing it.
     await verifyNarrivaPlanEditor(req,agencyId,clientId,req.body.chartDraft===true?planId:null);
     const { suggestNarrivaPlanDraft }=await import('../services/narrivaPlanDraft.service.js');
-    const proposal=await suggestNarrivaPlanDraft({input:req.body.draft,includeOther:req.body.includeOther===true});
+    const proposal=await suggestNarrivaPlanDraft({
+      input:req.body.draft, includeOther:req.body.includeOther===true, completePlan:req.body.completePlan===true,
+      revision: typeof req.body.revisionInstructions === 'string' ? req.body.revisionInstructions.slice(0,4000) : ''
+    });
     return res.set('Cache-Control','no-store').json({proposal});
   } catch(error) { next(error); }
 }
