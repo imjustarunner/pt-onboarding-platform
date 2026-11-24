@@ -45,7 +45,8 @@ describe.skipIf(!port)('native MySQL transition runtime',()=>{
   await expect(upsertClaim(plan,{meeting:1,userId:2,seconds:600})).rejects.toThrow('reconciliation');const [[n]]=await m.pool.execute('SELECT COUNT(*) n FROM payroll_time_claims WHERE user_id=2');expect(n.n).toBe(1);
  });
  it('encrypts setup evidence and appends automation-attributed snapshots without inventing a human actor',async()=>{
-  await recordTransitionInboxSetup({address:'transitions@auricwell.com',roundTripVerified:true,senderIdentityId:8});await recordTransitionInboxSetup({address:'transitions@auricwell.com',roundTripVerified:true,senderIdentityId:8});
+  await expect(recordTransitionInboxSetup({address:'transitions@auricwell.com',roundTripVerified:true,senderIdentityId:8})).rejects.toThrow('Owner-verified');
+  await recordTransitionInboxSetup({address:'transitions@auricwell.com',roundTripVerified:true,groupSettingsVerifiedByOwner:true,senderIdentityId:8});await recordTransitionInboxSetup({address:'transitions@auricwell.com',roundTripVerified:true,groupSettingsVerifiedByOwner:true,senderIdentityId:8});
   const [[r]]=await m.pool.execute('SELECT payload_json,automation_subject,revision FROM transition_meeting_sequences');expect(JSON.stringify(r.payload_json)).not.toContain('roundTripVerified');expect(r.revision).toBe(1);const [[audit]]=await m.pool.execute('SELECT actor_type,actor_user_id FROM transition_meeting_sequence_audit');expect(audit).toEqual({actor_type:'automation',actor_user_id:null});
  });
  it('persists the actually delivered RFC thread identity and never treats held, redirected or uncertain sends as delivery',()=>{

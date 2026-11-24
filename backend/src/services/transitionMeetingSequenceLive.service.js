@@ -45,13 +45,13 @@ export async function transitionSequencePreview(now=new Date()){
  const sender=await identity();
  const ready={senderApproved:true,replyInboxMonitored:true,inboundRoutingTested:true,rsvpEmailAndAppTested:true,hostCcTested:true,attendanceFinalizationTested:true,supportActivity18Tested:true,automationIdentityScoped:true};
  // Activation requires the real round-trip setup proof, not just these values.
- const setup=await stored();if(!setup?.data?.setup?.roundTripVerified)throw error('Complete and verify the transition inbox round trip before activating.');
+ const setup=await stored();if(!setup?.data?.setup?.roundTripVerified||!setup.data.setup.groupSettingsVerifiedByOwner)throw error('Confirm owner-verified group settings and the transition inbox round trip before activating.');
  return prepareTransitionSequence({agencyId:2,hostIds,coordinatorUserId:hostIds[1],additionalGroupOneUserId:kimiId,senderIdentityId:Number(sender.id),replyTo:TRANSITION_INBOX,
   sessions:TRANSITION_LIVE_SCHEDULE,sundayLocation:'Windchime office (ask Rachel for the office address)',sundayEndAt:'2026-11-29T09:30:00-07:00',readiness:ready},
   {agencyId:2,staff,ranking:people.map(p=>({providerId:p.providerId,cohort:p.cohort}))},now);
 }
 export async function recordTransitionInboxSetup(setup){return locked(async db=>{
- if(!setup.roundTripVerified||setup.address!==TRANSITION_INBOX)throw error('A real dedicated inbox round trip is required.');
+ if(!setup.roundTripVerified||!setup.groupSettingsVerifiedByOwner||setup.address!==TRANSITION_INBOX)throw error('Owner-verified group settings and a real dedicated inbox round trip are required.');
  const old=await stored(db);if(old?.status==='active')return {alreadyActive:true};
  const data={setup,plan:null,state:null};
  if(old){await db.beginTransaction();try{await save(data,old.revision,db);await db.commit();}catch(e){await db.rollback();throw e;}}
@@ -76,7 +76,7 @@ export async function transitionSequenceStatus(){
  const row=await stored();if(!row)return {sequence:null};
  const actions=Object.values(row.data.state?.outbox||{}),counts={};
  for(const action of actions){const key=`${action.kind}:${action.status}`;counts[key]=(counts[key]||0)+1;}
- return {sequence:{status:row.status,revision:row.revision,updatedAt:row.updated_at},inboxVerified:row.data.setup?.roundTripVerified===true,
+ return {sequence:{status:row.status,revision:row.revision,updatedAt:row.updated_at},inboxVerified:row.data.setup?.roundTripVerified===true,groupSettingsVerifiedByOwner:row.data.setup?.groupSettingsVerifiedByOwner===true,
   providers:row.data.plan?.providers?.length||0,events:await mappedEvents(),deliveryCounts:counts,
   review:actions.filter(a=>a.status==='review').map(a=>({kind:a.kind,meeting:a.meeting,userId:a.userId,reference:a.reference})),
   receipts:actions.filter(a=>a.status==='sent').map(a=>({kind:a.kind,meeting:a.meeting,reference:row.data.state.receipts?.[a.key]?.reference||null})),

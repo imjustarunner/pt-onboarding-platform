@@ -88,3 +88,14 @@ it('checks active app identity, exact Group and app reply membership', async () 
   directory.listGroupMembers.mockResolvedValueOnce([{ email: 'ai@plottwistco.com', type: 'USER', status: 'SUSPENDED' }]); await expect(verify()).rejects.toMatchObject({ code: 'EMAIL_SENDER_UNVERIFIED' });
   await expect(verifyWorkspaceRelaySender('ai@plottwistco.com', { db, directory, env })).rejects.toMatchObject({ code: 'EMAIL_SENDER_FORBIDDEN' });
 });
+it('verifies the exact transition alias using existing mailbox access without a Groups Settings administrator',async()=>{
+ const db={execute:vi.fn().mockResolvedValue([[{id:81}]])},directory={getGroup:vi.fn()};
+ const get=vi.fn().mockResolvedValue({data:{sendAsEmail:'transitions@auricwell.com',verificationStatus:'accepted'}}),gmail={users:{settings:{sendAs:{get}}}};
+ const options={db,directory,gmail,env:{...env,WORKSPACE_EMAIL_RELAY_DOMAINS:'auricwell.com'}};
+ expect(await verifyWorkspaceRelaySender('transitions@auricwell.com',options)).toMatchObject({groupId:'transitions@auricwell.com'});
+ expect(get).toHaveBeenCalledWith({userId:'me',sendAsEmail:'transitions@auricwell.com'});expect(directory.getGroup).not.toHaveBeenCalled();
+ for(const alias of [{sendAsEmail:'transitions@auricwell.com',verificationStatus:'pending'},{sendAsEmail:'other@auricwell.com',verificationStatus:'accepted'}]){
+  get.mockResolvedValueOnce({data:alias});await expect(verifyWorkspaceRelaySender('transitions@auricwell.com',options)).rejects.toMatchObject({code:'EMAIL_SENDER_UNVERIFIED'});
+ }
+ db.execute.mockResolvedValueOnce([[]]);await expect(verifyWorkspaceRelaySender('transitions@auricwell.com',options)).rejects.toMatchObject({code:'EMAIL_SENDER_UNVERIFIED'});
+});

@@ -14,12 +14,11 @@ const {default:pool}=await import('../config/database.js');
 try{
  const live=await import('../services/transitionMeetingSequenceLive.service.js');
  if(mode==='setup'){
+  if(process.env.TRANSITION_GROUP_SETTINGS_OWNER_VERIFIED!=='true')throw Error('The owner must confirm the dedicated group privacy and reply settings before mail setup.');
   const {google}=await import('../utils/googleApis.js');
   const {buildImpersonatedJwtClient}=await import('../services/googleWorkspaceAuth.service.js');
   // This subject is the existing NONHUMAN application transport, never a person.
-  const auth=await buildImpersonatedJwtClient({subjectEmail:'ai@plottwistco.com',scopes:['https://www.googleapis.com/auth/apps.groups.settings','https://www.googleapis.com/auth/gmail.settings.sharing','https://www.googleapis.com/auth/gmail.send','https://www.googleapis.com/auth/gmail.readonly']});
-  const groups=google.groupssettings({version:'v1',auth});
-  await groups.groups.patch({groupUniqueId:TRANSITION_INBOX,requestBody:{whoCanJoin:'INVITED_CAN_JOIN',whoCanPostMessage:'ANYONE_CAN_POST',whoCanViewMembership:'ALL_MANAGERS_CAN_VIEW',whoCanViewGroup:'ALL_MEMBERS_CAN_VIEW',allowExternalMembers:'false',includeInGlobalAddressList:'false',isArchived:'false',messageModerationLevel:'MODERATE_NONE',membersCanPostAsTheGroup:'true'}});
+  const auth=await buildImpersonatedJwtClient({subjectEmail:'ai@plottwistco.com',scopes:['https://www.googleapis.com/auth/gmail.settings.sharing','https://www.googleapis.com/auth/gmail.send','https://www.googleapis.com/auth/gmail.readonly']});
   const gmail=google.gmail({version:'v1',auth});
   const aliases=(await gmail.users.settings.sendAs.list({userId:'me'})).data.sendAs||[];
   let alias=aliases.find(a=>a.sendAsEmail===TRANSITION_INBOX);
@@ -55,7 +54,7 @@ try{
   let identity=await Identity.findByAgencyAndIdentityKey(2,'transition_sequence');
   if(!identity)identity=await Identity.create({agencyId:2,identityKey:'transition_sequence',displayName:'AuricWell Transition Team',fromEmail:TRANSITION_INBOX,replyTo:TRANSITION_INBOX,inboundAddresses:[TRANSITION_INBOX],isActive:true});
   else{if(identity.from_email!==TRANSITION_INBOX)throw Error('A different transition sender already exists; review it before changing.');await Identity.replaceInboundRoutes(identity.id,[TRANSITION_INBOX]);await Identity.update(identity.id,{replyTo:TRANSITION_INBOX,isActive:true});}
-  await live.recordTransitionInboxSetup({address:TRANSITION_INBOX,roundTripVerified:true,senderIdentityId:identity.id,automationSubject:TRANSITION_AUTOMATION,verifiedAt:new Date().toISOString()});
+  await live.recordTransitionInboxSetup({address:TRANSITION_INBOX,roundTripVerified:true,groupSettingsVerifiedByOwner:true,senderIdentityId:identity.id,automationSubject:TRANSITION_AUTOMATION,verifiedAt:new Date().toISOString()});
   console.log(JSON.stringify({mode,ready:true,senderIdentityId:identity.id,roundTripVerified:true}));
  }else if(mode==='preview'){
   const plan=await live.transitionSequencePreview();const kimi=plan.providers.find(p=>p.explicitAddition);console.log(JSON.stringify({mode,providerCount:plan.providers.length,hosts:plan.hosts.map(h=>({id:h.userId,name:h.name,email:h.email})),kimi:kimi?{userId:kimi.userId,name:kimi.name,cohort:kimi.cohort}:null,meetings:plan.sessions.map(s=>({number:s.number,startAt:s.startAt,endAt:s.endAt,initialProviders:plan.providers.filter(p=>p.initialMeeting===s.number).length})),fingerprint:plan.fingerprint}));

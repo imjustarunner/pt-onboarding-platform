@@ -1,17 +1,22 @@
 {
   "address": "transitions@auricwell.com",
   "displayName": "AuricWell Transition Team",
-  "owner": "admin@itsco.health",
+  "owner": "michael@plottwistco.com",
   "scope": "ITSCO transition only; sequence itsco-auricwell-2026-11-30-v2",
-  "status": "creation-and-verification-pending",
+  "status": "group-created-owner-settings-and-mail-verification-pending",
   "transport": "Organization-managed inbox/group delivered to the application; providers require no Google access",
   "operatorRequirements": [
     "Check address is not already in use; do not adopt or overwrite an unrelated alias/group.",
     "Create using the authorized administrator\u2019s normal session or explicitly scoped nonhuman provisioning identity.",
-    "Give admin@itsco.health ownership; grant Rachel and the approved app identity only the access they need.",
+    "Keep michael@plottwistco.com as owner and ai@plottwistco.com as manager. admin@itsco.health was removed and must not receive group messages.",
+    "The actual owner confirms group privacy and reply settings; set TRANSITION_GROUP_SETTINGS_OWNER_VERIFIED=true only after confirmation. Do not promote the app mailbox to owner.",
     "Receive external provider replies; restrict member list and history to authorized staff.",
     "Verify outbound sender, reply-to, SPF/DKIM/DMARC, app ingestion and a real test reply.",
     "Bind inbound commands to the original message/thread, sender and ITSCO campaign; ignore loops and quoted commands.",
     "Confirm the actual created address and sender identity ID in the launch request."
+  ],
+  "automationManager": "ai@plottwistco.com",
+  "excludedMembers": [
+    "admin@itsco.health"
   ]
 }
