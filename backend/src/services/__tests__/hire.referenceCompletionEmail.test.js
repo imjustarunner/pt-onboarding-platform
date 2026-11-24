@@ -22,6 +22,7 @@ it('confirms completion to the applicant and thanks the referee without sending 
   for (const email of emails) {
     expect(email.replyToOverride).toBe('po@agency.test');
     expect(email.html).toContain('A People Operations Platform');expect(email.html).toContain('Want to use Plotline for your organization?');
+    expect(email.html).toContain('href="mailto:po@agency.test"');expect(email.html).toContain('Contact People Operations');
     expect(email.text + email.html).not.toMatch(/CONFIDENTIAL STRENGTHS|CONFIDENTIAL DEVELOPMENT/);
   }
   expect(emails[0].html).toContain('identifying you by name');

@@ -27,11 +27,17 @@ it('captures only the selected applicant-provided contact in the manually sent i
  await createAndSendReferenceRequests({agencyId:463,candidateUserId:1871,profile,sentByUserId:1434,referenceIndex:0});
  expect(m.insert).toHaveBeenCalledOnce();expect(m.insert.mock.calls[0][0]).toMatchObject({referenceIndex:0,referenceContact:referenceContactDetails(contact)});
  expect(m.send.mock.calls.map(([input])=>input.to)).toEqual([contact.email,'applicant@example.test']);
+ for (const [email] of m.send.mock.calls) {
+  expect(email.html).toContain('plotline-primary-transparent.png');
+  expect(email.html).toContain('Juniper QA</div>');
+  expect(email.html).toContain('href="mailto:po@agency.test"');
+ }
 });
 it('uses the original invitation snapshot even if the current reference list changes',async()=>{
  m.find.mockResolvedValue({...row(),referenceContact:referenceContactDetails(contact)});
  const meta=await getPublicReferenceMetaByRawToken('synthetic-token');
  expect(meta.referenceContact).toEqual(referenceContactDetails(contact));expect(m.execute).not.toHaveBeenCalled();
+ expect(meta.contact).toEqual({email:'po@agency.test',teamLabel:'People Operations'});
  expect(JSON.stringify(meta)).not.toMatch(/public_link_token|responses_json|hiring_profile_id/);
 });
 it('prefills an older invitation only from its exact profile, index and matching email',async()=>{

@@ -14,6 +14,21 @@ beforeEach(() => {
   api.post.mockResolvedValue({ data: { ok: true } });
 });
 describe('Plotline public reference', () => {
+  it('keeps Plotline prominent while showing the correct employer logo/name and contact link', async () => {
+    api.get.mockResolvedValue({data:{agencyName:'ITSCO',candidateLabel:'QA Applicant',branding:{logoUrl:'https://itsco.health/assets/plotline/careers/itsco-logo.png',colorPalette:{primary:'#16457c'}},contact:{email:'po@itsco.health',teamLabel:'People Operations'},referenceName:'QA Referee',questionnaire:{version:3,traits:[]}}});
+    const wrapper=mount(Form);await flushPromises();
+    expect(wrapper.get('.reference-header img').attributes('alt')).toContain('Plotline');
+    const employer=wrapper.get('.reference-employer');expect(employer.text()).toContain('ITSCO');
+    expect(employer.get('img').attributes('src')).toBe('https://itsco.health/assets/plotline/careers/itsco-logo.png');
+    expect(employer.get('a').attributes('href')).toBe('mailto:po@itsco.health');
+    expect(wrapper.text()).not.toContain('Juniper');wrapper.unmount();
+  });
+  it('does not render unsafe employer images or contact URLs', async () => {
+    api.get.mockResolvedValue({data:{agencyName:'Company QA',branding:{logoUrl:'javascript:alert(1)'},contact:{email:'javascript:alert(1)'},questionnaire:{version:3,traits:[]}}});
+    const wrapper=mount(Form);await flushPromises();
+    expect(wrapper.get('.reference-employer').find('img').exists()).toBe(false);
+    expect(wrapper.get('.reference-employer').find('a').exists()).toBe(false);wrapper.unmount();
+  });
   it('lists known contact details without repeated identity questions and saves explicit corrections with the answer', async () => {
     api.get.mockResolvedValue({data:{agencyName:'Juniper QA',candidateLabel:'Rory Q.',referenceContact:{referenceName:'Taylor Reference',referenceEmail:'taylor@example.test',referencePhone:'555-0100',referenceOrganization:'Example Consulting',relationshipType:'other',relationshipOther:'Former project mentor',relationshipDuration:'3_5_years'},questionnaire:{version:3,traits:[]}}});
     const wrapper = mount(Form);await flushPromises();

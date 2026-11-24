@@ -1,0 +1,101 @@
+PLOTLINE — ORGANIZATION BRANDING AND ROUND 14 FOLLOW-UP
+November 23, 2026
+
+This is a release-candidate retest specification, not completed live QA. Run it
+only after the shared release coordinator publishes this change and verifies
+the release manifest. Do not deploy a task branch directly or treat local email
+previews as inbox receipts. If coordination is unavailable, preserve the tested
+commit and record release WAITING.
+
+PRESERVE ROUND 14 EVIDENCE
+- R14 passed the reference-list regression, manual Taylor request, actual QA
+  inbox receipt, prefilled/editable details, 390 px form, validation, review/edit,
+  single submission, completed/invalid-link handling, thank-you and applicant
+  completion receipts, corrected details and Morgan/Casey isolation.
+- Retain Reese 1871, application 1643, profile 253, job 42 and completed request
+  1 for Taylor. Do not resend Taylor, reopen its completion, resubmit Reese or
+  replace its signed application. Original contacts and answers remain evidence.
+- The run crossed releases: af1679ce at start, 1af9f970 at staff read-back. Keep
+  the reported per-case build uncertainty; do not assign one verified build to
+  every referee step after the fact.
+
+RELEASE / ACCESS
+- Use existing authorized automation Jordan 1434, Juniper 463 / Maple 464,
+  the controlled QA inbox and vault. No app superadministrator/human identity,
+  new role grants, real employee invitations, event 648 or payroll actions.
+- Record frontend build, required backend build, live backend build, ready=true
+  and the coordinator's expected manifest. The required backend must match the
+  actual backend. Capture version evidence per case if the release changes.
+- ITSCO agency 2 is a real organization, not a license to create production
+  applicants or send reference mail to real people. Engineering previews use
+  its public identity/logo with fictional people. Use approved QA companies for
+  action testing and record the distinct provenance of those previews.
+
+BRANDING AND CONTACT — R14-08
+- Check reference invitation, reminder when actually due, referee thank-you,
+  applicant requests-sent notice and applicant completion notice.
+- Expect the main Plotline logo and A People Operations Platform, plus the
+  correct hiring organization's own name/logo. Juniper must not use ITSCO's
+  logo; ITSCO must not use the Juniper example logo or example company name.
+- Reference invitations/reminders and the formerly plain requests-sent notice
+  now use the same bounded email-table layout as the approved completion mail.
+  Inspect desktop and 390 px, visible borders, action button, logo loading and
+  wrapped contact text without horizontal overflow.
+- Expect a Questions about hiring at [organization]? contact card with a real
+  Contact People Operations mail link (or the configured team label). Inspect
+  the link target: it must use the configured company PO reply route. A QA
+  company may correctly use testing@itsco.health. Do not infer real delivery to
+  a po@ address from a fictional preview or invent one from a company name.
+- A configured valid phone may have a telephone link. Missing contact fields
+  must not produce blanks, underscores, a fake address, or "contact [company]
+  at [company]." The safe fallback is to reply to the invitation email.
+- Compare actual From / Reply-To / logical recipient / QA redirection with the
+  receipt. Gmail's Testing-group wrapper and a footer address alone are not
+  proof of the original transport From. Keep the R14 header evidence unchanged.
+
+ONE CONTROLLED FOLLOW-UP REFERENCE
+- After release verification, inspect Morgan or Casey's own history. For this
+  follow-up allow at most ONE new request to an unrequested synthetic reference,
+  only after confirming its logical address is an approved controlled QA address
+  or reserved example.com identity with physical delivery to testing@itsco.health.
+  If a real/unapproved address appears, do not send; record that boundary.
+- Review questions, then Send once. Cancel/reload must send nothing. Capture
+  request ID, question/contact snapshot, send time and actual request receipt.
+- Confirm the applicant's requests-sent notice now has the full branded layout,
+  the selected referee only, confidentiality text and the working PO contact link.
+- Open this fictional referee's own delivered link, never Taylor's completed
+  token or another person's session. Expect Plotline plus employer name/logo
+  at the top and the same company contact link. Known referee details remain
+  filled in and editable without duplicate identity questions.
+- Complete one ordinary synthetic response if allowed by the exercise. Compare
+  online and staff review: Direct supervisor should not become a raw "manager"
+  code; free-text Other relationships remain intact. Original contact evidence
+  and corrections must survive, with no confidential answers sent to applicant.
+- Check thank-you and completion notice contact cards and actual receipts. Do
+  not resend any received message just to capture a new design screenshot.
+- Invalid/completed links still fail safely. Distinct-reference and expired/
+  decline cases remain separate; do not advance reminder clocks or manufacture
+  expiry. No queued/Sent label substitutes for receipt.
+
+KEEP REMAINING FINDINGS OPEN
+- R14-26: SSO hiring-email versus non-SSO in-app completion alert remains BLOCKED
+  until the required authorized personas and reachable notification surface are
+  available. A branded applicant/referee receipt does not close staff alerts.
+- R14-27: retain the inactivity overlay/list-refresh observation for its own
+  retest. Do not relabel a transient empty background list as deleted records.
+- R14-28: second-reference/decline/expiry cases were NOT RUN in R14, not passes.
+- R14-29 through 31: the previous anonymous draft return link was not retained.
+  Do not recover another person's bearer token or resubmit a named applicant to
+  obtain it. Return-dialog/counter/mobile checks require a supported owned draft
+  in an explicitly scoped application run; preserve the reported blocked states.
+- R14-32: synthetic staff Join/RSVP remains blocked by missing authorized invitee.
+  Do not substitute a real employee's interview link.
+- R14-33: applicant confirmation From-domain remains a separate configuration
+  finding; these reference email changes do not configure a new sender.
+- Applicant initials on the public referee page are retained; this patch does
+  not broaden applicant identity disclosure. Record any actual name ambiguity.
+
+Use PASS / FAIL / BLOCKED / NOT RUN, exact object IDs, build evidence, actual
+America/Denver time with offset, screenshots and real inbox headers/receipt.
+Keep raw tokens/passwords in the vault and out of reports. This change requires
+no database migration; frontend and backend must still be released together.

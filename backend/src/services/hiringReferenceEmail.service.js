@@ -36,15 +36,19 @@ export function brandedReferenceEmail({ agency, candidateName, referenceName, ur
   const { color } = referenceEmployerBrand(agency);
   const name = escape(agency?.name || agency?.official_name || 'People Operations');
   const due = new Date(deadline).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
-  return `<div style="background:#f2f5f4;padding:32px 12px;font-family:Arial,sans-serif;color:#20352e;line-height:1.6;">
-    <div style="max-width:600px;margin:auto;background:white;border:1px solid #dce6e1;border-radius:16px;overflow:hidden;">
-      <div style="padding:28px 32px;border-top:8px solid ${color};"><img src="https://plotlinepo.com/assets/plotline/website/brand/logos/plotline-primary-transparent.png" width="150" alt="Plotline by PlotTwistCo" style="display:block;margin-bottom:20px;" /><p style="margin:6px 0 24px;font-size:12px;color:#546c62">${PLOTLINE_REFERENCE_TAGLINE}</p>${employerHeader(agency)}
-      <h1 style="font-size:26px;line-height:1.2;">${reminder ? 'A friendly reminder' : 'Your perspective matters'}</h1>
+  return referenceEmailFrame({ agency, heading: reminder ? 'A friendly reminder' : 'Your perspective matters', body: `
       <p>Hello ${escape(referenceName || 'there')},</p><p>${name} is requesting a professional reference for <strong>${escape(candidateName)}</strong>.</p>
       <p>Would you hire this person? Share your perspective through a short questionnaire. It takes about five minutes.</p>
       <div style="padding:16px;background:#f2f5f4;border-radius:8px;"><strong>Your answers will not be shared with the applicant.</strong> Only staff with hiring permission can review your answers. We will tell the applicant that you completed their reference and identify you by name, without sharing your answers, ratings or our contact notes.</div>
       <p><strong>Please complete by ${escape(due)} (UTC).</strong></p>
       <p style="margin:28px 0;"><a href="${escape(url)}" style="display:inline-block;background:${color};color:white;padding:14px 24px;border-radius:8px;text-decoration:none;font-weight:bold;">Complete the reference</a></p>
-      <p style="font-size:12px;word-break:break-all;">Or open this secure link: ${escape(url)}</p>
-      ${footer}<p>Thank you for your time,<br/><strong>${name}</strong></p><div style="padding:18px;background:#f3f0e9;border:1px solid #e6e0d6;border-radius:10px"><strong>Plotline — ${PLOTLINE_REFERENCE_TAGLINE}</strong><p style="margin:8px 0;font-size:14px">Bring hiring, onboarding and your employee experience together.</p><a href="https://plotlinepo.com/plotline/start" style="color:${color};font-size:14px;font-weight:bold">Want to use Plotline for your organization?</a></div></div></div></div>`;
+      <p style="font-size:12px;overflow-wrap:anywhere;word-break:break-all;">Or open this secure link: <a href="${escape(url)}" style="color:${color}">${escape(url)}</a></p>
+      <p>Thank you for your time,<br/><strong>${name}</strong></p>`, footer });
+}
+
+export function referenceRequestsSentEmail({ agency, candidateName, references, footer = '' }) {
+  const list = references.map(person => `<li style="margin:12px 0;overflow-wrap:anywhere"><strong>${escape(person.name || person.email)}</strong>${person.name ? `<br><span style="font-size:14px;color:#546c62">${escape(person.email)}</span>` : ''}</li>`).join('');
+  return referenceEmailFrame({ agency, heading: 'Reference requests sent', body: `<p>Hi ${escape(candidateName)},</p>
+    <p>We sent a confidential reference questionnaire to:</p><ul style="padding-left:22px">${list}</ul>
+    <p>We will let you know when each reference is completed. Their answers and ratings remain private.</p>`, footer });
 }
