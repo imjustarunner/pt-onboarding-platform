@@ -34,9 +34,9 @@
           <p>Contact the hiring team if you need help with your invitation.</p>
         </div>
         <div v-else-if="done" class="reference-card">
-          <p class="eyebrow">Reference received</p>
-          <h2>Thank you for your perspective.</h2>
-          <p>{{ declined ? 'The hiring team has been told you are unable to provide a reference.' : 'Your response has been sent to ' + meta?.agencyName + '.' }} You can close this window.</p>
+          <p class="eyebrow">{{ declined ? 'Response recorded' : 'Reference received' }}</p>
+          <h2>{{ declined ? 'Thank you for letting us know.' : 'Thank you for your perspective.' }}</h2>
+          <p>{{ declined ? 'Your response has been recorded. The hiring team can see that you are unable to provide a reference.' : 'Your response has been sent to ' + meta?.agencyName + '.' }} You can close this window.</p>
           <p v-if="!declined">The applicant will be notified that you completed their reference, identifying you by name. Your answers and ratings are not shared with them.</p>
           <a href="https://plotlinepo.com/plotline/start" target="_blank" rel="noopener noreferrer">Want to use Plotline for your organization?</a>
         </div>

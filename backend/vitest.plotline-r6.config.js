@@ -6,6 +6,7 @@ export default {root:new URL('.',import.meta.url).pathname,resolve:{alias:{vites
  'src/services/__tests__/hire.referenceIdentity.test.js',
  'src/services/__tests__/hire.referenceReceipt.test.js',
  'src/services/__tests__/hire.referenceCompletionEmail.test.js',
+ 'src/services/__tests__/hire.referenceTerminalState.test.js',
  'src/services/__tests__/hire.referenceBranding.test.js',
  'src/services/__tests__/hire.referenceConsent.test.js',
  'src/services/__tests__/hire.referencePrefill.test.js',

@@ -51,6 +51,12 @@ export const getReferenceFormMeta = async (req, res, next) => {
     if (meta.error === 'expired') {
       return res.status(410).json({ error: { message: 'This reference link has expired.' } });
     }
+    if (meta.error === 'declined') {
+      return res.status(409).json({ error: { message: 'You already marked this reference request as unable to provide. No further response is needed.' } });
+    }
+    if (meta.error === 'cancelled') {
+      return res.status(410).json({ error: { message: 'This reference request is no longer available.' } });
+    }
     if (meta.error === 'completed') {
       return res.status(409).json({ error: { message: 'This reference form was already submitted.' } });
     }

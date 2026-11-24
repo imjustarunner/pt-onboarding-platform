@@ -492,7 +492,8 @@ export async function getPublicReferenceMetaByRawToken(rawToken) {
   await HiringReferenceRequest.expireStaleRows();
   const row = await HiringReferenceRequest.findByPublicLinkToken(String(rawToken || '').trim());
   if (!row) return { error: 'not_found' };
-  if (row.status === 'expired' || row.status === 'cancelled') return { error: 'expired', row };
+  if (row.status === 'expired') return { error: 'expired' };
+  if (row.status === 'cancelled') return { error: row.declined ? 'declined' : 'cancelled' };
   if (row.status === 'completed') return { error: 'completed', row };
   if (row.status !== 'sent') return { error: 'invalid', row };
 
@@ -568,6 +569,8 @@ export async function submitPublicReferenceForm(rawToken, body) {
     if (!await HiringReferenceRequest.markDeclined(row.id)) throw Object.assign(new Error('This reference request is no longer available.'), { status: 409 });
     logHiringReferenceEvent({ candidateUserId: row.candidate_user_id, agencyId: row.agency_id,
       kind: 'reference_declined', referenceIndex: row.reference_index, hiringReferenceRequestId: row.id, outcome: 'declined' });
+    try { await runReferenceReceiptNotifications({ agencyId: row.agency_id, sourceKind: 'online', sourceId: row.id }); }
+    catch (error) { console.warn('Reference decline alert remains queued', error.code || 'worker_unavailable'); }
     return { ok: true, declined: true };
   }
   const referenceContact = await contactForRequest(row);

@@ -116,10 +116,20 @@ class HiringReferenceRequest {
   }
 
   static async markDeclined(id) {
-    const [result] = await pool.execute(`UPDATE hiring_reference_requests
-      SET status = 'cancelled', responses_json = JSON_SET(COALESCE(responses_json, JSON_OBJECT()), '$.declined', CAST('true' AS JSON)), updated_at = CURRENT_TIMESTAMP
-      WHERE id = ? AND status = 'sent' AND token_expires_at > NOW()`, [id]);
-    return result.affectedRows === 1;
+    const db = await pool.getConnection();
+    try {
+      await db.beginTransaction();
+      const [result] = await db.execute(`UPDATE hiring_reference_requests
+        SET status = 'cancelled', responses_json = JSON_SET(COALESCE(responses_json, JSON_OBJECT()), '$.declined', CAST('true' AS JSON)), updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND status = 'sent' AND token_expires_at > NOW()`, [id]);
+      if (result.affectedRows !== 1) { await db.rollback(); return false; }
+      const [[row]] = await db.execute('SELECT * FROM hiring_reference_requests WHERE id = ?', [id]);
+      await queueReferenceReceipt(db, { agencyId: row.agency_id, candidateUserId: row.candidate_user_id,
+        sourceKind: 'online', sourceId: row.id, referenceIndex: row.reference_index });
+      await db.commit();
+      return true;
+    } catch (error) { await db.rollback(); throw error; }
+    finally { db.release(); }
   }
 
   static async markCompleted(id, responsesJson) {

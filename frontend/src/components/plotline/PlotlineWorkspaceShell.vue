@@ -1,7 +1,7 @@
 <template>
  <PlotlineCompanyFrame :brand="brand" :context="agency?.name || 'Your people workspace'">
   <template #product-action><router-link :to="`/plotline/company/${agency.id}`">Company home</router-link> · <router-link to="/plotline/app">Switch company</router-link></template>
-  <nav class="pl-workspace-nav" aria-label="People operations"><router-link v-for="item in links" :key="item.label" :to="`/${agency.portal_url||agency.slug}${item.path}`">{{item.label}}</router-link></nav>
+  <nav class="pl-workspace-nav" aria-label="People operations"><router-link v-for="item in links" :key="item.label" :to="`/${agency.portal_url||agency.slug}${item.path}`">{{item.label}}</router-link><PlotlineNotificationsLink :agency="agency" /></nav>
   <div class="pl-workspace-content"><slot /></div>
  </PlotlineCompanyFrame>
 </template>
@@ -9,6 +9,7 @@
 import {computed,watch} from 'vue';
 import {useBrandingStore} from '../../store/branding';
 import PlotlineCompanyFrame from './PlotlineCompanyFrame.vue';
+import PlotlineNotificationsLink from './PlotlineNotificationsLink.vue';
 const props=defineProps({agency:{type:Object,required:true}});
 const branding=useBrandingStore();
 watch(()=>props.agency.id,()=>branding.fetchAgencyTheme(props.agency.portal_url||props.agency.slug).catch(()=>{}),{immediate:true});
