@@ -209,7 +209,7 @@
                   <div class="gsbe-post-meta">
                     {{ p.authorFirstName }} {{ p.authorLastName }} · {{ formatPostTime(p.createdAt) }}
                   </div>
-                  <div class="gsbe-post-body">{{ p.body }}</div>
+                  <div class="gsbe-post-body"><MessageLinkText :text="p.body" /></div>
                 </li>
               </ul>
             </SkillBuildersEventDashboardSection>
@@ -231,10 +231,11 @@
                     <div class="gsbe-chat-meta">
                       {{ m.sender_first_name }} {{ m.sender_last_name }} · {{ formatPostTime(m.created_at) }}
                     </div>
-                    <div class="gsbe-chat-body">{{ m.body }}</div>
+                    <div class="gsbe-chat-body"><MessageLinkText :text="m.body" /></div>
                   </li>
                 </ul>
-                <textarea v-model="chatDraft" class="input" rows="3" placeholder="Write a message…" />
+                <textarea ref="chatInput" v-model="chatDraft" class="input" rows="3" placeholder="Write a message…" />
+                <MessageLinkControl :textarea="chatInput" />
                 <button
                   type="button"
                   class="btn btn-primary btn-sm gsbe-chat-send"
@@ -253,6 +254,8 @@
 </template>
 
 <script setup>
+import MessageLinkText from '../../components/messages/MessageLinkText.vue';
+import MessageLinkControl from '../../components/messages/MessageLinkControl.vue';
 import { ref, computed, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
@@ -263,6 +266,7 @@ import { useBrandingStore } from '../../store/branding';
 import { formatGradeDisplay } from '../../utils/clientGrade.js';
 import { isSessionJoinVisibleAt } from '../../composables/useSessionJoinWindow';
 
+const chatInput = ref(null);
 const props = defineProps({
   eventIdProp: { type: [Number, String], default: null },
   programEventMode: { type: Boolean, default: undefined },

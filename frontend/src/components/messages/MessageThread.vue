@@ -1,10 +1,13 @@
 <script setup>
+import MessageLinkText from './MessageLinkText.vue';
+import MessageLinkControl from './MessageLinkControl.vue';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import api from '@/services/api';
 import SecureFamilyAudience from '../session-comments/SecureFamilyAudience.vue';
 import UserAvatar from '@/components/common/UserAvatar.vue';
 import { toUploadsUrl } from '@/utils/uploadsUrl.js';
 
+const composerInput = ref(null);
 const props = defineProps({
   threadId: { type: [Number, String], required: true },
   meId: { type: [Number, String], required: true },
@@ -284,7 +287,7 @@ defineExpose({ refresh: loadMessages });
               <span v-if="item.message.announcement_id" class="msg-badge" title="Posted as announcement">📣 Announcement</span>
             </div>
             <div class="msg-bubble" :class="{ mine: item.isMine }">
-              <div v-if="item.message.body" class="msg-text">{{ item.message.body }}</div>
+              <div v-if="item.message.body" class="msg-text"><MessageLinkText :text="item.message.body" /></div>
               <div v-if="(item.message.attachments || []).length" class="msg-attachments">
                 <template v-for="att in item.message.attachments" :key="att.id">
                   <button
@@ -375,7 +378,7 @@ defineExpose({ refresh: loadMessages });
       <div class="composer-row">
         <button type="button" class="composer-icon-btn" @click="onPickFile" title="Attach a photo, GIF, or file">📎</button>
         <input ref="fileInput" type="file" accept="image/*,video/mp4,video/webm" multiple hidden @change="onFileChange" />
-        <textarea
+        <textarea ref="composerInput"
           v-model="composerText"
           placeholder="Type a message…"
           rows="1"

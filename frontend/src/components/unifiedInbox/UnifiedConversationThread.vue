@@ -1,7 +1,11 @@
 <script setup>
+import MessageLinkText from '../messages/MessageLinkText.vue';
+import MessageLinkControl from '../messages/MessageLinkControl.vue';
 import EmailAudioAttachment from '../messages/EmailAudioAttachment.vue';
 import EmailSendReceipt from '../messages/EmailSendReceipt.vue';
 import EmailDeliveryChoice from '../messages/EmailDeliveryChoice.vue';
+
+const messageInput = ref(null);
 const availabilityPrompt = ref(null);
 import ConversaIcon from '../../components/conversa/ConversaIcon.vue';
 import ConversaBadge from '../../components/conversa/ConversaBadge.vue';
@@ -591,7 +595,7 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
           </div>
           <p v-if="!msg.is_internal_note && msg.to?.length" class="uc-meta">To: {{ msg.to.map((a) => a.email || a).join(', ') }}<template v-if="msg.cc?.length"> · CC: {{ msg.cc.map((a) => a.email || a).join(', ') }}</template></p>
           <ConversationEmailBody v-if="conv.channel === 'email' && !msg.is_internal_note" class="uc-msg-body" :message="msg" />
-          <div v-else class="uc-msg-body pre">{{ msg.body_text }}</div>
+          <div v-else class="uc-msg-body pre"><MessageLinkText :text="msg.body_text" /></div>
           <EmailAudioAttachment v-for="file in msg.attachments || []" :key="`audio-${file.id}`" :file="file" :conversation-id="conv?.id" />
           <ul v-if="msg.attachments?.length" class="uc-atts">
             <li v-for="a in msg.attachments" :key="a.id"><button class="btn btn-link" @click="downloadMessageAttachment(a)"><ConversaIcon type="attachment" :size="14" /> {{ a.filename }}</button></li>
@@ -639,12 +643,13 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
           <label v-if="composerMode === 'forward'">Subject <input v-model="subject" type="text" /></label>
         </div>
 
-        <textarea
+        <textarea ref="messageInput"
           v-model="body"
           class="uc-body-input"
           :placeholder="composerMode === 'internal' ? 'Internal note (not sent externally)…' : (isSms ? 'Text message…' : 'Write your reply…')"
           rows="5"
         />
+        <MessageLinkControl :textarea="messageInput" :disabled="sending" />
 
         <label v-if="!isTelephony && composerMode !== 'internal'">Attachments <input type="file" multiple @change="selectAttachments" /></label>
         <p v-if="attachments.length">{{ attachments.map((a) => a.filename).join(', ') }} <button type="button" @click="attachments = []">Remove attachments</button></p>

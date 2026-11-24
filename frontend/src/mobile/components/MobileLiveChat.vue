@@ -1,7 +1,10 @@
 <script setup>
+import MessageLinkControl from '../../components/messages/MessageLinkControl.vue';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import axios from 'axios';
 import WebsiteChatMessage from '../../components/public/WebsiteChatMessage.vue';
+
+const messageInput = ref(null);
 const props = defineProps({ apiBase: { type: String, required: true }, sessionToken: { type: String, required: true }, visible: { type: Boolean, default: true }, chatId: { type: String, default: '' } });
 const emit = defineEmits(['count']);
 const sessions = ref([]), sites = ref([]), agencies = ref([]), site = ref(''), agency = ref(''), search = ref(''), showEnded = ref(false);
@@ -115,7 +118,8 @@ defineExpose({ goOffline: () => availability(false) });
           <label>Quick response<select :disabled="!canSend" value="" @change="insert($event.target.value);$event.target.value=''"><option value="">Choose a response</option><option v-for="item in detail.quickReplies" :key="item.label" :value="item.body">{{ item.label }}</option></select></label>
           <label>Share a page<select :disabled="!canSend" value="" @change="insert($event.target.value);$event.target.value=''"><option value="">Choose a page</option><option v-for="item in detail.pageLinks" :key="item.url" :value="item.url">{{ item.label }}</option></select></label>
           <button type="button" :disabled="!canSend" @click="action('referral')">Add support form link</button>
-          <label class="lc-full">Message<textarea v-model="body" rows="3" maxlength="2000" :disabled="!canSend" @input="presence(true,true)"></textarea></label><p v-if="!online" class="lc-meta lc-full">Go online to reply. Please do not request protected health information in Live Chat.</p><button type="submit" class="primary lc-full" :disabled="!canSend || !body.trim()">{{ busy?'Sending…':'Send message' }}</button>
+          <label class="lc-full">Message<textarea ref="messageInput" v-model="body" rows="3" maxlength="2000" :disabled="!canSend" @input="presence(true,true)"></textarea></label>
+          <MessageLinkControl :textarea="messageInput" :disabled="!canSend" /><p v-if="!online" class="lc-meta lc-full">Go online to reply. Please do not request protected health information in Live Chat.</p><button type="submit" class="primary lc-full" :disabled="!canSend || !body.trim()">{{ busy?'Sending…':'Send message' }}</button>
         </form>
       </template>
     </article>

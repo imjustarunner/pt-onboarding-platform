@@ -4,6 +4,7 @@
       <button type="button" class="tb" :class="{ on: editor.isActive('bold') }" title="Bold" @click="editor.chain().focus().toggleBold().run()"><strong>B</strong></button>
       <button type="button" class="tb" :class="{ on: editor.isActive('italic') }" title="Italic" @click="editor.chain().focus().toggleItalic().run()"><em>I</em></button>
       <button type="button" class="tb" :class="{ on: editor.isActive('underline') }" title="Underline" @click="editor.chain().focus().toggleUnderline().run()"><span class="u">U</span></button>
+      <MessageLinkControl rich :selection="linkSelection" @open="captureLinkSelection" @insert="insertLink" />
       <span class="sep" />
       <button type="button" class="tb" :class="{ on: editor.isActive('bulletList') }" title="Bullets" @click="editor.chain().focus().toggleBulletList().run()">•</button>
       <button type="button" class="tb" :class="{ on: editor.isActive('orderedList') }" title="Numbered list" @click="editor.chain().focus().toggleOrderedList().run()">1.</button>
@@ -84,6 +85,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import MessageLinkControl from './MessageLinkControl.vue';
 import { useEditor, EditorContent } from '@tiptap/vue-3';
 import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
@@ -115,7 +117,7 @@ const EMOJI_GRID = [
 
 const editor = useEditor({
   extensions: [
-    StarterKit,
+    StarterKit.configure({ link: false, underline: false }),
     Underline,
     Link.configure({ openOnClick: false }),
     Image.configure({ inline: true, allowBase64: true }),
@@ -187,6 +189,23 @@ function setSize(size) {
   }
   editor.value?.chain().focus().setFontSize(size).run();
 }
+const linkSelection = ref('');
+let linkRange;
+function captureLinkSelection() {
+  const { from, to } = editor.value.state.selection;
+  linkRange = { from, to };
+  linkSelection.value = editor.value.state.doc.textBetween(from, to, ' ');
+}
+function insertLink({ url, label }) {
+  const chain = editor.value.chain().focus().setTextSelection(linkRange);
+  if (linkRange.from !== linkRange.to) {
+    chain.setLink({ href: url }).run();
+  } else if (editor.value.isActive('link')) {
+    chain.extendMarkRange('link').setLink({ href: url }).run();
+  } else {
+    chain.insertContent({ type: 'text', text: label, marks: [{ type: 'link', attrs: { href: url } }] }).run();
+  }
+}
 function insertChecklist() {
   editor.value?.chain().focus().insertContent('<p>☐ </p>').run();
 }
@@ -241,10 +260,10 @@ defineExpose({ insertEmoji, insertImageUrl, editor });
   display: flex;
   flex-direction: column;
   min-height: 160px;
-  overflow: hidden;
   position: relative;
   flex: 0 0 auto;
 }
+.hub-email-toolbar :deep(.message-link-panel) { inset-block: calc(100% + 6px) auto; }
 .hub-email-toolbar {
   display: flex;
   flex-wrap: wrap;

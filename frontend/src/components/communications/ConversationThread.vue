@@ -87,7 +87,7 @@
             >
               <div v-if="msg.direction === 'INBOUND'" class="msg-avatar">{{ avatarLetter }}</div>
               <div class="msg-bubble" :class="msg.direction === 'OUTBOUND' ? 'bubble--out' : 'bubble--in'">
-                <div v-if="msg.body" class="msg-text">{{ msg.body }}</div>
+                <div v-if="msg.body" class="msg-text"><MessageLinkText :text="msg.body" /></div>
                 <div v-if="mediaUrls(msg).length" class="msg-media">
                   <img
                     v-for="(url, ui) in mediaUrls(msg)"
@@ -162,6 +162,7 @@
               @keydown.enter.exact.prevent="send"
               @keydown.enter.shift.exact="null"
             />
+            <MessageLinkControl :textarea="composeEl" />
             <div class="compose-actions">
               <input
                 type="file"
@@ -211,6 +212,8 @@
 </template>
 
 <script setup>
+import MessageLinkText from '../messages/MessageLinkText.vue';
+import MessageLinkControl from '../messages/MessageLinkControl.vue';
 import ConversaIcon from '../../components/conversa/ConversaIcon.vue';
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
 import { useRoute } from 'vue-router';

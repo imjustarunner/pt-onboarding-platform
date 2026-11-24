@@ -1,7 +1,10 @@
 <script setup>
+import MessageLinkControl from '../../components/messages/MessageLinkControl.vue';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import axios from 'axios';
 import MobileSupportBody from './MobileSupportBody.vue';
+
+const replyInput = ref(null);
 const props = defineProps({ apiBase: { type: String, required: true }, sessionToken: { type: String, required: true }, visible: { type: Boolean, default: true } });
 const entries = ref([]), agencies = ref([]), agency = ref(''), type = ref('all'), status = ref(''), search = ref(''), from = ref(''), to = ref('');
 const loading = ref(false), error = ref(''), partial = ref([]), hasMore = ref(false), limit = ref(100), selected = ref(null), detail = ref(null), detailLoading = ref(false);
@@ -102,7 +105,8 @@ onBeforeUnmount(() => { clearTimeout(timer); ++request; ++detailRequest; });
             <MobileSupportBody :body="message.body_text || message.body || message.text || ''" :plain="!!message.body_text || selected.kind === 'sms'"/><small v-if="selected.kind==='sms' && message.direction==='outbound'">{{statusLabel(message.send_status || 'pending')}}</small><small v-if="message.email_delivery">Delivery: {{ message.email_delivery.status || message.email_delivery.delivery_status || 'pending' }}</small>
           </div>
           <div v-if="detail.attachments?.length" class="ms-meta">{{ detail.attachments.length }} attachment(s). Use the full ticket desk to review protected attachments.</div>
-          <form v-if="canReply" class="ms-compose" @submit.prevent="action('reply')"><label v-if="selected.kind==='ticket'"><input v-model="internal" type="checkbox"> Internal note</label><label v-if="selected.kind==='ticket' && !internal && detail.senderOptions?.length">Send from<select v-model="sender"><option v-for="option in detail.senderOptions" :key="option.id" :value="String(option.id)">{{ option.teamDisplayName || option.display_name || option.fromEmail || option.from_email || option.label }}</option></select></label><label>{{ internal?'Internal note':selected.kind==='sms'?'Text reply':'Reply' }}<textarea v-model="reply" rows="4" maxlength="10000" :disabled="busy"></textarea></label><button type="submit" :disabled="busy || !reply.trim()">{{ busy?'Saving…':internal?'Save internal note':'Send reply' }}</button></form>
+          <form v-if="canReply" class="ms-compose" @submit.prevent="action('reply')"><label v-if="selected.kind==='ticket'"><input v-model="internal" type="checkbox"> Internal note</label><label v-if="selected.kind==='ticket' && !internal && detail.senderOptions?.length">Send from<select v-model="sender"><option v-for="option in detail.senderOptions" :key="option.id" :value="String(option.id)">{{ option.teamDisplayName || option.display_name || option.fromEmail || option.from_email || option.label }}</option></select></label><label>{{ internal?'Internal note':selected.kind==='sms'?'Text reply':'Reply' }}<textarea ref="replyInput" v-model="reply" rows="4" maxlength="10000" :disabled="busy"></textarea></label>
+          <MessageLinkControl :textarea="replyInput" :disabled="busy" /><button type="submit" :disabled="busy || !reply.trim()">{{ busy?'Saving…':internal?'Save internal note':'Send reply' }}</button></form>
         </template>
       </template>
     </article>

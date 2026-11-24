@@ -228,7 +228,7 @@
             <span v-if="m.send_status && m.send_status !== 'sent'" class="badge">{{ m.send_status === 'scheduled' ? 'Queued' : m.send_status }}</span>
           </div>
           <p v-if="m.to?.length" class="when">To: {{ m.to.map((a) => a.email || a).join(', ') }}<template v-if="m.cc?.length"> · CC: {{ m.cc.map((a) => a.email || a).join(', ') }}</template></p>
-          <div class="body">{{ m.body_text || stripHtml(m.body_html) }}</div>
+          <div class="body"><MessageLinkText :text="m.body_text || stripHtml(m.body_html)" /></div>
           <button v-for="a in m.attachments || []" :key="a.id" type="button" class="qv-btn ghost sm" @click="downloadEmailFile(a)">📎 {{ a.filename }}</button>
           <button v-if="activeConv?.channel === 'email' && !m.is_internal_note && (!m.send_status || m.send_status === 'sent')" type="button" class="qv-btn ghost sm" :aria-pressed="m.reactions?.some((r) => r.emoji === '❤️' && r.reactedByMe) || false" @click="likeEmail(m)">♥ {{ m.reactions?.find((r) => r.emoji === '❤️')?.count || '' }} Like</button>
         </div>
@@ -247,7 +247,8 @@
             <label v-if="!mobileEmailReply || showReplyCopies || replyCc || replyBcc">CC <input v-model="replyCc" type="text" inputmode="email" /></label>
             <label v-if="!mobileEmailReply || showReplyCopies || replyCc || replyBcc">BCC <input v-model="replyBcc" type="text" inputmode="email" /></label>
           </template>
-          <textarea v-model="replyText" rows="4" placeholder="Write your reply…" aria-label="Reply message" />
+          <textarea ref="replyInput" v-model="replyText" rows="4" placeholder="Write your reply…" aria-label="Reply message" />
+          <MessageLinkControl :textarea="replyInput" />
           <template v-if="activeConv?.channel === 'email'">
             <label>Attachments <input type="file" multiple @change="selectEmailFiles($event)" /></label>
             <p v-if="replyAttachments.length">{{ replyAttachments.map((a) => a.filename).join(', ') }} <button type="button" class="qv-btn ghost sm" @click="replyAttachments = []">Remove</button></p>
@@ -267,13 +268,14 @@
         <button v-if="chatOlderId" type="button" class="qv-btn ghost" :disabled="chatLoading" @click="loadChatMessages({ older: true })">Load older messages</button>
         <div v-for="m in chatMessages" :key="m.id" class="qv-bubble" :class="chatBubbleClass(m)">
           <div class="when">{{ formatTime(m.created_at) }} · {{ m.sender_first_name || m.sender_name || '' }}</div>
-          <div class="body">{{ m.body || '' }}</div>
+          <div class="body"><MessageLinkText :text="m.body || ''" /></div>
           <a v-for="a in m.attachments || []" :key="a.id" :href="a.file_url" target="_blank" rel="noopener noreferrer">📎 {{ a.original_filename || 'Attachment' }}</a>
           <button type="button" class="qv-btn ghost sm" :aria-pressed="(m.reactions || []).some((r) => r.code === '❤️' && r.mineActive)" @click="likeChat(m)">❤️ {{ (m.reactions || []).find((r) => r.code === '❤️')?.count || '' }}</button>
           <button v-if="!chatParentId" type="button" class="qv-btn ghost sm" @click="openChatReplies(m.id)">{{ m.reply_count ? `${m.reply_count} replies` : 'Reply in thread' }}</button>
         </div>
         <form class="qv-reply" @submit.prevent="sendChatMessage">
-          <textarea v-model="chatReply" rows="3" :placeholder="chatParentId ? 'Reply to this thread…' : 'New message…'" aria-label="Chat message" />
+          <textarea ref="chatReplyInput" v-model="chatReply" rows="3" :placeholder="chatParentId ? 'Reply to this thread…' : 'New message…'" aria-label="Chat message" />
+          <MessageLinkControl :textarea="chatReplyInput" :disabled="chatBusy" />
           <label>Photo or video <input type="file" accept="image/gif,image/png,image/jpeg,image/webp,video/mp4,video/webm,video/quicktime" :disabled="chatUploadBusy" @change="uploadChatFile" /></label>
           <p v-if="chatUploadBusy">Uploading…</p>
           <p v-if="chatAttachments.length">{{ chatAttachments.map((a) => a.originalFilename).join(', ') }} <button type="button" class="qv-btn ghost sm" @click="chatAttachments = []">Remove</button></p>
@@ -659,7 +661,8 @@
         <label>Subject</label>
         <input v-model="composeSubject" type="text" placeholder="Subject" />
         <label>Message</label>
-        <textarea v-model="composeText" rows="4" placeholder="Write your message…" />
+        <textarea ref="composeInput" v-model="composeText" rows="4" placeholder="Write your message…" />
+        <MessageLinkControl :textarea="composeInput" :disabled="composeBusy" />
         <label>Attachments <input type="file" multiple @change="selectEmailFiles($event, true)" /></label>
         <p v-if="composeAttachments.length">{{ composeAttachments.map((a) => a.filename).join(', ') }} <button type="button" @click="composeAttachments = []">Remove</button></p>
         <EmailDeliveryChoice :info="composeAvailability" :busy="composeBusy" @choose="sendCompose({deliveryChoice:$event})" @cancel="composeAvailability=null" />
@@ -830,8 +833,14 @@
 </template>
 
 <script setup>
+import MessageLinkText from '../components/messages/MessageLinkText.vue';
+import MessageLinkControl from '../components/messages/MessageLinkControl.vue';
 import {backInMobile,trackMobileNavigation} from '../mobile/mobileNavigation.js';
 import {mobileLinkTarget} from '../mobile/mobileLinks.js';
+
+const replyInput = ref(null);
+const chatReplyInput = ref(null);
+const composeInput = ref(null);
 const EmailComposerView=defineAsyncComponent(()=>import('./EmailComposerView.vue'));
 const TutoringStudentsView=defineAsyncComponent(()=>import('./tutoring/TutoringStudentsView.vue'));
 const TutoringProfileView=defineAsyncComponent(()=>import('./tutoring/TutoringProfileView.vue'));

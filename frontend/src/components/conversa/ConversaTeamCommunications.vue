@@ -1,10 +1,13 @@
 <script setup>
+import MessageLinkControl from '../messages/MessageLinkControl.vue';
 import { computed, ref, watch, defineAsyncComponent } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { canManageConversaTeam, CONVERSA_ICON_URL } from '../../constants/conversa';
 import StaffPollResultsReview from '../admin/StaffPollResultsReview.vue';
 import StaffPollDeliveryHistory from './StaffPollDeliveryHistory.vue';
+
+const messageInput = ref(null);
 const StaffEventForm = defineAsyncComponent(() => import('../admin/StaffEventForm.vue'));
 const eventSetup = ref(null), eventSetupForm = ref(null), followupRequests = new Map();
 
@@ -187,7 +190,8 @@ watch(() => [props.agencyId, allowed.value], () => {
         <h3>{{ editing ? 'Edit team communication' : 'Create a team communication' }}</h3>
         <fieldset :disabled="busy || loading"><legend class="sr-only">Team communication details</legend>
           <div class="team-grid"><label>Type<select v-model="draft.kind" :disabled="!!editing"><option value="text">Team text</option><option value="poll">Team poll</option></select></label><label>Title<input v-model.trim="draft.title" required maxlength="180" placeholder="A clear title for your team" /></label></div>
-          <label>{{ draft.kind === 'poll' ? 'Context (optional)' : 'Message' }}<textarea v-model.trim="draft.message" :required="draft.kind === 'text'" :maxlength="draft.kind === 'text' ? 280 : 1000" rows="3" placeholder="Share an update with your team" /></label>
+          <label>{{ draft.kind === 'poll' ? 'Context (optional)' : 'Message' }}<textarea ref="messageInput" v-model.trim="draft.message" :required="draft.kind === 'text'" :maxlength="draft.kind === 'text' ? 280 : 1000" rows="3" placeholder="Share an update with your team" /></label>
+          <MessageLinkControl :textarea="messageInput" />
           <template v-if="draft.kind === 'poll'">
             <label>Poll question<input v-model.trim="draft.question" required maxlength="255" /></label>
             <div v-for="(_, i) in draft.options" :key="i" class="team-option"><label>Answer {{ i + 1 }}<input v-model="draft.options[i]" required maxlength="64" /></label><button v-if="draft.options.length > 2" type="button" @click="draft.options.splice(i, 1)">Remove</button></div>

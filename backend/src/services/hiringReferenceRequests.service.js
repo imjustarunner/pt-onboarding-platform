@@ -1,5 +1,5 @@
 import { referenceQuestionnaire, legacyReferenceQuestionnaire, normalizeReferenceQuestionnaire, normalizeReferenceAnswers, referenceDeadline } from '../utils/hiringReferenceQuestionnaire.js';
-import { brandedReferenceEmail, referenceEmailFrame } from './hiringReferenceEmail.service.js';
+import { brandedReferenceEmail, referenceEmailFrame, referenceEmployerBrand, referenceRequestsSentEmail } from './hiringReferenceEmail.service.js';
 import { runReferenceReceiptNotifications } from './hiringReferenceReceipt.service.js';
 import { resolveHiringReferenceConsent } from './hiringReferenceConsent.service.js';
 import crypto from 'crypto';
@@ -107,36 +107,32 @@ function candidateDisplayName(user) {
  * Footer for reference-facing emails: agency "People Operations" / HR label from terminology_settings.people_ops_term
  * plus onboarding_team_email (or people_ops_email if present) and main phone.
  */
-export function buildPeopleOpsContactFooter(agency) {
-  const teamLabel = EmailTemplateService.getTerminologySettings(agency);
+export function buildPeopleOpsContactFooter(agency, { replyTo = null } = {}) {
   const org = String(agency?.name || agency?.official_name || 'our organization').trim();
-  const contactEmail = String(agency?.onboarding_team_email || agency?.people_ops_email || '').trim();
+  const configuredLabel = EmailTemplateService.getTerminologySettings(agency);
+  const teamLabel = configuredLabel && configuredLabel !== org && configuredLabel !== 'our team' ? configuredLabel : 'People Operations';
+  const contactEmail = [replyTo, agency?.people_ops_email, agency?.onboarding_team_email]
+    .map(value => String(value || '').trim())
+    .find(value => /^[^\s@<>";,?:]+@[^\s@<>";,?:]+\.[^\s@<>";,?:]+$/.test(value) && value.toLowerCase() !== 'references@plotlinepo.com') || '';
   const ext = String(agency?.phone_extension || '').trim();
   const rawPhone = String(agency?.phone_number || '').trim();
   const phoneLine = rawPhone ? (ext ? `${rawPhone} (ext. ${ext})` : rawPhone) : '';
 
-  if (!contactEmail && !phoneLine) {
-    const text = `If you have any additional questions, please contact ${teamLabel} at ${org}.`;
-    const html = `<p style="margin-top:14px;font-size:14px;color:#444;">If you have any additional questions, please contact <strong>${escapeHtml(teamLabel)}</strong> at <strong>${escapeHtml(org)}</strong>.</p>`;
-    return { text, html };
-  }
-  const lines = [];
-  if (contactEmail) lines.push(`${teamLabel} email: ${contactEmail}`);
-  if (phoneLine) lines.push(`${teamLabel} phone: ${phoneLine}`);
-  const text = `If you have any additional questions, please contact our ${teamLabel} team:\n${lines.join('\n')}`;
-  const htmlParts = [];
-  htmlParts.push(
-    `<p style="margin-top:14px;font-size:14px;color:#444;">If you have any additional questions, please contact our <strong>${escapeHtml(teamLabel)}</strong> team:</p>`
-  );
-  if (contactEmail) {
-    htmlParts.push(
-      `<p style="margin:6px 0 0;font-size:14px;color:#444;">Email: <a href="mailto:${escapeHtml(contactEmail)}">${escapeHtml(contactEmail)}</a></p>`
-    );
-  }
-  if (phoneLine) {
-    htmlParts.push(`<p style="margin:6px 0 0;font-size:14px;color:#444;">Phone: ${escapeHtml(phoneLine)}</p>`);
-  }
-  return { text, html: htmlParts.join('') };
+  const phone = `${rawPhone.startsWith('+') ? '+' : ''}${rawPhone.replace(/\D/g, '')}`;
+  const phoneHref = /\d{7}/.test(phone.replace(/\D/g, '')) ? `tel:${phone}${ext.replace(/\D/g, '') ? `;ext=${ext.replace(/\D/g, '')}` : ''}` : null;
+  const emailHref = contactEmail ? `mailto:${encodeURIComponent(contactEmail).replace(/%40/g, '@')}` : null;
+  const text = [`Questions about hiring at ${org}?`, contactEmail ? `Contact ${teamLabel}: ${contactEmail}` : `Reply to this email to reach the hiring team.`, phoneHref ? `Phone: ${phoneLine}` : ''].filter(Boolean).join('\n');
+  const action = emailHref
+    ? `<a href="${escapeHtml(emailHref)}" style="display:inline-block;color:#143e33;font-weight:bold;text-decoration:underline">Contact ${escapeHtml(teamLabel)}</a>`
+    : '<span>Reply to this email to reach the hiring team.</span>';
+  const phoneLink = phoneHref ? `<br><a href="${escapeHtml(phoneHref)}" style="display:inline-block;margin-top:8px;color:#143e33">${escapeHtml(phoneLine)}</a>` : '';
+  return { text, html: `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" data-reference-contact="people-operations" style="margin-top:24px;background:#f5f8f5;border:1px solid #dce6e1;border-radius:10px"><tr><td style="padding:16px 18px;font-size:14px;line-height:1.6"><p style="margin:0 0 8px">Questions about hiring at ${escapeHtml(org)}?</p>${action}${phoneLink}</td></tr></table>`, email: contactEmail || null, teamLabel };
+}
+
+export async function resolveReferencePeopleOpsContact(agency, identity = null) {
+  const agencyId = Number(agency?.id || identity?.agency_id);
+  const replyTo = agencyId ? await resolveHiringReferenceReplyTo(agencyId, identity) : null;
+  return buildPeopleOpsContactFooter(agency, { replyTo });
 }
 
 async function sendReferenceThankYouToReferee({ row, identity }) {
@@ -147,7 +143,7 @@ async function sendReferenceThankYouToReferee({ row, identity }) {
   const refEmail = String(row.reference_email || '').trim();
   if (!refEmail || !identity?.id) return;
   const greetingName = String(row.reference_name || '').trim();
-  const contact = buildPeopleOpsContactFooter(agency);
+  const contact = await resolveReferencePeopleOpsContact(agency, identity);
   const subject = `Thank you — reference for ${cand}`;
   const text = [
     `Hello${greetingName ? ` ${greetingName}` : ''},`,
@@ -239,7 +235,7 @@ export async function createAndSendReferenceRequests({
   const agency = await Agency.findById(aid);
   const candName = candidateDisplayName(user);
   const agencyName = String(agency?.name || agency?.official_name || 'Our organization').trim();
-  const contactFooter = buildPeopleOpsContactFooter(agency);
+  const contactFooter = await resolveReferencePeopleOpsContact(agency, identity);
 
   const expiresAt = deadline ? new Date(`${deadline}T23:59:59Z`) : referenceDeadline();
   if ((deadline && !/^\d{4}-\d{2}-\d{2}$/.test(String(deadline))) || !Number.isFinite(expiresAt.getTime()) || expiresAt <= new Date() || expiresAt.getTime() > Date.now() + 90 * 86400000 || (deadline && expiresAt.toISOString().slice(0, 10) !== deadline)) {
@@ -403,11 +399,12 @@ export async function createAndSendReferenceRequests({
         'We sent reference forms to:',
         lines,
         '',
-        'You will receive another notice when each reference is completed.'
+        'You will receive another notice when each reference is completed.',
+        '',
+        contactFooter.text
       ].join('\n');
-      const batchHtml = `<p>Hi ${escapeHtml(candName)},</p><p>We sent reference forms to:</p><ul>${sent
-        .map((s) => `<li>${escapeHtml(s.email)}</li>`)
-        .join('')}</ul><p>You will receive another notice when each reference is completed.</p>`;
+      const batchHtml = referenceRequestsSentEmail({ agency, candidateName: candName,
+        references: sent.map(item => ({ name: refs[item.referenceIndex]?.name, email: item.email })), footer: contactFooter.html });
       const batchOut = await sendHiringReferenceOutboundEmail({
         identity,
         to: applicantTo,
@@ -448,7 +445,7 @@ export async function notifyApplicantReferenceCompleted({ agencyId, candidateUse
   const nm = String(referenceName || 'A reference').trim();
   const cand = candidateDisplayName(user);
   const agency = await Agency.findById(aid);
-  const contact = buildPeopleOpsContactFooter(agency);
+  const contact = await resolveReferencePeopleOpsContact(agency, identity);
   const subj = 'Reference form completed';
   const bodyText = `Hi ${cand},\n\n${nm} completed a reference for your application ${method === 'phone' ? 'by phone with People Operations' : 'using the online questionnaire'}.\n\nThis is a completion notice only. The confidential answers and ratings are not shared with you.\n\n${contact.text}\n\nLearn more about Plotline — A People Operations Platform: https://plotlinepo.com/plotline/start`;
   const bodyHtml = referenceEmailFrame({ agency, heading: 'Your reference was completed', body: `<p>Hi ${escapeHtml(cand)},</p><p><strong>${escapeHtml(nm)}</strong> completed a reference for your application ${method === 'phone' ? 'by phone with People Operations' : 'using the online questionnaire'}.</p><p>This is a completion notice only. The confidential answers and ratings are not shared with you.</p>`, footer: contact.html });
@@ -527,6 +524,8 @@ export async function getPublicReferenceMetaByRawToken(rawToken) {
   } catch {
     branding = null;
   }
+  const employerBrand = referenceEmployerBrand(agency);
+  const contact = await resolveReferencePeopleOpsContact(agency);
 
   return {
     ok: true,
@@ -535,7 +534,8 @@ export async function getPublicReferenceMetaByRawToken(rawToken) {
     candidateLabel,
     referenceName: String(row.reference_name || '').trim() || null,
     referenceContact: await contactForRequest(row),
-    branding,
+    branding: { ...branding, logoUrl: employerBrand.logoUrl, colorPalette: { ...branding?.colorPalette, primary: employerBrand.color } },
+    contact: { email: contact.email, teamLabel: contact.teamLabel },
     questionnaire: row.questionnaire || legacyReferenceQuestionnaire,
     disclaimer:
       'Your answers and ratings are confidential and are not shared with the applicant. Only staff with hiring permission can review them. We will tell the applicant that you completed their reference, identifying you by name, without sharing any answers. The form typically takes less than five minutes.'

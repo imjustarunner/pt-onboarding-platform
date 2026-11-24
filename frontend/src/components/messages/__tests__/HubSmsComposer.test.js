@@ -28,6 +28,11 @@ it('clears the recipient when the sender changes and sends only the newly confir
   await vi.advanceTimersByTimeAsync(301);
   await wrapper.get('.sms-recipients button').trigger('click');
   await wrapper.get('textarea').setValue('Hello');
+  wrapper.get('textarea').element.setSelectionRange(5, 5);
+  await wrapper.get('.message-link-button').trigger('click');
+  await wrapper.get('.message-link-panel input').setValue('example.org/appointments?day=Tuesday');
+  await wrapper.get('.message-link-actions button').trigger('click');
+  expect(wrapper.get('textarea').element.value).toBe('Hello https://example.org/appointments?day=Tuesday');
   await wrapper.get('select').setValue('8');
   expect(wrapper.get('button[type="submit"]').element.disabled).toBe(true);
   expect(wrapper.text()).not.toContain('Morgan Parent');
@@ -35,6 +40,6 @@ it('clears the recipient when the sender changes and sends only the newly confir
   await wrapper.get('.sms-recipients button').trigger('click');
   await wrapper.get('form').trigger('submit');
   expect(api.post).toHaveBeenCalledExactlyOnceWith('/messages/send', {
-    clientId: 20, guardianUserId: 91, numberId: 8, body: 'Hello', startNewConversation: true
+    clientId: 20, guardianUserId: 91, numberId: 8, body: 'Hello https://example.org/appointments?day=Tuesday', startNewConversation: true
   }, { skipGlobalLoading: true });
 });

@@ -59,14 +59,15 @@
                   <img :src="url" :alt="`Image ${i + 1}`" class="bubble-media-img" loading="lazy" />
                 </a>
               </div>
-              <div v-if="m.body && m.body !== '[MMS]'" class="bubble-text">{{ m.body }}</div>
+              <div v-if="m.body && m.body !== '[MMS]'" class="bubble-text"><MessageLinkText :text="m.body" /></div>
               <div class="bubble-time">{{ formatRelativeTime(m.created_at) }}</div>
             </div>
           </div>
 
           <div class="composer-bar">
             <div class="composer-input-wrap">
-              <textarea v-model="draft" rows="2" placeholder="Type a message…" />
+              <textarea ref="replyInput" v-model="draft" rows="2" placeholder="Type a message…" />
+              <MessageLinkControl :textarea="replyInput" />
               <div v-if="pendingMediaUrls.length" class="pending-media">
                 <span v-for="(url, i) in pendingMediaUrls" :key="i" class="pending-media-item">
                   <img :src="url" alt="Attached" class="pending-media-thumb" />
@@ -95,12 +96,15 @@
 </template>
 
 <script setup>
+import MessageLinkText from '../../components/messages/MessageLinkText.vue';
+import MessageLinkControl from '../../components/messages/MessageLinkControl.vue';
 import ConversaBrand from '../../components/conversa/ConversaBrand.vue';
 import ConversaIcon from '../../components/conversa/ConversaIcon.vue';
 import { computed, onMounted, ref } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 
+const replyInput = ref(null);
 const authStore = useAuthStore();
 
 const loading = ref(false);

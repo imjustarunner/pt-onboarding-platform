@@ -1,4 +1,5 @@
 import sanitizeHtml from 'sanitize-html';
+import { messageLinkParts } from '../../../frontend/src/navigation/messageLinks.js';
 
 export const EMAIL_HISTORY_MARKER = '<!-- pt-quoted-email-history -->';
 export const EMAIL_HISTORY_TEXT_MARKER = '\n\n---------- Earlier messages ----------\n';
@@ -6,7 +7,11 @@ const escape = value => String(value || '').replace(/[&<>"']/g, c => ({'&':'&amp
 
 // Line breaks in plain email are not separate paragraphs with default margins.
 export function plainEmailHtml(text) {
-  return `<div style="font-family:Arial,sans-serif;line-height:1.5;overflow-wrap:anywhere;">${escape(text).replace(/\r\n?/g, '\n').replace(/\n/g, '<br>')}</div>`;
+  const content = messageLinkParts(text).map(({ text: label, url }) => {
+    const safeText = escape(label).replace(/\r\n?/g, '\n').replace(/\n/g, '<br>');
+    return url ? `<a href="${escape(url)}" target="_blank" rel="noopener noreferrer">${safeText}</a>` : safeText;
+  }).join('');
+  return `<div style="font-family:Arial,sans-serif;line-height:1.5;overflow-wrap:anywhere;">${content}</div>`;
 }
 
 export function sanitizeQuotedEmailHtml(value) {

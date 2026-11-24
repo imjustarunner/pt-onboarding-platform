@@ -7,6 +7,11 @@
       <span>A People Operations Platform</span>
       <span class="invitation-label">Private reference invitation</span>
     </header>
+    <div v-if="meta" class="reference-employer" :style="{ borderBottomColor: employerColor }">
+      <img v-if="employerLogoUrl" :src="employerLogoUrl" :alt="meta.agencyName + ' logo'" />
+      <div><strong>{{ meta.agencyName }}</strong><span>People Operations</span></div>
+      <a v-if="contactHref" :href="contactHref">Contact {{ meta.contact?.teamLabel || 'People Operations' }}</a>
+    </div>
     <div class="reference-layout">
       <aside class="reference-aside">
         <p class="eyebrow">The people behind the work</p>
@@ -88,6 +93,12 @@ const token = computed(() => String(route.params.token || '').trim());
 const loading = ref(true);
 const loadError = ref('');
 const meta = ref(null);
+const employerLogoUrl = computed(() => /^https:\/\//i.test(meta.value?.branding?.logoUrl || '') ? meta.value.branding.logoUrl : '');
+const employerColor = computed(() => /^#[a-f0-9]{6}$/i.test(meta.value?.branding?.colorPalette?.primary || '') ? meta.value.branding.colorPalette.primary : '#dbe2dc');
+const contactHref = computed(() => {
+  const email = String(meta.value?.contact?.email || '').trim();
+  return /^[^\s@<>";,?:]+@[^\s@<>";,?:]+\.[^\s@<>";,?:]+$/.test(email) ? `mailto:${encodeURIComponent(email).replace(/%40/g, '@')}` : '';
+});
 
 const submitError = ref('');
 const submitting = ref(false);
@@ -185,6 +196,11 @@ async function decline() {
 .reference-header span {
   color:#536b63;
 }
+.reference-employer { display:flex; align-items:center; flex-wrap:wrap; gap:14px; padding:16px 4%; background:white; border-bottom:2px solid #dbe2dc; }
+.reference-employer img { width:48px; height:48px; object-fit:contain; }
+.reference-employer strong { display:block; color:#133c32; }
+.reference-employer span { display:block; color:#536b63; font-size:12px; }
+.reference-employer a { margin-left:auto; font-size:14px; font-weight:600; }
 .invitation-label {
   margin-left:auto;
   font-size:14px;
@@ -212,6 +228,7 @@ async function decline() {
   color:#e9af91;
 }
 .reference-aside h1 {
+  color:#f3f8f5;
   font-size:clamp(30px,3vw,46px);
   line-height:1.2;
   letter-spacing:-.04em;
@@ -230,6 +247,7 @@ async function decline() {
   margin-top:30px;
 }
 .request-card h2 {
+  color:#f3f8f5;
   font-size:25px;
   line-height:1.4;
 }
@@ -394,6 +412,8 @@ a:focus-visible,button:focus-visible {
   .reference-header img {
     width:140px;
   }
+  .reference-employer { padding:14px 20px; }
+  .reference-employer a { margin-left:0; }
   .reference-header>span:not(.invitation-label) {
     display:none;
   }

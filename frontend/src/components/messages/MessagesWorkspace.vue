@@ -888,7 +888,7 @@
                     :class="{ 'msg-highlight': highlightMessageId === m.id }"
                     :data-message-id="m.id"
                     :data-pulse-message-id="m.id"
-                  >{{ m.body }}</div>
+                  ><MessageLinkText :text="m.body" /></div>
                   <div v-if="m.attachments?.length" class="msg-attachments" :data-pulse-message-id="!m.body ? m.id : undefined">
                     <template v-for="a in m.attachments" :key="a.id || a.file_path">
                       <button v-if="a.downloadPath" type="button" class="btn btn-secondary btn-sm" @click="downloadAttachment(a.downloadPath, a.original_filename)">{{ a.original_filename || 'Secure attachment' }}</button>
@@ -969,7 +969,7 @@
                           <span class="msg-author">{{ r.sender_first_name }} {{ r.sender_last_name }}</span>
                           <span class="msg-time">{{ formatTime(r.created_at) }} <MessagePulse v-if="pulseEnabled" :thread-id="activeThreadId" :message-id="r.id" /></span>
                         </div>
-                        <div class="msg-body" :data-pulse-message-id="r.id">{{ r.body }}</div>
+                        <div class="msg-body" :data-pulse-message-id="r.id"><MessageLinkText :text="r.body" /></div>
                         <div v-if="r.attachments?.length" class="msg-attachments" :data-pulse-message-id="!r.body ? r.id : undefined">
                           <template v-for="a in r.attachments" :key="a.id || a.file_path">
                             <button v-if="a.downloadPath" type="button" class="btn btn-secondary btn-sm" @click="downloadAttachment(a.downloadPath, a.original_filename)">{{ a.original_filename || 'Secure attachment' }}</button>
@@ -1067,6 +1067,7 @@
                     @input="onDraftInput"
                     @keydown="onDraftKeydown"
                   />
+                  <MessageLinkControl :textarea="textareaEl" />
                   <div v-if="mentionSuggestions.length" class="mention-menu">
                     <button
                       v-for="(u, idx) in mentionSuggestions"
@@ -1197,6 +1198,8 @@
 </template>
 
 <script setup>
+import MessageLinkText from './MessageLinkText.vue';
+import MessageLinkControl from './MessageLinkControl.vue';
 import { Settings2 } from '@lucide/vue';
 import { isMessagingTenant } from '../../utils/peerTenantBrand';
 import { downloadAttachment } from '../../utils/communicationAttachments';
