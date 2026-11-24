@@ -238,7 +238,7 @@
                   <span class="thread-author">{{ formatThreadAuthor(m) }}</span>
                   <span class="thread-time">{{ formatDateTime(m.created_at) }}</span>
                 </div>
-                <div class="thread-body">{{ m.body || '(deleted)' }}</div>
+                <div class="thread-body"><MessageLinkText :text="m.body || '(deleted)'" /></div>
               </div>
             </div>
           </div>
@@ -266,8 +266,9 @@
             </div>
             <label class="field" style="width: 100%;">
               Answer
-              <textarea v-model="answerText" class="textarea" rows="4" placeholder="Type your response..." />
+              <textarea ref="answerInput" v-model="answerText" class="textarea" rows="4" placeholder="Type your response..." />
             </label>
+              <MessageLinkControl :textarea="answerInput" />
             <div class="answer-actions">
               <div class="answer-note">Submit as answered, or close when read.</div>
               <div class="answer-buttons">
@@ -325,13 +326,14 @@
                 <span class="thread-author">{{ formatThreadAuthor(m) }}</span>
                 <span class="thread-time">{{ formatDateTime(m.created_at) }}</span>
               </div>
-              <div class="thread-body">{{ m.body || '(deleted)' }}</div>
+              <div class="thread-body"><MessageLinkText :text="m.body || '(deleted)'" /></div>
             </div>
           </div>
           <label class="field" style="margin-top: 12px;">
             Add message
-            <textarea v-model="threadBody" class="textarea" rows="3" placeholder="Type a reply..." />
+            <textarea ref="replyInput" v-model="threadBody" class="textarea" rows="3" placeholder="Type a reply..." />
           </label>
+            <MessageLinkControl :textarea="replyInput" />
           <div style="display:flex; gap: 8px;">
             <button class="btn btn-primary" type="button" :disabled="threadSending || !threadBody.trim()" @click="sendThreadMessage">
               {{ threadSending ? 'Sending...' : 'Send' }}
@@ -352,9 +354,15 @@
 </template>
 
 <script setup>
+import MessageLinkText from '../../components/messages/MessageLinkText.vue';
+import { ref } from 'vue';
+import MessageLinkControl from '../../components/messages/MessageLinkControl.vue';
 import ConversaBrand from '../../components/conversa/ConversaBrand.vue';
 import ClientDetailPanel from '../../components/admin/ClientDetailPanel.vue';
 import { useTicketingQueue } from '../../composables/useTicketingQueue';
+
+const answerInput = ref(null);
+const replyInput = ref(null);
 
 const {
   myUserId,

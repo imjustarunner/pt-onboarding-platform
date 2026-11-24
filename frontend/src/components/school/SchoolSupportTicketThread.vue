@@ -5,10 +5,11 @@
     <p v-else-if="error" role="alert">{{ error }} <button type="button" @click="load">Try again</button></p>
     <template v-else-if="ticket">
       <p v-if="ticket.question" class="question"><strong>Your question</strong><br>{{ ticket.question }}</p>
-      <article v-for="message in visibleMessages" :key="message.id"><strong>{{ message.author_display_name || message.author_name || 'Conversation reply' }}</strong><p>{{ message.body }}</p></article>
+      <article v-for="message in visibleMessages" :key="message.id"><strong>{{ message.author_display_name || message.author_name || 'Conversation reply' }}</strong><p><MessageLinkText :text="message.body" /></p></article>
       <form @submit.prevent="send">
         <TicketAttachmentComposer ref="attachments" :ticket-id="ticketId" :context-key="`${schoolOrganizationId}:${actorId}`" :disabled="sending" @busy="attachmentBusy = $event" />
-        <label>Follow-up<textarea v-model="draft" :disabled="sending" rows="4" required /></label>
+        <label>Follow-up<textarea ref="replyInput" v-model="draft" :disabled="sending" rows="4" required /></label>
+        <MessageLinkControl :textarea="replyInput" :disabled="sending" />
         <p v-if="sendError" role="alert">{{ sendError }}</p>
         <button type="submit" :disabled="sending || attachmentBusy || !draft.trim()">{{ sending ? 'Sending…' : 'Send follow-up' }}</button>
       </form>
@@ -16,10 +17,14 @@
   </section>
 </template>
 <script setup>
+import MessageLinkText from '../messages/MessageLinkText.vue';
+import MessageLinkControl from '../messages/MessageLinkControl.vue';
 import {computed,onBeforeUnmount,ref,watch} from 'vue';
 import api from '../../services/api';
 import {useAuthStore} from '../../store/auth';
 import TicketAttachmentComposer from '../tickets/TicketAttachmentComposer.vue';
+
+const replyInput = ref(null);
 const props=defineProps({ticketId:{type:Number,required:true},schoolOrganizationId:{type:Number,required:true}});
 const emit=defineEmits(['close','updated']);
 const auth=useAuthStore(),actorId=computed(()=>Number(auth.user?.id)||null);

@@ -51,3 +51,14 @@ it('rejects unsafe image sources and does not mistake lookalike hosts for hosted
 it('keeps compact signature images bounded instead of expanding a tiny icon to screen width',()=>{const div=document.createElement('div');div.innerHTML=renderEmailContent({body_html:'<img src="https://plottwisthq.com/email-signatures/social-facebook.png" width="24" height="24"><p>Message</p>'},{compactLayout:true}).html;expect(div.querySelector('img').style.width).toBe('24px');expect(div.querySelector('img').style.height).toBe('auto');});
 it('collapses app footer boilerplate without losing the message, links, or original presentation',()=>{const message={body_html:'<p>Important session information and <a href="https://example.org/action">Action</a>.</p><img src="https://plottwisthq.com/email-signatures/logo.png" width="180"><p><strong>CONFIDENTIAL AND POTENTIALLY SENSITIVE INFORMATION!</strong></p><p>The information enclosed in this email may contain confidential materials.</p>'};const div=document.createElement('div');div.innerHTML=renderEmailContent(message,{compactLayout:true,simplifyAppChrome:true}).html;const footer=div.querySelector('details');expect(footer.open).toBe(false);expect(footer.textContent).toContain('CONFIDENTIAL');expect(footer.querySelector('img')).not.toBeNull();expect(div.firstElementChild.textContent).toContain('Important session information');expect(div.firstElementChild.querySelector('a').href).toBe('https://example.org/action');expect(renderEmailContent(message,{simplifyAppChrome:false}).html).not.toContain('Email signature and footer');});
 it('does not collapse a non-app warning or remove clinical content',()=>{const message={body_html:'<p>Do not stop treatment abruptly.</p><p>Review this urgent message.</p>'};const html=renderEmailContent(message,{simplifyAppChrome:true}).html;expect(html).toContain('Do not stop treatment abruptly');expect(html).not.toContain('Email signature and footer');});
+
+it('makes web addresses in formatted and plain mail clickable while preserving existing links',()=>{
+ const div=document.createElement('div');
+ div.innerHTML=readableEmailHtml({body_html:'<p>Try (https://example.org/review(a)?x=1&amp;y=2).</p><a href="https://example.org/other">https://example.org/label</a><p>https://someone@example.org/blocked</p>'});
+ expect([...div.querySelectorAll('a')].map(a=>[a.textContent,a.getAttribute('href'),a.rel])).toEqual([
+  ['https://example.org/review(a)?x=1&y=2','https://example.org/review(a)?x=1&y=2','noopener noreferrer'],
+  ['https://example.org/label','https://example.org/other','noopener noreferrer']
+ ]);
+ expect(div.firstElementChild.textContent).toBe('Try (https://example.org/review(a)?x=1&y=2).');
+ expect(div.lastElementChild.textContent).toContain('https://someone@example.org/blocked');
+});

@@ -14,7 +14,8 @@ import {assertPeopleOperationsSubmissionRecipient} from '../peopleOperationsSubm
 import { assertReferenceReceiptRecipient } from '../hiringReferenceReceipt.service.js';
 import {assertSchoolStatusEmailAudience} from '../../utils/schoolStatusEmailAudience.js';
 import { isClinicalPortalIdentity, isPortalIdentity, portalSenderName, enrollmentMailBrand, renderPortalEmail } from '../portalEmailBranding.service.js';
-import { splitEmailHistory } from '../../utils/emailReplyContent.js';
+import { messageLinkParts } from '../../../../frontend/src/navigation/messageLinks.js';
+import { plainEmailHtml, splitEmailHistory } from '../../utils/emailReplyContent.js';
 import { isSchoolCommunication } from '../schoolCommunicationContext.service.js';
 import { compactSchoolCareBridgeEmail } from '../schoolCareBridgeEmail.service.js';
 import { managedGroupEnvelope } from '../managedWorkspaceGroupAccess.service.js';
@@ -247,6 +248,9 @@ export async function finalizeOutboundContent({
 
   const src = String(source || '').trim().toLowerCase();
   const tt = String(templateType || '').trim().toLowerCase();
+  if (!html && src === 'manual' && /https?:\/\//i.test(text || '') && messageLinkParts(text).some(part => part.url)) {
+    html = plainEmailHtml(text);
+  }
   const providerUpdateReceipt = tt === 'provider_update_completion_receipt';
   // A mailbox is the transport, not the author. Human-authored Hub email gets
   // exactly the staff signature; department automations keep their own branding.

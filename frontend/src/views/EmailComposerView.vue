@@ -33,6 +33,7 @@
           </template>
           <label>Subject<input v-model="draft.subject" maxlength="998" :required="isCaseloadEmail" /></label>
           <label>Your message<textarea ref="bodyInput" v-model="draft.text" :required="isCaseloadEmail" placeholder="Write your message…" rows="12" /></label>
+          <MessageLinkControl :textarea="bodyInput" :disabled="busy" />
           <label v-if="!isCaseloadEmail" class="files">Attach files<input type="file" multiple @change="attach" /></label>
           <ul v-if="draft.attachments.length"><li v-for="(a,i) in draft.attachments" :key="i">{{ a.filename }} <button type="button" @click="draft.attachments.splice(i,1)">Remove</button></li></ul>
           <div v-if="confirmAttachment" class="attachment-warning" role="alert">
@@ -64,6 +65,7 @@
   </main>
 </template>
 <script setup>
+import MessageLinkControl from '../components/messages/MessageLinkControl.vue';
 import EmailSendReceipt from '../components/messages/EmailSendReceipt.vue';
 import ConversaBrand from '../components/conversa/ConversaBrand.vue';
 import EmailRecipientField from '../components/messages/EmailRecipientField.vue';

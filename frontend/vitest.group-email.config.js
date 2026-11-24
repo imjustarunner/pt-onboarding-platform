@@ -10,6 +10,7 @@ export default defineConfig({
       'src/components/unifiedInbox/__tests__/*.test.js',
       'src/components/messages/__tests__/MessagesHubShell.threading.test.js',
       'src/components/messages/__tests__/HubSmsComposer.test.js',
+      'src/components/messages/__tests__/MessageLinks.test.js',
       'src/components/messages/__tests__/EmailThreadReader.test.js',
       'src/components/tickets/__tests__/TicketDetailModal.test.js',
       'src/components/tickets/__tests__/TicketDeskView.test.js',

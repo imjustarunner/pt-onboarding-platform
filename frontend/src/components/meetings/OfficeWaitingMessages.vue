@@ -6,17 +6,22 @@
     <p v-if="error" role="alert" class="message-error">{{ error }}</p>
     <div class="message-history" role="log" aria-live="polite" aria-relevant="additions">
       <p v-if="!messages.length" class="empty">Leave a message about your visit.</p>
-      <article v-for="message in messages" :key="message.id" :class="{mine:message.author===role}"><small>{{ message.author===role?'You':recipient }}</small><p>{{ message.body }}</p></article>
+      <article v-for="message in messages" :key="message.id" :class="{mine:message.author===role}"><small>{{ message.author===role?'You':recipient }}</small><p><MessageLinkText :text="message.body" /></p></article>
     </div>
     <form v-if="canSend" @submit.prevent="send">
-      <label>Message<textarea v-model="draft" rows="3" maxlength="2000" :disabled="sending" placeholder="Write your message…" /></label>
+      <label>Message<textarea ref="messageInput" v-model="draft" rows="3" maxlength="2000" :disabled="sending" placeholder="Write your message…" /></label>
+      <MessageLinkControl :textarea="messageInput" :disabled="sending" />
       <button type="submit" :disabled="sending||!draft.trim()">{{ sending?'Sending…':'Send private message' }}</button>
     </form>
     <p v-else>{{ closedReason }}</p>
   </section>
 </template>
 <script setup>
+import MessageLinkText from '../messages/MessageLinkText.vue';
+import MessageLinkControl from '../messages/MessageLinkControl.vue';
 import {onMounted,onBeforeUnmount,ref} from 'vue';
+
+const messageInput = ref(null);
 const props=defineProps({request:{type:Function,required:true},recipient:{type:String,required:true},role:{type:String,default:'guest'},notice:{type:String,default:''},closable:Boolean});
 defineEmits(['close']);
 const messages=ref([]),draft=ref(''),error=ref(''),sending=ref(false),canSend=ref(true),closedReason=ref('This visit has ended. Start a new visit to send another message.');

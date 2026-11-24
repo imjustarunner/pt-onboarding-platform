@@ -1094,6 +1094,7 @@
                 @keydown.meta.enter.prevent="send"
                 @keydown.ctrl.enter.prevent="send"
               />
+              <MessageLinkControl v-if="sendMethod !== 'email'" :textarea="composeEl" :disabled="sending" />
               <div
                 v-if="sendMethod === 'internal' || sendMethod === 'secure'"
                 class="msg-hub-chat-tools"
@@ -1351,7 +1352,7 @@
               <div class="msg-hub-timeline msg-hub-sms-timeline">
                 <article v-for="msg in conversationPreview.messages || []" :key="msg.id" class="msg-hub-bubble"
                   :class="{ 'msg-hub-sms-outbound': String(msg.direction).toLowerCase() === 'outbound' }">
-                  <p class="msg-hub-bubble-body">{{ msg.body_text || msg.subject }}</p>
+                  <p class="msg-hub-bubble-body"><MessageLinkText :text="msg.body_text || msg.subject" /></p>
                   <time>{{ formatTime(msg.sent_at || msg.created_at) }}</time>
                 </article>
               </div>
@@ -1360,9 +1361,12 @@
                   <span><strong>From</strong> {{ smsLineLabel(conversationPreview.conversation.sms) || 'Original sending line' }}</span>
                   <span><strong>To</strong> {{ conversationThreadTitle(conversationPreview.conversation) }}<template v-if="conversationPreview.conversation.sms?.recipientEnding"> · ending in {{ conversationPreview.conversation.sms.recipientEnding }}</template></span>
                 </div>
-                <label v-if="readerSmsEligibility?.eligible" class="msg-hub-sms-reply-input">Reply
-                  <textarea v-model="readerSmsText" rows="3" maxlength="1600" placeholder="Write a text message…" :disabled="sending" required />
-                </label>
+                <template v-if="readerSmsEligibility?.eligible">
+                  <label class="msg-hub-sms-reply-input">Reply
+                    <textarea ref="readerSmsInput" v-model="readerSmsText" rows="3" maxlength="1600" placeholder="Write a text message…" :disabled="sending" required />
+                  </label>
+                  <MessageLinkControl :textarea="readerSmsInput" :disabled="sending" />
+                </template>
                 <p v-else role="status">{{ readerSmsEligibility?.message || 'Checking whether this recipient can receive texts…' }}</p>
                 <div class="msg-hub-sms-reply-actions">
                   <button v-if="readerSmsEligibility?.eligible" type="submit" class="btn btn-primary" :disabled="sending || !readerSmsText.trim()">{{ sending ? 'Sending…' : 'Send text' }}</button>
@@ -1372,7 +1376,7 @@
             </template>
             <div v-else class="msg-hub-timeline">
               <article v-for="msg in conversationPreview.messages || []" :key="msg.id" class="msg-hub-bubble">
-                <p class="msg-hub-bubble-body">{{ msg.body_text || msg.subject }}</p>
+                <p class="msg-hub-bubble-body"><MessageLinkText :text="msg.body_text || msg.subject" /></p>
                 <time>{{ formatTime(msg.sent_at || msg.created_at) }}</time>
               </article>
             </div>
@@ -1735,6 +1739,8 @@
 </template>
 
 <script setup>
+import MessageLinkText from './MessageLinkText.vue';
+import MessageLinkControl from './MessageLinkControl.vue';
 import QaRecipientEmailInbox from './QaRecipientEmailInbox.vue';
 import EmailDeliveryChoice from './EmailDeliveryChoice.vue';
 import ConversaBrand from '../../components/conversa/ConversaBrand.vue';
@@ -1773,6 +1779,7 @@ import TicketDetailModal from '../tickets/TicketDetailModal.vue';
 import { mergeInboxSummaries, uniqueMessageRows, groupMailboxes } from '../../utils/messageWorkspace';
 import { lockMessageScroll } from '../../utils/messageScrollLock';
 
+const readerSmsInput = ref(null);
 const inboxChannel = ref('all');
 const newConversationChannel = ref('all');
 const emailEntryClient = ref(null);

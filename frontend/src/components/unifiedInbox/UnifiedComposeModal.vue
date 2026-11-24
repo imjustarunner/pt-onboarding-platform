@@ -1,5 +1,8 @@
 <script setup>
+import MessageLinkControl from '../messages/MessageLinkControl.vue';
 import EmailDeliveryChoice from '../messages/EmailDeliveryChoice.vue';
+
+const messageInput = ref(null);
 const availabilityPrompt = ref(null);
 import ConversaSender from '../../components/conversa/ConversaSender.vue';
 import SecureMessageBanner from '../conversa/SecureMessageBanner.vue';
@@ -232,7 +235,8 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
         <span>Subject</span>
         <input v-model="subject" type="text" />
       </label>
-      <textarea v-model="body" rows="8" :placeholder="isSecureMode ? 'Write your secure message…' : 'Message…'" />
+      <textarea ref="messageInput" v-model="body" rows="8" :placeholder="isSecureMode ? 'Write your secure message…' : 'Message…'" />
+      <MessageLinkControl :textarea="messageInput" />
 
       <label v-if="isEmailMode">Attachments <input type="file" multiple @change="selectAttachments" /></label>
       <p v-if="attachments.length">{{ attachments.map((a) => a.filename).join(', ') }} <button type="button" @click="attachments = []">Remove attachments</button></p>

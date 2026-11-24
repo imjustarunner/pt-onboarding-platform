@@ -28,7 +28,8 @@
             </template>
             <template v-if="channel!=='email'">
               <label v-if="channel==='secure'">Subject<input v-model="subject" type="text" maxlength="180" placeholder="What is this conversation about?" :disabled="busy || viewOnly"/></label>
-              <label>Message<textarea v-model="body" rows="7" :maxlength="channel==='sms'?1600:20000" :disabled="busy || viewOnly" :placeholder="channel==='sms'?'Write a text to this parent…':'Write a secure message…'"/></label>
+              <label>Message<textarea ref="messageInput" v-model="body" rows="7" :maxlength="channel==='sms'?1600:20000" :disabled="busy || viewOnly" :placeholder="channel==='sms'?'Write a text to this parent…':'Write a secure message…'"/></label>
+              <MessageLinkControl :textarea="messageInput" :disabled="busy || viewOnly" />
               <div class="compose-footer"><small>{{body.length.toLocaleString()}} characters</small><button type="button" class="primary-button" :disabled="!canSend" @click="send">{{busy?'Submitting…':channel==='sms'?'Send text':'Send secure message'}}</button></div>
             </template>
           </template>
@@ -47,8 +48,8 @@
       </section>
       <section v-if="selectedThread" class="thread-detail" aria-label="Open conversation"><header><div><h3>{{selectedThread.subject}}</h3><p>Filed with {{selectedThread.clients.map(c=>c.name).join(', ') || 'this account'}}</p></div><button type="button" class="quiet-button" @click="closeThread">Close conversation</button></header><p v-if="detailLoading" role="status">Opening conversation…</p><p v-if="detailError" role="alert">{{detailError}}</p>
         <template v-if="detail">
-          <template v-if="selectedThread.channel==='secure'"><p>From {{detail.message.senderName}} · {{date(detail.message.createdAt)}}</p><p>Shared with {{detail.message.recipients.map(p=>p.name).join(', ')}}</p><h4>{{detail.message.subject}}</h4><p class="message-body">{{detail.message.body}}</p><button v-for="file in detail.message.attachments||[]" :key="file.id" type="button" class="quiet-button" @click="downloadAttachment(file.downloadPath,file.original_filename)">{{file.original_filename}}</button><details v-if="detail.events?.length"><summary>Message activity</summary><p v-for="event in detail.events" :key="event.id">{{event.event_type.replaceAll('_',' ')}} · {{event.actor_name || 'Notification visitor'}} · {{date(event.created_at)}}</p></details></template>
-          <section v-else-if="selectedThread.channel==='sms'" class="sms-history" aria-label="Text history"><button v-if="detail.nextBeforeId" type="button" class="quiet-button" :disabled="detailLoading" @click="openThread(selectedThread,true)">Load earlier texts</button><article v-for="message in detail.messages" :key="message.id" :class="{'outbound-text':message.direction==='outbound'}"><header><strong>{{message.from.name}}</strong><time>{{date(message.created_at)}}</time></header><p class="message-body">{{message.body_text}}</p><small>{{smsStatus(message.send_status)}}</small></article></section>
+          <template v-if="selectedThread.channel==='secure'"><p>From {{detail.message.senderName}} · {{date(detail.message.createdAt)}}</p><p>Shared with {{detail.message.recipients.map(p=>p.name).join(', ')}}</p><h4>{{detail.message.subject}}</h4><p class="message-body"><MessageLinkText :text="detail.message.body" /></p><button v-for="file in detail.message.attachments||[]" :key="file.id" type="button" class="quiet-button" @click="downloadAttachment(file.downloadPath,file.original_filename)">{{file.original_filename}}</button><details v-if="detail.events?.length"><summary>Message activity</summary><p v-for="event in detail.events" :key="event.id">{{event.event_type.replaceAll('_',' ')}} · {{event.actor_name || 'Notification visitor'}} · {{date(event.created_at)}}</p></details></template>
+          <section v-else-if="selectedThread.channel==='sms'" class="sms-history" aria-label="Text history"><button v-if="detail.nextBeforeId" type="button" class="quiet-button" :disabled="detailLoading" @click="openThread(selectedThread,true)">Load earlier texts</button><article v-for="message in detail.messages" :key="message.id" :class="{'outbound-text':message.direction==='outbound'}"><header><strong>{{message.from.name}}</strong><time>{{date(message.created_at)}}</time></header><p class="message-body"><MessageLinkText :text="message.body_text" /></p><small>{{smsStatus(message.send_status)}}</small></article></section>
           <EmailThreadReader v-else :conversation="detail.conversation" :messages="detail.messages" read-only :has-older="!!detail.nextBeforeId" :loading-older="detailLoading" @older="openThread(selectedThread,true)" @attachment="file=>downloadAttachment(file.downloadPath || `/communications/conversations/${selectedThread.id}/attachments/${file.id}`,file.filename)"/>
           <div class="detail-actions"><button v-if="!viewOnly && selectedThread.channel==='email'" type="button" class="primary-button" :disabled="!!emailContext" @click="replyEmail">Reply by email</button><button v-else-if="!viewOnly && currentClients.some(c=>c.id===(detail.clientId || selectedThread.clientId))" type="button" class="primary-button" :disabled="busy || !!emailContext" @click="replyToSelected">{{selectedThread.channel==='sms'?'Reply by text':'Reply securely'}}</button></div>
         </template>
@@ -57,6 +58,8 @@
   </section>
 </template>
 <script setup>
+import MessageLinkText from '../messages/MessageLinkText.vue';
+import MessageLinkControl from '../messages/MessageLinkControl.vue';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
@@ -64,6 +67,8 @@ import EmailComposer from '../../views/EmailComposerView.vue';
 import EmailThreadReader from '../messages/EmailThreadReader.vue';
 import SecureFamilyAudience from '../session-comments/SecureFamilyAudience.vue';
 import { downloadAttachment } from '../../utils/communicationAttachments';
+
+const messageInput = ref(null);
 const props=defineProps({guardianId:{type:Number,required:true},viewOnly:Boolean});
 const auth=useAuthStore(),contact=ref(null),clients=ref([]),agencyId=ref(''),initialLoading=ref(false),error=ref('');
 const drafts=new Map(),pendingSecure=ref(null);

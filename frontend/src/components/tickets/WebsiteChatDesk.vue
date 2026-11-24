@@ -23,7 +23,8 @@
      <div ref="thread" class="webchat-staff-thread" role="log" aria-live="polite"><article v-for="m in messages" :key="m.id" :class="{staff:m.sender==='staff'}"><small>{{m.sender==='staff'?`Support team member ${m.memberNumber||1}`:m.sender==='system'?'Live Chat':'Visitor'}}</small><p><WebsiteChatMessage :body="m.body"/></p></article></div>
      <div class="webchat-quick"><label>Quick replies<select aria-label="Quick replies" @change="insertReply"><option value="">Choose a reply…</option><option v-for="reply in quickReplies" :key="reply.label" :value="reply.body">{{reply.label}}</option></select></label><label>Page links<select aria-label="Page links" @change="insertLink"><option value="">Insert a page link…</option><option v-for="link in details.pageLinks||[]" :key="link.url" :value="link.url">{{link.label}}</option></select></label></div>
      <div class="webchat-desk-note"><label>Ticket topic (optional)<select v-model="topic"><option value="">Visitor chooses</option><option v-for="t in details.topics||[]" :key="t.id" :value="t.id">{{t.label}}</option></select></label><button :disabled="details.canReply===false" @click="insertReferral">Insert support ticket invitation</button></div>
-     <form @submit.prevent="send"><label for="staff-website-reply">Reply to this visitor</label><textarea id="staff-website-reply" v-model="draft" :disabled="details.canReply===false" rows="3" maxlength="2000" required/><div class="webchat-quick" aria-label="Insert emoji"><button v-for="emoji in emojis" :key="emoji" type="button" :aria-label="`Insert ${emoji}`" @click="draft+=emoji">{{emoji}}</button></div><button :disabled="sending||!draft.trim()||details.canReply===false">{{sending?'Sending…':'Send reply'}}</button></form>
+     <form @submit.prevent="send"><label for="staff-website-reply">Reply to this visitor</label><textarea ref="replyInput" id="staff-website-reply" v-model="draft" :disabled="details.canReply===false" rows="3" maxlength="2000" required/>
+     <MessageLinkControl :textarea="replyInput" :disabled="details.canReply===false" /><div class="webchat-quick" aria-label="Insert emoji"><button v-for="emoji in emojis" :key="emoji" type="button" :aria-label="`Insert ${emoji}`" @click="draft+=emoji">{{emoji}}</button></div><button :disabled="sending||!draft.trim()||details.canReply===false">{{sending?'Sending…':'Send reply'}}</button></form>
      <button v-if="!confirmFlag" :disabled="details.canReply===false||!messages.some(m=>m.sender==='staff')" @click="confirmFlag=true">Flag Community Standards</button>
      <div v-else class="webchat-desk-note" role="alert"><p>Flag this chat and send the visitor the Community Standards notice?</p><button @click="flag">Confirm flag &amp; notify visitor</button><button @click="confirmFlag=false">Cancel</button></div>
     </template>
@@ -32,11 +33,14 @@
  </aside></Teleport>
 </template>
 <script setup>
+import MessageLinkControl from '../messages/MessageLinkControl.vue';
 import WebsiteChatMessage from '../public/WebsiteChatMessage.vue';
 import {computed,ref,watch,onMounted,onUnmounted,nextTick} from 'vue';
 import api from '../../services/api';
 import {useAuthStore} from '../../store/auth';
 import {useMovableChatPanel} from '../../composables/useMovableChatPanel';
+
+const replyInput = ref(null);
 const rows=ref([]),selected=ref(null),messages=ref([]),quickReplies=ref([]),draft=ref(''),error=ref(''),available=ref(false),expanded=ref(false),sending=ref(false),thread=ref();
 const details=ref({}),team=ref([]),tab=ref('chats'),topic=ref(''),confirmFlag=ref(false),opened=ref([]),seen=ref({}),drafts=new Map(),emojis=['😊','👍','❤️','🙏','👋','🎉','😕'];
 const auth=useAuthStore(),desk=ref();

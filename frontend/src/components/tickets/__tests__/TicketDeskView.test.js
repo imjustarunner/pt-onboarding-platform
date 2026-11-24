@@ -54,7 +54,7 @@ beforeEach(() => {
 afterEach(() => wrapper?.unmount());
 
 async function render(props = {}, stubs = {}) {
-  wrapper = shallowMount(TicketDeskView, { props, global: { stubs: { TicketEmailDialog: { name: 'TicketEmailDialog', template: '<section><slot /></section>' }, RouterLink: true, ...stubs } } });
+  wrapper = shallowMount(TicketDeskView, { props, global: { stubs: { TicketEmailDialog: { name: 'TicketEmailDialog', template: '<section><slot /></section>' }, RouterLink: true, MessageLinkText: false, ...stubs } } });
   await flushPromises();
 }
 
@@ -456,4 +456,13 @@ describe('compact support reply workspace', () => {
     upload.vm.$emit('submitted', {clientId:90});await flushPromises();
     expect(mocks.api.post.mock.calls.some(([url,body])=>url==='/support-tickets/101/link-client' && body.clientId===90)).toBe(true);
   });
+});
+
+it('renders web addresses in ticket replies as clickable links', async () => {
+  const get = mocks.api.get.getMockImplementation();
+  mocks.api.get.mockImplementation((url, options) => url === '/support-tickets/101/messages'
+    ? Promise.resolve({ data: { ticket: assignedTicket, messages: [{ id: 1, body: 'Open https://example.org/referral.', author_user_id: 99 }] } })
+    : get(url, options));
+  await render({ embedded: true, initialTicketId: 101, agencyId: 2 });
+  expect(wrapper.get('.bubble-body a').attributes('href')).toBe('https://example.org/referral');
 });

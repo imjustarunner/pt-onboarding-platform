@@ -37,8 +37,9 @@
           </div>
           <label>
             Message
-            <textarea v-model="body" rows="4" maxlength="1600" placeholder="Write a text message…" :disabled="sending" required />
+            <textarea ref="messageInput" v-model="body" rows="4" maxlength="1600" placeholder="Write a text message…" :disabled="sending" required />
           </label>
+            <MessageLinkControl :textarea="messageInput" :disabled="sending" />
         </template>
       </template>
       <p v-else-if="!error" role="status">No registered provider lines are available to you.</p>
@@ -53,9 +54,11 @@
 </template>
 
 <script setup>
+import MessageLinkControl from './MessageLinkControl.vue';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import api from '../../services/api';
 
+const messageInput = ref(null);
 const props = defineProps({
   agencyId: { type: [Number, String], default: null },
   apiClient: { type: Object, default: () => api },

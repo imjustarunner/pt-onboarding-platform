@@ -1,4 +1,5 @@
 import DOMPurify from 'dompurify';
+import { messageLinkParts } from '../navigation/messageLinks.js';
 
 export const hasAppEmailChrome = message => /data-portal-email=["']v[12]|\/email-signatures\/|Part of the SchoolCareBridge network|MH4Kidz/i.test(String(message?.body_html || ''));
 
@@ -41,18 +42,21 @@ export function renderEmailContent(message = {}, { collapseQuotes = true, loadEx
   });
   const container = document.createElement('div');
   container.append(fragment);
-  if (!html) {
-    const text = String(message.body_text || '');
-    // Use text nodes for all sender-controlled text, including URL labels.
-    const pattern = /https?:\/\/[^\s<>]+/gi;
-    let position = 0;
-    for (const match of text.matchAll(pattern)) {
-      const url = match[0].replace(/[.,;!?)\]]+$/, '');
-      container.append(document.createTextNode(text.slice(position, match.index)));
-      const link = document.createElement('a'); link.href = url; link.textContent = url; container.append(link);
-      position = match.index + url.length;
-    }
-    container.append(document.createTextNode(text.slice(position)));
+  if (!html) container.textContent = String(message.body_text || '');
+  const textNodes = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  const linkable = [];
+  while (textNodes.nextNode()) {
+    const node = textNodes.currentNode;
+    if (!node.parentElement.closest('a') && /https?:\/\//i.test(node.data)) linkable.push(node);
+  }
+  for (const node of linkable) {
+    node.replaceWith(...messageLinkParts(node.data).map(({ text, url }) => {
+      if (!url) return document.createTextNode(text);
+      const link = document.createElement('a');
+      link.href = url;
+      link.textContent = text;
+      return link;
+    }));
   }
   if (collapseQuotes) {
     for (const quoted of container.querySelectorAll('blockquote,.gmail_quote')) {

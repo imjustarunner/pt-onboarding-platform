@@ -16,3 +16,12 @@ it('preserves HTML tables and links while constraining images to the available w
  const content=emailDraftContent({text:'New reply',quotedText:'Text version',quotedHtml:'<table><tr><td><a href="https://example.org">Website</a><img src="https://example.org/logo.png" width="1000"></td></tr></table>'});
  expect(content.html).toContain('<table>');expect(content.html).toContain('>Website</a>');expect(content.html).toContain('max-width:100%');expect(content.html).not.toContain('Text version');
 });
+
+it('delivers inserted web addresses in email HTML and preserves the text and safety of the fallback',()=>{
+ const text='Review (https://example.org/schedule(a)?a=1&b=2).\n<em>Text</em> https://name:secret@example.org/ignored';
+ const content=emailDraftContent({text});
+ expect(content.text).toBe(text);
+ expect(content.html).toContain('href="https://example.org/schedule(a)?a=1&amp;b=2"');
+ expect(content.html).toContain('1&amp;b=2</a>).<br>&lt;em&gt;Text&lt;/em&gt;');
+ expect(content.html.match(/<a href=/g)).toHaveLength(1);
+});
