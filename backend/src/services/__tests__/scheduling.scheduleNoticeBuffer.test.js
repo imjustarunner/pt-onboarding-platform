@@ -49,6 +49,22 @@ function harness() {
 }
 
 describe('one durable schedule update per client after edits settle',()=>{
+  it('delivers initial tutoring confirmation controls and the tutor summary, not just a portal review link',async()=>{
+    const h=harness(),a=h.appointments.get(1);Object.assign(a,{status:'scheduled',businessType:'tutoring',modality:'VIRTUAL',learningContext:{subjectLabel:'Math'}});
+    const base='https://nlu.example.test/api/public/appointment-response/synthetic-only';
+    h.deps.tutoringResponse.mockResolvedValue({reviewUrl:base+'?action=review',tutorName:'Finley QA',links:[
+      {label:'Confirm tutoring session',url:base+'?action=confirm'},{label:'Cancel tutoring session',url:base+'?action=cancel'},{label:'Request a different time',url:base+'?action=reschedule'}]});
+    h.deps.joinEmail.mockResolvedValue({label:'Join tutoring session',url:'https://nlu.example.test/tutoring/invite#synthetic-only'});
+    await h.service.queue(1,{eventType:'created'});h.advance(15);await h.service.process(1);
+    const sent=h.deps.sendEmail.mock.calls[0][0];
+    expect(sent.subject).toBe('Your tutoring session is scheduled');expect(sent.html).toContain('Math tutoring');expect(sent.html).toContain('Tutor: Finley QA');expect(sent.html).toContain('Virtual · 60 minutes');
+    for(const action of ['confirm','cancel','reschedule'])expect(sent.html).toContain('?action='+action);
+    expect(sent.html).toContain('data-appointment-join="true"');expect(sent.html).toContain('background:#147d73');
+    expect(sent.html.indexOf('Request a different time')).toBeLessThan(sent.html.indexOf('Join tutoring session'));
+    expect(sent.html).toContain(base+'?action=review');expect(sent.text).not.toContain('Reply Y');
+    expect(sent.text).toContain('No sign-in is needed to respond.');
+    const email=h.deliveries.find(d=>d.channel==='email');expect(JSON.parse(h.deps.decrypt(email.message_json)).html).toBe(sent.html);
+  });
   it('includes the authorized join destination and phone instructions in both the outgoing email and its encrypted delivery record',async()=>{
     const h=harness();h.appointments.get(1).status='scheduled';h.deps.joinEmail.mockResolvedValue({text:'Join: https://video.example.test/session\nGoogle Meet PIN: 123456789',html:'<a href="https://video.example.test/session">Join session</a>'});
     await h.service.queue(1,{eventType:'created'});h.advance(15);await h.service.process(1);

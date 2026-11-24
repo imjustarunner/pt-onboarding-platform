@@ -103,6 +103,15 @@ it('uses the tutoring context and NLU session link even for a previously clinica
  expect(message.text).toContain('tutoring session');expect(message.text).toContain('https://app.nextleveluplcc.com/tutoring-session/appointment/44');
  expect(JSON.stringify(message)).not.toContain('auricwell.com');
 });
+it('uses buttons instead of SMS reply instructions in tutoring email while retaining the reminder detail',async()=>{
+ m.context.mockResolvedValue({tenant:{name:'Next Level Up'},learning:true,brand:{},url:path=>'https://app.nextleveluplcc.com/'+path});
+ const message=await buildAppointmentEmail({appointment:{...appt,businessType:'tutoring',modality:'VIRTUAL'},clientId:22,to:email,
+  actionUrl:'https://example.test/respond/opaque',message:'Reminder: Mathematics tutoring on Wednesday at 2 PM. Reply Y to confirm, N to cancel, R to request a reschedule.'});
+ expect(message.text).toContain('Mathematics tutoring on Wednesday at 2 PM');
+ expect(message.text).not.toContain('Reply Y');expect(message.html).not.toContain('Reply Y');
+ expect(message.html).toContain('action=confirm');expect(message.html).toContain('action=cancel');expect(message.html).toContain('action=reschedule');
+ expect(message.text).toContain('For help, reply to this email to contact Support.');expect(message.text).toContain('No sign-in is needed to respond.');
+});
 it('sends a confirmed client a friendly reminder without another confirm button',async()=>{
  const message=await buildAppointmentEmail({appointment:{...appt,status:'client_confirmed'},clientId:22,to:email,actionUrl:'https://example.test/respond/opaque'});
  expect(message.text).toContain('friendly reminder');expect(message.text).toContain('look forward');expect(message.text).not.toContain('Confirm appointment');expect(message.text).not.toContain('Confirm directly');expect(message.text).toContain('Cancel appointment');
