@@ -11,7 +11,8 @@ const appointmentReceipt = (saved, input, key, recurring) => ({
   officeLocationId: saved.officeLocationId, roomId: saved.roomId, clientId: input.clientId,
   startAt: saved.startAt, endAt: saved.endAt, sourceTimezone: saved.sourceTimezone, clinicalSessionId: saved.clinicalSessionId,
   modality: saved.modality, businessType: saved.businessType, appointmentStatus: saved.status, serviceCode: saved.serviceCode,
-  recurrenceSeriesId: recurring ? `office-session:${key.slice(0, 32)}` : null
+  recurrenceSeriesId: recurring ? `office-session:${key.slice(0, 32)}` : null,
+  recurrenceFrequency: recurring ? input.recurrence : 'ONCE'
 });
 const describe = row => ({ id: row.id, status: row.status, phase: row.phase,
   completed: Number(row.completed_count), total: Number(row.total_count),

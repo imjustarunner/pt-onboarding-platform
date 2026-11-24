@@ -7,6 +7,7 @@
           <div class="aip-k">When</div>
           <div class="aip-v">{{ whenDateLabel || whenLabel || '—' }}</div>
           <div v-if="whenTimeLabel" class="aip-sub">{{ whenTimeLabel }}</div>
+          <div v-if="recurrenceLabel" class="aip-sub" data-testid="appointment-recurrence">{{ recurrenceLabel }}</div>
         </div>
       </div>
       <div v-if="!serviceLabel" class="aip-card">
@@ -165,18 +166,11 @@
           </div>
         </div>
       </div>
-      <div v-if="locationLabel" class="aip-card">
+      <div v-if="locationLabel || roomLabel" class="aip-card">
         <span class="aip-ico aip-ico--slate" aria-hidden="true">⌖</span>
         <div>
           <div class="aip-k">Location</div>
-          <div class="aip-v">{{ locationLabel }}</div>
-        </div>
-      </div>
-      <div v-if="roomLabel" class="aip-card">
-        <span class="aip-ico aip-ico--slate" aria-hidden="true">▢</span>
-        <div>
-          <div class="aip-k">Room</div>
-          <div class="aip-v">{{ roomLabel }}</div>
+          <div class="aip-v">{{ locationLabel || roomLabel }}</div>
         </div>
       </div>
       <div v-if="notes && showNotes" class="aip-card aip-card--wide">
@@ -255,6 +249,7 @@ import api from '../../services/api';
 import ScheduleAgencyLogo from './ScheduleAgencyLogo.vue';
 
 const props = defineProps({
+  recurrenceLabel: { type: String, default: '' },
   whenLabel: { type: String, default: '' },
   whenDateLabel: { type: String, default: '' },
   whenTimeLabel: { type: String, default: '' },

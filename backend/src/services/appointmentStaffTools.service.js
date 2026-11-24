@@ -27,7 +27,7 @@ export function createAppointmentStaffTools({ db = pool, appointments = Appointm
     if (write ? canManageOthersSchedule(role) : canViewFullScheduleDetails(role)) return;
     const actor = await users.findById(user.id);
     if (users.isSupervisor(actor) && await users.supervisorHasAccess(user.id, providerId, agencyId)) return;
-    fail(403, 'Full schedule access is required for schedule clips');
+    fail(403, 'Full schedule access is required for session pins');
   }
   async function appointmentAccess(user, id, write = false, appointmentOperations = false) {
     if (!Number.isSafeInteger(Number(id)) || Number(id) <= 0) fail(400, 'A saved appointment is required');
@@ -58,7 +58,7 @@ export function createAppointmentStaffTools({ db = pool, appointments = Appointm
   }
   async function save(user, id, body) {
     const appointment = await appointmentAccess(user, id, true);
-    if (typeof body?.text !== 'string' || body.text.length > 500) fail(400, 'Use at most 500 characters for the schedule clip');
+    if (typeof body?.text !== 'string' || body.text.length > 500) fail(400, 'Use at most 500 characters for the session pin');
     const showOnSchedule = body.showOnSchedule === true ? 1 : 0;
     if (!Number.isSafeInteger(body.revision) || body.revision < 0) fail(400, 'The current alert revision is required');
     const value = body.text.trim();

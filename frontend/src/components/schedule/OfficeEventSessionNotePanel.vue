@@ -250,7 +250,7 @@ async function persistDraft({ allowEmpty = false, state = activeDraftState } = {
       hasSavedPhi.value = !!text.trim();
       if (text.trim()) revealed.value = true;
       statusMsg.value = 'Draft saved.';
-      if (payload.attendanceIntent) attendanceNotice.value = noteDraftAttendanceNotice(attendance);
+      if (payload.attendanceIntent) { attendanceNotice.value = noteDraftAttendanceNotice(attendance); window.dispatchEvent(new Event('session-attendance-changed')); }
       errorMsg.value = '';
     }
   };

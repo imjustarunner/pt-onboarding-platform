@@ -73,3 +73,12 @@ it('shows an appointment email’s verified routing and waits for an actual sent
   expect(wrapper.text()).not.toContain('Not sent yet.');
   wrapper.unmount();
 });
+
+it('replaces Add Session Pin with content and compact revision-aware edit/remove actions',async()=>{
+ api.get.mockResolvedValue({data:{agencyId:2,alert:{text:'Bring worksheet',revision:3,showOnSchedule:true},canEdit:true,clients:[]}});
+ const w=mount(StaffTools,{props:{appointmentId:12}});await flushPromises();expect(w.find('.session-pin-add').exists()).toBe(false);expect(w.get('.alert-text').text()).toBe('Bring worksheet');
+ await w.get('[aria-label="Edit session pin"]').trigger('click');await w.find('textarea').setValue('Prepare worksheet');api.put.mockResolvedValueOnce({data:{alert:{text:'Prepare worksheet',revision:4,showOnSchedule:true}}});await w.get('form').trigger('submit');await flushPromises();
+ expect(api.put).toHaveBeenLastCalledWith('/appointments/12/staff-alert',{text:'Prepare worksheet',revision:3,showOnSchedule:true},{skipGlobalLoading:true});
+ api.put.mockResolvedValueOnce({data:{alert:{text:'',revision:5,showOnSchedule:false}}});await w.get('[aria-label="Remove session pin"]').trigger('click');await flushPromises();
+ expect(api.put).toHaveBeenLastCalledWith('/appointments/12/staff-alert',{text:'',revision:4,showOnSchedule:false},{skipGlobalLoading:true});expect(w.get('.session-pin-add').text()).toBe('Add Session Pin');expect(w.get('.session-pin-add').attributes('title')).toContain('Never sent to clients');w.unmount();
+});
