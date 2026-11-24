@@ -5,6 +5,7 @@ export default {
   'src/services/__tests__/clientReactivation.test.js',
   'src/services/__tests__/clientReactivationIntegrations.test.js',
   'src/models/__tests__/Client.reactivation.test.js',
+  'src/models/__tests__/Appointment.reactivation.test.js',
   'src/services/__tests__/clientInactiveScheduling.test.js',
   'src/services/__tests__/clientLifecycleTaskSync.test.js',
   'src/services/__tests__/guardianCancellationReturnRequests.test.js',

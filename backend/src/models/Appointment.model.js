@@ -577,7 +577,7 @@ class Appointment {
       );
       i += 1;
     }
-    const [scheduled]=await executor.execute("SELECT created_by_user_id,agency_id,provider_user_id,business_type FROM appointments WHERE id=? AND status IN ('scheduled','confirmed') AND end_at>UTC_TIMESTAMP()",[aid]);
+    const [scheduled]=await executor.execute("SELECT created_by_user_id,agency_id,provider_user_id,business_type FROM appointments WHERE id=? AND status IN ('scheduled','confirmed','client_confirmed') AND end_at>UTC_TIMESTAMP()",[aid]);
     if(scheduled.length) {
       const newIds=participants.map(p=>Number(p.clientId||p.client_id||0)).filter(id=>id&&!previousIds.has(id));
       if(newIds.length){const {reactivateConfirmedAppointmentClients}=await import('../services/appointmentClientReactivation.service.js');await reactivateConfirmedAppointmentClients(aid,{executor,clientIds:newIds});}
