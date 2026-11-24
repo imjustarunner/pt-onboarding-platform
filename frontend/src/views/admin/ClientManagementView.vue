@@ -708,6 +708,9 @@
       </table>
     </div>
 
+    </template><!-- /v-else cmViewMode=clients -->
+
+    <!-- Header dialogs belong to the workspace, regardless of the selected tab. -->
     <ClientUpdateModal :open="clientUpdateOpen" :agency-id="activeAgencyId" @close="clientUpdateOpen = false" @created="fetchClients" @sent="clientUpdateOpen = false" />
     <!-- Create Client Modal -->
     <ClientRecordsCreateModal v-if="showCreateModal && canUpdateCharts" :agencies="agenciesForCreate" :initial-agency-id="createAgencyEffectiveId || activeAgencyId" @close="showCreateModal=false" @created="fetchClients" @open-existing="openClientDetail" />
@@ -1283,8 +1286,6 @@
         </div>
       </div>
     </div>
-
-    </template><!-- /v-else cmViewMode=clients -->
 
     <!-- Shared with the public demo; hover/pin behavior stays in the shared composable. -->
     <ClientFollowUpTask ref="followUpTask" :agency-id="effectiveAgencyScopeId" />
