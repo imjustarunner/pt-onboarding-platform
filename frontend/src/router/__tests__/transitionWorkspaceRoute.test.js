@@ -11,10 +11,10 @@ function redirectsAt(marker,overrides={}) {
  const scope={agencyStore:{},authStore:{isAuthenticated:true,user:{role:'admin'}},to:{name:'PracticeTransition',path:'/practice-transition',meta:{requiresAuth:true}},platformHost:true,hostPortalEarly:null,routeWorkspaceSlug:'',allowUnscopedDashboard:false,allowUnscopedNotifications:false,allowUnscopedDocumentSigning:false,isSuperadminRole:role=>role==='super_admin',getDefaultOrganizationSlug:()=> 'itsco',userHasSlugAccess:()=>false,isSchoolCareBridgePath:()=>false,hasProviderMobileAccess:()=>true,isStandalonePwa:()=>true,isLikelyMobileViewport:()=>true,...overrides};
  return new Function(...Object.keys(scope),`return (${expression});`)(...Object.values(scope));
 }
-it('keeps the standalone route authenticated and administrator-only',()=>{
+it('keeps the standalone route authenticated while the API enforces practice-specific manager access',()=>{
  const literal=source.match(/\{ path: '\/practice-transition'[^\n]+/)[0].replace(/,\s*$/,'');
  const route=new Function(`return (${literal});`)();
- expect(route.meta).toMatchObject({requiresAuth:true,requiresRole:['admin','super_admin'],practiceTransitionWorkspace:true});
+ expect(route.meta).toMatchObject({requiresAuth:true,practiceTransitionWorkspace:true});expect(route.meta.requiresRole).toBeUndefined();
 });
 it('prevents ordinary admin tenant-prefixing only for this independent workspace',()=>{
  const marker="authStore.user?.role !== 'super_admin' &&\n    to.meta.requiresAuth";

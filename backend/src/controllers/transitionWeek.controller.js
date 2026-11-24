@@ -1,4 +1,3 @@
-import pool from '../config/database.js';
 import { readTransitionWeek, saveTransitionWeek } from '../services/transitionWeek.service.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
 
@@ -33,11 +32,8 @@ export async function requireTransitionManager(req, res, next) {
   try {
     const agencyId = Number(req.params?.agencyId || req.query?.agencyId || req.body?.agencyId);
     if (!Number.isSafeInteger(agencyId) || agencyId < 1) return res.status(400).json({ error: { message: 'Choose a practice.' } });
-    if (!['admin', 'super_admin'].includes(req.user?.role)) return res.status(403).json({ error: { message: 'A practice administrator must review transition evidence.' } });
-    const [[member]] = await pool.execute(`SELECT u.id FROM users u JOIN user_agencies ua ON ua.user_id=u.id
-      WHERE u.id=? AND ua.agency_id=? AND ua.is_active=1 AND u.is_active=1
-      AND COALESCE(u.is_archived,0)=0 AND UPPER(COALESCE(u.status,'')) NOT IN ('INACTIVE','INACTIVE_EMPLOYEE','ARCHIVED','TERMINATED','DELETED') LIMIT 1`, [req.user.id, agencyId]);
-    if (!member) return res.status(403).json({ error: { message: 'Active membership in this practice is required.' } });
+    const practices = await transitionPractices(req.user);
+    if (!practices.some(practice => practice.id === agencyId)) return res.status(403).json({ error: { message: 'Transition manager access and active membership in this practice are required.' } });
     req.transitionAgencyId = agencyId;
     res.set('Cache-Control', 'no-store');
     next();

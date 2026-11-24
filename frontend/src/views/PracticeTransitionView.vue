@@ -1,9 +1,9 @@
 <template>
   <main class="transition-workspace">
-    <header class="tw-topbar"><router-link to="/auricwell-operations" class="tw-back">← Practice operations</router-link><span class="tw-wordmark">Transition workspace</span><span class="tw-private">Staff workspace</span></header>
+    <header class="tw-topbar"><router-link to="/dashboard" class="tw-back">← Back to dashboard</router-link><span class="tw-wordmark">Transition workspace</span><span class="tw-private">Staff workspace</span></header>
     <div class="tw-page">
       <nav class="tw-practices" aria-label="Choose practice"><button v-for="practice in practices" :key="practice.id" type="button" :aria-current="selectedId===practice.id?'page':undefined" @click="selectPractice(practice)"><span class="tw-practice-dot" />{{ practice.name }}</button></nav>
-      <p v-if="loading" role="status">Loading your practices…</p><p v-if="error" role="alert">{{ error }}</p><p v-if="!loading&&!error&&!practices.length">An active administrator membership in ITSCO, Next Level Up or Inner Strength is required.</p>
+      <p v-if="loading" role="status">Loading your practices…</p><p v-if="error" role="alert">{{ error }}</p><p v-if="!loading&&!error&&!practices.length">Transition manager access and active membership in ITSCO, Next Level Up or Inner Strength are required.</p>
       <TransitionWeekBoard v-if="selectedId" ref="board" :agency-id="selectedId" :actor-id="Number(auth.user?.id||0)" @open-tools="tools=$event" />
     </div>
     <div v-if="tools" class="tw-modal" role="dialog" aria-modal="true" aria-labelledby="transition-tools-title"><section class="tw-modal-body tw-tools"><div class="tw-heading"><h2 id="transition-tools-title">{{ tools.practice.name }} · records & scheduling</h2><button type="button" @click="closeTools">Close</button></div><AuricWellTransitionWorkbench ref="workbench" :context-agency="tools.practice" :scoped-agency-id="tools.practice.id" :initial-provider-id="tools.providerId" :initial-tab="tools.tab" /></section></div>

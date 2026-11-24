@@ -85,4 +85,33 @@ describe.skipIf(!port)('native MySQL transition workspace',()=>{
   await expect(save({action:'link_meeting',kind:'people',key:'1',eventId:102})).rejects.toMatchObject({status:403});
   const board=await save({action:'link_meeting',kind:'people',key:'1',eventId:101});expect(board.state.workspace.people[1].meetingIds).toEqual([101]);
  });
+ it('grants only the selected practice, supports saves and revokes immediately without changing roles',async()=>{
+  await m.pool.query("INSERT INTO users VALUES(55,'Delegated','Example',NULL,'provider_plus',1,0,0,'ACTIVE_EMPLOYEE',0); INSERT INTO user_agencies VALUES(55,2,1,NULL),(55,6,1,NULL),(55,377,0,NULL);");
+  try{
+   await expect(transitionPractices({id:55,role:'provider_plus'})).rejects.toMatchObject({status:403});
+   await m.pool.execute("UPDATE agencies SET feature_flags=JSON_SET(feature_flags,'$.practiceTransitionManagerUserIds',JSON_ARRAY(55)) WHERE id IN (2,377)");
+   expect((await transitionPractices({id:55,role:'provider_plus'})).map(p=>p.id)).toEqual([2]);
+   const saved=await saveTransitionWeek({agencyId:2,actorUserId:55,input:{revision:0,action:'workspace_item',kind:'people',key:'1',patch:{ownerUserId:99}}});
+   expect(saved.state.workspace.people[1].ownerUserId).toBe(99);
+   const [[actor]]=await m.pool.execute('SELECT actor_user_id FROM practice_transition_week_events');expect(actor.actor_user_id).toBe(55);
+   const [[user]]=await m.pool.execute('SELECT role FROM users WHERE id=55');expect(user.role).toBe('provider_plus');
+   await m.pool.execute("UPDATE agencies SET feature_flags=JSON_REMOVE(feature_flags,'$.practiceTransitionManagerUserIds') WHERE id=2");
+   await expect(transitionPractices({id:55,role:'provider_plus'})).rejects.toMatchObject({status:403});
+  }finally{await m.pool.query("DELETE FROM user_agencies WHERE user_id=55; DELETE FROM users WHERE id=55; UPDATE agencies SET feature_flags=JSON_REMOVE(feature_flags,'$.practiceTransitionManagerUserIds');");}
+ });
+ it('denies a grant on inactive membership, disabled/archived accounts, external roles and stale privileged sessions',async()=>{
+  await m.pool.query("INSERT INTO users VALUES(55,'Delegated','Example',NULL,'provider_plus',1,0,0,'ACTIVE_EMPLOYEE',0); INSERT INTO user_agencies VALUES(55,2,1,NULL);");
+  try{
+   await m.pool.execute("UPDATE agencies SET feature_flags=JSON_SET(feature_flags,'$.practiceTransitionManagerUserIds',JSON_ARRAY(55)) WHERE id=2");
+   const denied=()=>expect(transitionPractices({id:55,role:'provider_plus'})).rejects.toMatchObject({status:403});
+   await m.pool.execute('UPDATE user_agencies SET is_active=0 WHERE user_id=55');await denied();await m.pool.execute('UPDATE user_agencies SET is_active=1 WHERE user_id=55');
+   for(const change of ['is_active=0','is_archived=1','is_demo=1',"status='TERMINATED'","role='client_guardian'"]){
+    await m.pool.query('UPDATE users SET '+change+' WHERE id=55');await denied();
+    expect(await transitionPractices({id:55,role:'super_admin'})).toEqual([]);
+    await m.pool.query("UPDATE users SET is_active=1,is_archived=0,is_demo=0,status='ACTIVE_EMPLOYEE',role='provider_plus' WHERE id=55");
+   }
+   await m.pool.execute("UPDATE agencies SET feature_flags=JSON_SET(feature_flags,'$.practiceTransitionManagerUserIds',JSON_ARRAY('55')) WHERE id=2");await denied();
+  }finally{await m.pool.query("DELETE FROM user_agencies WHERE user_id=55; DELETE FROM users WHERE id=55; UPDATE agencies SET feature_flags=JSON_REMOVE(feature_flags,'$.practiceTransitionManagerUserIds');");}
+ });
+
 });

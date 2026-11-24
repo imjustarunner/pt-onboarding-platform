@@ -3840,7 +3840,7 @@ const routes = [
     component: () => import('../views/SchoolOperationsHubView.vue'),
     meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_ROLES }
   },
-  { path: '/practice-transition', name: 'PracticeTransition', component: () => import('../views/PracticeTransitionView.vue'), meta: { hideNav: true, practiceTransitionWorkspace: true, requiresAuth: true, requiresRole: ['admin','super_admin'] } },
+  { path: '/practice-transition', name: 'PracticeTransition', component: () => import('../views/PracticeTransitionView.vue'), meta: { hideNav: true, practiceTransitionWorkspace: true, requiresAuth: true } },
   {
     path: '/auricwell-operations',
     name: 'AuricWellOperations',

@@ -3,13 +3,21 @@ import { TRANSITION_PRACTICES } from '../content/transitionWeek.js';
 import { rankPayrollProviders, PAYROLL_RANKING_SOURCE } from '../utils/transitionPayrollRanking.js';
 
 const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
+const TRANSITION_MANAGER_ROLES = new Set(['admin','super_admin','provider','provider_plus','intern','intern_plus','staff','support','assistant_admin','supervisor','facilitator','qbha','tutor','clinical_director']);
 export async function transitionPractices(actor, db = pool) {
-  if (!['admin','super_admin'].includes(actor?.role)) fail(403, 'Practice administrator access is required.');
-  const [rows] = await db.execute(`SELECT ua.agency_id FROM user_agencies ua JOIN users u ON u.id=ua.user_id
-    WHERE ua.user_id=? AND ua.is_active=1 AND u.is_active=1 AND COALESCE(u.is_archived,0)=0
-    AND UPPER(COALESCE(u.status,'')) NOT IN ('INACTIVE','INACTIVE_EMPLOYEE','ARCHIVED','TERMINATED','DELETED')
+  if (!TRANSITION_MANAGER_ROLES.has(actor?.role)) fail(403, 'Transition manager access is required.');
+  const [rows] = await db.execute(`SELECT ua.agency_id,u.role,
+    JSON_CONTAINS(COALESCE(JSON_EXTRACT(a.feature_flags,'$.practiceTransitionManagerUserIds'),JSON_ARRAY()),JSON_ARRAY(u.id)) transition_manager
+    FROM user_agencies ua JOIN users u ON u.id=ua.user_id JOIN agencies a ON a.id=ua.agency_id
+    WHERE ua.user_id=? AND ua.is_active=1 AND u.is_active=1 AND COALESCE(u.is_archived,0)=0 AND COALESCE(u.is_demo,0)=0
+    AND UPPER(COALESCE(u.status,'')) IN ('ACTIVE','ACTIVE_EMPLOYEE','ONBOARDING')
     AND ua.agency_id IN (2,6,377)`, [actor.id]);
-  return [2,6,377].filter(id => rows.some(row => Number(row.agency_id) === id)).map(id => TRANSITION_PRACTICES.find(p => p.id === id));
+  // Read the current database role and practice-specific grant on every request.
+  // A stale session, another practice's grant or provider role alone grants nothing.
+  const authorized = rows.filter(row => TRANSITION_MANAGER_ROLES.has(row.role) &&
+    (['admin','super_admin'].includes(row.role) || Number(row.transition_manager) === 1));
+  if (!authorized.length && !['admin','super_admin'].includes(actor.role)) fail(403, 'Transition manager access and active practice membership are required.');
+  return [2,6,377].filter(id => authorized.some(row => Number(row.agency_id) === id)).map(id => TRANSITION_PRACTICES.find(p => p.id === id));
 }
 export async function transitionStaff(agencyId, db = pool) {
   const [rows] = await db.execute(`SELECT DISTINCT u.id,CONCAT_WS(' ',COALESCE(NULLIF(TRIM(u.preferred_name),''),u.first_name),u.last_name) name,u.role,u.has_provider_access,ua.agency_role

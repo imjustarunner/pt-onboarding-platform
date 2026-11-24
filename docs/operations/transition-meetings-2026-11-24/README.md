@@ -94,3 +94,9 @@ The rehearsal checks desktop and 390px layout, visible personal-response links, 
 Kimi participates using her active NLU account. The frozen plan records NLU as her payroll practice. Her issued training appears in her NLU training calendar and attendance history, with the same Yes/No controls and personal invitation. Access requires the protected campaign/event mapping, a current explicit invitation, an unwithdrawn issued state and current NLU staff eligibility. It grants no ITSCO membership, clinical access or host/proctor authority. Her app inbox copy stays in NLU. The selected provider-only payroll ranking stays in ITSCO.
 
 The launch uses the existing canonical practice staff roster, including onboarding staff, and validates delivery contacts only for its selected recipients and hosts. School-portal, family, kiosk and unrelated staff accounts cannot create first-name ambiguity or enter this audience.
+
+## Delegated transition workspace access
+
+An administrator can delegate this workspace through an agency's numeric `feature_flags.practiceTransitionManagerUserIds` list. Delegation requires the user's current active staff account and active membership in that specific practice. The backend checks the current database role and grant for each practice-list, roster, client, meeting, checklist, owner and video request. It never relies on a browser-supplied grant or stale administrator role. Removing the grant or deactivating membership takes effect on the next request.
+
+The standalone route requires sign-in. Its practice list and all read/write APIs enforce the scoped manager permission. Delegation changes no global role and grants no access to unrelated administration, payroll, billing or records-import APIs. No schema migration is needed. Apply Megan's explicit grant only to her existing ITSCO and NLU memberships; record the actual nonhuman automation subject and a null human audit actor. Preserve every other feature flag and prior grant.

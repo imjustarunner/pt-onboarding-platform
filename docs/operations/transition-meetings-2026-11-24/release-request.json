@@ -1,11 +1,17 @@
 {
-  "operation": "Deploy the tested transition sequence and verify its SMTP inbox before sending invitations",
+  "operation": "Deploy tested practice-scoped transition-manager access for Megan",
   "authorization": "User explicitly requested commit, push, live deployment and meeting invitations in this chat",
-  "requestedAt": "2026-11-24T18:55:39.462115+00:00",
+  "requestedAt": "2026-11-24T21:54:43.580470+00:00",
   "preserveLiveSources": true,
   "automationGroupRole": "MANAGER",
   "groupOwnerSettingsConfirmed": true,
   "directRelayTestCommunicationId": 7740,
   "additionalProviderPractice": "NLU",
-  "preservePracticeMemberships": true
+  "preservePracticeMemberships": true,
+  "accessChange": {
+    "target": "Megan Geil-Crader",
+    "scope": "Transition workspace only, with existing active practice memberships",
+    "changesGlobalRole": false,
+    "schemaMigrationRequired": false
+  }
 }

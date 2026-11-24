@@ -5,9 +5,10 @@ vi.mock('../clientSessionBookingRollout.service.js',()=>({sessionBookingProvider
 import {transitionPractices,isTransitionProvider,transitionWorkspaceRoster,transitionClients,assertTransitionClient,transitionMeetings,assertTransitionMeeting} from '../transitionWorkspace.service.js';
 beforeEach(()=>{vi.clearAllMocks();m.execute.mockResolvedValue([[]]);});
 it('only offers three practices with current membership and puts ITSCO first',async()=>{
- m.execute.mockResolvedValue([[{agency_id:6},{agency_id:2},{agency_id:377},{agency_id:999}]]);
+ m.execute.mockResolvedValue([[{agency_id:6,role:'admin'},{agency_id:2,role:'admin'},{agency_id:377,role:'admin'},{agency_id:999,role:'admin'}]]);
  expect((await transitionPractices({id:9,role:'admin'})).map(p=>p.id)).toEqual([2,6,377]);
  expect(m.execute.mock.calls[0][1]).toEqual([9]);expect(m.execute.mock.calls[0][0]).toContain('ua.is_active=1');
+ m.execute.mockResolvedValue([[{agency_id:2,role:'provider',transition_manager:0}]]);
  await expect(transitionPractices({id:9,role:'provider'})).rejects.toMatchObject({status:403});
 });
 it('ranks provider payroll and never reads app appointments or includes general staff',async()=>{
@@ -49,4 +50,13 @@ it('uses assigned provider roles even before app care is enabled, without includ
  expect(isTransitionProvider({role:'admin',hasProviderAccess:false})).toBe(false);
  expect(isTransitionProvider({role:'admin',hasProviderAccess:true})).toBe(true);
  expect(isTransitionProvider({role:'provider',agencyRole:'staff',hasProviderAccess:true})).toBe(false);
+});
+
+it('allows only explicit per-practice manager grants and uses the current database role',async()=>{
+ m.execute.mockResolvedValue([[{agency_id:2,role:'provider_plus',transition_manager:1},{agency_id:6,role:'provider_plus',transition_manager:0},{agency_id:377,role:'client_guardian',transition_manager:1}]]);
+ expect((await transitionPractices({id:9,role:'provider_plus'})).map(p=>p.id)).toEqual([2]);
+ expect(m.execute.mock.calls[0][0]).toContain('practiceTransitionManagerUserIds');
+ m.execute.mockResolvedValue([[{agency_id:2,role:'provider_plus',transition_manager:0}]]);
+ expect(await transitionPractices({id:9,role:'super_admin'})).toEqual([]);
+ for(const role of ['client_guardian','school_staff','prehire'])await expect(transitionPractices({id:9,role})).rejects.toMatchObject({status:403});
 });
