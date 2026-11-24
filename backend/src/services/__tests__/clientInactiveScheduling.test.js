@@ -6,4 +6,9 @@ describe('inactive enrollment cannot be booked',()=>{
   expect(()=>assertClientNotTerminated(client)).toThrow(expect.objectContaining({status:409,code:'CLIENT_TERMINATED'}));
  });
  it('allows an active enrollment',()=>expect(()=>assertClientNotTerminated({status:'ACTIVE',client_status_key:'being_seen'})).not.toThrow());
+ it('allows a deliberate new booking for a real inactive account while retaining ordinary checks',()=>{
+  expect(()=>assertClientNotTerminated({status:'ARCHIVED',client_status_key:'inactive'},{allowInactive:true})).not.toThrow();
+  expect(()=>assertClientNotTerminated({status:'ARCHIVED',client_status_key:'inactive',is_demo:1},{allowInactive:true})).toThrow();
+  expect(()=>assertClientNotTerminated({status:'ARCHIVED',client_status_key:'archived'},{allowInactive:true})).toThrow();
+ });
 });

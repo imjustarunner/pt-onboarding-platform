@@ -1012,7 +1012,7 @@ export const getInactiveClientProviderOptions=async(req,res,next)=>{
   if(req.user.role==='super_admin'){const [rows]=await pool.execute('SELECT id FROM agencies WHERE COALESCE(is_archived,0)=0');allowed=rows.map(r=>Number(r.id));}
   else allowed=(await User.getAgencies(req.user.id)).filter(a=>![false,0,'0'].includes(a.is_active)).map(a=>Number(a.id));
   const requested=String(req.query.agency_id||req.query.agency_ids||'').split(',').map(Number).filter(Boolean);
-  const ids=requested.length?allowed.filter(id=>requested.includes(id)):allowed;
+  const ids=String(req.query.agency_id||req.query.agency_ids||'').trim()?allowed.filter(id=>requested.includes(id)):allowed;
   if(!ids.length)return res.json([]);
   const {realInactiveClientSql}=await import('../utils/clientInactivePolicy.js');
   const [rows]=await pool.execute(`SELECT DISTINCT u.id,CONCAT_WS(' ',u.first_name,u.last_name) name FROM clients c
@@ -3029,7 +3029,7 @@ export const reactivateClient = async(req,res,next)=>{
     if(!reason||reason.length>1000)return res.status(400).json({error:{message:'Enter a reason for reactivating this client, within 1,000 characters.'}});
     const {reactivateClientForActivity}=await import('../services/clientReactivation.service.js');
     const result=await reactivateClientForActivity({clientId:client.id,agencyId:client.agency_id,trigger:'staff_reactivation',sourceId:`staff:${requestId}`,actorUserId:req.user.id,reason});
-    if(!result.reactivated&&result.reason!=='activity_already_applied'&&String(client.status).toUpperCase()!=='ACTIVE')return res.status(409).json({error:{message:'Only real inactive client records can be reactivated. Retained demo or archived records require a separate review.'}});
+    if(!result.reactivated&&String(client.status).toUpperCase()!=='ACTIVE')return res.status(409).json({error:{message:result.reason==='activity_already_applied'?'This earlier reactivation was already processed. The client is inactive again; refresh and review a new action.':'Only real inactive client records can be reactivated. Retained demo or archived records require a separate review.'}});
     res.json(result);
   }catch(error){if(error.status)return res.status(error.status).json({error:{message:error.message}});next(error);}
 };

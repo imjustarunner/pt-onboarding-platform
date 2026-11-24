@@ -1,5 +1,6 @@
 import {it,expect,vi,beforeEach} from 'vitest';
-const h=vi.hoisted(()=>({execute:vi.fn(),beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn(),access:vi.fn(),adjust:vi.fn(),coverage:vi.fn(),scope:vi.fn()}));
+const h=vi.hoisted(()=>({execute:vi.fn(),beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn(),access:vi.fn(),adjust:vi.fn(),coverage:vi.fn(),scope:vi.fn(),reactivate:vi.fn()}));
+vi.mock('../../services/clientReactivation.service.js',()=>({reactivateClientForActivity:h.reactivate}));
 vi.mock('../../services/clientAssignmentScope.service.js',()=>({assertAssignableProvider:h.scope}));
 vi.mock('../../services/clientCoverageAdmission.service.js',()=>({assertNewProviderCoverageAdmission:h.coverage}));
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn(async()=>[[]]),getConnection:vi.fn(async()=>h)},onTableWrite:vi.fn()}));
@@ -16,6 +17,7 @@ let rows,req,res,next;
 beforeEach(()=>{
  vi.clearAllMocks();rows=[{id:2588,is_active:0,is_primary:0,service_day:'Tuesday'}];
  h.coverage.mockResolvedValue({ready:true});h.scope.mockResolvedValue(undefined);
+ h.reactivate.mockResolvedValue({reactivated:false});
  req={params:{id:'2152'},body:{organization_id:237,provider_user_id:494,service_day:'Tuesday',is_primary:true},user:{id:501,role:'super_admin'}};
  res={status:vi.fn().mockReturnThis(),json:vi.fn()};next=vi.fn();
  h.access.mockResolvedValue({ok:true,client:{id:2152,agency_id:2,client_status_key:'being_seen'}});h.adjust.mockResolvedValue({ok:true});
@@ -49,6 +51,14 @@ it('reactivates the historical row without a duplicate insert and consumes one s
 });
 it('does not consume another slot on an active assignment retry',async()=>{
  rows[0].is_active=1;await upsertClientProviderAssignment(req,res,next);expect(next).not.toHaveBeenCalled();expect(h.adjust).not.toHaveBeenCalled();
+});
+it('reactivates an inactive client only after validating the new assignment, in the same transaction',async()=>{
+ h.access.mockResolvedValue({ok:true,client:{id:2152,agency_id:2,client_status_key:'inactive'}});
+ h.reactivate.mockResolvedValue({reactivated:true,statusKey:'current'});
+ await upsertClientProviderAssignment(req,res,next);expect(next).not.toHaveBeenCalled();
+ expect(h.reactivate).toHaveBeenCalledWith(expect.objectContaining({clientId:2152,agencyId:2,trigger:'provider_assignment',actorUserId:501}),{executor:h});
+ expect(h.coverage.mock.invocationCallOrder[0]).toBeLessThan(h.reactivate.mock.invocationCallOrder[0]);
+ expect(h.adjust).toHaveBeenCalledWith(h,expect.objectContaining({delta:-1}));expect(h.commit).toHaveBeenCalledOnce();
 });
 it('moves back to an inactive historical day and preserves the previous primary assignment',async()=>{
  req.body.is_primary=false;rows.push({id:2999,is_active:1,is_primary:1,service_day:'Monday'});

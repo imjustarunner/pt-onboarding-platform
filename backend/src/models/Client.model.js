@@ -567,9 +567,11 @@ class Client {
    * @returns {Promise<Object|null>} Updated client object or null
    */
   static async update(id, clientData, updated_by_user_id = null, { executor = pool, hydrate = true, agencyId = null } = {}) {
+    let newProviderAssigned=false;
     if (Number(clientData.provider_id) > 0) {
       const [[assignmentClient]] = await executor.execute('SELECT id,agency_id,client_type,provider_id FROM clients WHERE id=?', [id]);
       if (assignmentClient && Number(assignmentClient.provider_id) !== Number(clientData.provider_id)) {
+        newProviderAssigned=true;
         const { assertAssignableProvider } = await import('../services/clientAssignmentScope.service.js');
         if (assignmentClient.client_type === 'learning') {
           throw Object.assign(new Error('Assign the provider to their service in Assignments.'),{status:409});
@@ -586,7 +588,7 @@ class Client {
     const schedulingStatusChange = clientData.client_status_id !== undefined || clientData.terminated_at !== undefined || String(clientData.status || '').toUpperCase() === 'ARCHIVED';
     const bookingDefaultsChange = ['default_office_location_id', 'default_place_of_service', 'default_service_location_id']
       .some(field => clientData[field] !== undefined);
-    const providerAssignmentChange=Number(clientData.provider_id)>0&&Number(updated_by_user_id)>0;
+    const providerAssignmentChange=newProviderAssigned&&Number(updated_by_user_id)>0;
     if ((schedulingStatusChange || bookingDefaultsChange || providerAssignmentChange) && executor === pool) {
       const db = await pool.getConnection();
       let saved;

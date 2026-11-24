@@ -11,6 +11,11 @@ import {compareAndSetPaperProcessingState,savePaperProcessingStep,completePaperP
 let client,deps,connection;
 const input={clientId:4,actorId:8,signaturesConfirmed:true,staffRoiConfirmed:true,sendInvitations:true};
 const ready=()=>{client.onboarding_docs_json={items:[{key:'roi',status:'missing'}],paperProcessing:{completedSteps:[...PAPER_PROCESSING_STEPS],documentId:9,guardian1Id:20,guardian2Id:21,sharedCustody:'yes',invitations:{}}};};
+it('reactivates a real inactive record after the new paper packet has been completed',async()=>{
+ ready();client.status='ARCHIVED';client.client_status_key='inactive';deps.reactivate=vi.fn(async()=>({reactivated:true}));
+ await completePaperProcessing(input,deps);
+ expect(deps.reactivate).toHaveBeenCalledWith(expect.objectContaining({clientId:4,agencyId:2,trigger:'form_submission',sourceId:'paper-document:9',actorUserId:8,occurredAt:expect.any(String)}),{db:deps.database});
+});
 beforeEach(()=>{
  client={id:4,agency_id:2,organization_id:3,source:'SCHOOL_UPLOAD',full_name:'Synthetic Student',onboarding_docs_json:{items:[{key:'roi',status:'missing'}]}};
  connection={execute:vi.fn(async()=>[[{acquired:1}]]),release:vi.fn()};

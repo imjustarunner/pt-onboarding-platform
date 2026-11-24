@@ -23,7 +23,8 @@ export async function reactivateClientForActivity(input,{db=pool,executor=null}=
  const connection=executor||await db.getConnection(),owns=!executor;
  try {
   if(owns)await connection.beginTransaction();
-  const [[client]]=await connection.execute(`SELECT c.*,s.status_key AS client_status_key FROM clients c
+  const [[client]]=await connection.execute(`SELECT c.id,c.agency_id,c.status,c.client_status_id,c.is_demo,c.created_via_dev_fill,c.compliance_archived_at,
+   c.termination_reason,c.terminated_at,c.terminated_by_user_id,c.termination_last_provider_id,c.termination_last_provider_name,c.termination_effective_date,c.updated_at,s.status_key AS client_status_key FROM clients c
    LEFT JOIN client_statuses s ON s.id=c.client_status_id WHERE c.id=?${agencyId?' AND (c.agency_id=? OR EXISTS(SELECT 1 FROM client_agency_assignments ca WHERE ca.client_id=c.id AND ca.agency_id=? AND ca.is_active=1))':''} FOR UPDATE`,agencyId?[clientId,agencyId,agencyId]:[clientId]);
   if(!client)throw fail('Client not found.',404);
   if(!canReactivateClient(client)){if(owns)await connection.commit();return {reactivated:false,reason:'not_inactive_or_retained_archive'};}
