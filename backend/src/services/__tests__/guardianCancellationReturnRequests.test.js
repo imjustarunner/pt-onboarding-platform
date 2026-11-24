@@ -14,12 +14,14 @@ beforeEach(()=>{
   if(sql.startsWith('UPDATE client_service_return_requests'))Object.assign(request,{status:args[0],response_encrypted:args[1]});
   return [{affectedRows:1}];
  }),authorize:vi.fn(async()=>({client_id:8,agency_id:2})),beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn()};
- service=createClientServiceReturnRequests({db:{execute:m.execute,getConnection:async()=>m},authorize:m.authorize,encrypt:JSON.stringify,decrypt:JSON.parse});
+ m.reactivate=vi.fn(async()=>({reactivated:true,reviewOnly:true}));
+ service=createClientServiceReturnRequests({db:{execute:m.execute,getConnection:async()=>m},authorize:m.authorize,encrypt:JSON.stringify,decrypt:JSON.parse,reactivate:m.reactivate});
 });
 it('saves one private consideration request and notifies the assigned provider without booking or reactivating care',async()=>{
  await service.submit(input);await service.submit(input);await service.submit({...input,requestId:'22222222-2222-4222-8222-222222222222'});
  expect(request.status).toBe('pending');expect(row.is_active).toBe(0);
  expect(m.execute.mock.calls.filter(([sql])=>sql.startsWith('INSERT INTO notifications'))).toHaveLength(1);
+ expect(m.reactivate).toHaveBeenCalledOnce();expect(m.reactivate).toHaveBeenCalledWith(expect.objectContaining({clientId:8,agencyId:2,trigger:'guardian_return_request',actorUserId:9}),{executor:m});
  expect(m.execute.mock.calls.some(([sql])=>sql.startsWith('UPDATE client_service_enrollments')||sql.startsWith('INSERT INTO appointments'))).toBe(false);
  expect((await service.read(input)).request.note).toBe(input.note);
 });

@@ -1144,7 +1144,7 @@ const docAlerts = computed(() => {
       key: 'unassigned',
       count: unassignedDocs.value,
       label: 'Unassigned Documents',
-      hint: 'Needs client assignment',
+      hint: 'Needs client assignment or packet submission',
       tone: 'info',
       to: `${prefix.value}/admin/unassigned-documents`
     });

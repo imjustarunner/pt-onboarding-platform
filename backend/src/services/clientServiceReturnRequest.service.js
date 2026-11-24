@@ -1,10 +1,11 @@
 import pool from '../config/database.js';
 import {encryptFamilyBilling,decryptFamilyBilling} from './familyBillingEncryption.service.js';
 import {serviceStatus,terminalProfile} from '../utils/clientServiceLifecycle.js';
+import {reactivateClientForActivity} from './clientReactivation.service.js';
 const fail=(message,status=400)=>Object.assign(new Error(message),{status});
 const context=row=>`service-return:${row.agency_id}:${row.id}`;
 export function createClientServiceReturnRequests(overrides={}){
- const d={db:pool,authorize:async(...args)=>(await import('./guardianAppointments.service.js')).authorizedAppointmentClient(...args),encrypt:encryptFamilyBilling,decrypt:decryptFamilyBilling,...overrides};
+ const d={db:pool,reactivate:reactivateClientForActivity,authorize:async(...args)=>(await import('./guardianAppointments.service.js')).authorizedAppointmentClient(...args),encrypt:encryptFamilyBilling,decrypt:decryptFamilyBilling,...overrides};
  const view=row=>row?{id:row.id,status:row.status,createdAt:row.created_at,note:d.decrypt(row.note_encrypted,context(row))?.note||'',response:row.response_encrypted?d.decrypt(row.response_encrypted,context(row))?.message||'':''}:null;
  async function clientContext(input){
   if(!Number.isSafeInteger(Number(input.serviceId))||Number(input.serviceId)<1)throw fail('Choose the provider and service you want the team to review.');
@@ -39,6 +40,7 @@ export function createClientServiceReturnRequests(overrides={}){
    if(pending){await db.commit();return {request:view(pending)};}
    const row={id:input.requestId,agency_id:service.agency_id};
    await db.execute('INSERT INTO client_service_return_requests (id,client_id,agency_id,service_enrollment_id,provider_user_id,requester_user_id,note_encrypted) VALUES (?,?,?,?,?,?,?)',[row.id,input.clientId,row.agency_id,service.id,service.provider_user_id,input.userId,d.encrypt({note},context(row))]);
+   await d.reactivate({clientId:input.clientId,agencyId:service.agency_id,trigger:'guardian_return_request',sourceId:`return:${row.id}`,actorUserId:input.userId},{executor:db});
    await db.execute(`INSERT INTO notifications (type,severity,title,message,user_id,agency_id,related_entity_type,related_entity_id,actor_user_id,actor_source)
     SELECT DISTINCT 'public_appointment_request_received','info','Client requested services review',?,u.id,?,'client',?,?,'guardian_portal'
     FROM users u JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=? AND ua.is_active=1

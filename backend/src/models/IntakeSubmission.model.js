@@ -254,6 +254,10 @@ class IntakeSubmission {
     if (!fields.length) return this.findById(id);
     values.push(id);
     await pool.execute(`UPDATE intake_submissions SET ${fields.join(', ')} WHERE id = ?`, values);
+    if(updates.status==='submitted'||updates.client_id){
+      const {reactivateSubmittedIntakeClients}=await import('../services/clientReactivation.service.js');
+      await reactivateSubmittedIntakeClients(id);
+    }
     return this.findById(id);
   }
 

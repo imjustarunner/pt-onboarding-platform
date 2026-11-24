@@ -1,4 +1,6 @@
 import pool from '../config/database.js';
+import {randomUUID} from 'node:crypto';
+import {reactivateClientForActivity} from './clientReactivation.service.js';
 
 /**
  * Ensure a company_event_clients row exists for event enrollment workflow
@@ -16,14 +18,22 @@ export async function ensureCompanyEventClientEnrollment({
   const cid = Number(clientId);
   if (!eid || !aid || !cid) return { ok: false };
 
-  await db.execute(
+  const own=db===pool,connection=own?await db.getConnection():db;
+  try{
+  if(own)await connection.beginTransaction();
+  await connection.execute('SELECT id FROM clients WHERE id=? FOR UPDATE',[cid]);
+  const [[prior]]=await connection.execute('SELECT id,is_active FROM company_event_clients WHERE company_event_id=? AND agency_id=? AND client_id=? FOR UPDATE',[eid,aid,cid]);
+  await connection.execute(
     `INSERT INTO company_event_clients
        (company_event_id, agency_id, client_id, enrolled_by_user_id, is_active)
      VALUES (?, ?, ?, ?, TRUE)
      ON DUPLICATE KEY UPDATE is_active = TRUE`,
     [eid, aid, cid, actorUserId || null]
   );
+  if(!prior||!Number(prior.is_active))await reactivateClientForActivity({clientId:cid,agencyId:aid,trigger:'event_registration',sourceId:`event:${eid}:${randomUUID()}`,actorUserId},{executor:connection});
+  if(own)await connection.commit();
   return { ok: true };
+  }catch(error){if(own)await connection.rollback();throw error;}finally{if(own)connection.release();}
 }
 
 /**

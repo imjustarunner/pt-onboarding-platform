@@ -1,5 +1,5 @@
 import { it, expect, vi, beforeEach } from 'vitest';
-vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn(async () => [[]]) } }));
+vi.mock('../../config/database.js', () => {const execute=vi.fn(async()=>[[]]);return {default:{execute,getConnection:async()=>({execute,beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn()})}};});
 vi.mock('../appointmentConflict.service.js', () => ({ appointmentOccupiesTime: s => !['draft','voided'].includes(s), withAppointmentWindow: vi.fn(async (_pool,_row,_id,save) => save()) }));
 import Appointment from '../../models/Appointment.model.js';
 import pool from '../../config/database.js';

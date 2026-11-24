@@ -1,24 +1,32 @@
 <template>
   <section class="inactive-panel" aria-label="Inactive clients">
     <h2>Inactive clients</h2>
-    <p>Includes terminated enrollments. Their records and history remain available. Reopen enrollment when they are ready to explore services again.</p>
+    <p>Accounts and provider history remain available. New registrations, forms, provider assignments, and confirmed appointments can reactivate a client. A request to return to services reopens intake for review.</p>
     <form class="inactive-search" @submit.prevent="page = 1; load()">
       <input v-model="search" type="search" placeholder="Search inactive clients" aria-label="Search inactive clients" />
+      <select v-model="previousProviderId" aria-label="Previous provider" @change="page = 1; load()"><option value="">All previous providers</option><option v-for="provider in providerOptions" :key="provider.id" :value="String(provider.id)">{{ provider.name }}</option></select>
       <button type="submit" :disabled="loading">Search</button>
     </form>
     <p v-if="error" role="alert">{{ error }}</p>
+    <p v-if="providerError" role="alert">{{ providerError }}</p>
     <p v-if="message" role="status">{{ message }}</p>
     <p v-if="loading" role="status">Loading inactive clients…</p>
     <p v-else-if="!clients.length">No inactive clients match this view.</p>
     <ul v-else class="inactive-list">
       <li v-for="client in clients" :key="client.id">
-        <div><button type="button" class="inactive-open" @click="$emit('open-client', client)">{{ getClientLabel(client) }}</button><span class="inactive-status">Inactive{{ client.client_status_label ? ` · ${client.client_status_label}` : '' }}</span>
+        <div><button type="button" class="inactive-open" @click="$emit('open-client', client)">{{ getClientLabel(client) }}</button><span class="inactive-status">Inactive{{ client.client_status_label && client.client_status_label.toLowerCase() !== 'inactive' ? ` · ${client.client_status_label}` : '' }}</span>
           <p v-if="client.termination_reason">{{ client.termination_reason }}</p>
-          <small v-if="client.termination_last_provider_name">Last provider: {{ client.termination_last_provider_name }}</small>
+          <small>Previous providers: {{ client.previous_providers?.map(provider => provider.name).join(', ') || client.termination_last_provider_name || 'Not recorded' }}</small>
         </div>
-        <button type="button" :disabled="reopeningId === client.id" @click="reopen(client)">{{ reopeningId === client.id ? 'Reopening…' : 'Reopen enrollment' }}</button>
+        <div><button type="button" :disabled="reopeningId === client.id" @click="beginReactivation(client)">Reactivate client</button> <button type="button" :disabled="reopeningId === client.id" @click="reopen(client)">{{ reopeningId === client.id ? 'Reopening…' : 'Reopen intake for review' }}</button></div>
       </li>
     </ul>
+    <form v-if="reactivationClient" role="dialog" aria-label="Reactivate client" @submit.prevent="reactivate">
+      <h3>Reactivate {{ getClientLabel(reactivationClient) }}</h3>
+      <p>This makes the account active. Previous providers, ended services, and canceled appointments remain in history.</p>
+      <label>Reason <textarea v-model="reactivationReason" required maxlength="1000" /></label>
+      <button type="submit" :disabled="!!reopeningId || !reactivationReason.trim()">Confirm reactivation</button> <button type="button" :disabled="!!reopeningId" @click="reactivationClient = null">Cancel</button>
+    </form>
     <div class="inactive-pages"><button type="button" :disabled="page === 1 || loading" @click="page--; load()">Previous</button><span>Page {{ page }}</span><button type="button" :disabled="!hasMore || loading" @click="page++; load()">Next</button></div>
   </section>
 </template>
@@ -31,14 +39,17 @@ const props = defineProps({ agencyIds: { type: Array, default: () => [] }, demo:
 const emit = defineEmits(['open-client', 'reopened']);
 const { getClientLabel } = useClientDisplayMode();
 const clients = ref([]), search = ref(''), page = ref(1), hasMore = ref(false), loading = ref(false), error = ref(''), message = ref(''), reopeningId = ref(null);
+const providerOptions=ref([]),previousProviderId=ref(''),providerError=ref('');
+const reactivationClient=ref(null),reactivationReason=ref('');
+let reactivationRequestId='',providerGeneration=0;
 let generation = 0;
 async function load() {
   const request = ++generation;
   if (!props.agencyIds.length) { clients.value = []; hasMore.value = false; return; }
   loading.value = true; error.value = '';
   try {
-    const params = { status: 'ARCHIVED', includeArchived: true, search: search.value, page: page.value, per_page: 50, paginate: true, demo: props.demo || 'exclude', ...(props.agencyIds.length === 1 ? { agency_id: props.agencyIds[0] } : { agency_ids: props.agencyIds.join(',') }) };
-    const { data } = await api.get('/clients/archived', { params, skipGlobalLoading: true });
+    const params = { includeArchived: true, search: search.value, page: page.value, per_page: 50, paginate: true, demo: 'exclude', ...(previousProviderId.value?{previous_provider_id:previousProviderId.value}:{}), ...(props.agencyIds.length === 1 ? { agency_id: props.agencyIds[0] } : { agency_ids: props.agencyIds.join(',') }) };
+    const { data } = await api.get('/clients/inactive', { params, skipGlobalLoading: true });
     if (request !== generation) return;
     clients.value = Array.isArray(data) ? data : data.items || data.clients || [];
     const total = Number(data?.total || data?.pagination?.total || 0);
@@ -56,7 +67,21 @@ async function reopen(client) {
   } catch (e) { error.value = e?.response?.data?.error?.message || 'Enrollment could not be reopened.'; }
   finally { reopeningId.value = null; }
 }
-watch(() => [props.agencyIds.join(','), props.demo], () => { page.value = 1; load(); }, { immediate: true });
+function beginReactivation(client){reactivationClient.value=client;reactivationReason.value='';reactivationRequestId=crypto.randomUUID();}
+async function reactivate(){
+ const client=reactivationClient.value;if(!client||reopeningId.value)return;
+ reopeningId.value=client.id;error.value='';
+ try{await api.post(`/clients/${client.id}/reactivate`,{requestId:reactivationRequestId,reason:reactivationReason.value.trim()},{headers:{'X-Agency-Id':String(client.agency_id)}});message.value=`${getClientLabel(client)} is active.`;reactivationClient.value=null;await load();emit('reopened',client);}
+ catch(e){error.value=e?.response?.data?.error?.message||'The client could not be reactivated.';}
+ finally{reopeningId.value=null;}
+}
+async function loadProviders(){
+ const request=++providerGeneration;providerError.value='';providerOptions.value=[];
+ if(!props.agencyIds.length)return;
+ try{const {data}=await api.get('/clients/inactive/providers',{params:{agency_ids:props.agencyIds.join(',')},skipGlobalLoading:true});if(request===providerGeneration)providerOptions.value=Array.isArray(data)?data:[];}
+ catch{if(request===providerGeneration)providerError.value='Previous provider filters could not be loaded. You can still search clients.';}
+}
+watch(() => [props.agencyIds.join(','), props.demo], () => { page.value = 1;previousProviderId.value='';reactivationClient.value=null; load();loadProviders(); }, { immediate: true });
 </script>
 
 <style scoped>

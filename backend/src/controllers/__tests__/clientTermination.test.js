@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const h = vi.hoisted(() => ({ execute: vi.fn(), find: vi.fn(), update: vi.fn(), agencies: vi.fn(), history: vi.fn(), status: vi.fn(), stamp: vi.fn(), notify: vi.fn(), log: vi.fn(), clinical:vi.fn(), connection:vi.fn(), commit:vi.fn(), rollback:vi.fn(), release:vi.fn() }));
+const h = vi.hoisted(() => ({ execute: vi.fn(), find: vi.fn(), update: vi.fn(), agencies: vi.fn(), history: vi.fn(), status: vi.fn(), stamp: vi.fn(), notify: vi.fn(), log: vi.fn(), clinical:vi.fn(), connection:vi.fn(), commit:vi.fn(), rollback:vi.fn(), release:vi.fn(),reactivate:vi.fn() }));
+vi.mock('../../services/clientReactivation.service.js',async original=>({...await original(),reactivateClientForActivity:h.reactivate}));
 vi.mock('../../config/database.js', () => ({ default: { execute: h.execute,getConnection:h.connection }, onTableWrite: vi.fn() }));
 vi.mock('../../models/Client.model.js', () => ({ default: { findById: h.find, update: h.update } }));
 vi.mock('../../models/User.model.js', () => ({ default: { getAgencies: h.agencies } }));
@@ -13,9 +14,17 @@ vi.mock('../../services/clientAccessLog.service.js', () => ({ logClientAccess: h
 vi.mock('../../services/clientSchedulingGuard.service.js',()=>({withClientSchedulingLock:async(ids,work)=>work()}));
 vi.mock('../../config/clinicalDatabase.js',()=>({default:{execute:h.clinical}}));
 import {clientClosureReview} from '../../services/clientClosureReview.service.js';
-import { markClientInactive, getClientTerminationProviders, terminateClient, updateClient } from '../client.controller.js';
+import { markClientInactive, getClientTerminationProviders, terminateClient, updateClient,reactivateClient } from '../client.controller.js';
 
 let req, res, next;
+describe('manual reactivation access and attribution',()=>{
+ const setup=()=>{req.body={requestId:'11111111-1111-4111-8111-111111111111',reason:'Family requested new services.',actorUserId:999};h.find.mockResolvedValue({id:51,agency_id:2,status:'ARCHIVED',client_status_key:'inactive'});h.reactivate.mockResolvedValue({reactivated:true});};
+ it('uses the authorized staff actor rather than a requested actor override',async()=>{setup();await reactivateClient(req,res,next);expect(next).not.toHaveBeenCalled();expect(h.reactivate).toHaveBeenCalledWith(expect.objectContaining({actorUserId:8,agencyId:2,clientId:51,trigger:'staff_reactivation'}));});
+ it('rejects a provider attempting the staff reactivation action',async()=>{setup();req.user.role='provider';await reactivateClient(req,res,next);expect(res.status).toHaveBeenCalledWith(403);expect(h.reactivate).not.toHaveBeenCalled();});
+ it('rejects a client from another agency',async()=>{setup();h.agencies.mockResolvedValue([{id:4}]);await reactivateClient(req,res,next);expect(res.status).toHaveBeenCalledWith(403);expect(h.reactivate).not.toHaveBeenCalled();});
+ it('does not report a retained fake or archived account as reactivated',async()=>{setup();h.reactivate.mockResolvedValue({reactivated:false,reason:'not_inactive_or_retained_archive'});await reactivateClient(req,res,next);expect(res.status).toHaveBeenCalledWith(409);});
+ it('does not claim success when an old request is replayed after another closure',async()=>{setup();h.reactivate.mockResolvedValue({reactivated:false,reason:'activity_already_applied'});await reactivateClient(req,res,next);expect(res.status).toHaveBeenCalledWith(409);});
+});
 beforeEach(async () => {
   vi.clearAllMocks();
   req = { params: { id: '51' }, user: { id: 8, role: 'admin' }, body: {termination_reason:'Services completed',confirmClientClosure:true} };

@@ -1,6 +1,8 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({ count: vi.fn(), list: vi.fn(), user: vi.fn() }));
 vi.mock('../../models/IntakeSubmissionDocument.model.js', () => ({ default: { countUnassigned: mocks.count, listUnassigned: mocks.list } }));
+vi.mock('../../models/ReferralPacketDraft.model.js', () => ({ default: { listOpen: async () => ({ drafts: [], total: 0 }) } }));
+vi.mock('../../services/referralDraftRecovery.service.js', () => ({ recoveryAgencyIds: async () => [] }));
 vi.mock('../../models/User.model.js', () => ({ default: { findById: mocks.user } }));
 vi.mock('../../models/IntakeSubmission.model.js', () => ({ default: {} }));
 vi.mock('../../models/IntakeLink.model.js', () => ({ default: {} }));

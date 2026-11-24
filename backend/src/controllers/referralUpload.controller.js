@@ -12,6 +12,7 @@ import multer from 'multer';
 import StorageService from '../services/storage.service.js';
 import ClientPhiDocument from '../models/ClientPhiDocument.model.js';
 import ReferralPacketDraft from '../models/ReferralPacketDraft.model.js';
+import { canRecoverReferralDraft, referralDraftResponse } from '../services/referralDraftRecovery.service.js';
 import ClientSchoolStaffRoiAccess from '../models/ClientSchoolStaffRoiAccess.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
@@ -263,10 +264,25 @@ export const getLatestReferralPacketDraft = async (req, res, next) => {
       return res.json({ draft: null });
     }
 
-    const draft = await ReferralPacketDraft.findLatestOpenDraft({
+    if (req.query?.list === '1') {
+      const result = await ReferralPacketDraft.listOpen({
+        agencyIds: null, organizationId: organization.id, uploadedByUserId: req.user.id,
+        limit: 100, offset: Math.max(0, parseInt(req.query.offset, 10) || 0)
+      });
+      return res.json({ drafts: result.drafts.map(referralDraftResponse), total: result.total });
+    }
+    const requestedDraftId = req.query?.draftId;
+    if (requestedDraftId != null && !/^[1-9]\d*$/.test(String(requestedDraftId))) {
+      return res.status(400).json({ error: { message: 'Invalid draft ID.' } });
+    }
+    const draft = requestedDraftId ? await ReferralPacketDraft.findById(Number(requestedDraftId)) : await ReferralPacketDraft.findLatestOpenDraft({
       organizationId: organization.id,
       uploadedByUserId: req.user.id
     });
+    if (requestedDraftId && (!draft || Number(draft.organization_id) !== Number(organization.id) ||
+        !(await canRecoverReferralDraft(req.user, draft)))) {
+      return res.status(404).json({ error: { message: 'Referral packet draft not found' } });
+    }
     const sourceDocument = draft?.phi_document_id ? await ClientPhiDocument.findById(draft.phi_document_id) : null;
 
     return res.json({
