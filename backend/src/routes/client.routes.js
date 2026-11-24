@@ -34,6 +34,8 @@ import {
   getClients,
   getClientsForUser,
   getArchivedClients,
+  getInactiveClients,
+  getInactiveClientProviderOptions,
   getClientNameDuplicates,
   getClientById,
   createClient,
@@ -50,6 +52,7 @@ import {
   previewEnrollmentFollowup,
   postEnrollmentFollowup,
   reopenClientEnrollment,
+  reactivateClient,
   bulkPromoteSchoolYear,
   bulkCreateClientRenewals,
   rolloverSchoolYear,
@@ -190,6 +193,8 @@ router.put('/creation-draft',requireActiveStatus,saveClientCreationDraft);
 router.post('/import-candidates',requireActiveStatus,getClientImportCandidates);
 router.get('/for-user/:userId', getClientsForUser);
 router.get('/archived', getArchivedClients);
+router.get('/inactive/providers',getInactiveClientProviderOptions);
+router.get('/inactive',getInactiveClients);
 router.get('/name-duplicates', getClientNameDuplicates);
 router.get('/duplicates', getClientDuplicates);
 router.get('/tests', getClientTests);
@@ -252,6 +257,7 @@ router.get('/:id/enrollment-followup', getEnrollmentFollowup);
 router.post('/:id/enrollment-followup/preview', previewEnrollmentFollowup);
 router.post('/:id/enrollment-followup', postEnrollmentFollowup);
 router.post('/:id/reopen-enrollment', reopenClientEnrollment);
+router.post('/:id/reactivate', reactivateClient);
 router.post('/:id/terminate', terminateClient);
 
 // Update client status

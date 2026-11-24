@@ -60,7 +60,7 @@ export async function bindOfficeEventToAppointment({ event, context, agencyId, c
 
 export async function bookOfficeForAppointmentRequest(input) {
   return withClientSchedulingLock([input.request.client_id], async () => {
-    assertClientNotTerminated(await Client.findById(input.request.client_id));
+    assertClientNotTerminated(await Client.findById(input.request.client_id),{allowInactive:true});
     return bookLockedOfficeRequest(input);
   });
 }

@@ -7,7 +7,7 @@ import {
   ageFromDateOfBirth
 } from '../utils/intakeGrade.util.js';
 import { syncClientStatusForEvent } from '../services/eventClientStatusSync.service.js';
-import { syncSkillsGroupClientsToCompanyEventClients } from '../services/companyEventClientEnrollmentSync.service.js';
+import { syncSkillsGroupClientsToCompanyEventClients, ensureCompanyEventClientEnrollment } from '../services/companyEventClientEnrollmentSync.service.js';
 import {
   canManageProgramEvent,
   canViewProgramEvent,
@@ -651,13 +651,7 @@ export const addCompanyEventClient = async (req, res, next) => {
     const workflow = resolveEnrollmentWorkflow({ clientRow, registerAsParticipant });
     const actorUserId = parsePositiveInt(req.user?.id);
 
-    await pool.execute(
-      `INSERT INTO company_event_clients
-        (company_event_id, agency_id, client_id, enrolled_by_user_id, is_active)
-       VALUES (?, ?, ?, ?, TRUE)
-       ON DUPLICATE KEY UPDATE is_active = TRUE, enrolled_by_user_id = VALUES(enrolled_by_user_id)`,
-      [eventId, agencyId, clientId, actorUserId]
-    );
+    await ensureCompanyEventClientEnrollment({eventId,agencyId,clientId,actorUserId});
 
     await applyEnrollmentWorkflow({ eventId, agencyId, clientId, actorUserId, workflow });
 

@@ -390,6 +390,7 @@ class Appointment {
   }
 
   static async updateInAvailableWindow(id, patch = {}, expected = null, { executor = pool, agencyId = null } = {}) {
+    if(executor===pool){const db=await pool.getConnection();try{await db.beginTransaction();const saved=await this.updateInAvailableWindow(id,patch,expected,{executor:db,agencyId});await db.commit();return saved;}catch(error){await db.rollback();throw error;}finally{db.release();}}
     const existing = await this.findById(id, { executor });
     if (!existing) return null;
     assertAppointmentOutcomePreserved(existing,patch);
@@ -522,6 +523,10 @@ class Appointment {
       );
       if (expected && result.affectedRows === 0) throw Object.assign(new Error('This appointment changed while you were editing. Refresh before saving.'), { status: 409 });
     }
+    if((patch.status!==undefined&&next.status!==existing.status)||patch.startAt!==undefined&&instant(next.startAt)!==instant(existing.startAt)){
+      const {reactivateConfirmedAppointmentClients}=await import('../services/appointmentClientReactivation.service.js');
+      await reactivateConfirmedAppointmentClients(id,{executor,actorUserId:patch.updatedByUserId});
+    }
     return this.findById(id, { executor });
   }
 
@@ -544,7 +549,10 @@ class Appointment {
   }
 
   static async replaceParticipants(appointmentId, participants = [], { executor = pool } = {}) {
+    if(executor===pool){const db=await pool.getConnection();try{await db.beginTransaction();const saved=await this.replaceParticipants(appointmentId,participants,{executor:db});await db.commit();return saved;}catch(error){await db.rollback();throw error;}finally{db.release();}}
     const aid = Number(appointmentId);
+    const [previous]=await executor.execute('SELECT client_id FROM appointment_participants WHERE appointment_id=?',[aid]);
+    const previousIds=new Set(previous.map(row=>Number(row.client_id)));
     await executor.execute(`DELETE FROM appointment_participants WHERE appointment_id = ?`, [aid]);
     let i = 0;
     for (const p of participants || []) {
@@ -571,6 +579,8 @@ class Appointment {
     }
     const [scheduled]=await executor.execute("SELECT created_by_user_id,agency_id,provider_user_id,business_type FROM appointments WHERE id=? AND status IN ('scheduled','confirmed') AND end_at>UTC_TIMESTAMP()",[aid]);
     if(scheduled.length) {
+      const newIds=participants.map(p=>Number(p.clientId||p.client_id||0)).filter(id=>id&&!previousIds.has(id));
+      if(newIds.length){const {reactivateConfirmedAppointmentClients}=await import('../services/appointmentClientReactivation.service.js');await reactivateConfirmedAppointmentClients(aid,{executor,clientIds:newIds});}
       for(const clientId of new Set(participants.map(p=>Number(p.clientId || p.client_id || 0)).filter(Boolean))) {
         await resolveClientProviderHolds(executor,{clientId,userId:scheduled[0].created_by_user_id,reason:'PLACED_ON_SCHEDULE'});
         const a=scheduled[0],serviceKind=['learning','tutoring'].includes(a.business_type)?'tutoring':['mental_health','healthcare'].includes(a.business_type)?'counseling':a.business_type;

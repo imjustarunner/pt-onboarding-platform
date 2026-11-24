@@ -9162,23 +9162,9 @@ export const finalizePublicIntake = async (req, res, next) => {
       if (attachInfo.attachClientId) {
         const existingClient = await Client.findById(attachInfo.attachClientId, { includeSensitive: true });
         if (existingClient?.id) {
-          // Mirror bulk import: if the matched client was archived, restore to PENDING_REVIEW before attach.
-          if (!isClientUpdatePacket(link) && String(existingClient.status || '').toUpperCase() === 'ARCHIVED') {
-            try {
-              await Client.updateStatus(existingClient.id, 'PENDING_REVIEW', null, 'Unarchived via enrollment packet match');
-              existingClient.status = 'PENDING_REVIEW';
-              console.info('[publicIntake] unarchived matched client before attach (school-roi flow)', {
-                submissionId,
-                clientId: existingClient.id,
-                matchSource: attachInfo.attachSource
-              });
-            } catch (unarchiveErr) {
-              console.warn('[publicIntake] failed to unarchive matched client before attach (school-roi flow)', {
-                clientId: existingClient.id,
-                message: unarchiveErr?.message || unarchiveErr
-              });
-            }
-          }
+          const {reactivateClientForActivity}=await import('../services/clientReactivation.service.js');
+          const reopened=await reactivateClientForActivity({clientId:existingClient.id,agencyId:existingClient.agency_id,trigger:'form_submission',sourceId:`intake:${submissionId}`,actorUserId:null,occurredAt:updatedSubmission.submitted_at});
+          if(reopened.reactivated){existingClient.status=reopened.status;existingClient.client_status_id=reopened.clientStatusId;}
           // Returning-family-with-new-sibling support. resolveIntakeExistingClientAttach
           // only inspects payload.clients[0] when deciding whether to attach to a
           // returning client, so any additional siblings the parent submitted in the
@@ -10894,23 +10880,9 @@ export const submitPublicIntake = async (req, res, next) => {
       if (attachInfo.attachClientId) {
         const existingClient = await Client.findById(attachInfo.attachClientId, { includeSensitive: true });
         if (existingClient?.id) {
-          // Mirror bulk import: if the matched client was archived, restore to PENDING_REVIEW before attach.
-          if (!isClientUpdatePacket(link) && String(existingClient.status || '').toUpperCase() === 'ARCHIVED') {
-            try {
-              await Client.updateStatus(existingClient.id, 'PENDING_REVIEW', null, 'Unarchived via enrollment packet match');
-              existingClient.status = 'PENDING_REVIEW';
-              console.info('[publicIntake] unarchived matched client before attach (registration flow)', {
-                submissionId,
-                clientId: existingClient.id,
-                matchSource: attachInfo.attachSource
-              });
-            } catch (unarchiveErr) {
-              console.warn('[publicIntake] failed to unarchive matched client before attach (registration flow)', {
-                clientId: existingClient.id,
-                message: unarchiveErr?.message || unarchiveErr
-              });
-            }
-          }
+          const {reactivateClientForActivity}=await import('../services/clientReactivation.service.js');
+          const reopened=await reactivateClientForActivity({clientId:existingClient.id,agencyId:existingClient.agency_id,trigger:'form_submission',sourceId:`intake:${submissionId}`,actorUserId:null,occurredAt:updatedSubmission.submitted_at});
+          if(reopened.reactivated){existingClient.status=reopened.status;existingClient.client_status_id=reopened.clientStatusId;}
           // See the school-ROI flow's matched-attach branch for the full
           // rationale and history (Carter/Carmen Bleem report, sub 300
           // Client1 Example matched + Client Example2 dropped). In the

@@ -102,7 +102,7 @@ export function createReplacementOfferService(overrides = {}) {
     return deps.clientLock([clientId], async () => {
       const a = await requireAppointment(appointmentId, clientId);
       await deps.eligible(a.providerUserId, a.agencyId);
-      assertClientNotTerminated(await deps.clients.findById(clientId));
+      assertClientNotTerminated(await deps.clients.findById(clientId),{allowInactive:true});
       const selection = await deps.providerLock(db, a.providerUserId, async conn => {
         const row = await get(appointmentId, clientId, conn);
         if (!row || Number(row.agency_id) !== Number(a.agencyId)) throw fail('Offer not found.', 404);

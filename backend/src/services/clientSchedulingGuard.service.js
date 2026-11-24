@@ -1,12 +1,14 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import pool from '../config/database.js';
+import {canReactivateClient} from './clientReactivation.service.js';
 const held = new AsyncLocalStorage();
 export const hasClientSchedulingLock = () => (held.getStore()?.size || 0) > 0;
-export function assertClientNotTerminated(client) {
+export function assertClientNotTerminated(client,{allowInactive=false}={}) {
+  if(allowInactive&&canReactivateClient(client))return;
   const key=String(client?.client_status_key || client?.status_key || '').toLowerCase();
   if (['inactive','archived','terminated','dead'].includes(key) || ['ARCHIVED','TERMINATED','INACTIVE'].includes(String(client?.status || '').toUpperCase())
       || String(client?.client_status_label || '').toLowerCase().includes('terminated')) {
-    throw Object.assign(new Error('This client is inactive. Reopen enrollment and restore their active status before booking future sessions.'), { status:409,code:'CLIENT_TERMINATED' });
+    throw Object.assign(new Error(`This client is ${key==='terminated'?'terminated':'inactive'}. Reopen enrollment and restore their active status before booking future sessions.`), { status:409,code:'CLIENT_TERMINATED' });
   }
 }
 // Reentrant across office-plan -> context -> appointment calls in one request.

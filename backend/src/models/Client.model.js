@@ -453,6 +453,15 @@ class Client {
       query += ' AND c.compliance_archived_at IS NULL';
     }
 
+    if(options.clientDirectoryMode){
+      const {realInactiveClientSql}=await import('../utils/clientInactivePolicy.js');
+      query+=options.clientDirectoryMode==='inactive'?` AND ${realInactiveClientSql}`:` AND NOT ${realInactiveClientSql}`;
+      if(options.clientDirectoryMode==='inactive'&&options.previousProviderId){
+        query+=` AND (c.provider_id=? OR c.termination_last_provider_id=? OR EXISTS(SELECT 1 FROM client_provider_assignments pp WHERE pp.client_id=c.id AND pp.provider_user_id=?)
+         OR EXISTS(SELECT 1 FROM client_status_history ph WHERE ph.client_id=c.id AND ph.field_changed='provider_id' AND (CAST(ph.from_value AS UNSIGNED)=? OR CAST(ph.to_value AS UNSIGNED)=?)))`;
+        values.push(...Array(5).fill(options.previousProviderId));
+      }
+    }
     if (options.directoryPage) {
       if (!options.includeArchived && String(status || '').toUpperCase()!=='ARCHIVED') query+=" AND UPPER(COALESCE(c.status,''))<>'ARCHIVED'";
       if (options.clientStatusKey && !client_status_id) {query+=' AND LOWER(cs.status_key)=?';values.push(options.clientStatusKey);}
@@ -577,7 +586,8 @@ class Client {
     const schedulingStatusChange = clientData.client_status_id !== undefined || clientData.terminated_at !== undefined || String(clientData.status || '').toUpperCase() === 'ARCHIVED';
     const bookingDefaultsChange = ['default_office_location_id', 'default_place_of_service', 'default_service_location_id']
       .some(field => clientData[field] !== undefined);
-    if ((schedulingStatusChange || bookingDefaultsChange) && executor === pool) {
+    const providerAssignmentChange=Number(clientData.provider_id)>0&&Number(updated_by_user_id)>0;
+    if ((schedulingStatusChange || bookingDefaultsChange || providerAssignmentChange) && executor === pool) {
       const db = await pool.getConnection();
       let saved;
       try {
@@ -596,6 +606,11 @@ class Client {
       await executor.execute('SELECT id FROM clients WHERE id=? FOR UPDATE',[id]);
       const {assertExchangeResolvedBeforeArchive}=await import('../services/clientExchangeTransfer.service.js');
       await assertExchangeResolvedBeforeArchive(executor,id);
+    }
+    if(providerAssignmentChange&&String(clientData.status||'').toUpperCase()!=='ARCHIVED'&&!clientData.terminated_at){
+      const {reactivateClientForActivity}=await import('../services/clientReactivation.service.js');
+      const {randomUUID}=await import('node:crypto');
+      await reactivateClientForActivity({clientId:id,agencyId,trigger:'provider_assignment',sourceId:`provider:${clientData.provider_id}:${randomUUID()}`,actorUserId:updated_by_user_id},{executor});
     }
     let terminationJobId = null;
     const updates = [];
