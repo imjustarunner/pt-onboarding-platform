@@ -89,7 +89,6 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
     await clinicalPool.query(`CREATE TABLE clinical_sessions (id INT PRIMARY KEY, agency_id INT, client_id INT, office_event_id INT, scheduled_start_at DATETIME, scheduled_end_at DATETIME, encounter_status VARCHAR(32) DEFAULT 'scheduled', claim_blocked_reason VARCHAR(255), updated_at DATETIME)`);
     await clinicalPool.query('ALTER TABLE clinical_sessions ADD COLUMN billing_encounter_id INT NULL');
     const lifecycleDdl = [
-      `ALTER TABLE client_schedule_termination_jobs ADD COLUMN closure_reason VARCHAR(80) NOT NULL DEFAULT 'Client terminated'`,
       `CREATE TABLE supervision_session_attendees (session_id INT,user_id INT,is_required BOOLEAN,status VARCHAR(32))`,
       `ALTER TABLE clients ADD COLUMN client_status_id INT, ADD COLUMN agency_id INT, ADD COLUMN terminated_at DATETIME, ADD COLUMN updated_by_user_id INT, ADD COLUMN last_activity_at DATETIME, ADD COLUMN status VARCHAR(32) DEFAULT 'ACTIVE', ADD COLUMN provider_id INT, ADD COLUMN service_day VARCHAR(32), ADD COLUMN organization_id INT`,
       `CREATE TABLE client_provider_assignments (id INT AUTO_INCREMENT PRIMARY KEY,client_id INT,organization_id INT,provider_user_id INT,service_day VARCHAR(32),is_active BOOLEAN,is_primary BOOLEAN,updated_by_user_id INT,updated_at DATETIME)`,
@@ -105,7 +104,7 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
         ADD COLUMN active_guard_end_at DATETIME GENERATED ALWAYS AS (CASE WHEN status<>'CANCELLED' THEN end_at ELSE NULL END) VIRTUAL,
         ADD UNIQUE KEY uniq_office_events_active_room_slot (active_guard_room_id,active_guard_start_at,active_guard_end_at)`,
       `ALTER TABLE appointments ADD COLUMN clinical_session_id INT, ADD COLUMN cancellation_reason VARCHAR(500), ADD COLUMN canceled_at DATETIME, ADD COLUMN canceled_by_user_id INT`,
-      `ALTER TABLE appointments ADD COLUMN notes TEXT, ADD COLUMN source VARCHAR(64), ADD COLUMN modality VARCHAR(32), ADD COLUMN service_code VARCHAR(32), ADD COLUMN tenant_service_id INT, ADD COLUMN office_location_id INT, ADD COLUMN business_type VARCHAR(64)`,
+      `ALTER TABLE appointments ADD COLUMN audio_only BOOLEAN DEFAULT FALSE, ADD COLUMN video_room_mode VARCHAR(32), ADD COLUMN notes TEXT, ADD COLUMN source VARCHAR(64), ADD COLUMN modality VARCHAR(32), ADD COLUMN service_code VARCHAR(32), ADD COLUMN tenant_service_id INT, ADD COLUMN office_location_id INT, ADD COLUMN business_type VARCHAR(64)`,
       `ALTER TABLE appointment_billing ADD COLUMN responsible_client_id INT, ADD COLUMN package_entitlement_id INT, ADD COLUMN notes VARCHAR(500)`,
       `CREATE TABLE appointment_participants (id INT AUTO_INCREMENT PRIMARY KEY,appointment_id INT,client_id INT,role VARCHAR(32) DEFAULT 'client',is_billing_responsible BOOLEAN DEFAULT FALSE)`,
       `CREATE TABLE appointment_reminders (id INT AUTO_INCREMENT PRIMARY KEY,appointment_id INT,recipient_participant_id INT,status VARCHAR(32))`,
@@ -126,6 +125,8 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
       const sql = await readFile(new URL(`../../../../database/migrations/${file}`,import.meta.url),'utf8');
       for (const statement of splitSqlStatements(stripSqlLineComments(sql))) await pool.query(statement);
     }
+    const closureSql=await readFile(new URL('../../../../database/migrations/1879_client_inactive_review.sql',import.meta.url),'utf8');
+    for(const statement of splitSqlStatements(stripSqlLineComments(closureSql)).filter(sql=>/^ALTER TABLE (clients|client_schedule_termination_jobs)\b/.test(sql.trim()))) await pool.query(statement);
     [migratedMonthly] = await pool.query('SELECT id,assigned_frequency,legacy_monthly_four_weeks FROM office_standing_assignments ORDER BY id');
     await clinicalPool.query(`CREATE TABLE clinical_notes (id INT AUTO_INCREMENT PRIMARY KEY, clinical_session_id INT, agency_id INT, client_id INT, title VARCHAR(255), note_payload LONGTEXT, metadata_json JSON, created_by_user_id INT, note_type VARCHAR(80), content_hash VARCHAR(128), provider_signed_by_user_id INT, is_billable BOOLEAN DEFAULT FALSE, is_deleted BOOLEAN DEFAULT FALSE, provider_signed_at DATETIME)`);
     await clinicalPool.query(`CREATE TABLE clinical_claims (id INT AUTO_INCREMENT PRIMARY KEY, clinical_session_id INT, agency_id INT, client_id INT, claim_number VARCHAR(120), claim_status VARCHAR(60), amount_cents INT, currency_code VARCHAR(8), claim_payload LONGTEXT, metadata_json JSON, created_by_user_id INT)`);
