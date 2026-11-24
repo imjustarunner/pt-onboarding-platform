@@ -35,6 +35,8 @@ export function discoverBackendFrontendRuntimeImports(root) {
 export function checkBackendRuntimeSharedImports(root) {
  const docker = fs.readFileSync(path.join(root, 'backend/Dockerfile'), 'utf8').split('COPY backend/src ./src')[1];
  if (!docker) throw new Error('Backend runtime source COPY was not found.');
+ if (!/^COPY\s+database\/clinical_migrations\/?\s+\.\/database\/clinical_migrations\/?\s*$/m.test(docker))
+  throw new Error('Backend runtime Docker COPY is missing the clinical migrations directory.');
  const copies = [];
  for (const line of docker.split('\n')) {
   const match = line.match(/^COPY\s+(frontend\/\S+(?:\s+frontend\/\S+)*)\s+(\/frontend\/\S+)\s*$/);

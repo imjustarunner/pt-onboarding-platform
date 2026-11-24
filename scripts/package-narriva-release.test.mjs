@@ -48,6 +48,8 @@ test('runtime import check catches an omitted transitive module and rejects Vue 
   await fs.writeFile(path.join(root, 'frontend/src/utils/second.js'), 'export const second = true;');
   const docker = 'COPY backend/src ./src\nCOPY frontend/src/utils/first.js /frontend/src/utils/first.js\n';
   await fs.writeFile(path.join(root, 'backend/Dockerfile'), docker);
+  assert.throws(() => checkBackendRuntimeSharedImports(root), /missing the clinical migrations directory/);
+  await fs.appendFile(path.join(root, 'backend/Dockerfile'), 'COPY database/clinical_migrations ./database/clinical_migrations\n');
   assert.throws(() => checkBackendRuntimeSharedImports(root), /missing .*second.js/);
   await fs.appendFile(path.join(root, 'backend/Dockerfile'), 'COPY frontend/src/utils/second.js /frontend/src/utils/second.js\n');
   assert.deepEqual(checkBackendRuntimeSharedImports(root), { sharedRuntimeImports: 2, runtimeCopiesComplete: true });
