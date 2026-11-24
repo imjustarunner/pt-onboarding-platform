@@ -7,7 +7,7 @@ const badge = computed(() => secureCommentState.badges[`${Number(props.appointme
 watch(() => [props.appointmentId, props.clientId, secureCommentState.revision], () => { if (!props.disabled) requestCommentBadge(props.appointmentId, props.clientId, api); }, { immediate: true });
 </script>
 <template>
-  <button v-if="!iconOnly || badge.count" type="button" class="aw-comment-button" :class="{ 'aw-comment-button--icon': iconOnly, 'aw-comment-button--unread': badge.unreadCount > 0, 'nlu-comment-button':learning }" :disabled="disabled" :aria-label="`${badge.unreadCount ? badge.unreadCount + ' unread. ' : ''}${learning?'Tutoring':'AuricWell'} secure session comments`" @click.stop="openSecureSessionComment(appointmentId, clientId)" @keydown.stop @pointerdown.stop>
+  <button v-if="!iconOnly || badge.count" type="button" class="aw-comment-button" :class="{ 'aw-comment-button--icon': iconOnly, 'aw-comment-button--unread': badge.unreadCount > 0, 'nlu-comment-button':learning }" :disabled="disabled" title="Secure session comments: discuss this appointment with the people authorized for its secure thread. Open the thread to see its audience before sending." :aria-label="`${badge.unreadCount ? badge.unreadCount + ' unread. ' : ''}${learning?'Tutoring':'AuricWell'} secure session comments`" @click.stop="openSecureSessionComment(appointmentId, clientId)" @keydown.stop @pointerdown.stop>
     <span v-if="learning">{{iconOnly?'▤':'Session comments'}}</span><img v-else :src="iconOnly ? COMMENT_ICON : COMMENT_BUTTON" alt="" />
     <span v-if="badge.unreadCount" class="aw-comment-count">{{ badge.unreadCount }}<span class="aw-sr-only"> unread</span></span>
   </button>

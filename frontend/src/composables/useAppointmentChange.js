@@ -388,6 +388,7 @@ export function useAppointmentChange({identity,recoverOperations=true}={}) {
       );
       if(r.data?.seriesOperation){trackSeriesOperation(r.data.seriesOperation);return r.data;}
       await refreshSchoolSupport();
+      window.dispatchEvent(new Event('session-attendance-changed'));
       return r.data;
     } catch (e) {
       await refreshSchoolSupport();

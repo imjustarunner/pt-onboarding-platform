@@ -19,3 +19,7 @@ it('shows the Agency row only for multiple active affiliations',async()=>{
 it('shows a linked account without an unauthorized profile link',async()=>{
  const w=mount(Panel,{props:{...props,canOpenProvider:false}});await flushPromises();expect(w.text()).toContain('Parent Example');expect(w.findAll('button').some(button=>button.text()==='Parent Example')).toBe(false);expect(api.get.mock.calls.some(([url])=>url.endsWith('agency-affiliations'))).toBe(false);w.unmount();
 });
+
+it('keeps the canonical full location and cadence without a conflicting Room card',async()=>{
+ const w=mount(Panel,{props:{...props,locationLabel:'Windchime · Office #10',roomLabel:'Office #1',recurrenceLabel:'Repeats · Every 2 weeks'}});await flushPromises();expect(w.text()).toContain('Windchime · Office #10');expect(w.text()).not.toContain('Office #1 ');expect(w.findAll('.aip-k').map(item=>item.text())).not.toContain('Room');expect(w.get('[data-testid="appointment-recurrence"]').text()).toBe('Repeats · Every 2 weeks');w.unmount();
+});

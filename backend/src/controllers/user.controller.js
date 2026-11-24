@@ -4454,6 +4454,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
         borrowedAway,
         recurrenceSeriesId: !borrowedAway && r.reserved_session_frequency && r.reserved_session_frequency !== 'ONCE'
           && r.reserved_session_key ? `office-session:${r.reserved_session_key.slice(0,32)}` : null,
+        recurrenceFrequency: !borrowedAway ? r.reserved_session_frequency || null : null,
         roomOccupancy: borrowedAway ? 'borrowed' : Number(r.office_gap_blocked) ? 'occupied' : officeOccupancy(r),
         displayStatus: Number(r.office_gap_blocked) === 1 ? 'BLOCKED' : toDisplayStatus({ status: r.status, slotState: normalizedSlotState }),
         id: r.id,

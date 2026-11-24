@@ -337,7 +337,10 @@ export async function pendingProviderCopays({ agencyId, providerUserId, serviceD
   await requireAttendanceProvider(agencyId, providerUserId);
   if (!await attendanceCopaysEnabled(agencyId)) return { enabled: false, sessions: [] };
   if (serviceDate) dateOnly(serviceDate);
-  const [sessions] = await clinicalPool.execute("SELECT s.*,EXISTS(SELECT 1 FROM clinical_notes n WHERE n.clinical_session_id=s.id AND n.agency_id=s.agency_id AND n.client_id=s.client_id AND n.provider_signed_at IS NOT NULL AND n.provider_signed_at>=s.scheduled_end_at AND n.is_billable=1 AND n.is_deleted=0) AS signed_note FROM clinical_sessions s WHERE s.agency_id=? AND s.provider_user_id=? AND s.scheduled_end_at<=UTC_TIMESTAMP() AND s.scheduled_start_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 7 DAY) AND s.encounter_status IN ('scheduled','completed') ORDER BY s.scheduled_start_at DESC", [agencyId, providerUserId]);
+  // A deferred No remains actionable until the missed/cancellation workflow is completed.
+  const [unfinished] = await pool.execute("SELECT clinical_session_id FROM family_copay_attendance WHERE agency_id=? AND provider_user_id=? AND attendance='did_not_occur'", [agencyId, providerUserId]);
+  const unfinishedIds = [...new Set(unfinished.map(row => Number(row.clinical_session_id)).filter(id => Number.isSafeInteger(id) && id > 0))];
+  const [sessions] = await clinicalPool.execute(`SELECT s.*,EXISTS(SELECT 1 FROM clinical_notes n WHERE n.clinical_session_id=s.id AND n.agency_id=s.agency_id AND n.client_id=s.client_id AND n.provider_signed_at IS NOT NULL AND n.provider_signed_at>=s.scheduled_end_at AND n.is_billable=1 AND n.is_deleted=0) AS signed_note FROM clinical_sessions s WHERE s.agency_id=? AND s.provider_user_id=? AND s.scheduled_end_at<=UTC_TIMESTAMP() AND (s.scheduled_start_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 7 DAY)${unfinishedIds.length ? ` OR s.id IN (${unfinishedIds.map(() => '?').join(',')})` : ''}) AND s.encounter_status IN ('scheduled','completed') ORDER BY s.scheduled_start_at DESC`, [agencyId, providerUserId, ...unfinishedIds]);
   const [[agency]] = await pool.execute('SELECT timezone FROM agencies WHERE id=?', [agencyId]);
   const zone = agency?.timezone || 'America/Denver';
   const result = [];

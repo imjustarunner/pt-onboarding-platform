@@ -1122,7 +1122,7 @@
                   :src="agendaItemLogo(item)"
                   alt=""
                 />
-                <span v-if="staffAlertForBlock(item)" class="cell-staff-alert cell-staff-alert--inline" role="img" :aria-label="staffAlertFaceLabel(item)" :title="staffAlertFaceLabel(item)">⚑</span>
+                <span v-if="staffAlertForBlock(item)" class="cell-staff-alert cell-staff-alert--inline" role="img" :aria-label="staffAlertFaceLabel(item)" :title="staffAlertFaceLabel(item)">📌</span>
                 <SecureSessionCommentButton v-if="item.appointmentId && canUseSessionComments(authStore.user?.role)" icon-only :appointment-id="item.appointmentId" :client-id="parseClientIdFromScheduleEvent(item)" :learning="tutoringWorkspaceOnly" />
                 <button type="button" class="sched-agenda__title sched-agenda__open" @click.stop="item.allDay ? openAllDayBlock($event, item, agendaDayName) : onCellBlockClick($event, item, agendaDayName, item.hour, item.cellMinute || 0)">
                   <span
@@ -1152,6 +1152,8 @@
                 >Open in Google Maps ↗</a>
               </template>
               <div v-else-if="agendaItemMeta(item)" class="sched-agenda__meta">{{ agendaItemMeta(item) }}</div>
+              <div v-if="item.isClientSession" class="sched-agenda__meta">{{ sessionRecurrenceLabel(item) }}</div>
+              <ProviderCopayAttendance v-if="showAttendanceForBlock(item)" compact :agency-id="item.agencyId" :appointment-id="item.appointmentId" />
               <ScheduleQuickRsvp v-if="showQuickRsvp(item)" :event="item" @saved="onQuickRsvpSaved" />
             </div>
           </li>
@@ -1244,11 +1246,11 @@
                   class="cell-block-agency-icon"
                   :agency-id="Number(b.agencyId)" :icon-url="blockAgencyIconUrl(b) || ''"
                 />
-                <span v-if="staffAlertForBlock(b)" class="cell-staff-alert cell-staff-alert--inline" role="img" :aria-label="staffAlertFaceLabel(b)" :title="staffAlertFaceLabel(b)">⚑</span>
+                <span v-if="staffAlertForBlock(b)" class="cell-staff-alert cell-staff-alert--inline" role="img" :aria-label="staffAlertFaceLabel(b)" :title="staffAlertFaceLabel(b)">📌</span>
                 <div class="sched-day-card__body">
                   <div class="sched-day-card__title">
                     <span v-if="b.videoVisit" class="schedule-video-badge">Video</span>
-                    <span v-if="b.recurrenceSeriesId" role="img" aria-label="Recurring appointment">↻ </span>
+                    <span v-if="b.recurrenceSeriesId" role="img" :aria-label="sessionRecurrenceLabel(b)" :title="sessionRecurrenceLabel(b)">↻ </span>
                     <template v-if="b.kind === 'supv-signup'">
                       <span class="cell-block-signup-headline">OPEN GROUP SUPERVISION</span>
                       <span v-if="!b.viewerSignedUp && !b.isCancelled" class="cell-block-signup-status">SIGNUP REQUIRED</span>
@@ -1281,6 +1283,7 @@
                   </div>
                 </div>
               </button>
+              <ProviderCopayAttendance v-if="showAttendanceForBlock(b)" compact :agency-id="b.agencyId" :appointment-id="b.appointmentId" />
               <RoomReservationQuickActions :context="b.roomQuickContext" :status="b.officeStatus" :pending="roomUsagePending" @change="updateRoomCardOccupancy" />
               <button v-if="canJoinScheduleVideo(b)" class="btn btn-secondary btn-sm" type="button" @click.stop="joinScheduleVideo(b, mobileTimelineDay, h)">Join video</button>
               <ScheduleQuickRsvp v-if="showQuickRsvp(b)" :event="b" @saved="onQuickRsvpSaved" />
@@ -1534,8 +1537,8 @@
                 @dblclick="onCellBlockDoubleClick($event, b, d, slot.hour, slot.minute)"
               >
                 <SecureSessionCommentButton v-if="b.appointmentId && canUseSessionComments(authStore.user?.role)" icon-only :appointment-id="b.appointmentId" :client-id="parseClientIdFromScheduleEvent(b)" />
-                <span v-if="b.recurrenceSeriesId" class="cell-recurrence-marker" role="img" aria-label="Recurring appointment">↻</span>
-                <span v-if="staffAlertForBlock(b)" class="cell-staff-alert" role="img" :aria-label="staffAlertFaceLabel(b)">⚑</span>
+                <span v-if="b.recurrenceSeriesId" class="cell-recurrence-marker" role="img" :aria-label="sessionRecurrenceLabel(b)" :title="sessionRecurrenceLabel(b)">↻</span>
+                <span v-if="staffAlertForBlock(b)" class="cell-staff-alert" role="img" :aria-label="staffAlertFaceLabel(b)" :title="staffAlertFaceLabel(b)">📌</span>
                 <!-- Top resize handle — any draggable block -->
                 <div
                   v-if="isAppointmentBlockDraggable(b)"
@@ -1638,6 +1641,7 @@
                   :aria-label="b.pendingRequestCount > 1 ? `${b.pendingRequestCount} pending requests` : 'Pending request'"
                 >{{ b.pendingRequestCount > 1 ? `Req×${b.pendingRequestCount}` : 'Req' }}</span>
                 <ScheduleQuickRsvp v-if="showQuickRsvp(b)" :event="b" @saved="onQuickRsvpSaved" />
+                <ProviderCopayAttendance v-if="showAttendanceForBlock(b)" compact :agency-id="b.agencyId" :appointment-id="b.appointmentId" />
                 <!-- Bottom resize handle -->
                 <div
                   v-if="isAppointmentBlockDraggable(b)"
@@ -1772,6 +1776,7 @@
             </div>
           </div>
           <div class="nr-head-context" data-testid="schedule-modal-context">
+            <SecureSessionCommentButton v-if="editorIsClinical && canUseSessionComments(authStore.user?.role) && Number(editorAppointmentId || 0) > 0" :appointment-id="Number(editorAppointmentId)" :client-id="Number(editorInfoClientId || 0) || null" :learning="editorIsLearning" />
             <button
               v-if="showActionChooser && ownSlotForfeitAction && !canEditBookingStrip"
               type="button"
@@ -1852,26 +1857,6 @@
                 {{ tab.label }}
               </button>
             </div>
-            <button
-              v-if="editorShowClinicalTab && editorIsClinical && Number(editorAppointmentId || editorClinicalSessionId || 0) > 0"
-              type="button"
-              class="appt-workspace-quicknote-btn"
-              data-testid="appointment-quick-note-btn"
-              title="Open quick note / dictate"
-              @click="openEditorQuickNote"
-            >
-              ● Quick note
-            </button>
-            <button
-              v-if="Number(editorAppointmentId || 0) > 0"
-              type="button"
-              class="appt-workspace-quicknote-btn"
-              data-testid="appointment-change-workflow-btn"
-              title="Cancel, no-show, reschedule, or void with auto note"
-              @click="openAppointmentChangeWizard"
-            >
-              Change appointment…
-            </button>
             <a v-if="editorGoogleCalendarUrl" :href="editorGoogleCalendarUrl" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">View Google Calendar copy</a>
           </div>
 
@@ -1909,13 +1894,13 @@
               'supv-info-layout--with-workspace': showSupervisionAgendaWorkspace
             }"
           >
-            <SecureSessionCommentButton v-if="editorIsClinical && canUseSessionComments(authStore.user?.role) && Number(editorAppointmentId || 0) > 0" :appointment-id="Number(editorAppointmentId)" :client-id="Number(editorInfoClientId || 0) || null" :learning="editorIsLearning" />
             <GuardianAppointmentRequests v-if="Number(editorAppointmentId || 0) > 0" :appointment-id="Number(editorAppointmentId)" />
             <AppointmentScheduleCheck v-if="editorSavedSchedule?.id === Number(editorAppointmentId)" :appointment="editorSavedSchedule" :calendar-event="editorCalendarSchedule" :time-zone="bookingTimezoneIana" />
             <AppointmentInfoPanel
               :when-label="editorInfoWhenLabel"
               :when-date-label="editorInfoWhenDateLabel"
               :when-time-label="editorInfoWhenTimeLabel"
+              :recurrence-label="editorIsClinical ? sessionRecurrenceLabel(editorSavedSchedule || editorCalendarSchedule) : ''"
               :type-label="editorInfoTypeLabel"
               :status-label="editorIsMeeting ? '' : editorIsSupervision ? supervisionStatusLabel : editorStatus"
               :modality-label="editorInfoModalityLabel"
@@ -1971,6 +1956,7 @@
               <p v-if="editorMeetError" role="alert">{{ editorMeetError }}</p>
             </div>
             <AppointmentOfficeReservation v-if="Number(editorAppointmentId || 0) > 0 && !editorOfficeEventId && !editorIsMeeting && !editorIsSupervision && (!editorIsLearning || editorInfoModalityLabel === 'In-person')" :appointment-id="Number(editorAppointmentId)" />
+            <ProviderCopayAttendance v-if="editorIsClinical && !editorIsLearning && Number(editorAppointmentId) > 0" :agency-id="editorAgencyId" :appointment-id="editorAppointmentId" />
             <AppointmentStaffTools v-if="Number(editorAppointmentId || 0) > 0" :appointment-id="Number(editorAppointmentId)" @details="editorLearningDetails=$event" />
             <MeetingDialInPanel v-if="editorIsMeeting && Number(scheduleEventEditId || 0) && editorWorkspaceTab === 'info'" meeting-type="team-meeting" :meeting-id="Number(scheduleEventEditId)" />
             <MeetingDialInPanel v-if="editorIsSupervision && Number(selectedSupvSessionId || 0) && editorWorkspaceTab === 'info'" meeting-type="supervision" :meeting-id="Number(selectedSupvSessionId)" />
@@ -6171,6 +6157,8 @@ import VirtualSessionBookingConfirmation from './VirtualSessionBookingConfirmati
 import { isSchoolCareBridgeOnly } from '../../utils/schoolCareBridgeTenant.js';
 import { mergeSavedAppointmentCalendar, savedAppointmentAcknowledged } from '../../utils/savedAppointmentCalendar.js';
 import AppointmentInfoPanel from './AppointmentInfoPanel.vue';
+import ProviderCopayAttendance from '../provider/ProviderCopayAttendance.vue';
+import {sessionRecurrenceLabel} from '../../utils/sessionRecurrenceLabel';
 import TutoringSessionPrice from './TutoringSessionPrice.vue';
 import AppointmentNoShowStatus from './AppointmentNoShowStatus.vue';
 import GuardianAppointmentRequests from './GuardianAppointmentRequests.vue';
@@ -10979,12 +10967,15 @@ const staffAlertForBlock = block => {
   if (!alert) return '';
   return typeof alert === 'string' ? alert : String(alert.text || '');
 };
+const showAttendanceForBlock = block => block?.isClientSession && Number(block.appointmentId) > 0
+  && Number(props.userId) === Number(authStore.user?.id) && clientNameDisplay.value === 'full'
+  && !block.isCancelled && !block.isMissed && Number(parseScheduleInstant(block.endAt)) <= Date.now();
 const staffAlertFaceLabel = block => {
   const text = staffAlertForBlock(block);
   if (!text) return '';
   const alert = staffAlertRecordForBlock(block);
   const clip = alert && typeof alert === 'object' && alert.showOnSchedule && String(alert.clipText || '').trim();
-  return clip ? `Schedule clip: ${text}` : `Staff reminder: ${text}`;
+  return clip ? `Session pin (staff reminder): ${text}` : `Staff reminder: ${text}`;
 };
 watch([rawSummary, () => props.userId, () => effectiveAgencyIds.value.join(',')], () => { void loadScheduleStaffAlerts(); });
 onMounted(() => window.addEventListener('appointment-staff-alert-changed', loadScheduleStaffAlerts));
@@ -12678,6 +12669,7 @@ const buildCellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout 
       signupTimeRange: clockRangeLabel(first?.startAt, first?.endAt) || '',
       signupHostName: String(first?.counterpartyName || first?.supervisorName || '').trim(),
       enrollmentMode: String(first?.enrollmentMode || '').trim() || null,
+      recurrenceFrequency: first?.recurrenceFrequency || null,
       recurrenceSeriesId: String(first?.recurrenceSeriesId || '').trim() || null,
       timedSlice,
       spanBlock: true,
@@ -12751,6 +12743,7 @@ const buildCellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout 
       hideAgencyDot: false,
       startAt: ev?.startAt || null,
       endAt: ev?.endAt || null,
+      recurrenceFrequency: ev?.recurrenceFrequency || null,
       recurrenceSeriesId: String(ev?.recurrenceSeriesId || '').trim() || null,
       providerId: resolveBookedProviderIdForEvent(ev),
       isHost: ev?.isHost !== undefined ? !!ev.isHost : null,
@@ -16995,7 +16988,7 @@ async function loadEditorReminders() {
       if (Number(editorAppointmentId.value || 0) !== apptId) return;
       const appointment = appointmentRes?.data?.appointment;
       if (appointment) {
-        editorSavedSchedule.value = {id:apptId,startAt:appointment.startAt,endAt:appointment.endAt};
+        editorSavedSchedule.value = {id:apptId,startAt:appointment.startAt,endAt:appointment.endAt,recurrenceSeriesId:appointment.recurrenceSeriesId,recurrenceFrequency:appointment.recurrenceFrequency};
         editorRecordReference.value=appointment.scheduleReference || '';
         editorHydratingAppointment.value=true;
         const firstHydration = editorAppointmentBaseline.value?.id !== apptId || !editorAppointmentBaseline.value?.hydrated;
@@ -26188,7 +26181,8 @@ const openSupvModal = (dayName, hour) => {
   editTimingBaseline.value = {
     startAt: String(supvStartIsoLocal.value || '').trim(),
     endAt: String(supvEndIsoLocal.value || '').trim(),
-    recurrenceSeriesId: String(first?.recurrenceSeriesId || '').trim()
+    recurrenceFrequency: first?.recurrenceFrequency || null,
+      recurrenceSeriesId: String(first?.recurrenceSeriesId || '').trim()
   };
   void loadSupvPresenters(selectedSupvSessionId.value);
   void loadSupvAttendees(selectedSupvSessionId.value);
@@ -26242,7 +26236,8 @@ watch(selectedSupvSessionId, (id) => {
   editTimingBaseline.value = {
     startAt: String(supvStartIsoLocal.value || '').trim(),
     endAt: String(supvEndIsoLocal.value || '').trim(),
-    recurrenceSeriesId: String(ev?.recurrenceSeriesId || '').trim()
+    recurrenceFrequency: ev?.recurrenceFrequency || null,
+      recurrenceSeriesId: String(ev?.recurrenceSeriesId || '').trim()
   };
   void loadSupvPresenters(id);
   void loadSupvAttendees(id);
@@ -28231,7 +28226,8 @@ const openSupervisionEditInScheduleModal = (dayName, hour, preferredId = 0, skip
   editTimingBaseline.value = {
     startAt: String(supvStartIsoLocal.value || '').trim(),
     endAt: String(supvEndIsoLocal.value || '').trim(),
-    recurrenceSeriesId: String(first?.recurrenceSeriesId || '').trim()
+    recurrenceFrequency: first?.recurrenceFrequency || null,
+      recurrenceSeriesId: String(first?.recurrenceSeriesId || '').trim()
   };
 
   const providerId = Number(
@@ -28802,7 +28798,8 @@ const buildScheduleStackItemFromEvent = (ev, overrides = {}) => {
     eventKind: targetKind,
     replacementSlotId: ev?.replacementSlotId || null, invitedCount: ev?.invitedCount || 0, offerExpiresAt: ev?.offerExpiresAt || null, offerRequested: !!ev?.offerRequested,
     outreachTripId: Number(ev?.outreachTripId || ev?.outreach_trip_id || 0) || null,
-    recurrenceSeriesId: String(ev?.recurrenceSeriesId || '').trim() || '',
+    recurrenceFrequency: ev?.recurrenceFrequency || null,
+      recurrenceSeriesId: String(ev?.recurrenceSeriesId || '').trim() || '',
     ...scheduleEventStackExtras(ev),
     ...overrides
   };
@@ -34717,4 +34714,8 @@ watch(editorClientSchoolLocationOptions, (schools, previous) => {
 .schedule-confirm-card p { margin: 0; }
 .schedule-conflict-dates { max-height:40vh;overflow:auto;padding-left:20px;margin:0;line-height:1.6; }
 .schedule-confirm-card > div { display: flex; flex-wrap:wrap; justify-content: flex-end; gap: .6rem; }
+</style>
+
+<style scoped>
+.nr-head-context .aw-comment-button:not(.aw-comment-button--icon){width:300px;flex-shrink:1}.nr-head-context{flex-wrap:wrap}.cell-block:has(> .copay-attendance){flex-wrap:wrap;align-content:flex-start;overflow:auto}.cell-block > .copay-attendance{flex:0 0 calc(100% - 12px);box-sizing:border-box;position:relative;z-index:7}.cell-block > .copay-attendance :deep(p){margin:3px 0}
 </style>

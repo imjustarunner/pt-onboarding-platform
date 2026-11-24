@@ -40,6 +40,18 @@ beforeEach(() => {
 });
 afterEach(async () => { wrapper?.unmount(); await flushPromises(); vi.restoreAllMocks(); vi.useRealTimers(); });
 
+it('shows session cadence, a header comment action and one cancellation entry',async()=>{
+ const event={id:910,eventId:910,kind:'PERSONAL_EVENT',eventKind:'PERSONAL_EVENT',label:'Client session',agencyId:2,providerId:7,appointmentId:821,clientId:2031,canEdit:true,startAt:'2026-12-04T00:00:00Z',endAt:'2026-12-04T01:00:00Z',isClientSession:true};
+ const appointment={id:821,agencyId:2,providerUserId:7,status:'scheduled',businessType:'mental_health',modality:'TELEHEALTH',serviceCode:'90837',sourceTimezone:'America/Denver',startAt:event.startAt,endAt:event.endAt,recurrenceSeriesId:'series',recurrenceFrequency:'BIWEEKLY'};
+ const base=mocks.get.getMockImplementation();mocks.get.mockImplementation((path,...args)=>path==='/appointments/821'?Promise.resolve({data:{appointment}}):base(path,...args));
+ wrapper=shallowMount(Grid,{props:{userId:7,agencyId:2},global:{stubs:{Teleport:true,RouterLink:true,ClinicalWorkspaceFrame:{template:'<div><slot /></div>'}}}});await flushPromises();const s=wrapper.vm.$.setupState;
+ await s.openAppointmentEditInScheduleModal({item:event,dayName:'Thursday',hour:17});await flushPromises();
+ expect(wrapper.findComponent({name:'AppointmentInfoPanel'}).props('recurrenceLabel')).toBe('Repeats · Every 2 weeks');
+ expect(wrapper.get('.nr-head-context').findComponent({name:'SecureSessionCommentButton'}).props('appointmentId')).toBe(821);
+ expect(wrapper.find('[data-testid="appointment-quick-note-btn"]').exists()).toBe(false);expect(wrapper.find('[data-testid="appointment-change-workflow-btn"]').exists()).toBe(false);
+ expect(wrapper.findAll('button').filter(b=>b.text()==='Cancel / Missed session')).toHaveLength(1);
+});
+
 it.each(['provider','admin','support'])('keeps a December 3 Denver 5 PM appointment at 5 PM when a %s opens it',async role=>{
  mocks.user={id:7,role};mocks.agency={id:2,slug:'test',organization_type:'agency',timezone:'America/Denver'};
  const event={id:910,eventId:910,kind:'PERSONAL_EVENT',eventKind:'PERSONAL_EVENT',label:'Client session',agencyId:2,providerId:7,appointmentId:821,clientId:2031,canEdit:true,canReschedule:true,startAt:'2026-12-04T00:00:00Z',endAt:'2026-12-04T01:00:00Z',timeZone:'America/Denver',isClientSession:true};

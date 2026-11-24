@@ -1,3 +1,4 @@
+import {getAppointmentRecurrence} from './appointmentRecurrence.service.js';
 import { bookingNoticePreferenceFacts } from '../utils/recurringBookingNotice.js';
 import {resolveTutoringBookingContext} from './tutoringBookingContext.service.js';
 import {validateExternalMeeting} from './appointmentExternalMeeting.service.js';
@@ -202,7 +203,7 @@ export async function getAppointmentBundle(appointmentId, { includeTimeline = tr
   const noShowReview=appt.status==='no_show_pending'?await (await import('./appointmentNoShowReview.service.js')).getAppointmentNoShowReview(appt.id):null;
   const { resolveAppointmentPresentation } = await import('./appointmentPresentation.service.js');
   const outcome = await resolveAppointmentPresentation(appt);
-  return { ...appt, ...outcome, makeupLinks:await (await import('./tutoringMakeup.service.js')).tutoringMakeupDetails(appt), noShowReview, customReminders: appt.notificationMode === 'customizable' ? await readAppointmentNotificationRules(appt.id, appt.agencyId) : [], serviceSetting: await resolveAppointmentServiceSetting(appt), participants, billing, reminders, communications };
+  return { ...appt, ...outcome, ...await getAppointmentRecurrence(appt), makeupLinks:await (await import('./tutoringMakeup.service.js')).tutoringMakeupDetails(appt), noShowReview, customReminders: appt.notificationMode === 'customizable' ? await readAppointmentNotificationRules(appt.id, appt.agencyId) : [], serviceSetting: await resolveAppointmentServiceSetting(appt), participants, billing, reminders, communications };
 }
 
 export async function createAppointment(input) {

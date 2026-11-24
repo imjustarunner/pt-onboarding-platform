@@ -56,6 +56,7 @@ beforeEach(()=>{
   if(sql.startsWith('UPDATE family_copay_attendance SET receivable_id')){m.decisions.get(args[2]).receivable_id=args[0];return [{affectedRows:1}];}
   if(sql.startsWith('UPDATE family_copay_attendance')||sql.startsWith('UPDATE family_receivables'))return [{affectedRows:1}];
   if(sql.startsWith('SELECT p.id FROM family_ledger_payments'))return [m.pendingPayment?[{id:10}]:[]];
+  if(sql.startsWith('SELECT clinical_session_id FROM family_copay_attendance'))return [[...m.decisions].filter(([,row])=>row.attendance==='did_not_occur').map(([id])=>({clinical_session_id:id}))];
   if(sql.startsWith('SELECT timezone'))return [[{timezone:'America/Denver'}]];
   if(sql.startsWith('SELECT id FROM appointments'))return [[{id:70}]];
   if(sql.startsWith('DELETE FROM family_copay_attendance')){m.decisions.delete(Number(args[1]));return [{affectedRows:1}];}
@@ -168,6 +169,13 @@ describe('attendance collection boundary',()=>{
   expect((await pendingProviderCopays({agencyId:2,providerUserId:45})).sessions).toMatchObject([{documentationRequired:true,appointmentId:70}]);
   m.decisions.clear();m.clinical.mockResolvedValueOnce([[{...session,signed_note:1}]]);
   expect((await pendingProviderCopays({agencyId:2,providerUserId:45})).sessions).toEqual([]);
+ });
+ it('keeps an older deferred No in the provider follow-up, scoped by agency and assigned provider',async()=>{
+  m.decisions.set(30,{attendance:'did_not_occur'});
+  const original=m.clinical.getMockImplementation();m.clinical.mockImplementation((sql,args)=>sql.startsWith('SELECT s.*')?Promise.resolve([[{...session,scheduled_start_at:'2025-12-20T16:00:00Z',scheduled_end_at:'2025-12-20T17:00:00Z'}]]):original(sql,args));
+  expect((await pendingProviderCopays({agencyId:2,providerUserId:45})).sessions).toMatchObject([{sessionId:30,documentationRequired:true}]);
+  expect(m.clinical).toHaveBeenCalledWith(expect.stringContaining('OR s.id IN (?)'),[2,45,30]);
+  expect(m.db).toHaveBeenCalledWith(expect.stringContaining("provider_user_id=? AND attendance='did_not_occur'"),[2,45]);
  });
  it('builds one private summary with an authenticated review button and no patient list in email',()=>{
   const email=buildProviderCopayDigest({agencyName:'ITSCO',firstName:'Demo',count:3,date:'2026-10-21',url:'https://auricwell.com/itsco/my-schedule?copayDate=2026-10-21'});
