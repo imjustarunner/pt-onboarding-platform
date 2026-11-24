@@ -10,6 +10,7 @@ import {tenantMeetingBase} from '../utils/tenantMeetingUrl.js';
 import {generateJoinToken} from '../utils/joinToken.js';
 import {parseUtcDate} from '../utils/officeEventDateTime.util.js';
 import {verifiedTransitionDeliveryReceipt} from './transitionMeetingDeliveryReceipt.js';
+import {canRunMeetingPhoneMaintenance} from './schedulingWorkerGate.js';
 export {verifiedTransitionDeliveryReceipt} from './transitionMeetingDeliveryReceipt.js';
 
 const error=(message,status=409)=>Object.assign(new Error(message),{status});
@@ -131,6 +132,9 @@ export async function transitionClaimRate(claim,db=pool){
  try{const [[r]]=await db.execute('SELECT rate_amount FROM transition_meeting_claim_links WHERE sequence_id=? AND claim_id=? AND user_id=?',[SEQUENCE_ID,claim.id,claim.user_id]);return r?Number(r.rate_amount):null;}catch(e){if(e.code==='ER_NO_SUCH_TABLE')return null;throw e;}
 }
 export async function processTransitionSequence(){
+ // Only the exact live HTTP revision may dispatch; the separately authenticated
+ // scoped Cloud Run job has no K_REVISION and may perform its explicit operation.
+ if(process.env.K_REVISION&&!await canRunMeetingPhoneMaintenance())return {inactiveRevision:true};
  return locked(async db=>{
   let row=await stored(db);if(!row||row.status!=='active')return {inactive:true};let data=row.data,revision=Number(row.revision);
   const persist=async()=>{await db.beginTransaction();try{revision=await save(data,revision,db);await db.commit();}catch(e){await db.rollback();throw e;}};

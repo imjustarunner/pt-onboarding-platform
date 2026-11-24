@@ -28,6 +28,6 @@ it('rejects acceptance after the first date registration deadline even from a la
 });
 
 it('permits an immediate No for this ITSCO transition only without weakening ordinary mandatory training',async()=>{
- await expect(saveTrainingRsvp({...event,agency_id:2,meeting_settings_json:{transitionSequence:'itsco-auricwell-2026-11-30'}},4,'declined')).resolves.toMatchObject({response:'declined'});
- await expect(saveTrainingRsvp({...event,agency_id:6,meeting_settings_json:{transitionSequence:'itsco-auricwell-2026-11-30'}},4,'declined')).rejects.toMatchObject({status:400});
+ await expect(saveTrainingRsvp({...event,agency_id:2,meeting_settings_json:{transitionSequence:'itsco-auricwell-2026-11-30-v2'}},4,'declined')).resolves.toMatchObject({response:'declined'});
+ await expect(saveTrainingRsvp({...event,agency_id:6,meeting_settings_json:{transitionSequence:'itsco-auricwell-2026-11-30-v2'}},4,'declined')).rejects.toMatchObject({status:400});
 });

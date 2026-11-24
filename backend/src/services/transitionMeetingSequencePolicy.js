@@ -2,7 +2,9 @@
 // Persist state and deliver returned actions through the authenticated application.
 import { createHash } from 'node:crypto';
 
-export const SEQUENCE_ID = 'itsco-auricwell-2026-11-30';
+// A fresh launch namespace keeps retired, previously deployed workers away from
+// this sequence. No earlier namespace was activated or sent invitations.
+export const SEQUENCE_ID = 'itsco-auricwell-2026-11-30-v2';
 export const DEADLINES = Object.freeze({
   notes: '2026-11-29T22:00:00-07:00',
   cutoverStart: '2026-11-30T00:00:00-07:00',
