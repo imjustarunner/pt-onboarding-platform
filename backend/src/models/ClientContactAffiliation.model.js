@@ -4,8 +4,8 @@ import pool from '../config/database.js';
 const CHOICES = new Set(['unchanged', 'email_only', 'sms_only', 'both', 'off']);
 
 class ClientContactAffiliation {
-  static async findById(id) {
-    const [rows] = await pool.execute(
+  static async findById(id, executor = pool) {
+    const [rows] = await executor.execute(
       `SELECT a.*,
               c.full_name AS contact_full_name,
               c.email AS contact_email,

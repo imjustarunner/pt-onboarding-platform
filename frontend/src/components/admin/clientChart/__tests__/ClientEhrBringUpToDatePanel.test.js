@@ -28,7 +28,8 @@ it('retries intake after a failure without repeating successful demographics or 
   });
   const wrapper=mountPanel({demographics:'Legal Name: Synthetic Client',intake:'Presenting Problem: Concern',plan:'Original treatment plan'});
   await flushPromises();expect(wrapper.emitted('imported')).toBeUndefined();
-  failIntake=false;await wrapper.findAll('button').find(b=>b.text()==='Import all filled sections').trigger('click');await flushPromises();
+  failIntake=false;await wrapper.findAll('button').find(b=>b.text()==='Finish client import').trigger('click');
+  await wrapper.findAll('button').find(b=>b.text()==='Import remaining pasted sections').trigger('click');await flushPromises();
   expect(mocks.post.mock.calls.filter(([url])=>url.endsWith('/demographics/import'))).toHaveLength(1);
   expect(mocks.post).toHaveBeenCalledWith('/clients/12/intake-note/import',expect.objectContaining({serviceCode:'90791',recordsImport:{text:'Presenting Problem: Concern'}}),expect.anything());
   expect(mocks.post.mock.calls.some(([url])=>url.endsWith('/finalize')||url.endsWith('/treatment-plans/parse'))).toBe(false);expect(mocks.patch).not.toHaveBeenCalled();
@@ -128,9 +129,13 @@ it('requires payer linkage for a secondary-only draft after returning to blank p
 it('routes source guardian channels separately and reimports demographics after correcting their owner',async()=>{
  mocks.post.mockResolvedValue({data:{parsed:{fullName:'Synthetic Client',contactPhone:'555-111-2222',email:'parent@example.test'}}});
  const wrapper=mount(Panel,{props:{open:true,clientId:12,agencyId:2,initialTexts:{demographics:'Legal Name\nSynthetic Client'}},global:{stubs}});await flushPromises();
- const button=()=>wrapper.findAll('button').find(b=>b.text()==='Import patient info');await button().trigger('click');await flushPromises();
+ const button=()=>wrapper.findAll('button').find(b=>b.text()==='Import patient info');
+ await button().trigger('click');await flushPromises();
+ expect(mocks.post.mock.calls.some(([url])=>url.endsWith('/demographics/import'))).toBe(false);
+ await wrapper.get('.ehr-contact-review input[type="checkbox"]').setValue(true);await button().trigger('click');await flushPromises();
  expect(mocks.post).toHaveBeenCalledWith('/clients/12/demographics/import',expect.objectContaining({contactOwner:'guardian'}),expect.anything());
- await wrapper.get('section[aria-label="Patient info"] select').setValue('client');await button().trigger('click');await flushPromises();
+ await wrapper.get('section[aria-label="Patient info"] select').setValue('client');
+ await wrapper.get('.ehr-contact-review input[type="checkbox"]').setValue(true);await button().trigger('click');await flushPromises();
  expect(mocks.post.mock.calls.filter(([url])=>url.endsWith('/demographics/import'))).toHaveLength(2);
  expect(mocks.post).toHaveBeenLastCalledWith('/clients/12/demographics/import',expect.objectContaining({contactOwner:'client'}),expect.anything());wrapper.unmount();
 });
@@ -148,7 +153,7 @@ it('places assignments after the records and saves pending assignment changes as
 
 it('honors client-owned contact channels selected before creating an office chart',async()=>{
  mocks.post.mockResolvedValue({data:{parsed:{fullName:'Synthetic adult',email:'adult@example.test'}}});
- const wrapper=mount(Panel,{props:{open:true,clientId:12,agencyId:2,creationFlow:true,requireVerifiedPayers:true,initialContactOwner:'client',initialTexts:{demographics:'Legal Name\nSynthetic adult'}},global:{stubs}});await flushPromises();
+ const wrapper=mount(Panel,{props:{open:true,clientId:12,agencyId:2,creationFlow:true,requireVerifiedPayers:true,initialContactOwner:'client',initialContactOwnerConfirmed:true,initialTexts:{demographics:'Legal Name\nSynthetic adult'}},global:{stubs}});await flushPromises();
  expect(mocks.post).toHaveBeenCalledWith('/clients/12/demographics/import',expect.objectContaining({contactOwner:'client'}),expect.anything());wrapper.unmount();
 });
 it('keeps assignments and the portal invitation inside the creation flow before final completion',async()=>{

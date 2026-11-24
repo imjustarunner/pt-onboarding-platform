@@ -4,6 +4,7 @@ import { hasSchedulingBillingAccess } from './schedulingBillingAccess.service.js
 
 const parse = value => typeof value === 'string' ? JSON.parse(value || '{}') : value || {};
 const reasons = {
+  billing_party_review: 'Review the contact flagged during records import under Account → Billing & insurance. Confirm who should receive balances and review payment-only portal access when appropriate.',
   cob_unresolved: 'A Stedi coordination of benefits check needs help. Open Check overlapping coverage in the private billing profile, resolve each reported policy and the billing order, or reconcile the uncertain attempt in Stedi.',
   missing_card: 'No complete insurance card was uploaded. Cards are optional; verify the coverage electronically or through the payer portal and help with missing information.',
   verification_pending: 'Intake insurance is ready for eligibility verification and billing review.',
@@ -45,7 +46,9 @@ export async function queueInsuranceVerificationTask({agencyId,clientId,actorUse
   const [[agency]] = await db.execute('SELECT feature_flags FROM agencies WHERE id=?', [agencyId]);
   const config = parse(agency?.feature_flags).insuranceVerificationTasks;
   if (!config?.enabled || !Number(config.taskListId)) return null;
-  const lock = await db.getConnection(), key = `insurance-task:${Number(agencyId)}:${Number(clientId)}`;
+  const partyReview = reason === 'billing_party_review';
+  const sourceRefType = partyReview ? 'billing_party_review' : 'insurance_verification';
+  const lock = await db.getConnection(), key = `${sourceRefType}-task:${Number(agencyId)}:${Number(clientId)}`;
   let acquired = false;
   try {
     const [[got]] = await lock.execute('SELECT GET_LOCK(?,5) AS acquired', [key]);
@@ -55,14 +58,14 @@ export async function queueInsuranceVerificationTask({agencyId,clientId,actorUse
     const [[client]] = await db.execute('SELECT id,initials FROM clients WHERE id=? AND agency_id=?', [clientId,agencyId]);
     if (!list || !client) throw new Error('Insurance follow-up task scope is invalid');
     await syncInsuranceBillingAudience(agencyId,list.id,db);
-    const [[existing]] = await db.execute("SELECT id,status FROM tasks WHERE assigned_to_agency_id=? AND source_ref_type='insurance_verification' AND source_ref_id=? ORDER BY id DESC LIMIT 1", [agencyId,String(clientId)]);
+    const [[existing]] = await db.execute("SELECT id,status FROM tasks WHERE assigned_to_agency_id=? AND source_ref_type=? AND source_ref_id=? ORDER BY id DESC LIMIT 1", [agencyId,sourceRefType,String(clientId)]);
     if (existing) {
       await db.execute(`UPDATE tasks SET metadata=JSON_SET(COALESCE(metadata,JSON_OBJECT()),'$.reason',?,'$.coverageCheckId',?),
         urgency='high', status=IF(status IN ('completed','overridden'),'pending',status), completed_at=NULL WHERE id=?`, [reason,coverageCheckId,existing.id]);
       return existing.id;
     }
-    const task = await Task.create({taskType:'custom',title:`Verify insurance — ${client.initials || `client ${clientId}`}`,
-      description:[reasons[reason],
+    const task = await Task.create({taskType:'custom',title:`${partyReview ? 'Review responsible billing party' : 'Verify insurance'} — ${client.initials || `client ${clientId}`}`,
+      description:partyReview ? reasons[reason] : [reasons[reason],
         'A billing team member should take ownership of this task.',
         'Verify the member ID, enrolled legal name, date of birth, and subscriber relationship using the payer portal or information confirmed with the family. Do not guess missing identifiers.',
         'For Colorado Medicaid, confirm the child’s own coverage and RAE assignment; check other insurance/TPL and payer order.',
@@ -72,7 +75,7 @@ export async function queueInsuranceVerificationTask({agencyId,clientId,actorUse
         'The latest reason and electronic check reference are stored with this task. Do not put member IDs or full names in task comments.'
       ].join('\n'),encryptDescription:true,assignedToUserId:null,assignedToAgencyId:agencyId,
       assignedByUserId:actorUserId || config.ownerUserId,taskListId:list.id,urgency:'high',categories:['billing','client'],
-      sourceRefType:'insurance_verification',sourceRefId:String(clientId),metadata:{clientId:Number(clientId),reason,coverageCheckId,insuranceVerification:true}});
+      sourceRefType,sourceRefId:String(clientId),metadata:{clientId:Number(clientId),reason,coverageCheckId,insuranceVerification:!partyReview}});
     return task.id;
   } finally { if (acquired) await lock.execute('SELECT RELEASE_LOCK(?)',[key]);lock.release(); }
 }

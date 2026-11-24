@@ -15,3 +15,29 @@ it('opens the ownership review automatically for an eligible Auricwell setup and
  expect(api.post).not.toHaveBeenCalled();
  w.unmount();
 });
+
+it('returns unsaved Patient info to the import before preparing an account', async () => {
+  const w = mount(Component, { props:{clientId:8, agencyId:2, patientInfoPending:true} });
+  await flushPromises();
+  await w.findAll('button').find(button => button.text().includes('Prepare client’s own')).trigger('click');
+  expect(w.emitted('review-patient-info')).toHaveLength(1);
+  expect(api.get.mock.calls.map(([url]) => url)).toEqual(['/clients/8/guardians']);
+  expect(api.post).not.toHaveBeenCalled();
+  w.unmount();
+});
+
+it('preserves the client’s personal portal when a guardian relationship is disconnected', async () => {
+  const self = { guardian_user_id:11, first_name:'Synthetic', last_name:'Client', email:'client@example.test',
+    relationship_type:'self', access_enabled:1, permissions_json:{} };
+  api.get.mockResolvedValue({ data:[guardian,self] });
+  const w = mount(Component, { props:{clientId:8, agencyId:2}, global:{
+    stubs:{ DisconnectGuardianButton:{ emits:['disconnected'], template:`<button data-disconnect @click="$emit('disconnected', { guardianId: 10 })">Disconnect</button>` } }
+  } });
+  await flushPromises();
+  await w.get('[data-disconnect]').trigger('click');
+  expect(w.text()).toContain('client@example.test');
+  expect(w.text()).toContain('Guardian disconnected.');
+  expect(w.text()).not.toContain('Prepare client’s own portal account');
+  expect(api.post).not.toHaveBeenCalled();
+  w.unmount();
+});

@@ -9,9 +9,9 @@ beforeEach(()=>{vi.clearAllMocks();linked=[{guardian_user_id:40,first_name:'Firs
 it('shows the first guardian and adds the second from their own saved contact',async()=>{
  const w=mount(Accounts,{props:{clientId:12,agencyId:2,contacts}});await flushPromises();
  expect(w.text()).toContain('Parent / Guardian 1');expect(w.get('article').text()).toContain('First Parent');expect(w.find('option[value="50"]').exists()).toBe(false);expect(w.get('option[value="52"]').element.disabled).toBe(true);
- await w.get('select').setValue('51');expect(w.text()).toContain('Text (SMS) and Email');
+ await w.get('select').setValue('51');await w.get('select[aria-label="Confirm relationship to the client"]').setValue('Father');expect(w.text()).toContain('Text (SMS) and Email');
  await w.findAll('button').find(b=>b.text()==='Add Parent / Guardian 2').trigger('click');await flushPromises();
- expect(m.post).toHaveBeenCalledExactlyOnceWith('/clients/12/chart-import/contacts/51/portal-account',{},expect.objectContaining({headers:{'X-Agency-Id':'2'}}));
+ expect(m.post).toHaveBeenCalledExactlyOnceWith('/clients/12/chart-import/contacts/51/portal-account',{relationship:'Father'},expect.objectContaining({headers:{'X-Agency-Id':'2'}}));
  expect(w.findAll('article')).toHaveLength(2);expect(w.findAll('article')[1].text()).toContain('Second Parent');expect(w.emitted('prepared')).toHaveLength(1);expect(w.emitted('busy')).toEqual([[true],[false]]);w.unmount();
 });
 it('does not create a second login for another contact with the same email',async()=>{
@@ -19,7 +19,7 @@ it('does not create a second login for another contact with the same email',asyn
 });
 it('retains the selected second parent after a failure and allows retry',async()=>{
  m.post.mockRejectedValueOnce({response:{data:{error:{message:'Please retry'}}}});
- const w=mount(Accounts,{props:{clientId:12,agencyId:2,contacts}});await flushPromises();await w.get('select').setValue('51');
+ const w=mount(Accounts,{props:{clientId:12,agencyId:2,contacts}});await flushPromises();await w.get('select').setValue('51');await w.get('select[aria-label="Confirm relationship to the client"]').setValue('Father');
  await w.findAll('button').find(b=>b.text()==='Add Parent / Guardian 2').trigger('click');await flushPromises();expect(w.text()).toContain('Please retry');expect(w.get('select').element.value).toBe('51');expect(w.emitted('prepared')).toBeUndefined();
  await w.findAll('button').find(b=>b.text()==='Add Parent / Guardian 2').trigger('click');await flushPromises();expect(w.emitted('prepared')).toHaveLength(1);w.unmount();
 });

@@ -34,7 +34,7 @@ export function useChartImportDrafts({sectionKeys=DEFAULT_SECTIONS,singleSection
     if (!section) return;
     const comparable = draft => {
       const metadata = draft?.metadata || draft || {};
-      return { text: draft?.text || '', imported: metadata.imported === true, needsReview: metadata.needsReview === true, serviceCode: metadata.serviceCode || '', sourceDate: metadata.sourceDate || '', sourceAuthor: metadata.sourceAuthor || '', position: metadata.position || 'primary', coverageDrafts: metadata.coverageDrafts || null, coverageMode:metadata.coverageMode||'insurance',selfPay:metadata.selfPay||null,contactOwner: metadata.contactOwner || 'guardian' };
+      return { text: draft?.text || '', imported: metadata.imported === true, needsReview: metadata.needsReview === true, serviceCode: metadata.serviceCode || '', sourceDate: metadata.sourceDate || '', sourceAuthor: metadata.sourceAuthor || '', position: metadata.position || 'primary', coverageDrafts: metadata.coverageDrafts || null, coverageMode:metadata.coverageMode||'insurance',selfPay:metadata.selfPay||null,contactOwner: metadata.contactOwner || '', contactOwnerConfirmed: metadata.contactOwnerConfirmed === true, clientClassification:metadata.clientClassification || '' };
     };
     if (JSON.stringify(comparable(value)) === JSON.stringify(comparable(section.value)) && !section.pending) return;
     section.pending = structuredClone(value);

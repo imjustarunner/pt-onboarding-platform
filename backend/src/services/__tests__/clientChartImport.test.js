@@ -46,10 +46,10 @@ it('rejects ciphertext copied from another client context',async()=>{
  stored.set('2:13:comments:10',stored.get('2:12:comments:10'));
  await expect(readChartRecord({agencyId:2,clientId:13},'comments',10)).rejects.toThrow('context mismatch');
 });
-it('imports partial insurance without erasing secondary coverage or treating source IDs as verified routes',async()=>{
+it('replaces a carrier without carrying over its subscriber DOB, erasing secondary coverage, or trusting a source payer ID',async()=>{
  m.readInsurance.mockResolvedValue({primary:{insurerName:'Previous',memberId:'PREVIOUS',subscriberDob:'1980-01-02'},secondary:{insurerName:'Secondary',payerId:'00900'},acceptAssignment:true,patient:{firstName:'Alex'}});
  await importSupplementaryChartSection(scope,'insurance','Example Carrier (00050): Primary\nMember ID\nNEW',10);
- expect(m.writeInsurance).toHaveBeenCalledWith(expect.objectContaining({agencyId:2,clientId:12,primary:{insurerName:'Example Carrier',sourcePayerId:'00050',payerId:'',memberId:'NEW',subscriberDob:'1980-01-02'},secondary:{insurerName:'Secondary',payerId:'00900'},acceptAssignment:true,verifiedForClaims:false,queueEligibility:false,confirmedBy:10}),db);
+ expect(m.writeInsurance).toHaveBeenCalledWith(expect.objectContaining({agencyId:2,clientId:12,primary:{insurerName:'Example Carrier',sourcePayerId:'00050',payerId:'',memberId:'NEW'},secondary:{insurerName:'Secondary',payerId:'00900'},acceptAssignment:true,verifiedForClaims:false,queueEligibility:false,confirmedBy:10}),db);
 });
 it('reuses an existing named contact, retains extra fields, and never enables reminders',async()=>{
  m.contacts.mockResolvedValue([{contact_full_name:'Pat Example',agency_contact_id:60}]);

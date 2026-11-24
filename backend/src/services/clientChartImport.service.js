@@ -1,3 +1,4 @@
+import { matchingGuardian } from '../../../frontend/src/navigation/recordsContactOwnership.js';
 import {readChartRecord,chartRecordContext as recordContext} from './clientChartRecordRead.service.js';
 import { payerLinkFingerprint, exactCatalogPayer } from '../utils/chartPayerLink.js';
 import { clientInsurancePayers } from './clientInsurancePayers.service.js';
@@ -64,6 +65,10 @@ export async function importSupplementaryChartSection(scope, section, text, acto
         if (!prior) continue;
         const differentCarrier = parsed[slot].insurerName && String(prior.insurerName).trim().toLowerCase() !== parsed[slot].insurerName.trim().toLowerCase();
         const differentId = parsed[slot].payerId && ![prior.payerId, prior.sourcePayerId].includes(parsed[slot].payerId);
+        const update = parsed[slot];
+        const changedHolder = ['relationshipToSubscriber','subscriberFirstName','subscriberLastName'].some(key =>
+          update[key] && String(prior[key] || '').trim().toLowerCase() !== String(update[key]).trim().toLowerCase());
+        if (!update.subscriberDob && (changedHolder || differentCarrier || differentId)) delete policy.subscriberDob;
         if (differentCarrier || differentId) {
           delete policy.payerCatalogId;
           delete policy.eligibilityPayerId;
@@ -118,20 +123,16 @@ export async function importSupplementaryChartSection(scope, section, text, acto
       let demographics = {};
       if (client.demographics_phi_enc) demographics = decryptDemographicsPayload(client.demographics_phi_enc) || {};
       const source = demographics.sourceContact || demographics;
-      const emailKey = value => String(value || '').trim().toLowerCase();
-      const phoneKey = value => String(value || '').replace(/\D/g, '').slice(-10);
-      const email = emailKey(source.email || client.email), phone = phoneKey(source.contactPhone || client.contact_phone);
-      const parents = contacts.filter(contact => /^(father|mother|parent|guardian|legal guardian|padre|madre|tutor)$/i.test(contact.relationshipType || '') || /^guardian$/i.test(contact.contactType || ''));
-      const emailMatches = parents.filter(contact => email && emailKey(contact.email) === email);
-      const phoneMatches = parents.filter(contact => phone && phoneKey(contact.mobilePhone || contact.phone || contact.homePhone || contact.workPhone) === phone);
-      // Prefer the exact email over a household phone shared by two parents.
-      // Ambiguous contact details stay pending for explicit staff selection.
-      primaryContact = emailMatches.length === 1 ? emailMatches[0] : !emailMatches.length && phoneMatches.length === 1 ? phoneMatches[0] : null;
+      const match = demographics.contactOwner === 'client' ? null : matchingGuardian({
+        email: source.email || (!demographics.contactOwner ? client.email : ''),
+        contactPhone: source.contactPhone || (!demographics.contactOwner ? client.contact_phone : '')
+      }, contacts);
+      primaryContact = match?.contact || null;
       if (primaryContact && source.appointmentReminderType && (demographics.sourceContact || preparePrimaryGuardian)) {
         const choice = String(source.appointmentReminderType).toLowerCase();
         const selected = term => !/\b(no|none)\b/.test(choice) && term.test(choice);
-        const emailOn = emailMatches.includes(primaryContact) && selected(/\be-?mail\b/);
-        const smsOn = phoneMatches.length === 1 && phoneMatches.includes(primaryContact) && selected(/\b(sms|text)\b/);
+        const emailOn = match.emailMatched && selected(/\be-?mail\b/);
+        const smsOn = match.phoneMatched && selected(/\b(sms|text)\b/);
         if (emailOn || smsOn) inheritedChannels = {email:emailOn, sms:smsOn};
       }
     }

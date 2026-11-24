@@ -16,7 +16,7 @@
         <button v-if="!embedded" type="button" class="ehr-link" :disabled="busy" @click="emit('close')">Close</button>
       </header>
 
-      <p class="ehr-muted">Each section autosaves as a private draft. Import a section when ready, or import all filled sections.</p>
+      <p class="ehr-muted">Each section autosaves as a private draft. Import a section when ready.</p>
       <p v-if="drafts.state.loading" class="ehr-muted" role="status">Loading saved drafts…</p>
       <p v-if="drafts.state.loadError" class="ehr-error" role="alert">{{ drafts.state.loadError }} <button type="button" class="ehr-link" @click="retryDraftLoad">Retry loading drafts</button></p>
       <div class="ehr-status-row" aria-label="Setup status">
@@ -29,6 +29,8 @@
             <label class="ehr-label">{{ position==='primary'?'Primary insurance':'Secondary insurance (optional)' }} paste
               <textarea :value="coverageDrafts[position].text" @input="updateCoveragePaste(position,$event.target.value)" :data-section="position==='primary'?'insurance':'secondaryInsurance'" :aria-label="`${position==='primary'?'Primary':'Secondary'} insurance paste`" class="ehr-textarea" :rows="section.rows || 6" :disabled="busy || drafts.state.loading || (coverageDrafts[position].imported && !unlocked.insurance)" :placeholder="section.placeholder" />
             </label>
+            <ClientImportPolicyholderBirthDate :text="coverageDrafts[position].text" :position="position"
+              :disabled="busy || coverageDrafts[position].imported && !unlocked.insurance" @update="updateCoveragePaste(position,$event)" />
             <p v-if="coverageDrafts[position].imported" class="ehr-imported">✓ {{ position==='primary'?'Primary':'Secondary' }} insurance imported. <button type="button" class="ehr-link" :disabled="busy" @click="unlocked.insurance=true">Edit imported coverage</button></p>
           </div>
         </div>
@@ -42,16 +44,32 @@
         <button v-if="section.key === 'plan' && status.plan === 'imported' && !historicalImport && reviewPlanLink"
           type="button" class="ehr-link" :disabled="busy" @click="reviewPlan">Review treatment plan in chart</button>
         <p v-if="section.hint && (section.key!=='insurance'||coverageMode==='insurance')" class="ehr-muted">{{ section.hint }}</p>
-        <label v-if="section.key === 'demographics'" class="ehr-label">The phone and email in this patient information belong to<select v-model="contactOwner" :disabled="busy"><option value="guardian">Parent / guardian — use their contact card and portal account</option><option value="client">Client — use the client’s own contact details</option></select></label>
+        <div v-if="section.key === 'demographics' && !historicalImport && sectionTexts.demographics.trim()" class="ehr-contact-review" :class="{'ehr-review-needed':!contactOwnerConfirmed}">
+          <label class="ehr-label">The phone and email in this patient information belong to
+            <select ref="contactOwnerControl" :value="contactOwner || suggestedOwnership.owner" :disabled="busy" @change="chooseContactOwner($event.target.value)">
+              <option value="guardian">Parent / guardian — use their contact card</option>
+              <option value="client">Client — use the client’s own contact details</option>
+            </select>
+          </label>
+          <label class="ehr-confirm"><input :checked="contactOwnerConfirmed" type="checkbox" :disabled="busy || !parsedPatientInfo" @change="confirmContactOwner($event.target.checked)" /> I confirmed who owns this phone and email.</label>
+          <label class="ehr-label">Client relationship
+            <select v-model="clientClassification" :disabled="busy">
+              <option value="">Suggested · {{ suggestedOwnership.clientClassification === 'dependent' ? 'Dependent' : 'Independent client' }}</option>
+              <option value="dependent">Dependent</option>
+              <option value="independent">Independent client</option>
+            </select>
+          </label>
+        </div>
         <template v-if="section.key === 'contacts'">
-          <label v-if="canPrepareAccounts" class="ehr-label"><span><input v-model="preparePrimaryGuardian" type="checkbox" :disabled="busy" /> Prepare Parent / Guardian 1 when their phone or email matches the patient information.</span></label>
-          <p class="ehr-muted">Import both parents’ contact cards. Add Parent / Guardian 2 below using their own email address, then review each parent’s portal access and invitation.</p>
+          <label v-if="canPrepareAccounts" class="ehr-label"><span><input v-model="preparePrimaryGuardian" type="checkbox" :disabled="busy || !eligibleGuardianMatch" /> Prepare Parent / Guardian 1 for {{eligibleGuardianMatch?.contact.fullName || 'a matching parent contact'}}.</span></label>
+          <p class="ehr-muted">Import each parent’s contact card. You can prepare a separate account and review access for each parent below.</p>
           <div v-for="contact in importedContacts" :key="contact.affiliationId" class="ehr-contact">
             <strong>{{ contact.fullName }}</strong> · {{ contact.relationshipType || 'Contact' }}
             <span v-if="contact.portalAccount?.prepared"> · {{contact.portalAccount.created?'Portal account prepared':'Existing portal account linked — same login for this family'}}{{ contact.portalAccount.requiresAccessReview ? ' — review this child’s access below' : '' }}</span>
             <p v-if="contact.portalAccount?.reason" class="ehr-muted">{{ contact.portalAccount.reason }}</p>
           </div>
           <ClientImportGuardianAccounts v-if="canPrepareAccounts && importedContacts.length" :client-id="clientId" :agency-id="agencyId" :contacts="importedContacts" :disabled="busy" @busy="guardianPreparing=$event" @prepared="transitionRefreshKey++" />
+          <ClientImportBillingContact v-if="canPrepareAccounts && importedContacts.length" :client-id="clientId" :agency-id="agencyId" :contacts="importedContacts" :disabled="busy" @busy="billingContactBusy=$event" />
         </template>
         <label v-if="section.key === 'intake'" class="ehr-label">Intake type<select v-model="intakeServiceCode" data-intake-service :disabled="busy || drafts.state.loading"><option value="">Choose intake type</option><option value="H0031">H0031</option><option value="90791">90791</option></select></label>
         <div v-if="historicalImport && section.key === 'intake'" class="ehr-source-fields">
@@ -69,7 +87,6 @@
         <p v-if="drafts.state.sections[section.key]?.error" class="ehr-error" role="alert">{{ drafts.state.sections[section.key].error }} <button type="button" class="ehr-link" @click="drafts.retry(section.key)">Save this paste as the latest draft</button></p>
       </section>
 
-      <ClientMedicalHistory v-if="!historicalImport && !onlySections" ref="historyPanel" :client-id="clientId" :agency-id="agencyId" :client-label="clientLabel" @busy="historyBusy=$event" />
 
       <ClientPayerLinkage v-if="!historicalImport && canPrepareAccounts && (!onlySections||onlySections.includes('insurance')) && coverageMode==='insurance'" :client-id="clientId" :agency-id="agencyId" :refresh-key="payerRefreshKey" @ready-change="payerReady = $event" @busy="payerBusy = $event" />
 
@@ -91,6 +108,7 @@
           {{ markingDone ? 'Marking…' : 'Mark done' }}
         </button>
         <button
+          v-if="!creationFlow || historicalImport"
           type="button"
           class="ehr-btn-primary"
           :disabled="busy || drafts.state.loading || !hasAnyPaste || (historicalImport && !sourceReviewed)"
@@ -101,7 +119,7 @@
       </div>
       <template v-if="!historicalImport && canPrepareAccounts">
         <p v-if="!recordsReadyForInvitation" class="ehr-muted">You can update portal access and preview the invitation now. Import the filled record sections before sending it.</p>
-        <div class="ehr-invitation"><ClientTransitionInvitation :personal-account-only="personalAccountOnly" :sending-enabled="recordsReadyForInvitation" :client-id="clientId" :agency-id="agencyId" :refresh-key="transitionRefreshKey" @busy="invitationBusy = $event" /></div>
+        <div class="ehr-invitation"><ClientTransitionInvitation :personal-account-only="personalAccountOnly" :sending-enabled="recordsReadyForInvitation" :patient-info-pending="pendingPatientInfo" @review-patient-info="reviewPatientInfo" :client-id="clientId" :agency-id="agencyId" :refresh-key="transitionRefreshKey" @busy="invitationBusy = $event" /></div>
       </template>
       <div v-if="creationFlow && !historicalImport" class="ehr-finish"><p v-if="creationPendingReasons.length">Remaining setup actions (records import can finish separately):</p><ul v-if="creationPendingReasons.length" aria-label="Remaining import steps"><li v-for="reason in creationPendingReasons" :key="reason">{{ reason }}</li></ul><button type="button" class="ehr-btn-primary" :disabled="busy" @click="completeCreation">Finish client import</button></div>
       <section v-if="completionReview" class="ehr-completion-review" aria-label="Review records import completion">
@@ -128,10 +146,14 @@ import { useAuthStore } from '../../../store/auth';
 import api from '../../../services/api';
 import { useChartImportDrafts } from '../../../composables/useChartImportDrafts.js';
 import ClientPayerLinkage from './ClientPayerLinkage.vue';
-import ClientMedicalHistory from './ClientMedicalHistory.vue';
+import { parseChartContacts } from '../../../navigation/chartPasteParser.js';
+import { matchingGuardian, suggestRecordsContactOwnership } from '../../../navigation/recordsContactOwnership.js';
 import ClientTransitionInvitation from '../../clients/ClientTransitionInvitation.vue';
 import ClientUpdateAssignments from './ClientUpdateAssignments.vue';
+import { todayCalendarDate } from '../../../utils/formatDate.js';
+import ClientImportPolicyholderBirthDate from './ClientImportPolicyholderBirthDate.vue';
 import ClientImportSelfPayFields from './ClientImportSelfPayFields.vue';
+import ClientImportBillingContact from './ClientImportBillingContact.vue';
 import ClientImportGuardianAccounts from './ClientImportGuardianAccounts.vue';
 import {
   DEFAULT_MEASUREMENT_METHOD,
@@ -155,7 +177,10 @@ const props = defineProps({
   initialSelfPay: { type: Object, default: () => ({}) },
   creationFlow: { type: Boolean, default: false },
   initialIntakeServiceCode: { type: String, default: '' },
-  initialContactOwner: { type:String, default:'guardian', validator:value=>['guardian','client'].includes(value) },
+  initialContactOwner: { type:String, default:'' },
+  initialContactOwnerConfirmed: Boolean,
+  initialClientClassification: { type:String, default:'' },
+  initialPatientInfo: { type:Object, default:null },
   autoImport: { type: Boolean, default: true },
   pendingProviderAssignment: {type:Boolean,default:false},
   requireVerifiedPayers: { type: Boolean, default: false },
@@ -178,7 +203,10 @@ let importedIntakeDraft = null;
 const reviewPending = reactive({ intake: false, plan: false });
 const planText = ref('');
 const insuranceText = ref(''), contactsText = ref(''), commentsText = ref(''), payerText = ref(''), billingCommentsText = ref('');
-const contactOwner = ref(props.initialContactOwner), preparePrimaryGuardian = ref(true), importedContacts = ref([]), guardianPreparing=ref(false);
+const contactOwner = ref(props.initialContactOwner), contactOwnerConfirmed = ref(props.initialContactOwnerConfirmed);
+const clientClassification = ref(props.initialClientClassification);
+const parsedPatientInfo = ref(props.initialPatientInfo), contactOwnerControl = ref(null);
+const preparePrimaryGuardian = ref(false), importedContacts = ref([]), guardianPreparing=ref(false);
 let contactImportRevision = 0;
 const sectionTexts = reactive({ demographics: demographicsText, intake: intakeText, plan: planText, insurance: insuranceText, contacts: contactsText, comments: commentsText, payer: payerText, billingComments: billingCommentsText });
 const sections = CLIENT_RECORD_SECTIONS;
@@ -190,7 +218,7 @@ const sectionLabel=key=>sections.find(section=>section.key===key)?.label||key;
 const sectionLocked=key=>status[key]==='imported'&&!unlocked[key]&&(key!=='insurance'||allCoverageImported.value);
 const unimportedSections=computed(()=>filledSections().filter(key=>key==='insurance'?!allCoverageImported.value:status[key]!=='imported'&&status[key]!=='done'));
 const blankSections=computed(()=>visibleSections.value.filter(section=>!(section.key==='insurance'?hasCoveragePaste.value:sectionTexts[section.key].trim())&&!['done','imported'].includes(status[section.key])).map(section=>section.key));
-const historyBusy=ref(false),historyPanel=ref(null);
+const billingContactBusy=ref(false);
 const assignmentsBusy=ref(false),assignmentsReady=ref(false),assignmentsPanel=ref(null);
 const completionPreparing=ref(false);
 const progressBusy=ref(false);let progressSectionsKey=null;
@@ -222,7 +250,7 @@ const status = reactive({
 const hasAnyPaste = computed(
   () => visibleSections.value.some(section => sectionTexts[section.key].trim()) || (!props.historicalImport && hasCoveragePaste.value)
 );
-const networkBusy = computed(() => importing.value || markingDone.value || invitationBusy.value || historyBusy.value || payerBusy.value || assignmentsBusy.value || guardianPreparing.value || progressBusy.value || drafts.state.loading);
+const networkBusy = computed(() => importing.value || markingDone.value || invitationBusy.value || payerBusy.value || assignmentsBusy.value || guardianPreparing.value || billingContactBusy.value || progressBusy.value || drafts.state.loading);
 const busy=computed(()=>networkBusy.value||completionPreparing.value);
 const filledSections=()=>visibleSections.value.filter(section=>sectionTexts[section.key].trim()||(section.key==='insurance'&&hasCoveragePaste.value)).map(section=>section.key);
 const creationPendingReasons=computed(()=>[
@@ -263,10 +291,45 @@ function agencyHeaders() {
   return aid > 0 ? { 'X-Agency-Id': String(aid) } : undefined;
 }
 
+const pastedContacts = computed(() => {
+  try { return parseChartContacts(sectionTexts.contacts); } catch { return []; }
+});
+const suggestedOwnership = computed(() => suggestRecordsContactOwnership(parsedPatientInfo.value, pastedContacts.value, todayCalendarDate()));
+const effectiveContactOwner = computed(() => contactOwner.value || suggestedOwnership.value.owner);
+const eligibleGuardianMatch = computed(() => {
+  if (effectiveContactOwner.value !== 'guardian' || !contactOwnerConfirmed.value) return null;
+  const match = matchingGuardian(parsedPatientInfo.value, pastedContacts.value);
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(match?.contact.email || '') ? match : null;
+});
+const pendingPatientInfo = computed(() => !props.historicalImport && !!sectionTexts.demographics.trim() && status.demographics !== 'imported');
+watch(eligibleGuardianMatch, match => { preparePrimaryGuardian.value = !!match; });
+function reviewPatientInfo() {
+  error.value = 'Confirm who owns the phone and email, then import Patient info before preparing the client’s account.';
+  const control = contactOwnerControl.value?.[0] || contactOwnerControl.value;
+  control?.scrollIntoView?.({ block:'center' });
+  control?.focus?.();
+}
+function chooseContactOwner(owner) {
+  contactOwner.value = owner;
+  contactOwnerConfirmed.value = false;
+}
+function confirmContactOwner(confirmed) {
+  if (confirmed) contactOwner.value = effectiveContactOwner.value;
+  contactOwnerConfirmed.value = confirmed;
+}
+
+async function previewPatientInfo(text, generation) {
+  if (!text.trim() || props.historicalImport) return;
+  try {
+    const { data } = await api.post(`/clients/${props.clientId}/demographics/parse`, { text }, { skipGlobalLoading:true, headers:agencyHeaders() });
+    if (generation === scopeGeneration && text === sectionTexts.demographics) parsedPatientInfo.value = data?.parsed || null;
+  } catch { /* Import reports parsing errors when staff save the section. */ }
+}
+
 function draftValue(key) {
   return { text: sectionTexts[key], metadata: { imported: status[key] === 'imported', needsReview: reviewPending[key] === true,
     ...(key === 'insurance' ? { coverageMode:coverageMode.value,selfPay:{...selfPay.value},position: payerPosition.value, coverageDrafts: { primary: { ...coverageDrafts.primary }, secondary: { ...coverageDrafts.secondary } } } : {}),
-    ...(key === 'demographics' ? { contactOwner: contactOwner.value } : {}),
+    ...(key === 'demographics' ? { contactOwner: contactOwner.value, contactOwnerConfirmed: contactOwnerConfirmed.value, clientClassification:clientClassification.value } : {}),
     ...(key === 'payer' ? { position: payerPosition.value } : {}), ...(key === 'intake' ? { sourceDate: intakeSourceDate.value, sourceAuthor: intakeSourceAuthor.value, serviceCode: intakeServiceCode.value } : key === 'plan' ? { sourceDate: planSourceDate.value, sourceAuthor: planSourceAuthor.value } : {}) } };
 }
 function restoreCoverage(saved, preserve = false) {
@@ -286,7 +349,6 @@ function restoreCoverage(saved, preserve = false) {
   payerPosition.value = active;
   insuranceText.value = coverageDrafts[active].text;
   status.insurance = (coverageMode.value==='no_policy'?insurance?.status==='imported':coverageMode.value==='self_pay'?selfPay.value.imported:coverageDrafts[active].imported) ? 'imported' : 'missing';
-  contactOwner.value = ['client','guardian'].includes(saved?.demographics?.value?.contactOwner) ? saved.demographics.value.contactOwner : props.initialContactOwner;
 }
 async function loadImportedContacts(generation) {
   if (!canPrepareAccounts.value || props.historicalImport) return;
@@ -314,7 +376,8 @@ watch(
     hydratingDrafts = true;
     payerPosition.value = 'primary';
     for (const position of ['primary', 'secondary']) Object.assign(coverageDrafts[position], { text: '', imported: false });
-    importedContacts.value = []; preparePrimaryGuardian.value = true; contactOwner.value = props.initialContactOwner;
+    importedContacts.value = []; preparePrimaryGuardian.value = false; contactOwner.value = props.initialContactOwner;
+    contactOwnerConfirmed.value = props.initialContactOwnerConfirmed; clientClassification.value = props.initialClientClassification; parsedPatientInfo.value = props.initialPatientInfo;
     for (const section of sections) { sectionTexts[section.key] = props.initialTexts[section.key] || ''; status[section.key] = props.recordStatus?.[section.key] || 'missing'; }
     error.value = ''; successMessage.value = ''; stepLog.value = [];
     importedIntakeDraft = null;completionReview.value=false;keepBlankConfirmed.value=false;Object.keys(unlocked).forEach(key=>delete unlocked[key]);
@@ -329,7 +392,12 @@ watch(
     for (const section of sections) if (saved?.[section.key]?.value?.imported && saved[section.key].value.text === sectionTexts[section.key]) status[section.key] = 'imported';
     for (const key of ['intake','plan']) reviewPending[key] = props.historicalImport && status[key] === 'imported' && saved?.[key]?.value?.needsReview === true;
     restoreCoverage(saved);
-    contactOwner.value = saved?.demographics?.value?.contactOwner || props.initialContactOwner;
+    const savedPatientInfo = saved?.demographics?.value;
+    contactOwner.value = (savedPatientInfo?.imported || savedPatientInfo?.contactOwnerConfirmed !== undefined) ? (savedPatientInfo.contactOwner || '') : props.initialContactOwner;
+    contactOwnerConfirmed.value = savedPatientInfo?.contactOwnerConfirmed ?? props.initialContactOwnerConfirmed;
+    clientClassification.value = saved?.demographics?.value?.clientClassification ?? props.initialClientClassification;
+    if (sectionTexts.demographics !== props.initialTexts.demographics) parsedPatientInfo.value = null;
+    if (!parsedPatientInfo.value) void previewPatientInfo(sectionTexts.demographics, generation);
     intakeServiceCode.value = saved?.intake?.value?.serviceCode || props.initialIntakeServiceCode;
     intakeSourceDate.value = saved?.intake?.value?.sourceDate || ''; intakeSourceAuthor.value = saved?.intake?.value?.sourceAuthor || '';
     planSourceDate.value = saved?.plan?.value?.sourceDate || ''; planSourceAuthor.value = saved?.plan?.value?.sourceAuthor || '';
@@ -371,7 +439,21 @@ watch(payerPosition, position => {
   hydratingDrafts = false;
   drafts.schedule('insurance', draftValue('insurance'));
 }, { flush: 'sync' });
-watch(contactOwner, () => { if (!hydratingDrafts) { status.demographics = 'missing'; drafts.schedule('demographics', draftValue('demographics')); } }, { flush: 'sync' });
+watch([contactOwner, contactOwnerConfirmed, clientClassification], () => {
+  if (hydratingDrafts) return;
+  status.demographics = 'missing';
+  drafts.schedule('demographics', draftValue('demographics'));
+}, { flush: 'sync' });
+watch(() => sectionTexts.demographics, (value, previous, onCleanup) => {
+  if (hydratingDrafts || props.historicalImport) return;
+  contactOwner.value = '';
+  contactOwnerConfirmed.value = false;
+  clientClassification.value = '';
+  parsedPatientInfo.value = null;
+  const generation = scopeGeneration;
+  const timer = setTimeout(() => previewPatientInfo(value, generation), 350);
+  onCleanup(() => clearTimeout(timer));
+}, { flush: 'sync' });
 watch([coverageMode,selfPay],()=>{if(!hydratingDrafts){status.insurance='missing';drafts.schedule('insurance',draftValue('insurance'));}},{deep:true,flush:'sync'});
 watch([intakeSourceDate, intakeSourceAuthor], () => { if (hydratingDrafts) return; sourceReviewed.value = false; if (props.historicalImport) { status.intake = 'missing'; importedIntakeDraft = null; } drafts.schedule('intake', draftValue('intake')); }, { flush: 'sync' });
 watch([planSourceDate, planSourceAuthor], () => { if (hydratingDrafts) return; sourceReviewed.value = false; if (props.historicalImport) status.plan = 'missing'; drafts.schedule('plan', draftValue('plan')); }, { flush: 'sync' });
@@ -421,10 +503,19 @@ async function importDemographics() {
   );
   const p = parseRes?.data?.parsed || {};
   assertScope();
+  parsedPatientInfo.value = p;
+  if (!props.historicalImport && (p.email || p.contactPhone) && !contactOwnerConfirmed.value) {
+    reviewPatientInfo();
+    return 'needs_review';
+  }
   await api.post(
     `/clients/${props.clientId}/demographics/import`,
     {
-      contactOwner: contactOwner.value,
+      contactOwner: effectiveContactOwner.value,
+      ...(!props.historicalImport ? {
+        contactOwnerConfirmed:contactOwnerConfirmed.value,
+        recordsContactClassification:clientClassification.value || suggestedOwnership.value.clientClassification
+      } : {}),
       demographics: {
         fullName: p.fullName || '',
         dateOfBirth: p.dateOfBirth || '',
@@ -561,7 +652,6 @@ async function prepareLeave({confirmPending=true,fromCompletion=false}={}) {
   if(confirmPending && unimportedSections.value.length && !busy.value && window.confirm('Some pasted information has not been imported. Import it before leaving? Choose Cancel to keep it as a saved draft.')===true){
     await importAll();if(unimportedSections.value.length)return false;
   }
-  if (historyPanel.value?.prepareLeave?.() === false){error.value='The selected medical history has not been uploaded. Upload it, or confirm that you will select it again later.';return false;}
   await drafts.flush();
   if (Object.values(drafts.state.sections).some(section => section.error) || (drafts.state.loadError && hasAnyPaste.value)) {
     error.value = 'Save the drafts before leaving this client. Retry any draft errors above.';
@@ -580,7 +670,7 @@ defineExpose({ prepareLeave,importAll,reloadAssignments });
 
 async function importSupplementary(key) {
   const result = await api.post(`/clients/${props.clientId}/chart-import/sections/${key}`, { text: sectionTexts[key], ...(['insurance','payer'].includes(key) ? { position: payerPosition.value } : {}),
-    ...(key === 'contacts' ? { preparePrimaryGuardian: canPrepareAccounts.value && preparePrimaryGuardian.value && contactOwner.value === 'guardian' } : {}) }, { skipGlobalLoading: true, headers: agencyHeaders() });
+    ...(key === 'contacts' ? { preparePrimaryGuardian: canPrepareAccounts.value && preparePrimaryGuardian.value && !!eligibleGuardianMatch.value && status.demographics === 'imported' } : {}) }, { skipGlobalLoading: true, headers: agencyHeaders() });
   assertScope();
   if (key === 'insurance') coverageDrafts[payerPosition.value].imported = true;
   status[key] = 'imported';
@@ -669,6 +759,7 @@ async function markDoneOnly() {completionReview.value=true;keepBlankConfirmed.va
 </script>
 
 <style scoped>
+.ehr-contact-review{display:grid;gap:8px;border:1px solid #c7d9eb;border-radius:8px;padding:12px}.ehr-review-needed{border-color:#c49436;background:#fff7e4}.ehr-confirm{display:flex;align-items:center;gap:8px}
 .ehr-imported{padding:12px;background:#eaf8ef;border:1px solid #97cbaa;border-radius:8px;color:#17633a;font-weight:600}.ehr-completion-review{margin-top:20px;padding:20px;border:2px solid #275e96;border-radius:12px;background:#f5f9ff}.ehr-completion-review button{margin:12px 10px 0 0}
 .ehr-finish { margin-top: 16px; }
 .ehr-invitation { border: 0; padding: 0; margin: 0; min-width: 0; }

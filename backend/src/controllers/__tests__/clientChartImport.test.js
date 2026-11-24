@@ -14,7 +14,7 @@ it('prepares the second guardian only from the authorized chart and audit actor'
  const request=req();request.params.affiliationId='51';request.body={actorUserId:999,guardianUserId:999,email:'ignore@example.test'};const response=res(),next=vi.fn();
  m.prepareContactGuardian.mockResolvedValue({portalAccount:{prepared:true,userId:40,invitationSent:false}});
  await prepareChartContactGuardian(request,response,next);
- expect(next).not.toHaveBeenCalled();expect(m.prepareContactGuardian).toHaveBeenCalledExactlyOnceWith({clientId:12,agencyId:2},51,10);
+ expect(next).not.toHaveBeenCalled();expect(m.prepareContactGuardian).toHaveBeenCalledExactlyOnceWith({clientId:12,agencyId:2},51,10,null);
  expect(m.audit).toHaveBeenCalledWith(request,expect.objectContaining({actionType:'client_imported_guardian_account_prepared',metadata:{affiliationId:51,guardianUserId:40,invitationSent:false,accessGranted:false}}));
 });
 it('does not allow provider or out-of-agency account preparation',async()=>{

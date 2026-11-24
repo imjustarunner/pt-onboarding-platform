@@ -732,6 +732,12 @@ class Client {
       }
     }
 
+    // Update import classification alongside the patient fields without replacing other onboarding state.
+    if (['dependent', 'independent'].includes(clientData.recordsContactClassification)) {
+      updates.push("onboarding_docs_json = JSON_SET(COALESCE(onboarding_docs_json, JSON_OBJECT()), '$.recordsContactClassification', ?)");
+      values.push(clientData.recordsContactClassification);
+    }
+
     if (updated_by_user_id !== undefined) {
       updates.push('updated_by_user_id = ?');
       values.push(updated_by_user_id);

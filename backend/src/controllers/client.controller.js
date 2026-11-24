@@ -1848,7 +1848,7 @@ export const createClient = async (req, res, next) => {
       created_by_user_id: userId,
       client_status_id: resolvedClientStatusId,
       ...(recordsImport ? {gender:normalizeAdministrativeSex(req.body.gender || req.body.administrativeSex),date_of_birth:req.body.date_of_birth || null,
-        onboarding_docs_json:JSON.stringify({recordsImport:{status:'pending',revision:0,sections:[],startedAt:new Date().toISOString(),startedByUserId:userId}})} : {}),
+        onboarding_docs_json:JSON.stringify({recordsContactClassification:['dependent','independent'].includes(req.body.recordsContactClassification)?req.body.recordsContactClassification:undefined,recordsImport:{status:'pending',revision:0,sections:[],startedAt:new Date().toISOString(),startedByUserId:userId}})} : {}),
       insurance_type_id: insurance_type_id ? parseInt(insurance_type_id, 10) : null,
       school_year: resolvedClientType === 'school' ? (school_year ? String(school_year).trim() : null) : null,
       grade: normalizeGradeForSave(grade),
@@ -7490,7 +7490,14 @@ export const importClientDemographics = async (req, res, next) => {
       });
     }
 
+    const classification = req.body?.recordsContactClassification;
+    if (classification !== undefined && (!['dependent','independent'].includes(classification) ||
+        ((parsed.email || parsed.contactPhone) && (req.body?.contactOwnerConfirmed !== true || !['client','guardian'].includes(req.body?.contactOwner))))) {
+      return res.status(400).json({ error:{ message:'Confirm who owns the phone and email in Patient info before importing.' } });
+    }
     const patch = demographicsToClientPatch(parsed);
+    if (classification) patch.recordsContactClassification = classification;
+    if (req.body?.contactOwner === 'client') parsed.contactOwner = 'client';
     if (req.body?.contactOwner === 'guardian') {
       const current = await Client.findById(clientId, { includeSensitive: true });
       applyGuardianContactOwnership(parsed, patch, current);
