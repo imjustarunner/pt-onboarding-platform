@@ -1,9 +1,6 @@
 <template>
-  <main class="request-page">
-    <header>
-      <img src="/auricwell/mark.svg" alt="" width="42" height="42" />
-      <div><strong>AuricWell</strong><p v-if="session?.branding?.name">{{ session.branding.name }}</p></div>
-    </header>
+  <main class="request-page" :style="{'--recipient-accent':session?.branding?.color||'#235883'}">
+    <ClinicalRecipientBrand v-if="!selected || selected.type!=='form'" class="request-brand" :branding="session?.branding" />
     <section v-if="!session" class="welcome">
       <h1>Secure document request</h1>
       <p v-if="token">Open the request from your care team. You can complete it here without a portal account.</p>
@@ -26,7 +23,7 @@
           <p v-if="editing">Complete the fields below, then sign to submit your form.</p>
           <SafetyPlanDocument ref="documentView" :model-value="editing ? answers : selected.plan.data"
             :editable="editing" :lock-client="editing" :omit-empty="!editing" :template="selected.plan.template"
-            :branding="selected.plan.branding" :version="selected.plan.version" :signers="selected.plan.signers"
+            :branding="selected.plan.branding || session.branding" :version="selected.plan.version" :signers="selected.plan.signers"
             @update:model-value="answers=$event" />
           <ClinicalDocumentCopy v-if="!editing && (selected.completed || selected.action==='view')" :document-element="()=>documentView?.$el" />
           <p v-if="selected.plan.revocation" role="status">This authorization has been revoked.</p>
@@ -75,6 +72,7 @@ import {computed,onMounted,ref} from 'vue';
 import SafetyPlanDocument from '../../components/safetyPlans/SafetyPlanDocument.vue';
 import SafetyPlanSigning from '../../components/safetyPlans/SafetyPlanSigning.vue';
 import ClinicalDocumentCopy from '../../components/safetyPlans/ClinicalDocumentCopy.vue';
+import ClinicalRecipientBrand from '../../components/safetyPlans/ClinicalRecipientBrand.vue';
 
 const base='/api/public/clinical-document-requests';
 const token=ref(''),session=ref(null),selected=ref(null),selectedId=ref(null),documentView=ref(null);
@@ -144,8 +142,8 @@ onMounted(async()=>{
 
 <style scoped>
 .request-page{max-width:56rem;margin:0 auto;padding:2rem 1.25rem;color:#142d50}
-header{display:flex;gap:.75rem;align-items:center;margin-bottom:1.5rem}header p{margin:.2rem 0 0}
+.request-brand{margin-bottom:1.5rem}.request-page h1{font-size:clamp(1.5rem,4vw,2rem)}
 .welcome,.treatment{border:1px solid #cfdae7;border-radius:.8rem;padding:1.4rem;background:#fff}
-nav{display:flex;flex-wrap:wrap;gap:.6rem;margin-bottom:1rem}nav button[aria-pressed=true]{outline:2px solid #16457c}
+nav{display:flex;flex-wrap:wrap;gap:.6rem;margin-bottom:1rem}nav button[aria-pressed=true]{outline:2px solid var(--recipient-accent)}
 [role=alert]{color:#8e2b22}.treatment h2{margin-top:0}.request-page>a{display:inline-block;margin-top:1.1rem}
 </style>

@@ -1,3 +1,4 @@
+import { isAuricwellQaAgency } from '../utils/auricwellQaPolicy.js';
 import { nluTutoringQaMailDomain } from '../utils/nluTutoringQaPolicy.js';
 /**
  * Tenant shared message mailboxes: messages@{domain} and securemessage@{domain}.
@@ -23,6 +24,7 @@ export async function inferAgencyMailDomain(agencyId) {
       `SELECT id,slug,is_active,is_archived,organization_type,feature_flags FROM agencies WHERE id = ? LIMIT 1`,
       [agencyId]
     );
+    if(isAuricwellQaAgency(rows?.[0]))return 'itsco.health';
     const managed = rows?.[0] && managedDomain(rows[0]);
     if (managed) return managed;
     const qaDomain = nluTutoringQaMailDomain(rows?.[0]);

@@ -57,10 +57,10 @@ it('opens a guest request only after the recipient acts and removes the credenti
   const fetch=vi.fn().mockResolvedValueOnce(response({ready:true})).mockResolvedValueOnce(response({
     branding:{name:'Synthetic Agency'},items:[{id:6,title:'Release of information',action:'complete',completed:false}]
   })).mockResolvedValueOnce(response({
-    type:'form',action:'complete',completed:false,plan:{version:1,template:{title:'Release of information',key:'release-of-information',sections:[]},data:{personLabel:'Synthetic client'}}
+    type:'form',action:'complete',completed:false,plan:{version:1,branding:{name:'Synthetic Agency'},template:{title:'Release of information',key:'release-of-information',sections:[]},data:{personLabel:'Synthetic client'}}
   }));
   vi.stubGlobal('fetch',fetch);
-  wrapper=mount(RequestView,{global:{stubs:{SafetyPlanDocument:true,SafetyPlanSigning:true}}});
+  wrapper=mount(RequestView,{global:{stubs:{SafetyPlanDocument:{props:['branding'],template:'<section>AuricWell · {{ branding.name }}</section>'},SafetyPlanSigning:true}}});
   await flushPromises();
   expect(fetch).not.toHaveBeenCalled();
   expect(location.hash).toBe('');

@@ -37,6 +37,8 @@
         </div>
       </header>
 
+      <p v-if="documentTestNotice" role="status">{{ documentTestNotice }}</p>
+      <p v-if="documentTestError" role="alert">{{ documentTestError }}</p>
       <div class="pct-toolbar">
         <button v-if="!profileEmbed && currentUserId && currentUserId === Number(authStore.user?.id)"
           type="button" class="pct-btn pct-btn--ghost" title="Email my clients" aria-label="Email my clients"
@@ -44,6 +46,8 @@
           <span aria-hidden="true">✉</span>
         </button>
         <PostClientToExchangeButton v-if="!profileEmbed" />
+        <button v-if="canCreateDocumentTestCharts" class="pct-btn pct-btn--ghost" type="button" :disabled="creatingDocumentTestCharts"
+          @click="createDocumentTestCharts">{{ creatingDocumentTestCharts?'Preparing test clients…':'Create document test clients' }}</button>
         <button v-if="!profileEmbed && agencyId" class="pct-btn pct-btn--ghost" @click="showNewReferral = true">New exchange referral</button>
         <router-link v-if="!profileEmbed" class="pct-btn pct-btn--ghost" :to="{ path: `${route.params?.organizationSlug ? '/' + route.params.organizationSlug : ''}/admin/clients`, query: { new: '1' } }">Add client</router-link>
         <template v-if="activeSection === 'school'">
@@ -752,6 +756,19 @@ const currentUserId = computed(() => {
 });
 
 const actorRole = computed(() => String(authStore.user?.role || '').toLowerCase());
+const canCreateDocumentTestCharts=computed(()=>!props.profileEmbed&&Number(agencyId.value)===450&&
+  Number(currentUserId.value)===Number(authStore.user?.id)&&['provider','provider_plus','supervisor','intern','intern_plus'].includes(actorRole.value));
+const creatingDocumentTestCharts=ref(false),documentTestNotice=ref(''),documentTestError=ref('');
+async function createDocumentTestCharts(){
+  if(!canCreateDocumentTestCharts.value||creatingDocumentTestCharts.value)return;
+  creatingDocumentTestCharts.value=true;documentTestNotice.value='';documentTestError.value='';
+  try{
+    const {data}=await api.post('/clinical-document-requests/qa-fixtures',{});
+    documentTestNotice.value=(data.charts||[]).map(chart=>chart.name).join(', ')+' are assigned to you. Sample emails go to testing@itsco.health.';
+    await loadOfficeClients();
+  }catch(e){documentTestError.value=e.response?.data?.error?.message||'The test clients could not be prepared.';}
+  finally{creatingDocumentTestCharts.value=false;}
+}
 const canEhrPatientImport = computed(
   () =>
     props.profileEmbed === true &&

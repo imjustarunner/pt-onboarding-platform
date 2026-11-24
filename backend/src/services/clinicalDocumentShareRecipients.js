@@ -1,3 +1,4 @@
+import {documentEmailPolicy} from './clinicalDocumentShareQa.js';
 import directory from '../config/database.js';
 import Client from '../models/Client.model.js';
 import { ageOn } from './guardianClinicalAccess.service.js';
@@ -90,7 +91,7 @@ export async function documentTextDelivery({agencyId, clientId, recipient, body}
 }
 
 export async function documentDeliveryOptions(item,recipient) {
-  const email = recipient.email && (await familyNotificationDeliveryGate({agencyId:item.agency_id,clientId:item.client_id,
+  const email = recipient.email && (await documentEmailPolicy({agencyId:item.agency_id,clientId:item.client_id,recipient})).allowed && (await familyNotificationDeliveryGate({agencyId:item.agency_id,clientId:item.client_id,
     to:recipient.email,channel:'email',notificationCategory:'documents'})).allowed;
   let sms = false;
   if (recipient.phone) {

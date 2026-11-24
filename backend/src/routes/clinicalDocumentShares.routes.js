@@ -23,6 +23,7 @@ const sendPdf = handler => async(req,res) => {
 
 const staff=Router();
 staff.use(secure,authenticate,requireClinicalStaffSecurity);
+staff.post('/qa-fixtures',json(async req=>(await import('../services/clinicalDocumentTestCharts.service.js')).createClinicalDocumentTestCharts(req.user)));
 staff.get('/clients/:id/filed-files/:itemId',sendPdf(req=>shares.readFiledRequestFile(req.user,req.params.id,req.params.itemId)));
 staff.get('/clients/:id',json(req=>shares.listDocumentRequests(req.user,req.params.id)));
 staff.get('/clients/:id/related',json(req=>shares.documentShareRelatedClients(req.user,req.params.id,req.query.agencyId,req.query.recipient)));

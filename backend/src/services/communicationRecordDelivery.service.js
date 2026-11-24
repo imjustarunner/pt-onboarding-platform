@@ -16,13 +16,13 @@ export async function sendCommunicationRecord(comm,meta,userId,{attachments=null
   if(meta.isSiblingMirror)throw Object.assign(new Error('This is a history copy of the family email. Review or retry the original communication instead.'),{status:409});
   if(meta.privateDocumentDeliveryId){
     const {assertDocumentEmailRetry,recordDocumentEmailRetry}=await import('./clinicalDocumentShares.service.js');
-    await assertDocumentEmailRetry(meta.privateDocumentDeliveryId,comm.agency_id,comm.recipient_address);
+    const {testInbox}=await assertDocumentEmailRetry(meta.privateDocumentDeliveryId,comm.agency_id,comm.recipient_address);
     const body=JSON.parse(maybeDecryptNotePayload(meta.privateDocumentEnvelope));
     const result=await sendEmailFromIdentity({senderIdentityId:meta.senderIdentityId,to:comm.recipient_address,
       subject:comm.subject,text:body.text,html:body.html,clientId:comm.client_id,userId:comm.user_id,
       templateType:comm.template_type,generatedByUserId:userId,existingCommunicationId:comm.id,
-      privateDocumentDeliveryId:meta.privateDocumentDeliveryId,replyToOverride:meta.replyTo,fromDisplayNameOverride:meta.fromDisplayName});
-    if(result?.id&&!result.redirected)await recordDocumentEmailRetry(meta.privateDocumentDeliveryId,result.id);
+      privateDocumentDeliveryId:meta.privateDocumentDeliveryId,qaDocumentRedirect:testInbox,replyToOverride:meta.replyTo,fromDisplayNameOverride:meta.fromDisplayName});
+    if(result?.id&&(!result.redirected||testInbox))await recordDocumentEmailRetry(meta.privateDocumentDeliveryId,result.id);
     return result;
   }
   const subject=String(comm.subject||'').trim(),body=String(comm.body||'').trim(),looksLikeHtml=/<[a-z][\s\S]*>/i.test(body);

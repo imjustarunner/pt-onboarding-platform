@@ -2,7 +2,11 @@ import {expect,it,vi} from 'vitest';
 import {sendDocumentDelivery} from '../clinicalDocumentShareDelivery.js';
 import {matchReleaseContact} from '../safetyPlans/releaseFiling.js';
 
-const mocks=vi.hoisted(()=>({send:vi.fn(),sms:vi.fn(),notifyre:vi.fn()}));
+const mocks=vi.hoisted(()=>({send:vi.fn(),sms:vi.fn(),notifyre:vi.fn(),emailPolicy:vi.fn()}));
+vi.mock('../clinicalDocumentShareQa.js',async importOriginal=>({
+  ...await importOriginal(),documentEmailPolicy:mocks.emailPolicy,
+  qaDocumentFormsMailbox:async()=>({forms:{id:93},domain:'itsco.health'})
+}));
 vi.mock('../clientPortalEmail.service.js',()=>({clientEmailContext:async()=>({
   url:path=>'https://auricwell.com/synthetic/'+path,
   portal:{slug:'synthetic',clinical_portal:true},
@@ -18,6 +22,7 @@ const recipient={name:'Synthetic Parent',kind:'guardian',email:'parent@example.i
 const params={agencyId:2,clientId:41,recipient,actorId:8,deliveryId:31,token:'a'.repeat(64)};
 
 it('uses the agency forms sender, staffed reply address and account CTA in one co-branded email',async()=>{
+  mocks.emailPolicy.mockResolvedValueOnce({allowed:true,testInbox:false});
   mocks.send.mockResolvedValueOnce({id:'sent-message'});
   const outcome=await sendDocumentDelivery({...params,channel:'email'});
   expect(outcome).toEqual({state:'sent',reference:'sent-message'});
@@ -44,4 +49,29 @@ it('matches the named ROI contact without merging conflicting household details'
   expect(matchReleaseContact([contact],{recipientName:'Synthetic Recipient',recipientPhone:'303-555-0100'})).toEqual({state:'linked',affiliationId:9});
   expect(matchReleaseContact([contact],{recipientName:'Another Person',recipientEmail:contact.contact_email})).toEqual({state:'needs_review'});
   expect(matchReleaseContact([],{recipientName:'Synthetic Recipient'})).toEqual({state:'new'});
+});
+
+it('keeps the link usable only for a verified testing-group transport receipt',async()=>{
+  mocks.emailPolicy.mockResolvedValue({allowed:true,testInbox:true});
+  const fake={...recipient,email:'qa.document.fixture@example.com'};
+  mocks.send.mockResolvedValueOnce({id:'qa-accepted',redirected:true,
+    testInboxRedirect:{agencyId:450,deliveredTo:['testing@itsco.health']}});
+  expect(await sendDocumentDelivery({...params,agencyId:450,recipient:fake,channel:'email'})).toEqual({state:'sent',reference:'qa-accepted'});
+  expect(mocks.send).toHaveBeenLastCalledWith(expect.objectContaining({to:fake.email,qaDocumentRedirect:true,
+    replyToOverride:'testing@itsco.health',senderIdentityId:93}));
+  mocks.send.mockResolvedValueOnce({id:'wrong-recipient',redirected:true,
+    testInboxRedirect:{agencyId:450,deliveredTo:['different@example.invalid']}});
+  expect(await sendDocumentDelivery({...params,agencyId:450,recipient:fake,channel:'email'})).toEqual({state:'failed'});
+});
+
+it('rejects test-mail delivery for real charts and for non-example addresses in the QA tenant',async()=>{
+  const {documentEmailPolicy}=await vi.importActual('../clinicalDocumentShareQa.js');
+  const db={execute:vi.fn()};
+  const chart={id:450,slug:'auricwell-qa-demo',feature_flags:{qaSandbox:{syntheticOnly:true}},is_demo:1};
+  db.execute.mockResolvedValueOnce([[{...chart,is_demo:0}]]);
+  const synthetic={...recipient,email:'synthetic@example.com'};
+  expect(await documentEmailPolicy({agencyId:450,clientId:41,recipient:synthetic},db)).toMatchObject({allowed:false});
+  expect(await documentEmailPolicy({agencyId:450,clientId:41,recipient},db)).toMatchObject({allowed:false});
+  db.execute.mockResolvedValueOnce([[chart]]).mockResolvedValueOnce([[{id:20}]]);
+  expect(await documentEmailPolicy({agencyId:450,clientId:42,recipient:synthetic},db)).toEqual({allowed:true,testInbox:true});
 });

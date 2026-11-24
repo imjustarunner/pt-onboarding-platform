@@ -8,7 +8,7 @@
         <div><strong>{{ request.recipient || 'Recipient' }}</strong><span> · {{ date(request.createdAt) }}</span></div>
         <div>
           <span>{{ request.revokedAt ? 'Revoked' : request.items.filter(item=>item.completed).length+' of '+request.items.length+' completed' }}</span>
-          <span v-if="request.deliveries.length"> · {{ latest(request.deliveries).map(delivery=>channelName(delivery.channel)+' '+stateName(delivery.state)).join(' · ') }}</span>
+          <span v-if="request.deliveries.length"> · {{ latest(request.deliveries).map(delivery=>channelName(delivery.channel)+' '+(delivery.redirectedTo?'sent to '+delivery.redirectedTo:stateName(delivery.state))).join(' · ') }}</span>
         </div>
         <div v-if="!request.revokedAt && request.items.some(item=>!item.completed)" class="actions">
           <button v-for="delivery in latest(request.deliveries).filter(d=>d.channel!=='portal' && d.state!=='sending')"

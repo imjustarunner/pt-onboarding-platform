@@ -17,7 +17,7 @@
               <strong>{{ request.recipient }}</strong>
               <span v-if="request.portal">Available in portal</span>
               <span v-if="request.error">{{ request.error }}</span>
-              <span v-for="delivery in request.deliveries" :key="delivery.id">{{ channelLabel(delivery.channel) }} · {{ stateLabel(delivery.state) }}</span>
+              <span v-for="delivery in request.deliveries" :key="delivery.id">{{ channelLabel(delivery.channel) }} · {{ delivery.redirectedTo ? 'Sent to '+delivery.redirectedTo : stateLabel(delivery.state) }}</span>
             </li>
           </ul>
           <button class="btn btn-primary" type="button" @click="close">Done</button>

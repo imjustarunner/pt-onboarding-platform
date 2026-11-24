@@ -1,3 +1,4 @@
+import { QA_EMAIL_INBOX } from '../../utils/qaEmailPolicy.js';
 import { maybeEncryptNotePayload as encryptPrivateRequest } from '../clinicalNoteCrypto.service.js';
 import { blockDemoExchangeEmail } from '../clientExchangeDemo.service.js';
 import { assertInternalEmailRecipients } from '../internalEmailRecipients.service.js';
@@ -1062,7 +1063,8 @@ export async function sendEmailFromIdentity({
   reviewedCancellationToken = null,
   reviewedCancellationItemKey = null,
   blindClientRecipient = false,
-  privateDocumentDeliveryId = null
+  privateDocumentDeliveryId = null,
+  qaDocumentRedirect = false
 }) {
   if (templateType === 'vacation_auto_reply' && (!afterHoursReplyContext || !await eligibleVacationReply({...afterHoursReplyContext,ownerUserId:generatedByUserId,fromEmail:to}))) return {skipped:true,reason:'vacation_reply_not_allowed'};
   if (templateType === 'client_ooo_auto_reply' && (!afterHoursReplyContext || !await eligibleClientAfterHoursReply({ ...afterHoursReplyContext, ownerUserId: generatedByUserId, fromEmail: to }))) return { skipped: true, reason: 'after_hours_reply_not_allowed' };
@@ -1323,6 +1325,11 @@ export async function sendEmailFromIdentity({
     userId: resolvedUserId,
     clientId
   });
+  if(isPrivateDocument&&(redirected.redirected||qaDocumentRedirect)){
+    const expected=qaDocumentRedirect&&redirected.redirected&&Number(identity.agency_id)===450&&redirected.to===QA_EMAIL_INBOX
+      &&!redirected.cc&&!redirected.bcc;
+    if(!expected)return {skipped:true,reason:'document_link_recipient_redirect_blocked'};
+  }
   const redirectMeta = redirected.redirected
     ? buildTestInboxRedirectMetadata({ originalTo: redirected.originalTo, deliveredTo: redirected.to })
     : {};

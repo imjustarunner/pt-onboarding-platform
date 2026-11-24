@@ -1,3 +1,4 @@
+import {documentEmailPolicy} from './clinicalDocumentShareQa.js';
 import {createHash,randomBytes} from 'node:crypto';
 import dbPool from '../config/clinicalDatabase.js';
 import directory from '../config/database.js';
@@ -215,11 +216,14 @@ export async function assertDocumentEmailRetry(deliveryId,agencyId,email) {
   if(!delivery)fail(410,'This delivery expired or was used. Open Sharing activity to issue a new link.');
   const request=await requestFor(dbPool,delivery.request_id);
   if(Number(request.agency_id)!==Number(agencyId)||request.revoked_at)fail(410,'This delivery is no longer available.');
+  let testInbox=false;
   for(const row of await itemsFor(dbPool,request)){
     const {recipient}=await checkedItem(dbPool,request,delivery,row.id);
     if(recipient.email!==String(email||'').trim().toLowerCase()||!(await documentDeliveryOptions(row,recipient)).email)
       fail(409,'The recipient’s contact details or document preferences changed.');
+    testInbox=(await documentEmailPolicy({agencyId:row.agency_id,clientId:row.client_id,recipient})).testInbox;
   }
+  return {testInbox};
 }
 
 export async function recordDocumentEmailRetry(deliveryId,reference) {
@@ -227,9 +231,10 @@ export async function recordDocumentEmailRetry(deliveryId,reference) {
 }
 
 async function receipts(requestId) {
-  const [rows]=await dbPool.execute(`SELECT id,channel,
-    IF(state='sending' AND created_at<DATE_SUB(UTC_TIMESTAMP(),INTERVAL 2 MINUTE),'unconfirmed',state) AS state,
-    created_at,opened_at,revoked_at FROM clinical_document_request_deliveries WHERE request_id=? ORDER BY id DESC`,[requestId]);
+  const [rows]=await dbPool.execute(`SELECT d.id,d.channel,
+    IF(r.agency_id=450 AND d.channel IN ('email','portal') AND d.state='sent','testing@itsco.health',NULL) AS redirectedTo,
+    IF(state='sending' AND d.created_at<DATE_SUB(UTC_TIMESTAMP(),INTERVAL 2 MINUTE),'unconfirmed',state) AS state,
+    d.created_at,d.opened_at,d.revoked_at FROM clinical_document_request_deliveries d JOIN clinical_document_requests r ON r.id=d.request_id WHERE d.request_id=? ORDER BY d.id DESC`,[requestId]);
   return rows;
 }
 
