@@ -7,7 +7,7 @@ vi.mock('../../config/database.js',()=>({default:{execute:(...a)=>m.pool.execute
 vi.mock('../transitionWorkspace.service.js',()=>({transitionWorkspaceData:async()=>({people:[]})}));
 vi.mock('../meetingRecipientIdentity.service.js',()=>({resolveMeetingRecipient:async({user})=>({email:user.work_email||user.email})}));
 vi.mock('../meetingInvitations.service.js',()=>({personalMeetingInvitation:vi.fn()}));
-import {createEvent,upsertClaim,transitionClaimRate,recordTransitionInboxSetup} from '../transitionMeetingSequenceLive.service.js';
+import {createEvent,upsertClaim,transitionClaimRate,recordTransitionInboxSetup,verifiedTransitionDeliveryReceipt} from '../transitionMeetingSequenceLive.service.js';
 const port=Number(process.env.TRANSITION_SEQUENCE_TEST_MYSQL_PORT);
 describe.skipIf(!port)('native MySQL transition runtime',()=>{
  let admin,name,oldKey;
@@ -43,5 +43,9 @@ describe.skipIf(!port)('native MySQL transition runtime',()=>{
  it('encrypts setup evidence and appends automation-attributed snapshots without inventing a human actor',async()=>{
   await recordTransitionInboxSetup({address:'transitions@auricwell.com',roundTripVerified:true,senderIdentityId:8});await recordTransitionInboxSetup({address:'transitions@auricwell.com',roundTripVerified:true,senderIdentityId:8});
   const [[r]]=await m.pool.execute('SELECT payload_json,automation_subject,revision FROM transition_meeting_sequences');expect(JSON.stringify(r.payload_json)).not.toContain('roundTripVerified');expect(r.revision).toBe(1);const [[audit]]=await m.pool.execute('SELECT actor_type,actor_user_id FROM transition_meeting_sequence_audit');expect(audit).toEqual({actor_type:'automation',actor_user_id:null});
+ });
+ it('persists the actually delivered RFC thread identity and never treats held, redirected or uncertain sends as delivery',()=>{
+  const action={internetMessageId:'<requested@example.test>'};expect(verifiedTransitionDeliveryReceipt({id:'receipt',internetMessageId:'<actual@example.test>'},action)).toEqual({status:'sent',reference:'email:receipt'});expect(action.internetMessageId).toBe('<actual@example.test>');
+  for(const result of [{},{id:'r',pendingApproval:true},{id:'r',redirected:true},{id:'r',queued:true},{id:'r',blocked:true},{id:'r',skipped:true}])expect(()=>verifiedTransitionDeliveryReceipt(result,action)).toThrow('unconfirmed');
  });
 });
