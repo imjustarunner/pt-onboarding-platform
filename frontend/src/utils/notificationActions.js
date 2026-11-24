@@ -89,6 +89,7 @@ export function notificationDestination(notification, { organizationSlug = null,
   if (n.type === 'escalation_mention' || (entityType === 'escalation' && entityId)) {
     return `${base}/admin/escalations${entityId ? `?id=${entityId}` : ''}`;
   }
+  if (n.type === 'support_ticket_created' && n.actor_source === 'Plotline support form' && entityId) return `/tickets?targetScope=platform&status=open&ticketId=${entityId}`;
   if (n.type === 'support_ticket_created' || (n.type === 'support_safety_net_alert' && entityType === 'support_ticket')) return `${base}/tickets${entityId ? `?status=open&ticketId=${entityId}` : ''}`;
   if (n.type === 'support_ticket_forwarded_to_provider' && entityType === 'client' && entityId) {
     return { path: `${base}/dashboard`, query: { clientId: String(entityId) } };

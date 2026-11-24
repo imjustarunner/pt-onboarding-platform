@@ -116,6 +116,7 @@ export function sanitizeRequestBody(body) {
 
 export function redactPrivateBillingUrl(value) {
   const url = String(value || '');
+  if (/\/public\/hiring\/reference\//.test(url)) return url.replace(/(\/public\/hiring\/reference\/(?:open\/)?)[^/?#]+/g,'$1[REDACTED]').split(/[?#]/)[0];
   if (/\/tutoring\/invite\//.test(url)) return url.replace(/(\/tutoring\/invite\/)[^/?#]+/g,'$1[REDACTED]').split(/[?#]/)[0];
   if (/\/(?:secure-session-comments|secure-family-sharing-notice)(?:\/|[?#]|$)/.test(url)) return url.split(/[?#]/)[0] + (/[?#]/.test(url) ? '?[REDACTED]' : '');
   if(/^\/(?:api\/)?(?:chat|chats|messages|guardian-portal\/(?:messages|emails)|dependent-portal\/messages|quick-view\/messages)(?:\/|[?#]|$)/.test(url)) return url.split(/[?#]/)[0]+(/[?#]/.test(url)?'?[REDACTED]':'');

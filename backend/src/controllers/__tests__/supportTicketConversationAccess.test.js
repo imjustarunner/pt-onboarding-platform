@@ -32,3 +32,15 @@ it('previews only passive bytes using the same own-ticket and internal-message c
 it.each([{created_by_user_id:99},{school_organization_id:452},{agency_id:999}])('does not preview a private source outside the requesting creator/school/agency: %j',async patch=>{Object.assign(ticket,patch);const next=vi.fn();await viewSupportTicketAttachment(req(),res(),next);expect(next).toHaveBeenCalledWith(expect.objectContaining({status:403}));expect(readTicketAttachmentBuffer).not.toHaveBeenCalled();});
 it('does not expose internal-message bytes through the inline preview route',async()=>{internal=1;getTicketAttachmentRow.mockResolvedValue({id:1,ticket_id:553,support_ticket_message_id:5});const response=res();await viewSupportTicketAttachment(req(),response,vi.fn());expect(response.status).toHaveBeenCalledWith(404);expect(readTicketAttachmentBuffer).not.toHaveBeenCalled();});
 it('refuses active content on inline preview while preserving the separate download response',async()=>{getTicketAttachmentRow.mockResolvedValue({id:1,ticket_id:553,file_name:'pretend.pdf'});readTicketAttachmentBuffer.mockResolvedValueOnce(Buffer.from('<html>active</html>'));const response=res();await viewSupportTicketAttachment(req(),response,vi.fn());expect(response.status).toHaveBeenCalledWith(415);expect(response.send).not.toHaveBeenCalled();readTicketAttachmentBuffer.mockResolvedValueOnce(Buffer.from('<html>active</html>'));const download=res();await downloadSupportTicketAttachment(req(),download,vi.fn());expect(download.setHeader).toHaveBeenCalledWith('Content-Disposition','attachment; filename="pretend.pdf"');});
+
+
+it('keeps Plotline platform support private even from a hiring-company admin or an assigned but revoked owner',async()=>{
+ Object.assign(ticket,{agency_id:1,school_organization_id:1,created_by_user_id:null,claimed_by_user_id:7,created_by_source_key:'plotline_platform_support',target_scope:'platform'});User.getAgencies.mockResolvedValue([{id:1}]);Agency.findById.mockResolvedValue({id:1});
+ await expect(authorizeSupportTicketConversation({user:{id:7,role:'admin'}},ticket)).rejects.toHaveProperty('status',403);
+ await expect(authorizeSupportTicketConversation({user:{id:7,role:'super_admin'}},ticket)).rejects.toHaveProperty('status',403);
+});
+it('allows an active platform supporter to open a Plotline support ticket without employer hiring access',async()=>{
+ Object.assign(ticket,{agency_id:1,school_organization_id:1,created_by_user_id:null,created_by_source_key:'plotline_platform_support',target_scope:'platform'});Agency.findById.mockResolvedValue({id:1});User.getAgencies.mockResolvedValue([]);
+ const original=pool.execute.getMockImplementation();pool.execute.mockImplementation(async(sql,values)=>sql.includes('SELECT has_platform_support')?[[{has_platform_support:1}]]:sql.startsWith('SELECT id FROM users WHERE')?[[{id:7}]]:original(sql,values));
+ await expect(authorizeSupportTicketConversation({user:{id:7,role:'support'}},ticket)).resolves.toMatchObject({role:'support'});
+});

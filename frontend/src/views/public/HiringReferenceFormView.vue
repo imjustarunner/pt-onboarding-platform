@@ -11,6 +11,7 @@
       <img v-if="employerLogoUrl" :src="employerLogoUrl" :alt="meta.agencyName + ' logo'" />
       <div><strong>{{ meta.agencyName }}</strong><span>People Operations</span></div>
       <a v-if="contactHref" :href="contactHref">Contact {{ meta.contact?.teamLabel || 'People Operations' }}</a>
+      <a v-if="supportHref" :href="supportHref" target="_blank" rel="noopener noreferrer">Contact Plotline Support</a>
     </div>
     <div class="reference-layout">
       <aside class="reference-aside">
@@ -95,6 +96,10 @@ const loadError = ref('');
 const meta = ref(null);
 const employerLogoUrl = computed(() => /^https:\/\//i.test(meta.value?.branding?.logoUrl || '') ? meta.value.branding.logoUrl : '');
 const employerColor = computed(() => /^#[a-f0-9]{6}$/i.test(meta.value?.branding?.colorPalette?.primary || '') ? meta.value.branding.colorPalette.primary : '#dbe2dc');
+const supportHref = computed(() => {
+  const url = String(meta.value?.contact?.supportUrl || '');
+  return /^https:\/\/plotlinepo\.com\/(?:support|public\/hiring\/reference\/[a-f0-9]{64}\/support)$/.test(url) ? url : '';
+});
 const contactHref = computed(() => {
   const email = String(meta.value?.contact?.email || '').trim();
   return /^[^\s@<>";,?:]+@[^\s@<>";,?:]+\.[^\s@<>";,?:]+$/.test(email) ? `mailto:${encodeURIComponent(email).replace(/%40/g, '@')}` : '';
@@ -111,7 +116,7 @@ const form = reactive({ questionnaireVersion: 2, referenceName: '', referenceEma
 
 const formatExp = (iso) => {
   const d = new Date(iso);
-  return Number.isFinite(d.getTime()) ? d.toLocaleString() : iso;
+  return Number.isFinite(d.getTime()) ? d.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric',timeZone:'UTC'}) : iso;
 };
 
 onMounted(async () => {

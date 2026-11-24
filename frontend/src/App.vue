@@ -1,6 +1,7 @@
 <template>
   <PlotlineSessionBoundary v-if="plotlinePrivateSession && route.name !== 'EmploymentNotice'" />
   <router-view v-if="route.name === 'EmploymentNotice'" />
+  <router-view v-else-if="route.meta?.plotlineSupport" />
   <router-view v-else-if="route.meta?.tutoringGuest" />
   <TutoringHubBoundary v-else-if="sessionHubSurface"><router-view /></TutoringHubBoundary>
   <router-view v-else-if="route.meta?.guestPaymentSurface" :key="route.fullPath" />
@@ -57,7 +58,7 @@ const publicRecoveryNames = new Set(['SessionEnded', 'OrganizationSessionEnded']
 // Keep that same form mounted until navigation, including its retry/error state.
 const publicLoginSurface = computed(() => publicEnrollmentNames.has(route.name) || publicRecoveryNames.has(route.name) || publicLoginNames.has(route.name)
   || (!auth.isAuthenticated && schoolPortalEntryNames.has(route.name)));
-const plotlinePrivateSession=computed(()=>auth.isAuthenticated && !assistantSurface.value && !publicLoginSurface.value
+const plotlinePrivateSession=computed(()=>!route.meta?.plotlineSupport && auth.isAuthenticated && !assistantSurface.value && !publicLoginSurface.value
   && !['client','guardian','client_guardian'].includes(String(auth.user?.role || '').toLowerCase())
   && (route.meta?.plotlineEntry===true || !!plotlineCompany.value || plotlineInterview.value || companyScope.locked.value));
 </script>

@@ -1,0 +1,94 @@
+PLOTLINE REFERENCE EMAIL AND PLATFORM SUPPORT RETEST — NOVEMBER 24, 2026
+
+This is an implementation handoff and next-run test, not a live QA result.
+Keep the previous reference, interview and hiring findings open until retested.
+
+OWNERSHIP
+- Product: Plotline — A People Operations Platform.
+- Current platform operator: PlotTwistCo. Platform support tickets belong to
+  its platform queue, not Juniper/Maple/ITSCO's hiring or HR department.
+- Initial owner: Michael Mendez, resolved only when exactly one active account
+  already has platform support authority. No permission is granted by name.
+- A configured product owner replaces that fallback. Revoked, inactive or
+  ambiguous ownership blocks new submissions; it never falls back to Jordan,
+  a hiring manager or the submitting visitor.
+- The existing ticket desk displays the assignee, automatic routing history,
+  messages and delivery evidence; platform staff can use its existing reassignment
+  control. Platform access is checked independently of hiring-company access.
+- platform_support_products separates product, operator and default owner.
+  Changing the operator for a future independent Plotline entity must not
+  rewrite ownership, actors or historical tickets already received.
+
+RELEASE REQUIREMENTS
+- Main database migration 1880_plotline_platform_support.sql, backend and
+  frontend must be coordinated. The migration creates the product directory
+  and an idempotency ledger; it performs no guardian/applicant cleanup.
+- Initial operator agency 1 follows the existing PlotTwistCo platform operator
+  used for product support. Verify that mapping and Michael's current platform
+  access through an authorized operational path before release. Set an explicit
+  default_owner_user_id if needed; do not create or elevate an application identity.
+- Ticket encryption must work; production submissions fail closed without it.
+- The operator needs an active, validated support/general/info email identity
+  to reply. Employer PO or personal addresses must not be substituted.
+- Generic plotlinepo.com/support requires the configured production reCAPTCHA
+  key to allow plotlinepo.com and action plotline_support. Never disable global
+  CAPTCHA or use a public QA flag to bypass it.
+- A valid, unexpired reference invitation can open its bound support form without
+  repeating CAPTCHA. It conveys no app session or permission to view answers.
+- No migration, live ticket, real email or production business setting was
+  changed in this implementation run. Production and inbox verification remain
+  for the release/QA run. Do not report local mocked DB tests as live SQL proof.
+
+NARROW BOT RETEST
+Use only retained synthetic Juniper 463 / Maple 464 reference fixtures and the
+controlled testing@itsco.health inbox. Keep links in the QA vault. Never paste
+bearer URLs into reports/screenshots. Do not resend an old reference for evidence.
+Use one fresh, normally issued QA invitation when the next reference case is due.
+
+PS01 — Date and branding
+- Inspect one new reference invitation and one genuinely due reminder. The
+  deadline says a date, e.g. "Please complete by December 1, 2026." No UTC label
+  or time is displayed; the stored expiration instant remains unchanged.
+- Inspect the small Plotline footer logo and A People Operations Platform label
+  on mobile and desktop. The employer logo/name and actual PO Reply-To remain
+  correct; the platform card identifies PlotTwistCo separately.
+- Hiring/employment questions have the employer's mail contact. "Contact Plotline
+  Support" opens the public platform form, not mailto or a company hiring inbox.
+
+PS02 — Bound reference support
+- Open Contact Plotline Support in a signed-out window from the QA invitation.
+  Known name/email are filled in and can be corrected. No repeated relationship
+  questions, reference answers, ratings or other applicant data appear.
+- Send one explicitly synthetic support question. Save the resulting ticket ID.
+  Refresh/retry only that same submission if its response was uncertain: one
+  submission key must produce one ticket and one owner notification.
+- An authorized platform automation reviewer (if one exists) opens the exact
+  ticket from the platform notification. Otherwise record this portion BLOCKED
+  and have Michael verify manually. Never impersonate Michael or mint a session.
+- Confirm source "Plotline · PlotTwistCo platform support", platform scope,
+  assigned Michael, original company/reference IDs in the encrypted message,
+  and automatic routing attribution. A public visitor has no human audit actor.
+- Jordan's company hiring permissions do not permit reading this platform
+  ticket, its messages, attachment endpoints or counts. Test a known synthetic
+  ticket ID only. Do not grant Jordan platform access to make the test pass.
+- As authorized platform staff reply once using an operator support identity.
+  Confirm Plotline/PlotTwistCo branding and actual controlled inbox receipt.
+  Inspect From/Reply-To: no employer PO or personal email address. A queue,
+  skipped result, acceptance or Sent label alone is not inbox delivery proof.
+
+PS03 — Public entry, expiry and failures
+- Open https://plotlinepo.com/support without an invitation. Verify the Plotline
+  form (no SSTC/clinical branding), "Operated by PlotTwistCo", accessible labels,
+  keyboard navigation, errors and 390px layout. Verify production CAPTCHA.
+- Invalid/revoked/expired reference links expose no identity or questionnaire;
+  expired links offer the generic platform support page instead.
+- Check interrupted submission retains the draft, repeated clicks are disabled,
+  successful submission shows a ticket number, and a failed save remains an error.
+- Do not flood the live form, disable encryption or change the real owner to
+  exercise negatives. Ownership/encryption/rollback/rate-limit negatives are
+  covered by local engineering tests; report live cases NOT RUN when unavailable.
+- The existing five-questions-per-reference-per-day and public rate limits
+  remain enabled. No new app account, company, hire, clinical client or SMS.
+
+Record PASS / FAIL / BLOCKED / NOT RUN, visible build, case, exact synthetic IDs,
+actor, time/zone, screenshot and actual inbox evidence. Preserve all prior data.

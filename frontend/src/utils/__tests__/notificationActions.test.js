@@ -99,3 +99,8 @@ it('opens a school-upload Support task rather than the old chart shortcut', () =
 it('opens the correct client session for an in-app guardian reminder',()=>{
  expect(notificationDestination({type:'program_reminder',related_entity_type:'appointment',related_entity_id:12,audience_json:{clientId:9}},{organizationSlug:'example',role:'client_guardian'})).toEqual({path:'/example/guardian',query:{panel:'appointments',appointmentId:'12',clientId:'9'}});
 });
+
+
+it('opens Plotline support notifications in the operator platform queue, outside the selected hiring company',()=>{
+ expect(notificationDestination({type:'support_ticket_created',actor_source:'Plotline support form',related_entity_type:'support_ticket',related_entity_id:501,agency_id:1},{organizationSlug:'juniper-qa',role:'support'})).toBe('/tickets?targetScope=platform&status=open&ticketId=501');
+});

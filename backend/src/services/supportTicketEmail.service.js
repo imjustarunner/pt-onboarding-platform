@@ -1,3 +1,6 @@
+import {PLOTLINE_SUPPORT_SOURCE} from '../utils/plotlineSupport.js';
+import {canWorkPlotlineSupport} from './plotlineSupportAccess.service.js';
+import {plotlineSupportEmail} from './plotlineSupportEmail.service.js';
 import { recordTicketAssignment } from './ticketAssignment.service.js';
 import { randomUUID } from 'node:crypto';
 import pool from '../config/database.js';
@@ -9,16 +12,19 @@ import { chooseCanonicalSupportTicket, classifySupportEmailResult, emailHash, em
   supportReplyHeaders } from './supportTicketEmailPolicy.js';
 
 async function senderOptions({ ticket, actorUserId }, db) {
+  const platform=ticket.created_by_source_key===PLOTLINE_SUPPORT_SOURCE;
+  if(platform&&!await canWorkPlotlineSupport(actorUserId,db))throw supportEmailError('Platform support access is required.',403);
   let [identities] = await db.execute(`SELECT e.*, i.owner_user_id
     FROM email_sender_identities e LEFT JOIN communication_inboxes i ON i.sender_identity_id=e.id
     WHERE e.agency_id=? AND e.is_active=1`, [ticket.agency_id]);
+  if(platform)identities=identities.filter(i=>Number(i.agency_id)===Number(ticket.agency_id)&&['support','general','info'].includes(i.identity_key));
   const [schools] = await db.execute('SELECT itsco_email FROM school_profiles WHERE school_organization_id=?', [ticket.school_organization_id]);
   const [[actor]] = await db.execute(`SELECT u.id,u.first_name,u.last_name,u.work_email,u.role,a.name AS agency_name
     FROM users u JOIN agencies a ON a.id=? WHERE u.id=?`, [ticket.agency_id, actorUserId]);
   if (!actor) throw supportEmailError('Staff sender not found.', 403);
   // Administrators may deliberately use another agency they administer. Requesters
   // and ordinary providers never gain a sender grant from the ticket itself.
-  if (['admin','super_admin'].includes(actor.role) && (!ticket.topic || ticket.topic==='general')) {
+  if (!platform && ['admin','super_admin'].includes(actor.role) && (!ticket.topic || ticket.topic==='general')) {
     const [other] = await db.execute(`SELECT e.*,i.owner_user_id,a.name AS sender_agency_name
       FROM email_sender_identities e JOIN agencies a ON a.id=e.agency_id
       LEFT JOIN communication_inboxes i ON i.sender_identity_id=e.id
@@ -48,8 +54,8 @@ async function senderOptions({ ticket, actorUserId }, db) {
     schoolAddresses: schools.map((s) => s.itsco_email) })).filter((i) => !seen.has(i.id) && seen.add(i.id)).map((i) => ({
     id: Number(i.id), agencyId:Number(i.agency_id), agencyName:i.sender_agency_name || agencyName, replyToEmail:Number(i.agency_id)!==Number(ticket.agency_id)?receivingGroup?.from_email:null, identityKey: i.identity_key, fromEmail: emailKey(i.from_email), senderKind:ownWork(i)?'staff':'group',
     schoolGroup: ['schools','school_groups'].includes(groupKeyForIdentity(receivingGroup || i)) || schools.some(school => emailKey(school.itsco_email) === emailKey(i.from_email)),
-    teamDisplayName: String(i.display_name || i.sender_agency_name || agencyName || 'School support').replace(/[\r\n<>]/g, ' ').trim(),
-    staffDisplayName: [staffName, i.sender_agency_name || agencyName].filter(Boolean).join(' · ').replace(/[\r\n<>]/g, ' ').trim()
+    teamDisplayName: platform?'Plotline Support · PlotTwistCo':String(i.display_name || i.sender_agency_name || agencyName || 'School support').replace(/[\r\n<>]/g, ' ').trim(),
+    staffDisplayName: platform?[staffName,'Plotline Support · PlotTwistCo'].filter(Boolean).join(' · '):[staffName, i.sender_agency_name || agencyName].filter(Boolean).join(' · ').replace(/[\r\n<>]/g, ' ').trim()
   }));
   return options.some(o=>o.senderKind==='group')?options:options.filter(o=>o.senderKind!=='staff');
 }
@@ -121,6 +127,7 @@ export async function sendSupportTicketEmailReply(input, dependencies = {}) {
     await db.beginTransaction();
     [[ticket]] = await db.execute('SELECT * FROM support_tickets WHERE id=? FOR UPDATE', [ticketId]);
     if (!ticket || !['email','public_web'].includes(ticket.source_channel) || ticket.created_by_source_key==='office_kiosk_support') throw supportEmailError('Email ticket not found.', 404);
+    if(ticket.created_by_source_key===PLOTLINE_SUPPORT_SOURCE&&!await canWorkPlotlineSupport(actorUserId,db))throw supportEmailError('Platform support access is required.',403);
     const [[credentialingCase]] = await db.execute('SELECT id FROM credentialing_email_tickets WHERE ticket_id=?', [ticketId]);
     if (credentialingCase) throw supportEmailError('This credentialing address is receive-only. Outbound replies are unavailable.', 403, 'CREDENTIALING_RECEIVE_ONLY');
     const canonical = await resolveSupportTicketEmailThread(ticket, db);
@@ -128,7 +135,7 @@ export async function sendSupportTicketEmailReply(input, dependencies = {}) {
       throw Object.assign(supportEmailError('Open the current email conversation before replying.', 409, 'SUPPORT_EMAIL_CANONICAL_TICKET'), canonical);
     }
     const [[actor]] = await db.execute(`SELECT u.id,u.role FROM users u WHERE u.id=? AND COALESCE(u.is_active,1)=1
-      AND COALESCE(u.is_archived,0)=0 AND (u.role='super_admin' OR EXISTS
+      AND COALESCE(u.is_archived,0)=0 AND (u.role='super_admin' ${ticket.created_by_source_key===PLOTLINE_SUPPORT_SOURCE?'OR u.has_platform_support=1':''} OR EXISTS
         (SELECT 1 FROM user_agencies ua WHERE ua.user_id=u.id AND ua.agency_id=? AND COALESCE(ua.is_active,1)=1))`,
     [actorUserId, ticket.agency_id]);
     if (!actor || ['school_staff', 'client_guardian'].includes(actor.role)) throw supportEmailError('Only agency staff can send this reply.', 403);
@@ -224,7 +231,7 @@ export async function sendSupportTicketEmailReply(input, dependencies = {}) {
     sent = await send({ senderIdentityId: delivery.sender_identity_id, to: delivery.to_json[0],
       bcc: delivery.is_school_group && /@(itsco[.]health)$/i.test(delivery.from_email || '')
         && String(delivery.to_json[0]).toLowerCase() !== RACHEL_SCHOOL_EMAIL ? [RACHEL_SCHOOL_EMAIL] : null,
-      subject: headers.subject, text: body, source: 'manual', generatedByUserId: actorUserId,
+      subject: headers.subject, ...(ticket.created_by_source_key===PLOTLINE_SUPPORT_SOURCE?plotlineSupportEmail(body):{text:body}), source: 'manual', generatedByUserId: actorUserId,
       fromDisplayNameOverride: delivery.from_name, replyToOverride: replyToEmail || delivery.from_email,
       templateType: senderMode === 'team' ? 'support_ticket_reply_team' : 'support_ticket_reply',
       clientId: ticket.client_id || null, schoolOrganizationId: ticket.school_organization_id,

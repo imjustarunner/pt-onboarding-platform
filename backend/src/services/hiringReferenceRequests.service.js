@@ -1,8 +1,9 @@
 import { referenceQuestionnaire, legacyReferenceQuestionnaire, normalizeReferenceQuestionnaire, normalizeReferenceAnswers, referenceDeadline } from '../utils/hiringReferenceQuestionnaire.js';
-import { brandedReferenceEmail, referenceEmailFrame, referenceEmployerBrand, referenceRequestsSentEmail } from './hiringReferenceEmail.service.js';
+import { brandedReferenceEmail, referenceEmailFrame, referenceEmployerBrand, referenceRequestsSentEmail, referenceDeadlineDate } from './hiringReferenceEmail.service.js';
 import { runReferenceReceiptNotifications } from './hiringReferenceReceipt.service.js';
 import { resolveHiringReferenceConsent } from './hiringReferenceConsent.service.js';
 import crypto from 'crypto';
+import {plotlineSupportUrl} from '../utils/plotlineSupport.js';
 import config from '../config/config.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
@@ -107,7 +108,7 @@ function candidateDisplayName(user) {
  * Footer for reference-facing emails: agency "People Operations" / HR label from terminology_settings.people_ops_term
  * plus onboarding_team_email (or people_ops_email if present) and main phone.
  */
-export function buildPeopleOpsContactFooter(agency, { replyTo = null } = {}) {
+export function buildPeopleOpsContactFooter(agency, { replyTo = null, referenceToken = null } = {}) {
   const org = String(agency?.name || agency?.official_name || 'our organization').trim();
   const configuredLabel = EmailTemplateService.getTerminologySettings(agency);
   const teamLabel = configuredLabel && configuredLabel !== org && configuredLabel !== 'our team' ? configuredLabel : 'People Operations';
@@ -121,18 +122,19 @@ export function buildPeopleOpsContactFooter(agency, { replyTo = null } = {}) {
   const phone = `${rawPhone.startsWith('+') ? '+' : ''}${rawPhone.replace(/\D/g, '')}`;
   const phoneHref = /\d{7}/.test(phone.replace(/\D/g, '')) ? `tel:${phone}${ext.replace(/\D/g, '') ? `;ext=${ext.replace(/\D/g, '')}` : ''}` : null;
   const emailHref = contactEmail ? `mailto:${encodeURIComponent(contactEmail).replace(/%40/g, '@')}` : null;
-  const text = [`Questions about hiring at ${org}?`, contactEmail ? `Contact ${teamLabel}: ${contactEmail}` : `Reply to this email to reach the hiring team.`, phoneHref ? `Phone: ${phoneLine}` : ''].filter(Boolean).join('\n');
+  const supportUrl = plotlineSupportUrl(referenceToken);
+  const text = [`Need help with Plotline? Contact Plotline Support: ${supportUrl} (operated by PlotTwistCo).`, `Questions about hiring at ${org}?`, contactEmail ? `Contact ${teamLabel}: ${contactEmail}` : `Reply to this email to reach the hiring team.`, phoneHref ? `Phone: ${phoneLine}` : ''].filter(Boolean).join('\n');
   const action = emailHref
     ? `<a href="${escapeHtml(emailHref)}" style="display:inline-block;color:#143e33;font-weight:bold;text-decoration:underline">Contact ${escapeHtml(teamLabel)}</a>`
     : '<span>Reply to this email to reach the hiring team.</span>';
   const phoneLink = phoneHref ? `<br><a href="${escapeHtml(phoneHref)}" style="display:inline-block;margin-top:8px;color:#143e33">${escapeHtml(phoneLine)}</a>` : '';
-  return { text, html: `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" data-reference-contact="people-operations" style="margin-top:24px;background:#f5f8f5;border:1px solid #dce6e1;border-radius:10px"><tr><td style="padding:16px 18px;font-size:14px;line-height:1.6"><p style="margin:0 0 8px">Questions about hiring at ${escapeHtml(org)}?</p>${action}${phoneLink}</td></tr></table>`, email: contactEmail || null, teamLabel };
+  return { text, html: `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" data-reference-contact="people-operations" style="margin-top:24px;background:#f5f8f5;border:1px solid #dce6e1;border-radius:10px"><tr><td style="padding:16px 18px;font-size:14px;line-height:1.6"><p style="margin:0 0 8px">Questions about hiring at ${escapeHtml(org)}?</p>${action}${phoneLink}<hr style="border:0;border-top:1px solid #dce6e1;margin:16px 0"><p style="margin:0 0 8px">Need help with Plotline? Operated by PlotTwistCo.</p><a href="${escapeHtml(supportUrl)}" style="display:inline-block;padding:10px 16px;background:#143e33;color:#ffffff;border-radius:8px;text-decoration:none;font-weight:bold">Contact Plotline Support</a></td></tr></table>`, email: contactEmail || null, teamLabel, supportUrl };
 }
 
-export async function resolveReferencePeopleOpsContact(agency, identity = null) {
+export async function resolveReferencePeopleOpsContact(agency, identity = null, referenceToken = null) {
   const agencyId = Number(agency?.id || identity?.agency_id);
   const replyTo = agencyId ? await resolveHiringReferenceReplyTo(agencyId, identity) : null;
-  return buildPeopleOpsContactFooter(agency, { replyTo });
+  return buildPeopleOpsContactFooter(agency, { replyTo, referenceToken });
 }
 
 async function sendReferenceThankYouToReferee({ row, identity }) {
@@ -143,7 +145,7 @@ async function sendReferenceThankYouToReferee({ row, identity }) {
   const refEmail = String(row.reference_email || '').trim();
   if (!refEmail || !identity?.id) return;
   const greetingName = String(row.reference_name || '').trim();
-  const contact = await resolveReferencePeopleOpsContact(agency, identity);
+  const contact = await resolveReferencePeopleOpsContact(agency, identity, row.public_link_token);
   const subject = `Thank you — reference for ${cand}`;
   const text = [
     `Hello${greetingName ? ` ${greetingName}` : ''},`,
@@ -304,6 +306,7 @@ export async function createAndSendReferenceRequests({
     }
 
     const url = buildReferenceFormUrl(publicLinkToken);
+    const refereeContact = await resolveReferencePeopleOpsContact(agency, identity, publicLinkToken);
     const subject = `${agencyName} — reference request for ${candName}`;
     const text = [
       `Hello${name ? ` ${name}` : ''},`,
@@ -314,10 +317,11 @@ export async function createAndSendReferenceRequests({
       '',
       `Your responses remain confidential: they are not shared with the applicant and are used only for hiring decisions by ${agencyName}.`,
       '',
-      `Complete the form here (secure link; expires ${requestDeadline.toUTCString()}):`,
+      `Please complete by ${referenceDeadlineDate(requestDeadline)}.`,
+      'Complete the form here (secure link):',
       url,
       '',
-      contactFooter.text,
+      refereeContact.text,
       '',
       'If you did not expect this request, you may disregard this message.',
       '',
@@ -325,7 +329,7 @@ export async function createAndSendReferenceRequests({
       agencyName
     ].join('\n');
 
-    const html = brandedReferenceEmail({ agency, candidateName: candName, referenceName: name, url, deadline: requestDeadline, footer: contactFooter.html });
+    const html = brandedReferenceEmail({ agency, candidateName: candName, referenceName: name, url, deadline: requestDeadline, footer: refereeContact.html });
 
     const openTok = String(row?.open_track_token || '').trim() || null;
     // eslint-disable-next-line no-await-in-loop
@@ -526,7 +530,7 @@ export async function getPublicReferenceMetaByRawToken(rawToken) {
     branding = null;
   }
   const employerBrand = referenceEmployerBrand(agency);
-  const contact = await resolveReferencePeopleOpsContact(agency);
+  const contact = await resolveReferencePeopleOpsContact(agency,null,rawToken);
 
   return {
     ok: true,
@@ -536,7 +540,7 @@ export async function getPublicReferenceMetaByRawToken(rawToken) {
     referenceName: String(row.reference_name || '').trim() || null,
     referenceContact: await contactForRequest(row),
     branding: { ...branding, logoUrl: employerBrand.logoUrl, colorPalette: { ...branding?.colorPalette, primary: employerBrand.color } },
-    contact: { email: contact.email, teamLabel: contact.teamLabel },
+    contact: { email: contact.email, teamLabel: contact.teamLabel, supportUrl: contact.supportUrl },
     questionnaire: row.questionnaire || legacyReferenceQuestionnaire,
     disclaimer:
       'Your answers and ratings are confidential and are not shared with the applicant. Only staff with hiring permission can review them. We will tell the applicant that you completed their reference, identifying you by name, without sharing any answers. The form typically takes less than five minutes.'
