@@ -1311,6 +1311,18 @@ const routes = [
     meta: { requiresGuest: false }
   },
   {
+    path: '/plotline/support',
+    name: 'PlotlinePublicSupport',
+    component: () => import('../views/public/PlotlineSupportView.vue'),
+    meta: { requiresGuest: false, hideNav: true, isPublicPortal: true, plotlineSupport: true }
+  },
+  {
+    path: '/public/hiring/reference/:token/support',
+    name: 'PlotlineReferenceSupport',
+    component: () => import('../views/public/PlotlineSupportView.vue'),
+    meta: { requiresGuest: false, hideNav: true, isPublicPortal: true, plotlineSupport: true }
+  },
+  {
     path: '/support/:agencySlug',
     name: 'AgencyPublicSupportAlias',
     component: () => import('../views/public/AgencyPublicSupportView.vue'),
@@ -5389,6 +5401,7 @@ router.beforeEach(async (to, from, next) => {
   if (isFundthredHost(window.location.hostname) && to.name === 'Login' && to.query.product !== 'fundthred') {
     next({ ...fundthredLoginLocation(to.query.redirect), replace: true }); return;
   }
+  if (to.meta.plotlineSupport) { next(); return; }
   if (to.meta.plotlineEntry) {
     await tryBootstrapAuthFromCookie();
     if(to.meta.requiresAuth && !authStore.isAuthenticated){next({path:'/login',query:{redirect:to.fullPath,product:'plotline'},replace:true});return;}

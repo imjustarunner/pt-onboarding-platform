@@ -1,4 +1,6 @@
 import pool from '../config/database.js';
+import {canWorkPlotlineSupport} from './plotlineSupportAccess.service.js';
+import {PLOTLINE_SUPPORT_SOURCE} from '../utils/plotlineSupport.js';
 import { DEPARTMENTAL_GROUPS, groupKeyForIdentity, listUserDepartmentalGroupKeys } from './departmentalGroupAccess.service.js';
 
 const specialized = new Set(['billing', 'payroll', 'credentialing', 'technology']);
@@ -20,6 +22,7 @@ export async function ticketDepartmentKeys(ticket, db = pool) {
 }
 
 export async function canWorkDepartmentTicket({ ticket, userId, db = pool, departmentKeys }) {
+  if(ticket?.created_by_source_key===PLOTLINE_SUPPORT_SOURCE)return canWorkPlotlineSupport(userId,db);
   const keys = departmentKeys ?? await ticketDepartmentKeys(ticket, db);
   if (!keys.length) return false;
   const allowed = await listUserDepartmentalGroupKeys({ agencyId: ticket.agency_id, userId, db });

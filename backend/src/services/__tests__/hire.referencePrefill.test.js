@@ -37,7 +37,7 @@ it('uses the original invitation snapshot even if the current reference list cha
  m.find.mockResolvedValue({...row(),referenceContact:referenceContactDetails(contact)});
  const meta=await getPublicReferenceMetaByRawToken('synthetic-token');
  expect(meta.referenceContact).toEqual(referenceContactDetails(contact));expect(m.execute).not.toHaveBeenCalled();
- expect(meta.contact).toEqual({email:'po@agency.test',teamLabel:'People Operations'});
+ expect(meta.contact).toEqual({email:'po@agency.test',teamLabel:'People Operations',supportUrl:'https://plotlinepo.com/support'});
  expect(JSON.stringify(meta)).not.toMatch(/public_link_token|responses_json|hiring_profile_id/);
 });
 it('prefills an older invitation only from its exact profile, index and matching email',async()=>{

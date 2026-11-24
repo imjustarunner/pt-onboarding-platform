@@ -105,3 +105,17 @@ it('retains configured HTTPS upload assets in signatures', async () => {
   const context = await resolveDepartmentSignatureContext({ agencyId: 463 });
   expect(context.assets.phoenix).toBe('https://api.example.test/uploads/logos/plottwistco-email-mark.png');
 });
+
+
+it('shows date-only deadlines and a small footer logo in both requests and reminders',()=>{
+ for(const reminder of[false,true]){
+  const html=brandedReferenceEmail({agency:{name:'ITSCO'},candidateName:'QA Applicant',url:'https://example.test',deadline:'2026-12-01T00:15:00Z',reminder});
+  expect(html).toContain('Please complete by December 1, 2026.');expect(html).not.toContain('(UTC)');expect(html).toContain('width="96" alt="Plotline"');
+ }
+});
+it('separates platform support from employer PO and never shares a referee token in generic applicant notices',()=>{
+ const token='a'.repeat(64),agency={name:'ITSCO',slug:'itsco'};
+ const referee=buildPeopleOpsContactFooter(agency,{replyTo:'po@itsco.health',referenceToken:token});
+ expect(referee.html).toContain(`https://plotlinepo.com/public/hiring/reference/${token}/support`);expect(referee.html).toContain('Contact Plotline Support');expect(referee.html).toContain('Operated by PlotTwistCo');expect(referee.email).toBe('po@itsco.health');expect(referee.html).toContain('mailto:po@itsco.health');
+ const applicant=buildPeopleOpsContactFooter(agency,{replyTo:'po@itsco.health'});expect(applicant.supportUrl).toBe('https://plotlinepo.com/support');expect(applicant.html).not.toContain(token);
+});

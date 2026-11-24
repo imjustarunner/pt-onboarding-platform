@@ -25,3 +25,10 @@ it('keeps company careers and job links distinct from the Plotline careers marke
   expect(plotlinePaths.clean('/careers/juniper-qa')).toBe('/juniper-qa');
   expect(plotlinePaths.internal('/intake/legacy-public-key')).toBe('/intake/legacy-public-key');
 });
+
+
+it.each(['plotlinepo.com','www.plotlinepo.com'])('opens public platform support on %s without becoming a company slug',async host=>{
+ const raw=createMemoryHistory();raw.replace('/support?source=reference');const history=publicDomainHistory(raw,host);
+ const router=createRouter({history,routes:[{path:'/plotline/support',name:'PlotlineSupport',component:{}}]});await router.push(history.location);
+ expect(router.currentRoute.value.name).toBe('PlotlineSupport');expect(router.currentRoute.value.query.source).toBe('reference');expect(router.resolve('/plotline/support').href).toBe('/support');history.destroy();
+});

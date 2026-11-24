@@ -109,3 +109,10 @@ describe('Plotline public reference', () => {
   });
 
 });
+
+
+it('opens platform help separately from employer PO without discarding reference answers',async()=>{
+ const supportUrl=`https://plotlinepo.com/public/hiring/reference/${'a'.repeat(64)}/support`;
+ api.get.mockResolvedValue({data:{agencyName:'ITSCO',contact:{email:'po@itsco.health',teamLabel:'People Operations',supportUrl},expiresAt:'2026-12-01T00:15:00Z',questionnaire:{version:3,traits:[]}}});
+ const wrapper=mount(Form);await flushPromises();const link=wrapper.findAll('a').find(a=>a.text()==='Contact Plotline Support');expect(link.attributes('href')).toBe(supportUrl);expect(link.attributes('target')).toBe('_blank');expect(wrapper.text()).not.toContain('UTC');expect(wrapper.text()).toContain('December 1, 2026');expect(api.post).not.toHaveBeenCalled();wrapper.unmount();
+});

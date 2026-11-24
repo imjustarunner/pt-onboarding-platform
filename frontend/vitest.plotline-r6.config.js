@@ -1,5 +1,9 @@
 import base from './vitest.plotline-r5.config.js';
 export default {...base,test:{...base.test,include:[...base.test.include,
+ 'src/__tests__/App.publicLogin.test.js',
+ 'src/__tests__/App.workspaceLoading.test.js',
+ 'src/views/__tests__/PlotlineSupport.test.js',
+ 'src/utils/__tests__/plotlineSupportCaptcha.test.js',
  'src/utils/__tests__/uploadsUrl.publicAssets.test.js',
  'src/components/supervision/__tests__/SupervisionVideoLobbyPanel.test.js',
  'src/components/meetings/__tests__/MeetingDialInPanel.test.js',

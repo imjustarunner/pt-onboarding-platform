@@ -6,7 +6,7 @@ import { decryptTicketMessageRow } from '../../utils/supportTicketCrypto.js';
 import pool from '../../config/database.js';
 test.after(() => pool.end());
 
-function harness({ sourceChannel = 'email', actorRole = null, crossSenders = [], schoolAccess = true, workFrom = null, workOwner = 5, actorWorkEmail = workFrom, credentialingCase = false, fromEmail = 'schools@agency.test', claimedBy = 5, revision = 10, result = { id: 'gmail-sent', internetMessageId: '<sent@agency.test>', bodyText: 'Hello\n\nHannah · Agency' }, failure = null } = {}) {
+function harness({ sourceKey = null, platformAccess = true, identityKey = 'schools', sourceChannel = 'email', actorRole = null, crossSenders = [], schoolAccess = true, workFrom = null, workOwner = 5, actorWorkEmail = workFrom, credentialingCase = false, fromEmail = 'schools@agency.test', claimedBy = 5, revision = 10, result = { id: 'gmail-sent', internetMessageId: '<sent@agency.test>', bodyText: 'Hello\n\nHannah · Agency' }, failure = null } = {}) {
   const statements = [], captures = [], sends = [];
   let delivery = null;
   const db = { async beginTransaction() {}, async commit() {}, async rollback() {}, release() {}, async execute(sql, values = []) {
@@ -15,8 +15,9 @@ function harness({ sourceChannel = 'email', actorRole = null, crossSenders = [],
     assert.equal((sql.match(/\?/g) || []).length, values.length, `SQL binds: ${sql}`);
     if (sql.startsWith('SELECT id FROM credentialing_email_tickets')) return [credentialingCase ? [{id:9}] : []];
     if (sql.startsWith('SELECT * FROM support_tickets')) return [[{ id: 1, agency_id: 2, school_organization_id: 7,
-      source_channel: sourceChannel, source_email_from: 'school@example.test', source_email_subject: 'Forms',
+      created_by_source_key:sourceKey, source_channel: sourceChannel, source_email_from: 'school@example.test', source_email_subject: 'Forms',
       source_email_message_id: '<inbound@school.test>', source_email_thread_id: 'gmail-thread', claimed_by_user_id: claimedBy }]];
+    if (sql.startsWith('SELECT id FROM users WHERE'))return [platformAccess?[{id:5}]:[]];
     if (sql.includes('SELECT u.id,u.role')) return [[{ id: 5, role: 'support' }]];
     if(sql.includes('SELECT u.*,ua.agency_role'))return [[{id:5,role:schoolAccess?'support':'staff',agency_role:schoolAccess?'support':'staff',status:'ACTIVE_EMPLOYEE',is_active:1,is_archived:0,is_demo:0,is_assistant_account:0,membership_active:1}]];
     if(sql.includes('information_schema.TABLES'))return [[{count:0}]];
@@ -27,7 +28,7 @@ function harness({ sourceChannel = 'email', actorRole = null, crossSenders = [],
     if (sql.includes('SELECT m.id FROM support_ticket_messages')) return [[{ id: 10 }]];
     if(sql.includes('sender_agency_name'))return [crossSenders];
     if (sql.includes('FROM email_sender_identities')) return [[{ id: 22, agency_id: 2, is_active: 1,
-      identity_key: 'schools', from_email: fromEmail, display_name: 'Agency Schools' },
+      identity_key: identityKey, from_email: fromEmail, display_name: 'Agency Schools' },
     { id: 99, agency_id: 2, is_active: 1, identity_key: 'personal_5', owner_user_id: workOwner, from_email: workFrom || 'hannah@agency.test' }]];
     if (sql.startsWith('SELECT itsco_email')) return [[{ itsco_email: 'school-group@agency.test' }]];
     if (sql.includes('u.first_name,u.last_name')) return [[{ id: 5, first_name: 'Hannah', last_name: 'Human', work_email: actorWorkEmail, role:actorRole, agency_name: 'Agency' }]];
@@ -272,4 +273,17 @@ test('an authorized administrator may choose another agency brand while replies 
 test('a normal staff member cannot select a sender from another agency',async()=>{
  const key=process.env.CLIENT_CHAT_ENCRYPTION_KEY_BASE64;process.env.CLIENT_CHAT_ENCRYPTION_KEY_BASE64=Buffer.alloc(32,7).toString('base64');
  try{const h=harness({actorRole:'staff'});await assert.rejects(sendSupportTicketEmailReply({...input,senderIdentityId:81},h.dependencies),{code:'SUPPORT_EMAIL_SENDER_REQUIRED'});assert.equal(h.sends.length,0);}finally{if(key==null)delete process.env.CLIENT_CHAT_ENCRYPTION_KEY_BASE64;else process.env.CLIENT_CHAT_ENCRYPTION_KEY_BASE64=key;}
+});
+
+
+test('routes Plotline platform replies through the operator support sender with branded HTML and no tenant/staff address', async () => {
+ const previous=process.env.CLIENT_CHAT_ENCRYPTION_KEY_BASE64;process.env.CLIENT_CHAT_ENCRYPTION_KEY_BASE64=Buffer.alloc(32,6).toString('base64');
+ try {
+  const f=harness({sourceKey:'plotline_platform_support',sourceChannel:'public_web',identityKey:'support',fromEmail:'support@platform.test',actorRole:'admin',crossSenders:[{id:999,agency_id:463,identity_key:'support',from_email:'po@employer.test',sender_agency_name:'Juniper QA'}],workFrom:'personal@example.test'});
+  const sent=await sendSupportTicketEmailReply({...input,senderMode:'team'},f.dependencies);assert.equal(sent.sent,true);assert.equal(f.sends[0].senderIdentityId,22);assert.equal(f.sends[0].replyToOverride,'support@platform.test');assert.equal(f.sends[0].fromDisplayNameOverride,'Plotline Support · PlotTwistCo');assert.match(f.sends[0].html,/plotline-primary-transparent.png/);assert.match(f.sends[0].html,/PLATFORM SUPPORT/);assert.ok(!JSON.stringify(f.sends).includes('po@employer.test'));assert.ok(!JSON.stringify(f.sends).includes('personal@example.test'));
+  const retry=await sendSupportTicketEmailReply({...input,senderMode:'team'},f.dependencies);assert.equal(retry.duplicate,true);assert.equal(f.sends.length,1);
+ } finally {if(previous==null)delete process.env.CLIENT_CHAT_ENCRYPTION_KEY_BASE64;else process.env.CLIENT_CHAT_ENCRYPTION_KEY_BASE64=previous;}
+});
+test('rejects Plotline platform reply before reserving a message when platform access was revoked',async()=>{
+ const f=harness({sourceKey:'plotline_platform_support',sourceChannel:'public_web',identityKey:'support',platformAccess:false});await assert.rejects(()=>sendSupportTicketEmailReply(input,f.dependencies),{status:403});assert.equal(f.sends.length,0);assert.ok(!f.statements.some(row=>row.sql.startsWith('INSERT INTO support_ticket_messages')));
 });

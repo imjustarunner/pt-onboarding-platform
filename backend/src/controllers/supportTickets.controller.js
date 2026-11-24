@@ -19,6 +19,8 @@ import { sendTicketAssignmentEmail } from '../services/ticketAssignmentEmail.ser
 import { ticketMailVisibilitySql } from '../services/messageInboxPolicy.js';
 import {sendWebsiteTicketReply} from '../services/publicWebsiteTicketReply.service.js';
 import pool from '../config/database.js';
+import {canWorkPlotlineSupport} from '../services/plotlineSupportAccess.service.js';
+import {PLOTLINE_SUPPORT_SOURCE} from '../utils/plotlineSupport.js';
 import { markSupportTicketRead, ticketUnreadSql } from '../services/supportTicketRead.service.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
@@ -186,6 +188,9 @@ async function hasSupportTicketPlatformHelpColumn() {
  * for that ticket's agency. General is visible to all queue collaborators in scope.
  */
 async function applyTopicAudienceVisibility({ req, where, params, topicFilter = null }) {
+  if (!(await canWorkPlotlineSupport(req.user.id))) {
+    where.push("COALESCE(t.created_by_source_key,'')<>?"); params.push(PLOTLINE_SUPPORT_SOURCE);
+  }
   await appendCredentialingTicketVisibility(req.user, where, params);
 
   await appendDepartmentTicketVisibility({ userId: req.user.id, where, params, requireDepartment: !isAgencyAdminUser(req) && req.user?.role !== 'school_staff' });
@@ -253,6 +258,7 @@ async function applyTopicAudienceVisibility({ req, where, params, topicFilter = 
 
 /** Specialized topics: admin always; others need matching responsibility flag (or be creator/claimant). */
 async function actorCanAccessTicketTopic(req, ticket) {
+  if (ticket?.created_by_source_key === PLOTLINE_SUPPORT_SOURCE) return canWorkPlotlineSupport(req.user.id);
   if (String(ticket?.topic || '').toLowerCase() === 'credentialing') return canAccessCredentialing(req.user, ticket.agency_id);
   if (req.user?.role === 'school_staff' && Number(ticket?.created_by_user_id) === Number(req.user.id) && Number(ticket?.school_organization_id)) return true;
   if ((await ticketDepartmentKeys(ticket)).length) return canWorkDepartmentTicket({ ticket, userId: req.user.id });
@@ -1620,6 +1626,7 @@ export const getSupportTicketsCountsByAgency = async (req, res, next) => {
     if (hasTargetScope && (canPlatform || role === 'super_admin' || isAgencyAdminUser(req))) {
       const pWhere = [`LOWER(COALESCE(t.target_scope, 'tenant')) = 'platform'`];
       const pParams = [];
+      if (!await canWorkPlotlineSupport(req.user.id)) { pWhere.push("COALESCE(t.created_by_source_key,'')<>?"); pParams.push(PLOTLINE_SUPPORT_SOURCE); }
       if (!canPlatform && role !== 'super_admin' && scope.agencyIds !== null) {
         if ((scope.agencyIds || []).length) {
           pWhere.push(`t.agency_id IN (${scope.agencyIds.map(() => '?').join(',')})`);

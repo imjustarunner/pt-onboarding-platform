@@ -107,3 +107,9 @@ it.each([false,true])('renders public marketing pages without loading employee t
  state.route.name='OrganizationDashboard';state.route.meta={};await flushPromises();
  expect(state.workspaceMounted).toHaveBeenCalledTimes(1);wrapper.unmount();
 });
+
+
+it.each([false,true])('opens public Plotline support without employee widgets or company shell (signed in: %s)',async signedIn=>{
+ state.auth.isAuthenticated=signedIn;state.auth.user=signedIn?{id:42,role:'provider'}:null;state.route.name='PlotlinePublicSupport';state.route.meta={plotlineSupport:true};
+ const wrapper=render();await flushPromises();expect(wrapper.find('form').exists()).toBe(true);expect(state.workspaceMounted).not.toHaveBeenCalled();expect(wrapper.findComponent({name:'PlotlineSessionBoundary'}).exists()).toBe(false);wrapper.unmount();
+});

@@ -1,4 +1,4 @@
-import { brandedReferenceEmail } from './hiringReferenceEmail.service.js';
+import { brandedReferenceEmail, referenceDeadlineDate } from './hiringReferenceEmail.service.js';
 import HiringReferenceRequest from '../models/HiringReferenceRequest.model.js';
 import { resolveHiringReferenceSenderIdentity } from './hiringReferenceIdentity.service.js';
 import User from '../models/User.model.js';
@@ -26,7 +26,7 @@ async function sendReminderEmail({ row, label, identity }) {
   const user = await User.findById(row.candidate_user_id);
   const cand = [user?.first_name, user?.last_name].filter(Boolean).join(' ').trim() || 'the applicant';
   const url = buildReferenceFormUrl(String(row.public_link_token || '').trim());
-  const contactFooter = await resolveReferencePeopleOpsContact(agency, identity);
+  const contactFooter = await resolveReferencePeopleOpsContact(agency, identity, row.public_link_token);
   const subject = `${agencyName} — reminder: reference for ${cand} (${label})`;
   const text = [
     `Hello,`,
@@ -36,7 +36,7 @@ async function sendReminderEmail({ row, label, identity }) {
     `It usually takes less than five minutes. Your answers remain confidential and are not shared with the applicant.`,
     '',
     `Open the form: ${url}`,
-    `Deadline: ${new Date(row.token_expires_at).toUTCString()}`,
+    `Deadline: ${referenceDeadlineDate(row.token_expires_at)}`,
     '',
     contactFooter.text,
     '',
