@@ -30,7 +30,7 @@ import { seedBillingSenders,provisionBillingSenders } from '../services/familyLe
 import { handoffWorkspace,transferToCollections,collectionCaseDetail,collectionOrganizations } from '../services/familyLedger/collectionHandoff.js';
 import { guardianStatementPdf } from '../services/familyLedger/views.js';
 import { guardianPaymentPreference,saveGuardianPaymentPreference,listGuardianPaymentPreferences } from '../services/familyLedger/guardianPreferences.js';
-import { clientBillingAccount,saveResponsibleParty,saveClientServiceRate,guardianResponsibleParty } from '../services/clientBillingAccount.service.js';
+import { clientBillingAccount,pendingResponsibleBillingContact,saveResponsibleParty,saveClientServiceRate,guardianResponsibleParty } from '../services/clientBillingAccount.service.js';
 import { requireClientAccountSupport } from '../services/clientAccountSupportAccess.service.js';
 import {createGuestInvoice,sendGuestInvoice,revokeGuestInvoice,previewExternalGuestInvoice,listExternalGuestInvoiceBalances} from '../controllers/guestInvoice.controller.js';
 const router=express.Router();router.use(authenticate,requireActiveStatus,(req,res,next)=>{res.set({'Cache-Control':'no-store','Referrer-Policy':'no-referrer'});next();});
@@ -41,7 +41,7 @@ const staffOnly=async(req,res,next)=>{try{await requireBillingStaff(req.user,con
 const limited=rateLimit({windowMs:60000,max:30,standardHeaders:true,legacyHeaders:false});
 router.use('/insurance-cards',insuranceCardsRoutes);
 const accountSettingsAccess=async req=>{const c=context(req),clientId=positiveId(req.params.id);try{await requireClientAccountSupport(req.user,clientId,c.agencyId);}catch(error){if(error.status!==403)throw error;await requireBillingStaff(req.user,c.agencyId);}return {...c,clientId};};
-router.get('/account/clients/:id/settings',run(async(req,res)=>{const c=await accountSettingsAccess(req);res.json(await clientBillingAccount(c.agencyId,c.clientId));}));
+router.get('/account/clients/:id/settings',run(async(req,res)=>{const c=await accountSettingsAccess(req);const data=await clientBillingAccount(c.agencyId,c.clientId);res.json({...data,pendingResponsibleContact:await pendingResponsibleBillingContact(c.agencyId,c.clientId)});}));
 router.put('/account/clients/:id/responsible-party',run(async(req,res)=>res.json(await saveResponsibleParty({...req.body,...await accountSettingsAccess(req)}))));
 router.put('/account/clients/:id/service-rates/:code',run(async(req,res)=>res.json(await saveClientServiceRate({...req.body,...await accountSettingsAccess(req),code:req.params.code}))));
 router.get('/clients/:id/responsible-party',run(async(req,res)=>{const c=context(req),clientId=positiveId(req.params.id);const {requireBillingLink}=await import('../services/familyBillingPolicy.service.js');await requireBillingLink(c.userId,clientId,c.agencyId);const data=await clientBillingAccount(c.agencyId,clientId);res.json({responsibleParty:data.responsibleParty,needsResponsibleParty:data.needsResponsibleParty,accounts:data.accounts.filter(account=>Number(account.id)===Number(c.userId))});}));

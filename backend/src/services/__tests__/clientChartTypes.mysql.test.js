@@ -40,11 +40,11 @@ describe.skipIf(!socketPath&&!port)('chart services and client email on isolated
     await server.query(`CREATE DATABASE ${database}`);
     state.db=mysql.createPool({...connection,database,connectionLimit:3});
     const DDL=[
-      'CREATE TABLE clients(id INT PRIMARY KEY,agency_id INT,organization_id INT,provider_id INT,full_name VARCHAR(80),initials VARCHAR(12),client_type VARCHAR(24),email VARCHAR(255),date_of_birth DATE,status VARCHAR(20),client_status_id INT,contact_phone VARCHAR(32),identifier_code VARCHAR(24),session_sms_opt_in INT,guardian_portal_enabled INT,compliance_archived_at DATETIME)',
+      'CREATE TABLE clients(id INT PRIMARY KEY,agency_id INT,organization_id INT,provider_id INT,full_name VARCHAR(80),initials VARCHAR(12),client_type VARCHAR(24),email VARCHAR(255),date_of_birth DATE,status VARCHAR(20),client_status_id INT,contact_phone VARCHAR(32),identifier_code VARCHAR(24),session_sms_opt_in INT,guardian_portal_enabled INT,compliance_archived_at DATETIME,onboarding_docs_json JSON)',
       'CREATE TABLE agencies(id INT PRIMARY KEY,name VARCHAR(80),organization_type VARCHAR(24),is_active INT,is_archived INT,logo_path TEXT,logo_url TEXT,slug VARCHAR(80),feature_flags JSON)',
       'CREATE TABLE users(id INT PRIMARY KEY,role VARCHAR(24),email VARCHAR(80),username VARCHAR(80),personal_email VARCHAR(80),status VARCHAR(24),is_active INT,is_archived INT,password_hash VARCHAR(80),temporary_password_hash VARCHAR(80),terminated_at DATETIME,status_expires_at DATETIME,first_name VARCHAR(20),last_name VARCHAR(20))',
       'CREATE TABLE client_statuses(id INT PRIMARY KEY,status_key VARCHAR(24))',
-      'CREATE TABLE client_guardians(client_id INT,guardian_user_id INT,relationship_type VARCHAR(24),relationship_title VARCHAR(24),access_enabled INT,permissions_json JSON)',
+      'CREATE TABLE client_guardians(client_id INT,guardian_user_id INT,relationship_type VARCHAR(24),relationship_title VARCHAR(24),access_enabled INT,permissions_json JSON,agency_id INT)',
       'CREATE TABLE dependent_portal_access(client_id INT,user_id INT,revoked_at DATETIME)',
       'CREATE TABLE user_agencies(user_id INT,agency_id INT,is_active INT,agency_role VARCHAR(40))',
       'CREATE TABLE user_agency_access_profiles(user_id INT,agency_id INT,effective_role VARCHAR(40))',
@@ -79,6 +79,14 @@ describe.skipIf(!socketPath&&!port)('chart services and client email on isolated
     await state.db?.end();
     if(server){await server.query(`DROP DATABASE IF EXISTS ${database}`);await server.end();}
   });
+  it('reads the records import classification without treating a payment-only account as a dependent relationship',async()=>{
+    await state.db.execute("INSERT INTO clients(id,agency_id,date_of_birth,status,client_status_id,onboarding_docs_json) VALUES(853,2,'1990-01-01','ACTIVE',1,?)",[JSON.stringify({recordsContactClassification:'dependent'})]);
+    expect((await readChartTypes(853,2)).types).toContain('dependent');
+    await state.db.execute("UPDATE clients SET onboarding_docs_json=JSON_SET(onboarding_docs_json,'$.recordsContactClassification','independent') WHERE id=853");
+    expect((await readChartTypes(853,2)).types).not.toContain('dependent');
+    expect(types({client:{...client,records_contact_classification:'independent'},links:[{relationship_type:'guardian',permissions_json:{billingOnly:true}}]})).not.toContain('dependent');
+  });
+
   it('handles mixed production email collations while preserving shared-address and existing-login review',async()=>{
     await state.db.query('ALTER TABLE clients MODIFY email VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci');
     for(const field of ['email','username','personal_email'])await state.db.query(`ALTER TABLE users MODIFY ${field} VARCHAR(80) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);

@@ -12,12 +12,19 @@
    <small v-if="sourceReminders(account)">Imported reminder choices: {{sourceReminders(account)}}</small>
   </article>
   <template v-if="loaded">
-   <label>{{nextLabel}}<select v-model="selectedId" aria-label="Parent or guardian contact" :disabled="disabled||saving||loading">
+   <label class="guardian-choice" :class="{'guardian-choice-needed':!selected && candidates.length}">{{nextLabel}}<select v-model="selectedId" aria-label="Parent or guardian contact" :disabled="disabled||saving||loading">
     <option value="">Choose an imported contact…</option>
     <option v-for="contact in candidates" :key="contact.affiliationId" :value="String(contact.affiliationId)" :disabled="!validEmail(contact.email)">{{contact.fullName}} · {{contact.relationshipType||'Contact'}}{{validEmail(contact.email)?` · ${contact.email}`:' · add an email to their contact first'}}</option>
    </select></label>
+   <label v-if="selected" class="guardian-choice" :class="{'guardian-choice-needed':!relationship}">
+     Confirm relationship to the client
+     <select v-model="relationship" aria-label="Confirm relationship to the client" :disabled="disabled || saving" required>
+       <option value="">Choose a relationship{{ selected.relationshipType ? ` (source: ${selected.relationshipType})` : '' }}</option>
+       <option v-for="choice in relationships" :key="choice" :value="choice">{{ choice }}</option>
+     </select>
+   </label>
    <p v-if="selected">{{selected.appointmentReminders?`Reminders from their contact: ${selected.appointmentReminders}. `:''}}Each parent needs their own email address for a separate login. Text opt-ins receive a confirmation when the parent opens their portal, with instructions to stop all texts, reminders, or provider messages.</p>
-   <button type="button" class="ehr-btn-ghost" :disabled="disabled||saving||loading||!selected||!validEmail(selected.email)" @click="prepare">{{saving?'Adding guardian…':`Add ${nextLabel}`}}</button>
+   <button type="button" class="ehr-btn-ghost" :disabled="disabled||saving||loading||!selected||!relationship||!validEmail(selected.email)" @click="prepare">{{saving?'Adding guardian…':`Add ${nextLabel}`}}</button>
    <p v-if="!candidates.length">Import the other parent’s contact card, including their own email, to add another account.</p>
   </template>
   <p v-if="notice" role="status">{{notice}}</p>
@@ -25,10 +32,11 @@
 </template>
 <script setup>
 import {computed,onBeforeUnmount,ref,watch} from 'vue';
+import { portalContactRelationships as relationships } from '../../../navigation/recordsContactOwnership.js';
 import api from '../../../services/api';
 const props=defineProps({clientId:{type:[String,Number],required:true},agencyId:{type:[String,Number],required:true},contacts:{type:Array,default:()=>[]},disabled:Boolean});
 const emit=defineEmits(['busy','prepared']);
-const accounts=ref([]),selectedId=ref(''),loading=ref(false),loaded=ref(false),saving=ref(false),error=ref(''),notice=ref('');let generation=0;
+const accounts=ref([]),selectedId=ref(''),relationship=ref(''),loading=ref(false),loaded=ref(false),saving=ref(false),error=ref(''),notice=ref('');let generation=0;
 const request=()=>({skipGlobalLoading:true,headers:{'X-Agency-Id':String(props.agencyId)}});
 const emailKey=value=>String(value||'').trim().toLowerCase();
 const validEmail=value=>/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailKey(value));
@@ -42,16 +50,18 @@ async function load(){const own=++generation;loading.value=true;loaded.value=fal
  catch(e){if(own===generation)error.value=e.response?.data?.error?.message||'Linked guardian accounts could not be loaded.';}
  finally{if(own===generation)loading.value=false;}
 }
-async function prepare(){if(props.disabled||saving.value||!loaded.value||!selected.value||!validEmail(selected.value.email))return;const own=generation,contact=selected.value;saving.value=true;error.value='';notice.value='';emit('busy',true);
- try{const{data}=await api.post(`/clients/${props.clientId}/chart-import/contacts/${contact.affiliationId}/portal-account`,{},request());if(own!==generation)return;
+async function prepare(){if(props.disabled||saving.value||!loaded.value||!relationship.value||!selected.value||!validEmail(selected.value.email))return;const own=generation,contact=selected.value;saving.value=true;error.value='';notice.value='';emit('busy',true);
+ try{const{data}=await api.post(`/clients/${props.clientId}/chart-import/contacts/${contact.affiliationId}/portal-account`,{relationship:relationship.value},request());if(own!==generation)return;
   await load();if(own+1!==generation)return;
   notice.value=`${contact.fullName} is linked to this client. Review their access below before inviting them.`;emit('prepared',data.result);
  }catch(e){if(own===generation)error.value=e.response?.data?.error?.message||'The guardian account could not be added. Your imported contacts are saved.';}
  finally{saving.value=false;emit('busy',false);}
 }
+watch(selectedId, () => { relationship.value = ''; });
 watch(()=>[props.clientId,props.agencyId,props.contacts],()=>{notice.value='';void load();},{immediate:true});
 onBeforeUnmount(()=>{generation++;emit('busy',false);});
 </script>
 <style scoped>
+.guardian-choice{padding:8px;border:1px solid #c7d9eb;border-radius:8px}.guardian-choice-needed{border-color:#c49436;background:#fff7e4}
 .import-guardians{padding:16px;border:1px solid #c7d7e7;border-radius:10px;background:#f6f9fd;margin:12px 0;color:#203650}.import-guardians h4{margin:0 0 8px}.import-guardians p{font-size:13px;line-height:1.5}.import-guardians article{display:grid;gap:5px;background:white;border:1px solid #d6e0ea;border-radius:8px;padding:12px;margin-bottom:10px}.guardian-label{color:#6c5a30;font-size:12px;font-weight:700}.import-guardians label{display:grid;gap:6px;font-weight:600}.import-guardians select{width:100%;padding:10px;border:1px solid #b9c9dc;border-radius:8px;background:white;font:inherit;min-width:0}.import-guardians button{margin-top:10px}.import-guardians [role=alert]{color:#a12828}
 </style>

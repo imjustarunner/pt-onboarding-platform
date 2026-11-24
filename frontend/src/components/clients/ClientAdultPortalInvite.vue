@@ -7,7 +7,8 @@
     <p v-if="notice" role="status">{{ notice }}</p>
     <template v-if="client && !loading">
       <p><strong>{{ client.full_name || client.initials }}</strong> · {{ recipientEmail || 'Client email not recorded' }}</p>
-      <button v-if="!recipientEmail" type="button" @click="$emit('edit-contact')">Add client email in Demographics</button>
+      <button v-if="patientInfoPending" type="button" @click="$emit('edit-contact')">Review and import Patient info</button>
+      <button v-else-if="!recipientEmail" type="button" @click="$emit('edit-contact')">{{ prepareOnly ? 'Review Patient info' : 'Add client email in Demographics' }}</button>
       <p v-else-if="restricted">This client’s account has disabled or restricted access. Review the existing relationship before sending an invitation.</p>
       <p v-else-if="prepareOnly && self">Client account ready for invitation.</p>
       <template v-else>
@@ -22,7 +23,7 @@
 <script setup>
 import {computed, onBeforeUnmount, ref, watch} from 'vue';
 import api from '../../services/api';
-const props=defineProps({clientId:{type:Number,required:true},agencyId:{type:Number,required:true},prepareOnly:Boolean});
+const props=defineProps({clientId:{type:Number,required:true},agencyId:{type:Number,required:true},prepareOnly:Boolean,patientInfoPending:Boolean});
 const emit=defineEmits(['updated','edit-contact','busy']);
 const client=ref(null),accounts=ref([]),loading=ref(false),busy=ref(false),confirmed=ref(false),delivered=ref(false),error=ref(''),notice=ref('');let generation=0;
 const pendingRecovery=ref(false),recoverPending=ref(false);
@@ -34,7 +35,7 @@ async function load(){const run=++generation;client.value=null;accounts.value=[]
   try{const [identity,links]=await Promise.all([api.get(`/clients/${props.clientId}`,config()),api.get(`/clients/${props.clientId}/guardians`,config())]);if(run!==generation)return;client.value=identity.data.client||identity.data;accounts.value=Array.isArray(links.data)?links.data:[];}
   catch(e){if(run===generation)error.value=e.response?.data?.error?.message||'The client’s contact or account could not be loaded.';}
   finally{if(run===generation)loading.value=false;}}
-async function invite(){if(busy.value||!confirmed.value||restricted.value||!recipientEmail.value)return;
+async function invite(){if(props.patientInfoPending){emit('edit-contact');return;}if(busy.value||!confirmed.value||restricted.value||!recipientEmail.value)return;
   const run=generation,id=props.clientId,aid=props.agencyId,request=config();busy.value=true;emit('busy',true);error.value='';notice.value='';
   let sendStarted=false;
   try{let userId=Number(self.value?.guardian_user_id);

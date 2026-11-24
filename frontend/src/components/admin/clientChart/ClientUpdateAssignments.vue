@@ -4,7 +4,7 @@
     <p v-if="loading" role="status">Loading assignments…</p>
     <p v-if="workingDraftNotice" role="status">{{ workingDraftNotice }}</p><p v-if="assignmentDrafts.state.loadError || assignmentDrafts.state.sections.assignments?.error" role="alert">{{ assignmentDrafts.state.loadError || assignmentDrafts.state.sections.assignments?.error }} <button type="button" :disabled="busy" @click="retryWorkingDraft">Retry saving these choices</button></p>
     <p v-if="error" role="alert">{{ error }} <button v-if="!loaded" type="button" @click="load">Retry</button></p>
-    <fieldset class="assignment-services" :disabled="loading || saving || suggesting"><ClientServiceEnrollments ref="servicesPanel" :key="`${agencyId}:${clientId}`" :client-id="clientId" :agency-id="agencyId" :organizations="scopedAffiliations" :initial-assignment="initialAssignment" :start-assigning="!!initialAssignment.providerId" @loaded="onServicesLoaded" @updated="onServicesUpdated" @busy="servicesBusy=$event" @draft-change="scheduleWorkingDraft" /></fieldset>
+    <fieldset class="assignment-services" :disabled="loading || saving || suggesting"><ClientServiceEnrollments ref="servicesPanel" auto-save-provider :key="`${agencyId}:${clientId}`" :client-id="clientId" :agency-id="agencyId" :organizations="scopedAffiliations" :initial-assignment="initialAssignment" :start-assigning="!!initialAssignment.providerId" @loaded="onServicesLoaded" @updated="onServicesUpdated" @busy="servicesBusy=$event" @draft-change="scheduleWorkingDraft" /></fieldset>
     <template v-if="loaded">
       <h4>Agency memberships · {{ agencyName }}</h4>
       <form class="assignment-defaults" @submit.prevent="saveDefaults">

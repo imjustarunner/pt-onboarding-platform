@@ -1,3 +1,5 @@
+import { pendingResponsibleBillingContact, proposeResponsibleBillingContact } from '../services/clientBillingAccount.service.js';
+import { queueInsuranceVerificationSafely } from '../services/insuranceVerificationTask.service.js';
 import { readCoverageVerificationSummary, latestPayerResponses } from '../services/coverageVerificationSummary.service.js';
 import { requireClientChartImportAccess } from '../services/clientChartImportAccess.service.js';
 import { chartSections, readChartRecord, saveChartRecord, importSupplementaryChartSection } from '../services/clientChartImport.service.js';
@@ -78,7 +80,7 @@ export async function saveChartImportDraft(req, res, next) {
       needsReview: metadata.needsReview === true,
       ...(section === 'intake' && ['H0031','90791'].includes(metadata.serviceCode) ? { serviceCode: metadata.serviceCode } : {}),
       ...(coverageDrafts ? { coverageDrafts } : {}),
-      ...(section === 'demographics' && ['client','guardian'].includes(metadata.contactOwner) ? { contactOwner: metadata.contactOwner } : {}),
+      ...(section === 'demographics' && ['client','guardian'].includes(metadata.contactOwner) ? { contactOwner: metadata.contactOwner, contactOwnerConfirmed: metadata.contactOwnerConfirmed === true, clientClassification:['independent','dependent'].includes(metadata.clientClassification)?metadata.clientClassification:undefined } : {}),
       ...(['primary','secondary'].includes(metadata.position) ? { position: metadata.position } : {}) };
     const saved = await saveChartRecord(scope, section, Number(req.user.id), value, Number(req.user.id), revision);
     res.set('Cache-Control', 'no-store').json({ revision: saved.revision });
@@ -117,7 +119,23 @@ export async function getChartSupplementaryRecords(req, res, next) {
 export async function prepareChartContactGuardian(req,res,next){try{
  if(!canManageAccount(req))throw Object.assign(new Error('Account support access is required to add a guardian account.'),{status:403});
  const scope=await scopeOf(req),affiliationId=Number(req.params.affiliationId);
- const result=await prepareImportedGuardianAccount(scope,affiliationId,Number(req.user.id));
+ const result=await prepareImportedGuardianAccount(scope,affiliationId,Number(req.user.id),req.body?.relationship??null);
  await logAuditEvent(req,{actionType:'client_imported_guardian_account_prepared',agencyId:scope.agencyId,targetType:'client',targetId:scope.clientId,metadata:{affiliationId,guardianUserId:result.portalAccount.userId,invitationSent:false,accessGranted:false}});
  res.set('Cache-Control','no-store').json({result});
 }catch(error){next(error);}}
+
+export async function reviewImportedBillingContact(req, res, next) {
+  try {
+    const scope = await scopeOf(req);
+    requireSectionAccess(req, 'billingComments');
+    res.set('Cache-Control','no-store');
+    if (req.method === 'GET') {
+      const pending = await pendingResponsibleBillingContact(scope.agencyId, scope.clientId);
+      return res.json({ pending });
+    }
+    const actorUserId = Number(req.user.id);
+    const pending = await proposeResponsibleBillingContact({ ...scope, affiliationId:Number(req.body?.affiliationId), actorUserId });
+    await queueInsuranceVerificationSafely({ ...scope, actorUserId, reason:'billing_party_review' });
+    return res.json({ pending });
+  } catch (error) { next(error); }
+}

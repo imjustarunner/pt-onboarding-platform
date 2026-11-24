@@ -5,7 +5,7 @@ vi.mock('../clientInsurance.service.js',()=>({readClientInsurance:m.insurance}))
 vi.mock('../familyBillingEncryption.service.js',()=>({encryptFamilyBilling:value=>JSON.stringify(value),decryptFamilyBilling:value=>value?JSON.parse(value):null}));
 vi.mock('../familyBillingPolicy.service.js',async original=>({...await original(),requireBillingLink:m.billingLink}));
 vi.mock('../familyLedger/policy.js',()=>({transaction:async fn=>fn({execute:m.execute}),requireClient:m.requireClient,cents:value=>{const n=Number(value);if(!Number.isSafeInteger(n)||n<1)throw Object.assign(new Error('Invalid amount'),{status:400});return n;},dateOnly:value=>value}));
-import {normalizeResponsibleParty,saveResponsibleParty,guardianResponsibleParty,saveClientServiceRate} from '../clientBillingAccount.service.js';
+import {normalizeResponsibleParty,saveResponsibleParty,proposeResponsibleBillingContact,pendingResponsibleBillingContact,guardianResponsibleParty,saveClientServiceRate} from '../clientBillingAccount.service.js';
 import {snapshotServiceTerms} from '../familyLedger/serviceRates.js';
 const contact={fullName:'Synthetic Other',email:'other@example.test',phone:'3035550100',address:'1 Sample St',city:'Denver',state:'CO',postalCode:'80202'};
 beforeEach(()=>{vi.clearAllMocks();m.execute.mockImplementation(async sql=>sql.includes('FROM agency_medical_service_codes')?[[{id:7}]]:[[]]);m.insurance.mockResolvedValue(null);m.billingLink.mockResolvedValue({});});
@@ -21,4 +21,25 @@ it('records a zero rate through the configured pro bono service',async()=>{
   await expect(saveClientServiceRate(rate)).rejects.toMatchObject({status:400});
   m.execute.mockImplementation(async sql=>sql.includes('FROM tenant_services')?[[{code:'PRO-BONO SERVICE'}]]:[[]]);
   await expect(saveClientServiceRate(rate)).resolves.toMatchObject({serviceCode:'PRO-BONO SERVICE',amountCents:0});
+});
+
+it('submits a chart-bound contact for billing review and preserves the current payer and portal permissions', async () => {
+  const input = { agencyId:2, clientId:8, affiliationId:12, actorUserId:5 };
+  const contactRow = { client_id:8, agency_id:2, is_active:1, contact_is_active:1, contact_full_name:'Synthetic Payer', contact_email:'payer@example.test' };
+  let latestEvent;
+  m.execute.mockImplementation(async (sql, params) => {
+    if (sql.includes('FROM client_contact_affiliations')) return [[contactRow]];
+    if (sql.startsWith('INSERT INTO client_billing_account_events')) latestEvent = { action:params[3], evidence_encrypted:params[4] };
+    if (sql.includes('SELECT action,evidence_encrypted')) return [[latestEvent]];
+    return [[]];
+  });
+  const proposal = await proposeResponsibleBillingContact(input);
+  expect(proposal).toMatchObject({ affiliationId:12, fullName:'Synthetic Payer' });
+  expect(await pendingResponsibleBillingContact(2,8)).toEqual(proposal);
+  expect(m.execute.mock.calls.filter(([sql]) => sql.startsWith('INSERT'))).toEqual([
+    [expect.stringContaining('client_billing_account_events'), [2,8,5,'responsible_party_proposed',expect.any(String)]]
+  ]);
+  latestEvent.action = 'responsible_party_selected';
+  expect(await pendingResponsibleBillingContact(2,8)).toBeNull();
+  await expect(proposeResponsibleBillingContact({...input,clientId:9})).rejects.toMatchObject({status:404});
 });

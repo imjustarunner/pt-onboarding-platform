@@ -23,3 +23,25 @@ it('imports an apartment, country-suffixed mailing address and preferred languag
  const parsed=parseDemographicsPaste('Legal Name\nExample Child\nAddress\n100 Sample St\nApt 3\nDenver, CO 80202 USA\nTime Zone\nAmerica/Denver\nLanguages\nSpanish\nSmoking Status');
  expect(demographicsToClientPatch(parsed)).toMatchObject({address_street:'100 Sample St',address_apt:'Apt 3',address_city:'Denver',address_state:'CO',address_zip:'80202',preferred_language:'Spanish'});
 });
+
+import { matchingGuardian, suggestRecordsContactOwnership } from '../../../../frontend/src/navigation/recordsContactOwnership.js';
+
+it('suggests independent for an adult with distinct contact details and dependent for a shared or guardian identity', () => {
+  const adult = { dateOfBirth:'2008-11-24', email:'client@example.test', contactPhone:'3035550111' };
+  const parent = { email:'parent@example.test', mobilePhone:'3035550222', relationshipType:'Mother' };
+  const suggest = (person, contacts) => suggestRecordsContactOwnership(person, contacts, '2026-11-24');
+  expect(suggest(adult, [parent])).toMatchObject({ owner:'client', clientClassification:'independent' });
+  expect(suggest({...adult,dateOfBirth:'2008-11-25'}, [parent])).toMatchObject({ owner:'guardian', clientClassification:'dependent' });
+  expect(suggest(adult, [{...parent,email:adult.email}])).toMatchObject({ owner:'guardian', clientClassification:'dependent' });
+  expect(suggest(adult, [{...parent,contactType:'Guardian'}])).toMatchObject({ owner:'guardian', clientClassification:'dependent' });
+});
+
+it('rejects conflicting patient channels and prefers a unique matching email over a shared household number', () => {
+  const mother = { fullName:'Synthetic Mother', email:'mother@example.test', mobilePhone:'3035550111', relationshipType:'Mother' };
+  const father = { fullName:'Synthetic Father', email:'father@example.test', mobilePhone:'3035550111', relationshipType:'Father' };
+  expect(matchingGuardian({ email:'client@example.test', contactPhone:'3035550111' }, [mother])).toBeNull();
+  expect(matchingGuardian({ email:mother.email, contactPhone:'3035550222' }, [mother, father])).toBeNull();
+  expect(matchingGuardian({ email:mother.email, contactPhone:'+1 (303) 555-0111' }, [mother, father])).toEqual({
+    contact:mother, emailMatched:true, phoneMatched:false
+  });
+});

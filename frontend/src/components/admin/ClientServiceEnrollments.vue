@@ -26,9 +26,9 @@
         </div>
         <form v-if="Number(editingServiceId) === Number(service.id)" class="service-assignment" @submit.prevent="assign(service)">
           <div><label :for="`service-provider-${service.id}`">{{ addingProvider ? 'Additional provider' : 'Provider' }} for {{ chartServiceLabel(service.service_kind, service.label) }}</label>
-            <ProviderSearchSelect v-model="selectedProviderId" :input-id="`service-provider-${service.id}`" :options="choicesFor(service.service_kind)" :loading="providersLoading" :disabled="busy" label="Provider for this service" />
+            <ProviderSearchSelect v-model="selectedProviderId" @update:model-value="providerSelected(service,$event)" :input-id="`service-provider-${service.id}`" :options="choicesFor(service.service_kind)" :loading="providersLoading" :disabled="busy" label="Provider for this service" />
           </div>
-          <button type="submit" class="service-save" :disabled="busy || !selectedProviderId || !choicesFor(service.service_kind).some(provider => Number(provider.id) === Number(selectedProviderId))">{{ busy ? 'Saving…' : 'Save assignment' }}</button>
+          <button v-if="!autoSaveProvider || error" type="submit" class="service-save" :disabled="busy || !selectedProviderId || !choicesFor(service.service_kind).some(provider => Number(provider.id) === Number(selectedProviderId))">{{ busy ? 'Saving…' : 'Save assignment' }}</button>
           <button type="button" :disabled="busy" @click="editingServiceId = null">Cancel</button>
         </form>
       </li>
@@ -57,7 +57,7 @@ import ProviderSearchSelect from '../clients/ProviderSearchSelect.vue';
 import { useAuthStore } from '../../store/auth';
 import ClientReenrollment from './ClientReenrollment.vue';
 import { meaningfulProgram, chartServiceLabel, offersAssignmentService } from '../../utils/clientRosterContext.js';
-const props = defineProps({ clientId: [Number, String], agencyId: [Number, String], organizations: { type: Array, default: () => [] }, startAssigning: { type: Boolean, default: false },initialAssignment:{type:Object,default:()=>({})} });
+const props = defineProps({ clientId: [Number, String], agencyId: [Number, String], organizations: { type: Array, default: () => [] }, startAssigning: { type: Boolean, default: false },initialAssignment:{type:Object,default:()=>({})},autoSaveProvider:Boolean });
 const emit = defineEmits(['updated','loaded','busy','draft-change']);
 const auth=useAuthStore();
 const canAddService=computed(()=>['super_admin','admin','support','staff'].includes(auth.user?.role));
@@ -110,7 +110,11 @@ async function load() {
     availableServiceKinds.value = (serviceResult.value.data.availableServiceKinds || ['counseling']).filter(kind => serviceLabels[kind]);
     draft.value = newDraft(newServiceKinds.value[0] || 'counseling');
     if(!activeServices.value.length && props.initialAssignment.providerId && availableServiceKinds.value.includes(props.initialAssignment.serviceKind))draft.value={...draft.value,serviceKind:props.initialAssignment.serviceKind,providerUserId:Number(props.initialAssignment.providerId),organizationId:Number(props.initialAssignment.organizationId)||0};
-    if (props.startAssigning && canAddService.value && activeServices.value.length) edit(activeServices.value.find(service => !Number(service.provider_user_id)) || activeServices.value[0]);
+    if (props.startAssigning && canAddService.value && activeServices.value.length) {
+      const unassigned = activeServices.value.find(service => !Number(service.provider_user_id));
+      const target = props.initialAssignment.providerId ? unassigned : (unassigned || activeServices.value[0]);
+      if (target) edit(target);
+    }
   }
   else error.value = serviceResult.reason.response?.data?.error?.message || 'Services could not be loaded.';
   if (providerResult.status === 'fulfilled') {
@@ -148,6 +152,17 @@ async function persist(input) {
   } catch (e) { if (run === sequence) error.value = e.response?.data?.error?.message || 'Service could not be saved.'; return false; }
   finally { if (run === sequence) busy.value = false; }
 }
+function providerSelected(service, providerId) {
+  if (!props.autoSaveProvider || !Number(providerId)) return;
+  const current = service.providers?.find(row => Number(row.service_id) === Number(editingSourceId.value)) || service;
+  if (!addingProvider.value && Number(current.provider_user_id) === Number(providerId)) {
+    editingServiceId.value = null;
+    editingSourceId.value = null;
+    return;
+  }
+  selectedProviderId.value = providerId;
+  void assign(service);
+}
 function assign(service) {
   if (!choicesFor(service.service_kind).some(provider => Number(provider.id) === Number(selectedProviderId.value))) { error.value = 'Choose a provider who offers this service.'; return false; }
   return persist({ serviceId: editingSourceId.value || service.id, serviceKind: service.service_kind, label: service.label, organizationId: editingOrganizationId.value, providerUserId: Number(selectedProviderId.value), ...(addingProvider.value ? { addProvider: true } : {}) });
@@ -181,7 +196,9 @@ function workingDraft(){return {editingServiceId:editingServiceId.value,editingS
 function restoreWorkingDraft(value){
  if(!value||typeof value!=='object')return;
  const existing=services.value.find(service=>Number(service.id)===Number(value.editingServiceId));
- if(existing){editingServiceId.value=existing.id;editingSourceId.value=value.editingSourceId||null;editingOrganizationId.value=Number(value.editingOrganizationId)||0;selectedProviderId.value=String(value.selectedProviderId||'');addingProvider.value=value.addingProvider===true;}
+ const assigned = existing?.providers?.find(row => Number(row.service_id) === Number(value.editingSourceId)) || existing;
+ if(existing && !(props.autoSaveProvider && !value.addingProvider && Number(value.selectedProviderId) > 0 &&
+      Number(assigned?.provider_user_id) === Number(value.selectedProviderId))){editingServiceId.value=existing.id;editingSourceId.value=value.editingSourceId||null;editingOrganizationId.value=Number(value.editingOrganizationId)||0;selectedProviderId.value=String(value.selectedProviderId||'');addingProvider.value=value.addingProvider===true;}
  if(value.newService)draft.value={...newDraft(newServiceKinds.value[0]||'counseling'),...value.newService};
  const statusService=services.value.flatMap(service=>[service,...(service.providers||[]).map(provider=>({...service,...provider,id:provider.service_id}))]).find(service=>Number(service.id)===Number(value.statusEditId));
  if(statusService){statusEdit.value=statusService;statusDraft.value={...statusDraft.value,...value.statusDraft};}

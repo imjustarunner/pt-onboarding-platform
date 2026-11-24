@@ -1,3 +1,4 @@
+import ClientContactAffiliation from '../models/ClientContactAffiliation.model.js';
 import {isProBonoServiceCode} from '../utils/clinicalFundingPolicy.js';
 import TenantService from '../models/TenantService.model.js';
 import pool from '../config/database.js';
@@ -26,6 +27,30 @@ export async function clientBillingAccount(agencyId, clientId, db = pool) {
   const proBonoServices = await TenantService.listProBonoRates(agencyId, db);
   return { services: [...services.filter(service => !isProBonoServiceCode(service.code)), ...proBonoServices], responsibleParty: party ? { kind: party.party_kind, userId: party.responsible_user_id, contact: decryptFamilyBilling(party.contact_encrypted, context(agencyId, clientId)), revision: party.revision } : null,
     needsResponsibleParty: !party, accounts: accounts.map(row => ({ id: row.id, name: [row.first_name, row.last_name].filter(Boolean).join(' '), email: row.email, phone: row.phone, relationship: row.relationship_type === 'self' ? 'Client (self)' : row.relationship_title || 'Guardian', accessEnabled: !!row.access_enabled })), rates };
+}
+
+export async function proposeResponsibleBillingContact({ agencyId, clientId, affiliationId, actorUserId }) {
+  if (!Number.isSafeInteger(affiliationId) || affiliationId < 1) throw billingError(400, 'Choose a contact on this client.');
+  return transaction(async db => {
+    await requireClient(agencyId, clientId, db);
+    await db.execute('SELECT id FROM clients WHERE id=? AND agency_id=? FOR UPDATE', [clientId, agencyId]);
+    const row = await ClientContactAffiliation.findById(affiliationId, db);
+    if (!row || Number(row.client_id) !== clientId || Number(row.agency_id) !== agencyId ||
+        Number(row.is_active) !== 1 || Number(row.contact_is_active) !== 1) {
+      throw billingError(404, 'This contact is no longer available on this client.');
+    }
+    const proposal = { affiliationId, fullName: row.contact_full_name, email: row.contact_email || '', phone: row.contact_phone || '' };
+    await db.execute('INSERT INTO client_billing_account_events (agency_id,client_id,actor_user_id,action,evidence_encrypted) VALUES (?,?,?,?,?)',
+      [agencyId, clientId, actorUserId, 'responsible_party_proposed', encryptFamilyBilling(proposal, context(agencyId, clientId))]);
+    return proposal;
+  });
+}
+
+export async function pendingResponsibleBillingContact(agencyId, clientId, db = pool) {
+  const [[event]] = await db.execute(`SELECT action,evidence_encrypted FROM client_billing_account_events
+    WHERE agency_id=? AND client_id=? AND action IN ('responsible_party_proposed','responsible_party_selected') ORDER BY id DESC LIMIT 1`, [agencyId, clientId]);
+  if (event?.action !== 'responsible_party_proposed') return null;
+  return decryptFamilyBilling(event.evidence_encrypted, context(agencyId, clientId));
 }
 
 export async function saveResponsibleParty({ agencyId, clientId, party, revision = 0, actorUserId }) {
