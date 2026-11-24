@@ -11,6 +11,7 @@ import { saveClientService } from '../clientServiceEnrollment.service.js';
 beforeEach(() => {
   vi.clearAllMocks();
   pool.execute.mockImplementation(async (sql) => {
+    if (sql.includes('FROM clients c') && sql.includes('FOR UPDATE')) return [[{ id: 4, agency_id: 2, status: 'ACTIVE', client_status_key: 'current' }]];
     if (sql.includes('SELECT agency_id FROM clients')) return [[{ agency_id: 2 }]];
     if (sql.includes('SELECT agency_id FROM client_agency_assignments')) return [[{ agency_id: 6 }], []];
     if (sql.includes('SELECT c.id FROM clients')) return [[{ id: 4 }]];

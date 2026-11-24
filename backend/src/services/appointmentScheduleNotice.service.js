@@ -320,7 +320,7 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
               const join=await d.joinEmail({appointment:entry.appointment,clientId:seed.client_id,to:recipient});
               if(response?.links){
                 const links=appointmentEmailLinks(entry.appointment,response.links,join,+d.now());
-                recipientEntries.push({...entry,portalUrl:response.reviewUrl,tutorName:response.tutorName,
+                recipientEntries.push({...entry,portalUrl:response.reviewUrl,tutorName:response.tutorName,hasResponseActions:true,
                   actionText:links.map(link=>`${link.label}: ${link.url}`).join('\n')+(join?.detailsText?'\n'+join.detailsText:''),
                   actionHtml:appointmentActionsHtml(links)+(join?.detailsHtml||'')});
               }else recipientEntries.push({...entry,actionText:[response?.text,join?.text].filter(Boolean).join('\n\n'),actionHtml:(response?.html||'')+(join?.html||'')});

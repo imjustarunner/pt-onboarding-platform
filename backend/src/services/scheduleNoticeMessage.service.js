@@ -2,6 +2,7 @@ import { batchAppointmentNoticeKind } from '../utils/appointmentNoticeKind.js';
 import { FAMILY_APPOINTMENT_LOGIN, familyCancellationAttribution } from './appointmentCancellationCopy.js';
 import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 import { appointmentTimeLabel } from './cancellationFollowUp.service.js';
+import { appointmentServiceLabel } from '../utils/appointmentPresentation.js';
 
 export const escapeNoticeHtml = value => String(value || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 export const futureAppointment = (appointment, now = new Date()) => parseUtcDate(appointment?.startAt)?.getTime() > +now;
@@ -61,9 +62,17 @@ export function buildScheduleNoticeMessage(entries, portalUrl, { recipientUserId
       text += ' Your provider will reach out if there are any changes to their schedule. Your other appointments remain scheduled.';
     }
     const entry=visibleEntries.find(entry=>entry.appointment===a);
+    const tutoring=['learning','tutoring'].includes(a.businessType);
     if (entry?.actionHtml) text = text.replace(' Please review the current appointment details in your portal.', '');
-    if(entry?.tutorName)text+=` Your tutor: ${entry.tutorName}.`;
-    return { text:`${text}${entry?.actionText?'\n\n'+entry.actionText:''}`, html: `<p>${escapeNoticeHtml(text)}</p>${entry?.actionHtml||''}`, subject: replacement ? 'Your replacement appointment is reserved' : moved ? 'Your appointment has moved' : updated ? 'Your appointment details have been updated' : recurring ? 'Your next recurring appointment is scheduled' : 'Your appointment is scheduled' };
+    if(entry?.tutorName&&!tutoring)text+=` Your tutor: ${entry.tutorName}.`;
+    if(tutoring&&!replacement&&!moved&&!updated&&!recurring)text=entry?.hasResponseActions?'Your tutoring session is booked. Use the buttons below to respond.':'Your tutoring session is booked. Review the details below.';
+    const subject=replacement ? 'Your replacement appointment is reserved' : moved ? 'Your appointment has moved' : updated ? 'Your appointment details have been updated' : recurring ? 'Your next recurring appointment is scheduled' : 'Your appointment is scheduled';
+    const heading=tutoring?subject.replace('appointment','tutoring session'):subject;
+    const minutes=(parseUtcDate(a.endAt)-parseUtcDate(a.startAt))/60000;
+    const format=['VIRTUAL','TELEHEALTH'].includes(String(a.modality).toUpperCase())?'Virtual':'In person';
+    const details=tutoring?[appointmentServiceLabel(a),`Appointment #${a.id}`,when,entry?.tutorName?`Tutor: ${entry.tutorName}`:null,`${format}${Number.isFinite(minutes)&&minutes>0?` · ${minutes} minutes`:''}`].filter(Boolean):[];
+    const summary=details.length?`<h2 style="margin:0 0 18px;font-size:22px">${escapeNoticeHtml(heading)}</h2><div style="padding:16px 20px;border:1px solid #d1e6e2;border-radius:10px;background:#f1faf8">${details.map((line,index)=>`<p style="margin:${index?'8px 0 0':'0'};${index?'':'font-size:18px;font-weight:700'}">${escapeNoticeHtml(line)}</p>`).join('')}</div>`:'';
+    return { text:`${text}${details.length?'\n\n'+details.join('\n'):''}${entry?.actionText?'\n\n'+entry.actionText:''}`, html: `${summary}<p>${escapeNoticeHtml(text)}</p>${entry?.actionHtml||''}`, subject:heading };
   });
   const linkedSections = sections.map((section, index) => {
     if (sections.length < 2) return section;
@@ -72,10 +81,12 @@ export function buildScheduleNoticeMessage(entries, portalUrl, { recipientUserId
     return { ...section, text: `${section.text}\n${label}: ${url}`,
       html: `${section.html}<p><a href="${escapeNoticeHtml(url)}">${escapeNoticeHtml(label)}</a></p>` };
   });
-  const footer = entries.every(e => e.payload.facts?.absenceSource) ? '' : 'Please reply to this email to reach our support team. Use the secure portal for appointment details.';
-  const portalLabel = portalLink?.label || (visibleEntries.some(entry=>entry.actionHtml) ? 'Open appointments' : sections.length === 1 ? 'Review my appointment' : 'Review my latest appointment');
-  const scheduleLabel=portalLink?.label || (visibleEntries.some(entry=>entry.actionText) ? 'Open appointments' : 'Review your current schedule');
-  const portalHref = portalLink?.url || visibleEntries.at(-1)?.portalUrl || portalUrl;
+  const tutoring=visibleEntries.every(e=>!e.cancellation&&['learning','tutoring'].includes(e.appointment.businessType));
+  const footer = entries.every(e => e.payload.facts?.absenceSource) ? '' : tutoring ? `${visibleEntries.every(e=>e.hasResponseActions)?'Use the buttons to respond. No sign-in is needed to respond. Any cancellation policy still applies. ':''}For help, reply to this email to contact Support.` : 'Please reply to this email to reach our support team. Use the secure portal for appointment details.';
+  const tutoringReview=tutoring&&visibleEntries.length===1&&visibleEntries[0].hasResponseActions?visibleEntries[0].portalUrl:null;
+  const portalLabel = tutoringReview?'Review my tutoring session':portalLink?.label || (visibleEntries.some(entry=>entry.actionHtml) ? 'Open appointments' : sections.length === 1 ? 'Review my appointment' : 'Review my latest appointment');
+  const scheduleLabel=tutoringReview?'Review my tutoring session':portalLink?.label || (visibleEntries.some(entry=>entry.actionText) ? 'Open appointments' : 'Review your current schedule');
+  const portalHref = tutoringReview || portalLink?.url || visibleEntries.at(-1)?.portalUrl || portalUrl;
   return {
     subject: sections.length === 1 ? sections[0].subject : batchAppointmentNoticeKind(entries) === 'appointment_scheduled' ? 'Your appointments are scheduled' : 'Your appointment schedule has been updated',
     text: `${linkedSections.map(s => s.text).join('\n\n')}\n\n${scheduleLabel}: ${portalHref}\n\n${footer}`,
