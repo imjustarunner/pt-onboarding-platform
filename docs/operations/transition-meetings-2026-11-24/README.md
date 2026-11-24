@@ -79,6 +79,8 @@ Operational status should show the actual inbox proof, event IDs, delivery recei
 
 All production actions must retain actual Cloud IAM attribution or the named nonhuman application identity, with no copied human sessions, forged app credentials or fabricated human audit actors.
 
+The scoped deployment-queue workflow resolves superseded paired releases waiting on each other. It cancels only older main deployment runs whose source is already contained in the current release, preserves both currently live sources, and stops if main or production readiness changes. It never cancels other workflows or changes Cloud Run traffic. Its trigger is limited to changes to its own files or an explicit manual dispatch.
+
 ## Validation
 
 Run `node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.transition-meeting-sequence.config.js` for the isolated policy/email/dispatch tests.

@@ -1,0 +1,47 @@
+name: Reconcile superseded deployment queue
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/reconcile-deployment-queue.yml'
+      - 'scripts/superseded-deployment-runs*'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: write
+concurrency:
+  group: reconcile-deployment-queue
+  cancel-in-progress: false
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: node --test scripts/superseded-deployment-runs.test.mjs
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const {supersededDeploymentRuns}=await import(`${process.env.GITHUB_WORKSPACE}/scripts/superseded-deployment-runs.mjs`);
+            const {owner,repo}=context.repo;
+            if(`${owner}/${repo}`!=='imjustarunner/pt-onboarding-platform')throw Error('Wrong repository.');
+            const head=(await github.rest.repos.getBranch({owner,repo,branch:'main'})).data.commit.sha;
+            if(head!==context.sha)throw Error('A newer main commit must reconcile its own release.');
+            async function version(path){const response=await fetch(`https://plottwisthq.com/${path}`,{signal:AbortSignal.timeout(15000),headers:{'Cache-Control':'no-cache'}});if(!response.ok)throw Error('Live source verification unavailable.');return response.json();}
+            const [front,back]=await Promise.all([version('version.json'),version('api/app-version')]);
+            if(back.ready!==true)throw Error('Production is not healthy; preserve all runs for review.');
+            const runs=[];
+            for(const workflow_id of ['deploy-backend.yml','deploy-frontend.yml'])runs.push(...(await github.rest.actions.listWorkflowRuns({owner,repo,workflow_id,branch:'main',per_page:100})).data.workflow_runs);
+            const selected=supersededDeploymentRuns(runs,{head,liveBuilds:[front.buildId,back.buildId]});
+            for(const run of selected){
+              if((await github.rest.repos.getBranch({owner,repo,branch:'main'})).data.commit.sha!==head)throw Error('Main changed; stop cancellation.');
+              const compare=(await github.rest.repos.compareCommitsWithBasehead({owner,repo,basehead:`${run.head_sha}...${head}`})).data;
+              if(compare.status!=='ahead')continue;
+              const current=(await github.rest.actions.getWorkflowRun({owner,repo,run_id:run.id})).data;
+              const [latestFront,latestBack]=await Promise.all([version('version.json'),version('api/app-version')]);
+              if(latestBack.ready!==true)throw Error('Live readiness changed; stop cancellation.');
+              if(!supersededDeploymentRuns([current],{head,liveBuilds:[latestFront.buildId,latestBack.buildId]}).length)continue;
+              try{
+                await github.rest.actions.cancelWorkflowRun({owner,repo,run_id:run.id});
+                core.info(`Cancelled superseded ${run.name} run ${run.id} at ${run.head_sha}.`);
+              }catch(error){if(error.status!==409)throw error;core.info(`Run ${run.id} finished while cancellation was checked.`);}
+            }
