@@ -1,5 +1,5 @@
 export const PERSON_STEPS = [
-  ['clients_current','Bring all clients up to date'],['records','Client records checked'],['schedules','Sessions scheduled and checked'],['families','Families know where to go'],['training','Training and hands-on practice complete'],['login','Password, six-digit code and recovery tested'],['google','Google handoff complete'],['therapynotes','TherapyNotes work moved'],['transitioned','Provider fully transitioned']
+  ['clients_current','Bring all clients up to date'],['records','All client records transferred and checked'],['schedules','Sessions scheduled and checked'],['families','Families know where to go'],['training','Training and hands-on practice complete'],['login','Password, six-digit code and recovery tested'],['google','Google access shut off and verified'],['therapynotes','TherapyNotes work moved'],['transitioned','Provider fully transitioned']
 ].map(([id,label])=>({id,label}));
 export const CLIENT_STEPS = [
   ['upToDate','Client information and care plan up to date'],['records','Required records brought over and checked'],['schedule','Sessions scheduled, or no visits needed'],['familyReady','Family ready, or no outreach needed'],['transitioned','Client fully transitioned']
