@@ -2870,6 +2870,8 @@ if (shouldStartServerBackgroundJobs()) {
       await sendDueMeetingInvitations();
       try{await (await import('./services/transitionMeetingSequenceLive.service.js')).processTransitionSequence();}
       catch(error){if(error.code!=='ER_NO_SUCH_TABLE')console.warn('[Transition sequence] Review needed',error.code||error.status||'dispatch_failed');}
+      try{await (await import('./services/transitionAccessNotice.service.js')).processTransitionAccessNotices();}
+      catch(error){console.warn('[Transition access notice] Review needed',error.code||'dispatch_failed');}
       const { sendDueMeetingChanges } = await import('./services/meetingScheduleChanges.service.js');
       await sendDueMeetingChanges();
     } catch (error) { console.warn('[Meeting invitations] Worker failed', error.code || 'unknown'); }

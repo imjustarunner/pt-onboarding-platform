@@ -3,6 +3,7 @@ export default {
   resolve: { alias: { vitest: new URL('../frontend/node_modules/vitest/dist/index.js', import.meta.url).pathname } },
   test: { environment: 'node', restoreMocks: true, include: [
     'src/middleware/__tests__/transitionClientImport.test.js',
+    'src/services/__tests__/transitionAccessNotice.test.js',
     'src/utils/__tests__/transitionPayrollRanking.test.js',
     'src/utils/__tests__/transitionWeekPolicy.test.js',
     'src/utils/__tests__/transitionWorkspacePolicy.test.js',

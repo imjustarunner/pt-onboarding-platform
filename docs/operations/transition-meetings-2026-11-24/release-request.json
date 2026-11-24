@@ -1,7 +1,7 @@
 {
-  "operation": "Deploy scoped transition workspace and TherapyNotes client import access for Megan",
+  "operation": "Deploy scoped transition/client-import access and consent-aware activation notice through the native backend sender",
   "authorization": "User explicitly requested commit, push, live deployment and meeting invitations in this chat",
-  "requestedAt": "2026-11-24T22:10:31.226902+00:00",
+  "requestedAt": "2026-11-24T22:18:53.541417+00:00",
   "preserveLiveSources": true,
   "automationGroupRole": "MANAGER",
   "groupOwnerSettingsConfirmed": true,
