@@ -80,3 +80,9 @@ it('leaves service assignment pending when the server rejects or cannot confirm 
  await expect(finishClientCreation({...a,organizationId:2,outcome:'assign',serviceKind:'counseling'})).rejects.toThrow('could not be confirmed');
  expect(a.api.put).not.toHaveBeenCalled();
 });
+it('reuses the agency counseling service and preserves its existing program when adding a provider',async()=>{
+ const a=args(),existing={id:40,service_kind:'counseling',organization_id:3,provider_user_id:8,is_active:1,label:'Counseling'};
+ a.api.get.mockResolvedValue({data:{services:[existing]}});a.api.post.mockResolvedValue({data:{services:[{...existing,providers:[{provider_user_id:8},{provider_user_id:9}]}]}});
+ await finishClientCreation({...a,organizationId:2,outcome:'assign',serviceKind:'counseling'});
+ expect(a.api.post).toHaveBeenCalledWith('/clients/12/service-enrollments',expect.objectContaining({serviceId:40,providerUserId:9,organizationId:3,addProvider:true}));
+});

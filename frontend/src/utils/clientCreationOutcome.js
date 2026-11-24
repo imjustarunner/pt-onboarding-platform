@@ -14,7 +14,7 @@ export async function finishClientCreation({ api, clientId, agencyId, organizati
       const selectedOrg = Number(organizationId) === Number(agencyId) ? 0 : Number(organizationId) || 0;
       const { data } = await api.get(resource, {params:{agencyId:Number(agencyId)}});
       const active = (data.services || []).filter(row => row.service_kind === serviceKind && Number(row.is_active) === 1
-        && Number(row.organization_id || 0) === selectedOrg);
+        && (serviceKind === 'counseling' || Number(row.organization_id || 0) === selectedOrg));
       const hasProvider = row => [row, ...(row.providers || [])].some(provider => Number(provider.provider_user_id) === Number(providerId));
       if (active.some(hasProvider)) return null;
       const vacant = active.find(row => !Number(row.provider_user_id));
@@ -22,10 +22,10 @@ export async function finishClientCreation({ api, clientId, agencyId, organizati
       const label = { counseling: 'Counseling', tutoring: 'Tutoring', coaching: 'Coaching' }[serviceKind];
       const response = await api.post(resource, {
         agencyId:Number(agencyId), serviceKind, providerUserId:Number(providerId),
-        organizationId:selectedOrg, label:target?.label || label, ...(target ? {serviceId:target.id} : {}),
+        organizationId:target ? Number(target.organization_id)||0 : selectedOrg, label:target?.label || label, ...(target ? {serviceId:target.id} : {}),
         ...(target && !vacant ? {addProvider:true} : {})
       });
-      if (!response.data?.services?.some(row => row.service_kind === serviceKind && Number(row.is_active) === 1 && Number(row.organization_id || 0) === selectedOrg && hasProvider(row))) {
+      if (!response.data?.services?.some(row => row.service_kind === serviceKind && Number(row.is_active) === 1 && (serviceKind === 'counseling' || Number(row.organization_id || 0) === selectedOrg) && hasProvider(row))) {
         throw new Error(`The ${label} assignment could not be confirmed. Reopen Assignments to review the saved client.`);
       }
       return null;
