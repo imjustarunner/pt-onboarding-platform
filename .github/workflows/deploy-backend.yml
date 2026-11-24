@@ -16,6 +16,7 @@ on:
       - 'scripts/build-backend-image*'
       - 'scripts/check-production-release*.mjs'
       - 'scripts/check-paired-release*.mjs'
+      - 'scripts/check-plotline-support-release*.mjs'
       - '.github/workflows/deploy-backend.yml'
       - '.github/workflows/deploy-frontend.yml'
   workflow_dispatch:
@@ -614,6 +615,8 @@ jobs:
             echo "❌ App never reached loaded phase after ~5 minutes. Failing deploy."
             exit 1
           fi
+          node --test scripts/check-plotline-support-release.test.mjs
+          node scripts/check-plotline-support-release.mjs "$SERVICE_URL" "$GITHUB_SHA"
           node scripts/check-paired-release.mjs frontend-staged "$GITHUB_SHA"
           node scripts/check-production-release.mjs "$GITHUB_SHA"
           gcloud run services update-traffic "$SERVICE_NAME" --region "$REGION" \

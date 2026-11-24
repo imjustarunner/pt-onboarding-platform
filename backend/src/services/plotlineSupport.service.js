@@ -8,6 +8,7 @@ import { scanPublicSupportContent } from './publicAgencySupport.service.js';
 import { prepareEncryptedTicketText } from '../utils/supportTicketCrypto.js';
 import { recordTicketAssignment } from './ticketAssignment.service.js';
 import { PLOTLINE_SUPPORT_SOURCE } from '../utils/plotlineSupport.js';
+import { isManagedSupportIdentity } from './supportTicketEmailPolicy.js';
 
 const fail = (message,status=400) => Object.assign(new Error(message),{status});
 const positiveId = value => Number.isSafeInteger(Number(value)) && Number(value)>0;
@@ -47,6 +48,21 @@ export function createPlotlineSupportService(overrides={}) {
       recaptchaRequired:!reference&&d.production,recaptchaSiteKey:!reference?d.recaptcha.siteKey||null:null,
       recaptchaUseEnterprise:!!d.recaptcha.enterpriseApiKey,
       subject:reference?'Help with a Plotline reference request':'Help with Plotline'};
+  }
+  async function readiness() {
+    // Reuse the public metadata lookup to verify the active operator and owner;
+    // expose no user IDs, mailbox addresses, or application credentials.
+    const meta=await publicMeta();
+    const [[migration]]=await d.db.execute("SELECT success FROM migrations_log WHERE migration_name='1880_plotline_platform_support' AND success=1");
+    const [[schema]]=await d.db.execute("SELECT COUNT(*) AS present FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN ('platform_support_products','platform_support_submissions')");
+    if(!migration?.success||Number(schema?.present)!==2)throw fail('Plotline support migration is not ready.',503);
+    const p=await product();
+    const [senders]=await d.db.execute(`SELECT e.id,e.agency_id,e.identity_key,e.from_email,e.is_active,i.owner_user_id
+      FROM email_sender_identities e LEFT JOIN communication_inboxes i ON i.sender_identity_id=e.id
+      WHERE e.agency_id=? AND e.is_active=1 AND e.identity_key IN ('support','general','info')`,[p.operator_agency_id]);
+    if(!senders.some(sender=>isManagedSupportIdentity(sender,{agencyId:p.operator_agency_id})))throw fail('The platform operator needs a shared support sender.',503);
+    if(d.production&&!meta.recaptchaSiteKey)throw fail('Plotline support human verification is not configured.',503);
+    return {ready:true,productName:meta.productName,operatorName:meta.operatorName};
   }
   async function createTicket(token,body={},req) {
     if(String(body.website||'').trim())return {ok:true,suppressed:true};
@@ -96,6 +112,6 @@ export function createPlotlineSupportService(overrides={}) {
       throw error;
     }finally{db.release();}
   }
-  return {publicMeta,createTicket};
+  return {publicMeta,createTicket,readiness};
 }
 export default createPlotlineSupportService();

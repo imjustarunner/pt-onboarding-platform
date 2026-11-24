@@ -8,15 +8,19 @@ vi.mock('../ticketAssignment.service.js',()=>({recordTicketAssignment:vi.fn()}))
 import {createPlotlineSupportService} from '../plotlineSupport.service.js';
 const token='a'.repeat(64),key='11111111-1111-4111-8111-111111111111';
 const body=()=>({name:'QA Referee',email:'referee@example.test',subject:'Reference form help',message:'How can I update my professional relationship?',submissionKey:key});
-let d,service,db,conn,reference,product,people,links;
+let d,service,db,conn,reference,product,people,links,senders,migrationReady,schemaTables;
 beforeEach(()=>{
  vi.clearAllMocks();links=new Map();people=[{id:7}];
+ senders=[{id:4,agency_id:1,identity_key:'support',from_email:'support@example.test',is_active:1,owner_user_id:null}];migrationReady=true;schemaTables=2;
  product={product_key:'plotline',product_name:'Plotline',operator_name:'PlotTwistCo',operator_agency_id:1,default_owner_user_id:null};
  reference={id:47,agency_id:463,status:'sent',reference_name:'QA Referee',reference_email:'referee@example.test',referenceContact:{referenceName:'QA Referee',referenceEmail:'referee@example.test'},token_expires_at:new Date(Date.now()+86400000),questionnaire:{PRIVATE:'NOT FOR SUPPORT'}};
  const execute=vi.fn(async(sql,values=[])=>{
   expect((sql.match(/\?/g)||[]).length).toBe(values.length);
   if(sql.includes('FROM platform_support_products'))return [[product]];
   if(sql.includes('FROM users WHERE'))return [people];
+  if(sql.includes('FROM migrations_log'))return [migrationReady?[{success:1}]:[]];
+  if(sql.includes('FROM information_schema.tables'))return [[{present:schemaTables}]];
+  if(sql.includes('FROM email_sender_identities'))return [senders];
   if(sql.startsWith('INSERT INTO platform_support_submissions')){if(links.has(values[2]))throw Object.assign(Error('Duplicate'),{code:'ER_DUP_ENTRY'});links.set(values[2],{payload_fingerprint:values[3]});return[{insertId:80}];}
   if(sql.startsWith('SELECT id FROM hiring_reference_requests'))return [[{id:47}]];
   if(sql.startsWith('SELECT COUNT'))return [[{total:1}]];
@@ -31,6 +35,21 @@ beforeEach(()=>{
 });
 it('identifies the product and platform operator, prefills only known contact details, and exposes no answers or owner IDs',async()=>{
  const meta=await service.publicMeta(token);expect(meta).toMatchObject({productName:'Plotline',operatorName:'PlotTwistCo',contact:{name:'QA Referee',email:'referee@example.test'},recaptchaRequired:false});expect(JSON.stringify(meta)).not.toMatch(/PRIVATE|questionnaire|owner|47|463/);
+});
+it('verifies the migrated schema, authorized owner, shared operator sender and CAPTCHA without revealing private configuration',async()=>{
+ expect(await service.readiness()).toEqual({ready:true,productName:'Plotline',operatorName:'PlotTwistCo'});
+ people=[];await expect(service.readiness()).rejects.toHaveProperty('status',503);
+});
+it('holds candidate readiness if migration or schema installation is incomplete',async()=>{
+ migrationReady=false;await expect(service.readiness()).rejects.toHaveProperty('status',503);
+ migrationReady=true;schemaTables=1;await expect(service.readiness()).rejects.toHaveProperty('status',503);
+});
+it('holds candidate readiness for absent, inactive, personal, foreign-company or malformed senders',async()=>{
+ const valid={...senders[0]};
+ for(const rows of [[],[{...valid,is_active:0}],[{...valid,owner_user_id:7}],[{...valid,agency_id:463}],[{...valid,from_email:'invalid'}]]){
+  senders=rows;await expect(service.readiness()).rejects.toHaveProperty('status',503);
+ }
+ senders=[valid];d.recaptcha.siteKey=null;await expect(service.readiness()).rejects.toHaveProperty('status',503);
 });
 it('always sends platform tickets to the operator, with Michael’s authorized assignment, never to the hiring company',async()=>{
  expect(await service.createTicket(token,{...body(),agencyId:464,operatorAgencyId:464,ownerUserId:1434,actorUserId:1434,isQa:true},{})).toEqual({ok:true,ticketId:501});
