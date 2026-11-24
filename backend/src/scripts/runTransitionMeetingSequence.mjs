@@ -8,7 +8,7 @@ if(!metadata.ok||(await metadata.text()).trim()!==TRANSITION_AUTOMATION)throw Er
 // of source files, command arguments and operational logs.
 if(process.env.TRANSITION_RUNTIME_CONFIG){
  const config=JSON.parse(process.env.TRANSITION_RUNTIME_CONFIG);
- for(const name of ['DB_HOST','DB_PORT','DB_NAME','DB_USER','DB_PASSWORD','CLIENT_CHAT_ENCRYPTION_KEY_BASE64','CLIENT_CHAT_ENCRYPTION_KEY_ID','GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON_BASE64'])if(typeof config[name]==='string')process.env[name]=config[name];
+ for(const name of ['DB_HOST','DB_PORT','DB_NAME','DB_USER','DB_PASSWORD','CLIENT_CHAT_ENCRYPTION_KEY_BASE64','CLIENT_CHAT_ENCRYPTION_KEY_ID','GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON_BASE64','WORKSPACE_EMAIL_RELAY_URL'])if(typeof config[name]==='string')process.env[name]=config[name];
 }
 const {default:pool}=await import('../config/database.js');
 try{
@@ -26,9 +26,21 @@ try{
   if(!alias)alias=(await gmail.users.settings.sendAs.create({userId:'me',requestBody:{sendAsEmail:TRANSITION_INBOX,displayName:'AuricWell Transition Team',replyToAddress:TRANSITION_INBOX,treatAsAlias:false}})).data;
   if(alias.verificationStatus!=='accepted')throw Error('The dedicated sender needs verification before activation.');
   // Original message and reply both remain within explicitly managed app identities.
-  const marker=`transition-inbox-${randomUUID()}`,messageId=`<${marker}@auricwell.com>`;
-  const raw=Buffer.from(`From: AuricWell Transition Team <${TRANSITION_INBOX}>\r\nTo: ${TRANSITION_INBOX}\r\nSubject: Transition inbox routing verification ${marker}\r\nMessage-ID: ${messageId}\r\nAuto-Submitted: auto-generated\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nAutomated routing verification for the requested ITSCO transition inbox. No provider action required.`).toString('base64url');
-  await gmail.users.messages.send({userId:'me',requestBody:{raw}});
+  const marker=`transition-inbox-${randomUUID()}`;
+  const {default:Communications}=await import('../services/communicationLogging.service.js');
+  const record=await Communications.logGeneratedCommunication({agencyId:2,templateType:'transition_inbox_verification',subject:`Transition inbox routing verification ${marker}`,body:'Internal automated test of the requested Group-to-app inbox route. No provider action required.',recipientAddress:TRANSITION_INBOX,generatedByUserId:null,metadata:{actorType:'automation',automationSubject:TRANSITION_AUTOMATION,fromEmail:TRANSITION_INBOX}});
+  const messageId=`<comm-${record.id}@auricwell.com>`;
+  const raw=Buffer.from(`From: AuricWell Transition Team <${TRANSITION_INBOX}>\r\nTo: ${TRANSITION_INBOX}\r\nSubject: Transition inbox routing verification ${marker}\r\nMessage-ID: ${messageId}\r\nDate: ${new Date().toUTCString()}\r\nAuto-Submitted: auto-generated\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nAutomated routing verification for the requested ITSCO transition inbox. No provider action required.`).toString('base64url');
+  // SMTP delivery deliberately precedes any Sent archival copy. Gmail suppresses
+  // a message sent to one's own Group through gmail.messages.send, so that would
+  // not be an independent test of Group delivery into the application inbox.
+  const {GoogleAuth}=await import('google-auth-library');
+  const relayUrl=process.env.WORKSPACE_EMAIL_RELAY_URL;
+  if(!/^https:\/\/workspace-mail-relay-[a-z0-9-]+\.a\.run\.app$/.test(relayUrl||''))throw Error('Configure the approved private Workspace relay before testing inbox delivery.');
+  const relay=await new GoogleAuth().getIdTokenClient(relayUrl);
+  const delivery=(await relay.request({url:relayUrl+'/send',method:'POST',data:{key:`communication:${record.id}`,from:TRANSITION_INBOX,raw},timeout:25000,retry:false})).data;
+  if(delivery?.status!=='accepted'||delivery.messageId!==messageId)throw Error('The relay did not confirm the internal inbox test.');
+  await Communications.markAsSent(record.id,delivery.id,{actorType:'automation',automationSubject:TRANSITION_AUTOMATION,internetMessageId:messageId});
   let verified=false;
   for(let attempt=0;attempt<10&&!verified;attempt++){
    if(attempt)await new Promise(r=>setTimeout(r,5000));

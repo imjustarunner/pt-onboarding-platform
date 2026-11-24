@@ -8,7 +8,7 @@ const dry=process.argv.includes('--dry-run');
 try{
  const service=JSON.parse(cloud(['run','services','describe','onboarding-backend',`--region=${region}`,'--format=json']));
  const container=service.spec.template.spec.containers[0],env=new Map(container.env.map(e=>[e.name,e]));
- const names=['DB_HOST','DB_PORT','DB_NAME','DB_USER','DB_PASSWORD','CLIENT_CHAT_ENCRYPTION_KEY_BASE64','CLIENT_CHAT_ENCRYPTION_KEY_ID','GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON_BASE64'];
+ const names=['DB_HOST','DB_PORT','DB_NAME','DB_USER','DB_PASSWORD','CLIENT_CHAT_ENCRYPTION_KEY_BASE64','CLIENT_CHAT_ENCRYPTION_KEY_ID','GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON_BASE64','WORKSPACE_EMAIL_RELAY_URL'];
  const config={};
  for(const name of names){const entry=env.get(name);if(!entry)continue;
   config[name]=entry.value!==undefined?entry.value:cloud(['secrets','versions','access',entry.valueFrom.secretKeyRef.key,`--secret=${entry.valueFrom.secretKeyRef.name}`]);
@@ -22,6 +22,7 @@ try{
  const version=cloud(['secrets','versions','add',secret,'--data-file=-','--format=value(name)'],JSON.stringify(config)).split('/').at(-1);
  cloud(['secrets','add-iam-policy-binding',secret,`--member=serviceAccount:${account}`,'--role=roles/secretmanager.secretAccessor','--format=value(version)']);
  cloud(['projects','add-iam-policy-binding',project,`--member=serviceAccount:${account}`,'--role=roles/cloudsql.client',`--condition=expression=resource.name == 'projects/${project}/instances/${instance}' && resource.service == 'sqladmin.googleapis.com',title=transition-single-instance`,'--format=value(version)']);
+ cloud(['run','services','add-iam-policy-binding','workspace-mail-relay',`--region=${region}`,`--member=serviceAccount:${account}`,'--role=roles/run.invoker','--format=value(version)']);
  cloud(['run','jobs','deploy',job,`--region=${region}`,`--image=${container.image}`,`--service-account=${account}`,`--set-cloudsql-instances=${connection}`,'--command=node','--args=src/scripts/runTransitionMeetingSequence.mjs,status',`--set-secrets=TRANSITION_RUNTIME_CONFIG=${secret}:${version}`,'--set-env-vars=NODE_ENV=production,SKIP_DB_CONNECT=1','--tasks=1','--parallelism=1','--max-retries=0','--task-timeout=300s','--memory=512Mi','--cpu=1','--format=value(metadata.name)']);
  console.log(JSON.stringify({provisioned:true,job,serviceAccount:account,secretReference:`${secret}:${version}`,mode:'status',credentialValuesPrinted:false}));
 }catch(error){console.error(JSON.stringify({error:String(error.message).slice(0,200)}));process.exitCode=1;}
