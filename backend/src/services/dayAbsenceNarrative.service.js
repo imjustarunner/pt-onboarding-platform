@@ -38,8 +38,17 @@ function sessionPhrase({ audience, clientName, schoolName, when, wholeDay = true
 }
 
 export function composeAbsenceLetter({ audience = 'client', providerAuthored = true, providerName = 'Your provider', clientName, schoolName, when, reasonCategory, reason, note, wholeDay = true }) {
+  const custom = typeof note === 'string' ? note.trim().slice(0, 1000) : '';
+  const completeMessage = custom && (/\b(?:I['’](?:m|ll)|I (?:am|will|won['’]t|cannot)|we (?:are|will))\b/i.test(custom) || /[.!?]["'’”)]*$/.test(custom));
   const because = becauseClause(reasonCategory, reason, note);
   const session = sessionPhrase({ audience, clientName, schoolName, when, wholeDay });
+  if (completeMessage) {
+    const intro = providerAuthored ? `I need to cancel ${session}.`
+      : `${providerName} is unable to attend ${audience === 'school' ? `the sessions on ${when}` : `the scheduled session on ${when}`}.`;
+    const greeting = audience === 'school' ? `Hello, ${schoolName || 'school'} team,` : 'Hello,';
+    return { subject: audience === 'school' ? `Schedule change for ${when}` : `Session canceled — ${when}`,
+      text: `${greeting}\n\n${intro}\n\n${providerAuthored ? custom : `A note from ${providerName}:\n${custom}`}\n\n${providerAuthored ? 'Thank you for your understanding.' : 'Thank you for your understanding.\n\nYour care team'}${providerAuthored ? `\n\n${providerName}` : ''}` };
+  }
   if (audience === 'school') {
     return providerAuthored
       ? { subject: `Schedule change for ${when}`, text: `Hello, ${schoolName || 'school'} team,\n\nUnfortunately, ${because}, I need to cancel ${session}. I apologize for the change and appreciate your understanding.\n\nI am notifying my clients and their families of my absence.\n\n${providerName}` }

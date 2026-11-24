@@ -80,7 +80,7 @@ export function createCancellationSchoolRosterService(overrides = {}) {
   }
   const list = args => readRoster(args);
   const readMany = args => readRoster({ ...args, providerIds: args.providerIds });
-  async function review(row, { agencyId, providerId, date, timeZone, windowStart, windowEnd, reason, reasonCategory, providerAuthored = false, urgent = true, absenceSource = 'cancel_day', choices, message, required = false, followUpAction, followUpMessage = '' }) {
+  async function review(row, { agencyId, providerId, date, timeZone, windowStart, windowEnd, reason, reasonCategory, providerAuthored = false, urgent = true, absenceSource = 'cancel_day', choices, message, required = false, followUpAction, followUpMessage = '', composeLetter = dayAbsenceMessage }) {
     const clientId = Number(row.client_id);
     const client = await d.contacts(clientId, agencyId, choices, { required, allowMissingEmail: true });
     // Assigned-day notices have no appointment/portal session to attach texts or replacement offers to.
@@ -88,7 +88,9 @@ export function createCancellationSchoolRosterService(overrides = {}) {
     if (followUpAction === 'private_slots') throw fail('Private replacement times require scheduled appointments. Choose contact support for assigned-day clients.');
     let reviewed;
     const letter = { urgent, providerAuthored, providerName: row.provider_name, clientName: client.clientName, schoolName: row.school_name, date, when: schoolAbsenceWhen({ date, slots: row.slots, timeZone, windowStart, windowEnd }), reason, reasonCategory, note: followUpMessage };
-    try { reviewed = reviewedMessage(message, { ...dayAbsenceMessage({ ...letter, audience: 'guardian' }), client: dayAbsenceMessage({ ...letter, audience: 'client' }), guardian: dayAbsenceMessage({ ...letter, audience: 'guardian' }) }); }
+    try { const makeLetter = message ? dayAbsenceMessage : composeLetter;
+      const guardian = await makeLetter({ ...letter, audience: 'guardian' });
+      reviewed = reviewedMessage(message, { ...guardian, client: await makeLetter({ ...letter, audience: 'client' }), guardian }); }
     catch(error) { throw fail(`${client.clientName}: ${error.message}`); }
     return { key: `school_roster:${agencyId}:${providerId}:${date}:${clientId}:${row.school_id}`, kind: 'school_roster',
       id: clientId, clientId, agencyId, providerId, schoolId: Number(row.school_id), date,

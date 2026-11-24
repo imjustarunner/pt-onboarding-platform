@@ -3,14 +3,14 @@ import { createHash } from 'node:crypto';
 import pool from '../config/database.js';
 import { reviewedEmail, reviewedMessage } from './cancellationRecipients.service.js';
 import { escapeNoticeHtml } from './scheduleNoticeMessage.service.js';
-import { schoolDayAbsenceMessage } from './dayAbsencePolicy.service.js';
+import { schoolDayAbsenceMessage, absenceDate } from './dayAbsencePolicy.service.js';
 
 const fail = message => Object.assign(new Error(message), { status: 400 });
 export function createCancellationSchoolNoticeService(overrides = {}) {
   const d = { database: pool,
     sendEmail: async args => (await import('./schoolDayAbsenceEmail.service.js')).sendSchoolDayAbsenceEmail(args),
     ...overrides };
-  async function list({ providerId, agencyId, date, reason, reasonCategory, providerAuthored = false, wholeDay = true, note = '' }) {
+  async function list({ providerId, agencyId, date, reason, reasonCategory, providerAuthored = false, wholeDay = true, note = '', composeLetter = null }) {
     const weekday = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][new Date(`${date}T12:00:00Z`).getUTCDay()];
     const [rows] = await d.database.execute(`SELECT DISTINCT school.id,school.name,sp.itsco_email,sp.primary_contact_email,
       CONCAT_WS(' ',u.first_name,u.last_name) AS provider_name
@@ -18,10 +18,10 @@ export function createCancellationSchoolNoticeService(overrides = {}) {
       JOIN organization_affiliations oa ON oa.organization_id=school.id AND oa.agency_id=? AND oa.is_active=1
       JOIN users u ON u.id=psa.provider_user_id LEFT JOIN school_profiles sp ON sp.school_organization_id=school.id
       WHERE psa.provider_user_id=? AND psa.day_of_week=? AND psa.is_active=1 ORDER BY school.id`, [agencyId, providerId, weekday]);
-    return rows.map(s => ({ key: `school:${agencyId}:${s.id}:${date}`, kind: 'school', id: Number(s.id), agencyId, date,
+    return Promise.all(rows.map(async s => ({ key: `school:${agencyId}:${s.id}:${date}`, kind: 'school', id: Number(s.id), agencyId, date,
       providerId, providerAuthored, schoolName:s.name,
       title: `${s.name} — school cancellation notice`, recipients: [...new Set([s.itsco_email].filter(Boolean).map(e => String(e).trim().toLowerCase()))],
-      message: schoolDayAbsenceMessage({providerName:s.provider_name,providerAuthored,schoolName:s.name,date,reasonCategory,reason,note,wholeDay}) }));
+      message: composeLetter && note && reasonCategory !== 'planned_out' ? await composeLetter({audience:'school',providerName:s.provider_name,providerAuthored,schoolName:s.name,date,when:absenceDate(date),reasonCategory,reason,note,wholeDay}) : schoolDayAbsenceMessage({providerName:s.provider_name,providerAuthored,schoolName:s.name,date,reasonCategory,reason,note,wholeDay}) })));
   }
   function review(item, edits, required = false) {
     const recipients = edits?.recipients ?? item.recipients;
