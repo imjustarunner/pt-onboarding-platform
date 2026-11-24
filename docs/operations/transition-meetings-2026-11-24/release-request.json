@@ -1,7 +1,7 @@
 {
-  "operation": "Deploy scoped transition/client-import access and consent-aware activation notice through the native backend sender",
+  "operation": "Publish passing shared provider-assignment and portal-invitation header regression assertions; runtime behavior is unchanged",
   "authorization": "User explicitly requested commit, push, live deployment and meeting invitations in this chat",
-  "requestedAt": "2026-11-24T22:18:53.541417+00:00",
+  "requestedAt": "2026-11-24T22:39:34.884800+00:00",
   "preserveLiveSources": true,
   "automationGroupRole": "MANAGER",
   "groupOwnerSettingsConfirmed": true,
