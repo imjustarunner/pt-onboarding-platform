@@ -69,6 +69,16 @@ export async function activateTransitionSequence(){return locked(async db=>{
  return {activated:true,providers:plan.providers.length,events:await mappedEvents(db)};
 });}
 async function mappedEvents(db=pool){const [rows]=await db.execute('SELECT meeting_number,event_id FROM transition_meeting_sequence_events WHERE sequence_id=? ORDER BY meeting_number',[SEQUENCE_ID]);return rows;}
+export async function transitionSequenceStatus(){
+ const row=await stored();if(!row)return {sequence:null};
+ const actions=Object.values(row.data.state?.outbox||{}),counts={};
+ for(const action of actions){const key=`${action.kind}:${action.status}`;counts[key]=(counts[key]||0)+1;}
+ return {sequence:{status:row.status,revision:row.revision,updatedAt:row.updated_at},inboxVerified:row.data.setup?.roundTripVerified===true,
+  providers:row.data.plan?.providers?.length||0,events:await mappedEvents(),deliveryCounts:counts,
+  review:actions.filter(a=>a.status==='review').map(a=>({kind:a.kind,meeting:a.meeting,userId:a.userId,reference:a.reference})),
+  receipts:actions.filter(a=>a.status==='sent').map(a=>({kind:a.kind,meeting:a.meeting,reference:row.data.state.receipts?.[a.key]?.reference||null})),
+  finalizedMeetings:Object.entries(row.data.state?.attendance||{}).filter(([,v])=>v.finalized).map(([n])=>Number(n))};
+}
 export async function createEvent(db,plan,session){
  const [[existing]]=await db.execute('SELECT event_id FROM transition_meeting_sequence_events WHERE sequence_id=? AND meeting_number=?',[SEQUENCE_ID,session.number]);if(existing)return existing.event_id;
  const token=generateJoinToken(),settings={attendance:true,compensation:false,transcription:false,reminders:[],transitionSequence:SEQUENCE_ID};

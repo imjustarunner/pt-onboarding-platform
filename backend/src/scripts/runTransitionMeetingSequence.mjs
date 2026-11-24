@@ -58,10 +58,10 @@ try{
   await live.recordTransitionInboxSetup({address:TRANSITION_INBOX,roundTripVerified:true,senderIdentityId:identity.id,automationSubject:TRANSITION_AUTOMATION,verifiedAt:new Date().toISOString()});
   console.log(JSON.stringify({mode,ready:true,senderIdentityId:identity.id,roundTripVerified:true}));
  }else if(mode==='preview'){
-  const plan=await live.transitionSequencePreview();console.log(JSON.stringify({mode,providerCount:plan.providers.length,hosts:plan.hosts.map(h=>({id:h.userId,name:h.name,email:h.email})),kimi:plan.providers.find(p=>p.explicitAddition),meetings:plan.sessions.map(s=>({number:s.number,startAt:s.startAt,endAt:s.endAt,initialProviders:plan.providers.filter(p=>p.initialMeeting===s.number).length})),fingerprint:plan.fingerprint}));
+  const plan=await live.transitionSequencePreview();const kimi=plan.providers.find(p=>p.explicitAddition);console.log(JSON.stringify({mode,providerCount:plan.providers.length,hosts:plan.hosts.map(h=>({id:h.userId,name:h.name,email:h.email})),kimi:kimi?{userId:kimi.userId,name:kimi.name,cohort:kimi.cohort}:null,meetings:plan.sessions.map(s=>({number:s.number,startAt:s.startAt,endAt:s.endAt,initialProviders:plan.providers.filter(p=>p.initialMeeting===s.number).length})),fingerprint:plan.fingerprint}));
  }else if(mode==='activate'){console.log(JSON.stringify(await live.activateTransitionSequence()));console.log(JSON.stringify(await live.processTransitionSequence()));}
  else if(mode==='tick')console.log(JSON.stringify(await live.processTransitionSequence()));
- else if(mode==='status'){const [[r]]=await pool.execute('SELECT status,revision,updated_at FROM transition_meeting_sequences WHERE sequence_id=\'itsco-auricwell-2026-11-30\'');console.log(JSON.stringify({mode,sequence:r||null}));}
+ else if(mode==='status')console.log(JSON.stringify({mode,...await live.transitionSequenceStatus()}));
  else throw Error('Choose setup, preview, activate, tick or status.');
 }catch(error){console.error(JSON.stringify({mode,error:error.status?'TRANSITION_REVIEW_REQUIRED':error.code||'TRANSITION_OPERATION_FAILED',message:/token|private|secret|credential/i.test(String(error.message))?'Operation failed; review access configuration.':String(error.message).slice(0,300)}));process.exitCode=1;}
 finally{await pool.end();}
