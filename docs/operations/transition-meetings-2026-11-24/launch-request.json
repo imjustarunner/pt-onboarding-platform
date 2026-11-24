@@ -1,0 +1,55 @@
+{
+  "status": "draft-not-scheduled",
+  "agencyId": 2,
+  "timeZone": "America/Denver",
+  "assumedDurationMinutes": 90,
+  "hostIds": null,
+  "hostNamesToResolve": [
+    "Megan",
+    "Rachel",
+    "Michael"
+  ],
+  "additionalGroupOneUserId": null,
+  "additionalGroupOneNameToResolve": "Kimi",
+  "senderIdentityId": null,
+  "replyTo": "transitions@auricwell.com",
+  "mailboxOwner": "admin@itsco.health",
+  "senderDisplayName": "AuricWell Transition Team",
+  "sundayLocation": "Windchime office \u2014 verify full address before sending",
+  "sundayEndAt": "2026-11-29T09:30:00-07:00",
+  "videoUrl": null,
+  "sessions": [
+    {
+      "startAt": "2026-11-25T11:00:00-07:00",
+      "endAt": "2026-11-25T12:30:00-07:00",
+      "modality": "video"
+    },
+    {
+      "startAt": "2026-11-25T14:00:00-07:00",
+      "endAt": "2026-11-25T15:30:00-07:00",
+      "modality": "video"
+    },
+    {
+      "startAt": "2026-11-27T12:00:00-07:00",
+      "endAt": "2026-11-27T13:30:00-07:00",
+      "modality": "video"
+    },
+    {
+      "startAt": "2026-11-27T16:00:00-07:00",
+      "endAt": "2026-11-27T17:30:00-07:00",
+      "modality": "video"
+    }
+  ],
+  "readiness": {
+    "senderApproved": false,
+    "replyInboxMonitored": false,
+    "inboundRoutingTested": false,
+    "rsvpEmailAndAppTested": false,
+    "hostCcTested": false,
+    "attendanceFinalizationTested": false,
+    "supportActivity18Tested": false,
+    "automationIdentityScoped": false
+  },
+  "coordinatorUserId": null,
+  "coordinatorNameToResolve": "Rachel"
+}
