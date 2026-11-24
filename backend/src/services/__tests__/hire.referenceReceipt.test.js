@@ -4,7 +4,7 @@ vi.mock('../../models/User.model.js', () => ({ default: {} }));
 vi.mock('../peopleOperationsSubmissionNotifications.service.js', () => ({ peopleOperationsNotificationRecipients: vi.fn(), singlePeopleOperationsMailbox: value => /^[^@ ]+@[^@ ]+\.[^@ ]+$/.test(value || '') }));
 vi.mock('../agencyAccessProfiles.service.js', () => ({ readAgencyAccess: vi.fn() }));
 vi.mock('../hiringReferenceIdentity.service.js', () => ({ resolveHiringReferenceSenderIdentity: vi.fn(), resolveHiringReferenceReplyTo: vi.fn() }));
-import { createReferenceReceiptWorker, referenceReceiptRoute, referenceReceiptContent, assertReferenceReceiptRecipient, referenceReceiptRecipient } from '../hiringReferenceReceipt.service.js';
+import { createReferenceReceiptWorker, referenceReceiptRoute, referenceReceiptContent, assertReferenceReceiptRecipient, referenceReceiptRecipient, referenceReceiptSource } from '../hiringReferenceReceipt.service.js';
 import { readAgencyAccess } from '../agencyAccessProfiles.service.js';
 import { queueReferenceReceipt } from '../hiringReferenceReceiptQueue.js';
 import { referenceEmailFrame } from '../hiringReferenceEmail.service.js';
@@ -53,6 +53,24 @@ describe('reference receipt channel and access', () => {
     expect(d.send).not.toHaveBeenCalled(); expect(d.communication).not.toHaveBeenCalled();
     expect(d.notify).toHaveBeenCalledWith(expect.objectContaining({ userId: 9, agencyId: 463, relatedEntityId: 1849,
       audienceJson: { referenceIndex: 1, referenceRequestId: 47 }, message: 'Taylor Reference completed a reference for Rory QA.' }));
+  });
+  it.each([true,false])('alerts hiring staff about a decline using only their selected channel (SSO %s)', async sso => {
+    d.source.mockResolvedValue({...row,status:'cancelled',reference_declined:'true'});
+    if (!sso) d.recipient.mockResolvedValue({id:9,sso_password_override:1,email:'personal@example.test'});
+    await createReferenceReceiptWorker(d)();
+    const content=sso?d.send.mock.calls[0][0]:d.notify.mock.calls[0][0];
+    expect(sso?content.subject:content.title).toBe('Reference unavailable for Rory QA');
+    expect(sso?content.text:content.message).toContain('Taylor Reference is unable to provide a reference for Rory QA.');
+    expect(JSON.stringify(content)).not.toContain('completed a reference');
+    if(sso) { expect(content.html).toContain('Open reference');expect(content.html).not.toContain('review the confidential answers');expect(d.notify).not.toHaveBeenCalled(); }
+    else { expect(content.audienceJson).toEqual({referenceIndex:1,referenceRequestId:47});expect(d.send).not.toHaveBeenCalled(); }
+  });
+  it('accepts declined sources only with an explicit decline marker and keeps ordinary cancellations unavailable', async () => {
+    const db={execute:vi.fn(async()=>[[{...row,status:'cancelled',reference_declined:'true'}]])};
+    expect(await referenceReceiptSource(event,db)).toMatchObject({status:'cancelled',reference_declined:'true'});
+    expect(db.execute.mock.calls[0][0]).toContain("r.status='cancelled' AND JSON_UNQUOTE(JSON_EXTRACT(r.responses_json, '$.declined'))='true'");
+    expect(db.execute.mock.calls[0][1]).toEqual([47,463,1849]);
+    db.execute.mockResolvedValue([[]]);expect(await referenceReceiptSource(event,db)).toBeNull();
   });
   it('recognizes a verified dynamic QA inbox redirect, without accepting unproved or cross-company redirection', async () => {
     d.source.mockResolvedValue({...row,plotline_is_qa:1});

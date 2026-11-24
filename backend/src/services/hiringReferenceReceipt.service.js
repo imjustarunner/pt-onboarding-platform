@@ -23,17 +23,17 @@ export function referenceReceiptRoute(user, agency) {
   return { channel: 'email', to: to || null };
 }
 
-async function source(event, db) {
+export async function referenceReceiptSource(event, db) {
   const table = event.source_kind === 'online' ? 'hiring_reference_requests' : event.source_kind === 'phone' ? 'hiring_reference_contacts' : null;
   if (!table) return null;
-  const [rows] = await db.execute(`SELECT r.reference_index, ${event.source_kind === 'online' ? 'r.reference_name' : 'NULL AS reference_name'},
+  const [rows] = await db.execute(`SELECT r.reference_index, ${event.source_kind === 'online' ? "r.reference_name, r.status, JSON_UNQUOTE(JSON_EXTRACT(r.responses_json, '$.declined')) AS reference_declined" : 'NULL AS reference_name'},
     u.first_name,u.last_name,h.references_json,a.id,a.name,a.slug,a.custom_domain,a.feature_flags,
     a.logo_path,a.logo_url,a.color_palette,a.careers_page_json,
     p.agency_id AS plotline_agency_id,p.is_qa AS plotline_is_qa FROM ${table} r
     JOIN users u ON u.id=r.candidate_user_id JOIN hiring_profiles h ON h.id=r.hiring_profile_id
     JOIN agencies a ON a.id=r.agency_id LEFT JOIN plotline_companies p ON p.agency_id=a.id
     WHERE r.id=? AND r.agency_id=? AND r.candidate_user_id=? AND h.candidate_user_id=r.candidate_user_id
-    AND ${event.source_kind === 'online' ? "r.status='completed'" : "r.contact_method='phone' AND r.outcome='completed'"}
+    AND ${event.source_kind === 'online' ? "(r.status='completed' OR (r.status='cancelled' AND JSON_UNQUOTE(JSON_EXTRACT(r.responses_json, '$.declined'))='true'))" : "r.contact_method='phone' AND r.outcome='completed'"}
     AND a.is_active=1 AND COALESCE(a.is_archived,0)=0`, [event.source_id, event.agency_id, event.candidate_user_id]);
   const row = rows[0];
   if (!row) return null;
@@ -58,15 +58,17 @@ export function referenceReceiptContent(event, row) {
     [event.source_kind === 'online' ? 'referenceRequestId' : 'referenceContactId']: String(event.source_id) });
   const url = buildPublicAppUrl(row, `admin/hiring/applicants?${query}`,
     row.plotline_agency_id ? { platformBaseUrl: 'https://plotlinepo.com' } : {});
-  const subject = `Reference received for ${candidate}`;
-  const message = `${row.reference_name} completed a reference for ${candidate}${event.source_kind === 'phone' ? ' by phone with People Operations' : ''}.`;
-  return { subject, message, url, text: `${message}\n\nOpen reference: ${url}\n\nSign in with your authorized hiring account to review the confidential answers.\n\nPlotline — A People Operations Platform`,
+  const declined = event.source_kind === 'online' && row.status === 'cancelled' && String(row.reference_declined) === 'true';
+  const subject = `${declined ? 'Reference unavailable' : 'Reference received'} for ${candidate}`;
+  const message = declined ? `${row.reference_name} is unable to provide a reference for ${candidate}.` : `${row.reference_name} completed a reference for ${candidate}${event.source_kind === 'phone' ? ' by phone with People Operations' : ''}.`;
+  const instruction = declined ? 'Sign in with your authorized hiring account to review the request and choose the next step.' : 'Sign in with your authorized hiring account to review the confidential answers.';
+  return { subject, message, url, text: `${message}\n\nOpen reference: ${url}\n\n${instruction}\n\nPlotline — A People Operations Platform`,
     html: referenceEmailFrame({ agency: row, heading: subject,
-      body: `<p>${escape(message)}</p><p>Sign in with your authorized hiring account to review the confidential answers.</p><p><a href="${escape(url)}" style="display:inline-block;padding:14px 22px;background:#143e33;color:white;border-radius:8px;text-decoration:none;font-weight:bold">Open reference</a></p>` }) };
+      body: `<p>${escape(message)}</p><p>${instruction}</p><p><a href="${escape(url)}" style="display:inline-block;padding:14px 22px;background:#143e33;color:white;border-radius:8px;text-decoration:none;font-weight:bold">Open reference</a></p>` }) };
 }
 
 const defaults = {
-  db: pool, source, recipient: referenceReceiptRecipient, recipients: peopleOperationsNotificationRecipients,
+  db: pool, source: referenceReceiptSource, recipient: referenceReceiptRecipient, recipients: peopleOperationsNotificationRecipients,
   identity: resolveHiringReferenceSenderIdentity, replyTo: resolveHiringReferenceReplyTo,
   notify: async input => (await import('../models/Notification.model.js')).default.create(input),
   communication: async input => (await import('../models/UserCommunication.model.js')).default.create(input),

@@ -90,8 +90,22 @@ describe('Plotline public reference', () => {
     await wrapper.findAll('button').find(b=>b.text()==='Confirm unable to provide').trigger('click');
     await flushPromises();
     expect(api.post.mock.calls[0][1]).toEqual({declined:true});
-    expect(wrapper.text()).toContain('The hiring team has been told');
+    expect(wrapper.text()).toContain('Response recorded');
+    expect(wrapper.text()).toContain('Thank you for letting us know.');
+    expect(wrapper.text()).toContain('The hiring team can see that you are unable to provide a reference.');
+    expect(wrapper.text()).not.toContain('Reference received');
+    expect(wrapper.text()).not.toContain('Thank you for your perspective.');
+    expect(wrapper.find('form').exists()).toBe(false);
     wrapper.unmount();
+  });
+
+  it('shows an already-declined link without restoring contact details or allowing another response', async () => {
+    api.get.mockRejectedValue({response:{data:{error:{message:'You already marked this reference request as unable to provide. No further response is needed.'}}}});
+    const wrapper=mount(Form);await flushPromises();
+    expect(wrapper.text()).toContain('already marked this reference request as unable to provide');
+    expect(wrapper.text()).not.toContain('expired');expect(wrapper.text()).not.toContain('Rory');
+    expect(wrapper.find('.reference-employer').exists()).toBe(false);expect(wrapper.find('form').exists()).toBe(false);
+    expect(api.post).not.toHaveBeenCalled();wrapper.unmount();
   });
 
 });

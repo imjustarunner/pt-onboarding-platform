@@ -1,0 +1,99 @@
+PLOTLINE REFERENCES — ROUND 14B ENGINEERING FOLLOW-UP
+November 23, 2026
+
+This is a post-release retest assignment, not a completed live QA report.
+Preserve the earlier results and all retained synthetic people and references.
+This chat implemented and tested code only; the separate release chat deploys it.
+
+REVIEWED EVIDENCE
+- plotlinepo-r14b-results-2026-11-23.csv: 12 PASS, 0 FAIL, 5 NOTE, 2 BLOCKED.
+- Reported build 76473818c46d2ef14ea316d3ddb7216fd0a0e99d stayed ready/stable.
+- Reese 1871 / Juniper 463 / Job 42: Taylor completed, Morgan declined request 2,
+  and Casey not requested. Morgan's isolated invitation and declined state passed.
+- Prefilled identity, explicit identity corrections, employer/Plotline branding,
+  the clickable People Operations contact and applicant request notice passed.
+- Decline confirmation incorrectly said Reference received. Reload called a
+  declined request expired. Declines did not enter the staff receipt-alert queue.
+- Plotline's workspace lacked a Notifications entry point. This was a navigation
+  gap even for reference-completion app alerts that already existed.
+
+CHANGES TO RETEST AFTER RELEASE
+- A decline is saved together with a durable staff-alert event. A queue failure
+  rolls back the decline; the referee can retry instead of silently losing it.
+- Completed and declined replies use the same permission-checked alert worker.
+  SSO hiring staff receive only work email; non-SSO hiring staff receive only a
+  personal app notification. Both identify the applicant/referee and open the
+  exact applicant, reference and request. Revoked hiring access blocks delivery.
+- Decline alerts say Reference unavailable and Unable to provide a reference.
+  They never claim a questionnaire was completed or promise answers to review.
+- The referee confirmation says Response recorded / Thank you for letting us
+  know. Reload says the request was already marked unable to provide, with no
+  questionnaire, employer/applicant details or second submission available.
+- Staff-cancelled and expired links retain distinct unavailable/expired wording.
+- Plotline navigation now includes Notifications and a company-scoped unread
+  badge. The link opens this company's personal inbox. The badge refreshes on
+  navigation/focus and at a one-minute interval, pauses during session lock and
+  ignores responses from a previous company, actor or unmounted workspace.
+- A decline does not send an applicant completion notice or referee thank-you
+  email. Those messages still require a genuinely completed reference.
+- Existing declined requests are not replayed/backfilled into the new queue.
+  Do not resend Morgan or re-trigger its decline to obtain an alert screenshot.
+
+RETEST SEQUENCE
+1. Confirm frontend, required backend and live backend agree and ready=true.
+   Record the released SHA, timestamp with Denver offset and automation actor.
+2. Use Jordan 1434 only through the existing authorized automation login. Open
+   Juniper 463 through ordinary navigation. Notifications must be reachable.
+   Confirm its company/name/agency filter and unread count, including no-results.
+3. Open the retained Morgan link once if it remains in the approved QA vault.
+   It must say already unable to provide, not expired; no identity or answers
+   may reappear. Do not recover/copy a token from DevTools, logs or a database.
+4. Use one separately approved, unrequested synthetic reference for a NEW
+   decline. Preserve Taylor/Morgan and leave Casey untouched unless its send is
+   specifically selected for this retest. Review/edit questions and send once.
+   Capture logical recipient, request ID and actual QA inbox receipt/headers.
+5. In an isolated signed-out browser, verify that person's prefilled details.
+   Type a distinctive harmless answer, choose Unable to provide, go back once,
+   and then confirm. No reason is required. The typed answer must not be saved
+   or transmitted as a reference response. Capture Response recorded wording.
+6. As the permitted non-SSO hiring operator, open Notifications. One personal
+   Reference unavailable alert must identify the correct applicant/referee.
+   Open reference must land on that exact declined request. Mark read, return
+   to hiring and verify the badge updates. Switch to Maple 464: Juniper's count
+   and alert must not appear there, including after an old request finishes.
+7. Repeat the channel variant only with an existing approved SSO automation
+   hiring persona and another approved synthetic request. Verify actual work
+   inbox receipt, branded layout, company logo/name, People Operations Reply-To
+   and Open reference. No matching in-app alert should be created. If no such
+   persona exists, retain BLOCKED; do not grant a human identity or broaden roles.
+8. Verify hiring-permission negatives with existing approved automation fixtures.
+   No unrelated provider, guardian, school staff or other company may see the
+   alert or open its private target. Revocation before a queued send stops it.
+9. Reload/submit the declined link again: no write, duplicate notification,
+   reminder, thank-you or applicant completion email. Do not count a missing
+   applicant/referee email as a failure for this decline-only outcome.
+10. Verify an already completed reference still has the original answers and
+    correct completion state. A new, separately approved completion must still
+    produce its ordinary staff alert, referee thank-you and applicant completion
+    notice without disclosing answers in the external notices.
+11. Natural deadline expiry remains a timed live follow-up. Do not change clocks,
+    backdate rows or reuse a declined link as proof of real expiry. Engineering
+    tests exercise distinct terminal states; they are not live expiry evidence.
+
+SECONDARY HOSTNAME NOTE
+Primary reference and Plotline signup links remain on plotlinepo.com. The r14b
+report also observed shared platform hosts for support, report-misdirected,
+preferences, tracking and some employer assets. This change does not blindly
+rewrite those shared service/asset URLs. Record a concrete broken or incorrectly
+branded destination separately, with the exact safe path and screenshot. Never
+include public bearer tokens in the report.
+
+RELEASE REQUIREMENTS / LIMITS
+- No new migration or user/account/data cleanup. Existing reference request
+  tables and migration 1863_hiring_reference_receipt_notices.sql are required.
+- Deploy backend/frontend together through the separate release chat's process.
+  Retain the existing reference receipt worker, notification APIs and identities.
+- No real sends, account changes, Google Workspace changes or production database
+  operations were performed by this implementation chat.
+- Use PASS / FAIL / BLOCKED / NOT RUN with real receipt/time evidence. Do not
+  relabel the earlier blocked SSO and natural-expiry cases as live passes.

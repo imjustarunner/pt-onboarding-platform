@@ -74,7 +74,28 @@ describe('request questionnaire snapshot', () => {
 });
 
 it('only declines an active, unexpired request', async () => {
-  mocks.execute.mockResolvedValue([{affectedRows:0}]);
+  const db = { execute:vi.fn().mockResolvedValue([{affectedRows:0}]),beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn() };
+  mocks.getConnection.mockResolvedValue(db);
   expect(await HiringReferenceRequest.markDeclined(3)).toBe(false);
-  expect(mocks.execute.mock.calls.at(-1)[0]).toContain("status = 'sent' AND token_expires_at > NOW()");
+  expect(db.execute.mock.calls.at(-1)[0]).toContain("status = 'sent' AND token_expires_at > NOW()");
+  expect(db.execute).toHaveBeenCalledOnce();expect(db.commit).not.toHaveBeenCalled();expect(db.rollback).toHaveBeenCalled();expect(db.release).toHaveBeenCalled();
+});
+
+it('commits a decline and its hiring alert together without storing any questionnaire answers', async () => {
+  const db = { execute:vi.fn(),beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn() };
+  mocks.getConnection.mockResolvedValue(db);
+  db.execute.mockResolvedValueOnce([{affectedRows:1}]).mockResolvedValueOnce([[{id:47,agency_id:463,candidate_user_id:1871,reference_index:1}]]).mockResolvedValueOnce([{affectedRows:1}]);
+  expect(await HiringReferenceRequest.markDeclined(47)).toBe(true);
+  expect(db.execute.mock.calls[0][1]).toEqual([47]);
+  expect(db.execute.mock.calls[2][0]).toContain('INSERT IGNORE INTO hiring_reference_receipt_events');
+  expect(db.execute.mock.calls[2][1]).toEqual([463,1871,'online',47,1]);
+  expect(db.commit).toHaveBeenCalledOnce();expect(db.rollback).not.toHaveBeenCalled();expect(db.release).toHaveBeenCalled();
+});
+
+it('rolls back a decline if the durable hiring alert cannot be queued', async () => {
+  const db = { execute:vi.fn(),beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn() };
+  mocks.getConnection.mockResolvedValue(db);
+  db.execute.mockResolvedValueOnce([{affectedRows:1}]).mockResolvedValueOnce([[{id:47,agency_id:463,candidate_user_id:1871,reference_index:1}]]).mockRejectedValueOnce(new Error('Queue unavailable'));
+  await expect(HiringReferenceRequest.markDeclined(47)).rejects.toThrow('Queue unavailable');
+  expect(db.commit).not.toHaveBeenCalled();expect(db.rollback).toHaveBeenCalled();expect(db.release).toHaveBeenCalled();
 });
