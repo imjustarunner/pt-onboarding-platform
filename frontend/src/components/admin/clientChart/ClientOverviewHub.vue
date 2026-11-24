@@ -18,14 +18,15 @@
         </div>
       </header>
 
-      <section class="cc-contact" aria-label="Primary contact">
+      <section v-for="contact in overviewContacts" :key="contact.id" class="cc-contact" :aria-label="contact.label">
         <div>
-          <h4>{{ contactRole }}</h4>
-          <strong>{{ guardianName || (guardianLoading ? 'Loading contact…' : guardianError ? 'Contact information unavailable' : 'No contact on file') }}</strong>
+          <h4>{{ contact.label }}</h4>
+          <strong>{{ contact.name }}</strong>
+          <p v-if="contact.relationship">{{ contact.relationship }}</p>
         </div>
         <dl>
-          <div><dt>Phone</dt><dd><a v-if="contactPhone" :href="`tel:${contactPhone.replace(/[^+0-9]/g, '')}`">{{ contactPhone }}</a><span v-else>No phone on file</span></dd></div>
-          <div><dt>Email</dt><dd><a v-if="contactEmail" :href="`mailto:${contactEmail}`">{{ contactEmail }}</a><span v-else>No email on file</span></dd></div>
+          <div><dt>Phone</dt><dd><a v-if="contact.phone" :href="`tel:${contact.phone.replace(/[^+0-9]/g, '')}`">{{ contact.phone }}</a><span v-else>No phone on file</span></dd></div>
+          <div><dt>Email</dt><dd><a v-if="contact.email" :href="`mailto:${contact.email}`">{{ contact.email }}</a><span v-else>No email on file</span></dd></div>
         </dl>
       </section>
 
@@ -163,6 +164,25 @@ const props = defineProps({
 });
 
 defineEmits(['secure-message','upload','client-actions','edit', 'assign-provider', 'navigate', 'alert-click', 'view-event', 'open-document']);
+
+// Keep each name and its contact channels on the same canonical account. An
+// intake contact is only a fallback when no linked guardian has been loaded.
+const overviewContacts = computed(() => {
+  const guardians = props.linkedGuardians.filter(row => {
+    let permissions = row.permissions_json || {};
+    if (typeof permissions === 'string') { try { permissions = JSON.parse(permissions); } catch { return false; } }
+    return row.relationship_type !== 'self' && !permissions.relationshipRevoked && ![0, '0', false].includes(row.is_active);
+  });
+  if (guardians.length) return guardians.map((row, index) => ({
+    id: row.guardian_user_id, label: `Parent / Guardian ${index + 1}`,
+    name: [row.first_name, row.last_name].filter(Boolean).join(' ') || row.email || 'Guardian',
+    relationship: row.relationship_title || '', email: row.email || '',
+    phone: String(row.phone || row.phone_number || row.personal_phone || row.work_phone || '')
+  }));
+  return [{ id: 'contact', label: props.contactRole,
+    name: props.guardianName || (props.guardianLoading ? 'Loading contact…' : props.guardianError ? 'Contact information unavailable' : 'No contact on file'),
+    email: props.contactEmail, phone: props.contactPhone }];
+});
 
 /** @param {string} [viewKey] — chart artifact viewKey; parent opens Documents and views it directly */
 

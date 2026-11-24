@@ -28,6 +28,12 @@
           <div><label :for="`service-provider-${service.id}`">{{ addingProvider ? 'Additional provider' : 'Provider' }} for {{ chartServiceLabel(service.service_kind, service.label) }}</label>
             <ProviderSearchSelect v-model="selectedProviderId" :input-id="`service-provider-${service.id}`" :options="choicesFor(service.service_kind)" :loading="providersLoading" :disabled="busy" label="Provider for this service" />
           </div>
+          <label v-if="!addingProvider && (placementOptions.length || editingOrganizationId)">School / program for this assignment
+            <select v-model="editingOrganizationId" aria-label="School or program for existing service" :disabled="busy">
+              <option :value="0">No school or program</option>
+              <option v-for="org in placementOptions" :key="org.organization_id" :value="Number(org.organization_id)">{{ org.organization_name || org.name }}</option>
+            </select>
+          </label>
           <button type="submit" class="service-save" :disabled="busy || !selectedProviderId || !choicesFor(service.service_kind).some(provider => Number(provider.id) === Number(selectedProviderId))">{{ busy ? 'Saving…' : 'Save assignment' }}</button>
           <button type="button" :disabled="busy" @click="editingServiceId = null">Cancel</button>
         </form>

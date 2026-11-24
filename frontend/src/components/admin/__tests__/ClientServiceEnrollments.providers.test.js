@@ -56,6 +56,17 @@ it('uses the authorized limited provider projection for Support instead of an ad
   expect(wrapper.get('[role=option]').text()).toContain('Avery QA');
 });
 
+it('moves an existing service out of an incorrect program while retaining the selected counselor',async()=>{
+ const previous=get.getMockImplementation(),service={id:15,service_kind:'counseling',label:'Counseling',is_active:1,provider_user_id:1433,provider_name:'Avery QA',organization_id:451};
+ get.mockImplementation(async(url,...args)=>url.includes('service-enrollments')?{data:{services:[service],availableServiceKinds:['counseling']}}:previous(url,...args));
+ post.mockResolvedValue({data:{services:[{...service,organization_id:0}]}});
+ wrapper=mount(ClientServiceEnrollments,{props:{clientId:2434,agencyId:450,organizations:[{organization_id:451,organization_type:'program',organization_name:'Optional program'}]}});await flushPromises();
+ await wrapper.findAll('button').find(button=>button.text()==='Change provider').trigger('click');await wrapper.get('[aria-label="School or program for existing service"]').setValue('0');
+ await wrapper.get('.service-assignment').trigger('submit');await flushPromises();
+ expect(post).toHaveBeenCalledWith('/clients/2434/service-enrollments',expect.objectContaining({agencyId:450,serviceId:15,providerUserId:1433,organizationId:0}));
+ expect(wrapper.emitted('updated')).toHaveLength(1);expect(remove).not.toHaveBeenCalled();
+});
+
 it('preserves the normal authorized admin provider choices', async () => {
   actor.user.role = 'admin';
   get.mockImplementation(async url => ({ data: url.includes('service-enrollments') ? { services: [],availableServiceKinds:['counseling','tutoring'] } : {providers:[

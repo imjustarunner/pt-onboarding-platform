@@ -330,7 +330,7 @@ export async function assignmentRecipients(clientId, agencyId) {
 
 /** Existing portal authority only. Operational email eligibility never grants
  * access to a clinical document, account or relationship. Reused at transport. */
-export async function currentClientUpdateRecipient({agencyId,clientId,to,guardianUserId=null,reenrollment=false}) {
+export async function currentClientUpdateRecipient({agencyId,clientId,to,guardianUserId=null,reenrollment=false,consentSetup=false}) {
   if(!reenrollment)assertEnabled();
   const client=await Client.findById(Number(clientId),{includeSensitive:true});
   if(!client||Number(client.agency_id)!==Number(agencyId))throw fail(403,'The update is outside this client’s agency.');
@@ -345,6 +345,16 @@ export async function currentClientUpdateRecipient({agencyId,clientId,to,guardia
     && !ClientGuardian.isNoView(row.permissions_json));
   if(matches.length!==1)throw fail(409,'Choose a currently authorized portal contact. Review portal access in the client profile first.');
   const recipient=matches[0];
+  if(consentSetup){
+    let permissions=recipient.permissions_json||{};
+    if(typeof permissions==='string'){try{permissions=JSON.parse(permissions);}catch{throw fail(403,'Review this relationship’s consent permissions.');}}
+    if(!permissions||typeof permissions!=='object'||Array.isArray(permissions))throw fail(403,'Review this relationship’s consent permissions.');
+    if(permissions.pendingGuardianVerification||permissions.coGuardianInviteRestricted||permissions.billingOnly||permissions.canSignDocs===false
+      ||Number(recipient.is_archived)||recipient.terminated_at||(recipient.status_expires_at&&new Date(recipient.status_expires_at)<=new Date()))throw fail(403,'Review this relationship’s authority to complete consent forms before assigning them.');
+    // Preparing a NEW consent is not access to prior clinical records. The
+    // guardian will still pass the portal's document and signature checks.
+    return {client,recipient};
+  }
   const {assertClientCanViewOwnShared}=await import('./assessmentDeliverable.service.js');
   await assertClientCanViewOwnShared({user:{id:recipient.guardian_user_id,role:recipient.role},clientId,...(reenrollment?{allowEndedServices:true}:{})});
   return {client,recipient};
@@ -406,15 +416,16 @@ async function sendSingleClientUpdate(requestId, { actorUserId, guardianEmail } 
 }
 
 /** Attach selected updates to an authorized portal without sending a second email. */
-export async function assignClientUpdateToPortal(requestId, { actorUserId, guardianUserId } = {}) {
+export async function assignClientUpdateToPortal(requestId, { actorUserId, guardianUserId, consentSetup=false } = {}) {
   assertEnabled();
   const request=await loadRequest(requestId);
   if(!request||request.status!=='draft')throw fail(409,'Review this document assignment before attaching it.');
   const links=await ClientGuardian.listForClient(request.client_id);
   const recipient=links.find(link=>Number(link.guardian_user_id)===Number(guardianUserId));
   if(!recipient)throw fail(403,'Select a currently authorized portal account.');
-  await currentClientUpdateRecipient({agencyId:request.agency_id,clientId:request.client_id,to:recipient.email,guardianUserId});
   const items=await loadItems(requestId);
+  if(consentSetup&&items.some(item=>item.item_type!=='document'))throw fail(403,'Clinical assessments require a separate access review.');
+  await currentClientUpdateRecipient({agencyId:request.agency_id,clientId:request.client_id,to:recipient.email,guardianUserId,consentSetup});
   assertOutcomeRecipients(items, recipient, request.guardian_user_id);
   const [claim]=await pool.execute("UPDATE client_update_requests SET status='in_progress',guardian_user_id=?,sent_at=UTC_TIMESTAMP() WHERE id=? AND status='draft'",[guardianUserId,requestId]);
   if(!claim.affectedRows)throw fail(409,'This document assignment changed. Refresh before continuing.');
@@ -430,7 +441,7 @@ export async function assignSmartDisclosureToPortal({agencyId,clientId,guardianU
   const client=await Client.findById(clientId,{includeSensitive:true});
   if(!client||Number(client.agency_id)!==Number(agencyId))throw fail(403,'The disclosure is outside this client’s agency.');
   const [contact]= (await ClientGuardian.listForClient(clientId)).filter(row=>Number(row.guardian_user_id)===Number(guardianUserId));
-  await currentClientUpdateRecipient({agencyId,clientId,to:contact?.email,guardianUserId});
+  await currentClientUpdateRecipient({agencyId,clientId,to:contact?.email,guardianUserId,consentSetup:true});
   const school = schoolCityId ? await familySharingSchool(client) : null;
   if (schoolCityId && Number(school?.id) !== Number(schoolCityId)) throw fail(409, 'The client’s school changed. Open the disclosure again.');
   const organizationId = school?.id || client.organization_id;

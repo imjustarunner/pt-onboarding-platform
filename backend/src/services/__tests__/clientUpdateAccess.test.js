@@ -10,6 +10,14 @@ vi.mock('../clientPortalEmail.service.js',()=>({clientEmailContext:async()=>({po
 vi.mock('../clientPortalContext.service.js',()=>({clientPortalInviteUrl:()=> 'https://auricwell.com/care/login?redirect=%2Fcare%2Fguardian'}));
 import {createClientUpdate,sendClientUpdate,sendReenrollmentUpdate,currentClientUpdateRecipient,guardianClientUpdate,assignedOutcomeAssessment,confirmUpdateInformation,resolveClientUpdatePacketBinding,listUpdateCatalog,previewClientUpdateNotice,assertClientUpdateSubmissionContext} from '../clientUpdate.service.js';
 let request,client,contact;
+
+it('separates new-consent preparation from access to already shared clinical records',async()=>{
+ client.guardian_portal_enabled=0;m.access.mockRejectedValue(Object.assign(Error('Clinical access required'),{status:403}));
+ const input={agencyId:2,clientId:5,to:contact.email,guardianUserId:8};
+ await expect(currentClientUpdateRecipient({...input,consentSetup:true})).resolves.toMatchObject({recipient:{guardian_user_id:8}});expect(m.access).not.toHaveBeenCalled();
+ await expect(currentClientUpdateRecipient(input)).rejects.toMatchObject({status:403});expect(m.access).toHaveBeenCalledOnce();
+ await expect(currentClientUpdateRecipient({...input,guardianUserId:9,consentSetup:true})).rejects.toMatchObject({status:409});
+});
 it('sends a dedicated re-enrollment invitation for an archived client without reopening care',async()=>{
  vi.stubEnv('CLIENT_UPDATE_WORKFLOWS_ENABLED','');request.purpose='reenrollment';request.service_enrollment_id=3;client.status='ARCHIVED';
  const result=await sendReenrollmentUpdate(7,{actorUserId:1,guardianEmail:contact.email});expect(result.deliveryStatus).toBe('sent');

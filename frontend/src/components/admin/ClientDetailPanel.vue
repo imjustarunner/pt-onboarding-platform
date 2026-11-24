@@ -207,7 +207,7 @@
             :session-count-label="sessionCountLabel"
             :last-session-label="lastSessionLabel"
             :alerts="overviewAlertItems"
-            :guardian-name="showDependentFields ? overviewGuardianName : client.full_name" :linked-guardians="showDependentFields ? guardians : []" :guardian-loading="showDependentFields && guardiansLoading" :guardian-error="showDependentFields ? guardiansError : null"
+            :guardian-name="showDependentFields ? overviewGuardianName : client.full_name" :linked-guardians="guardians" :guardian-loading="guardiansLoading" :guardian-error="guardiansError"
             :contact-role="showDependentFields ? intakeContactLabel : 'Client contact'"
             :contact-email="showDependentFields ? overviewGuardianAccount?.email || guardianIntakeEmail : client.email"
             :contact-phone="showDependentFields ? (overviewGuardianAccount ? guardianPhone(overviewGuardianAccount) : guardianIntakePhone) : client.contact_phone || client.phone"
@@ -2112,7 +2112,6 @@
                               Set primary
                             </button>
                             <button
-                              v-if="!row.is_primary"
                               type="button"
                               class="btn btn-danger btn-sm"
                               :disabled="savingAffiliation"
@@ -2187,7 +2186,6 @@
                               Set primary
                             </button>
                             <button
-                              v-if="!row.is_primary"
                               type="button"
                               class="btn btn-danger btn-sm"
                               :disabled="savingAffiliation"
@@ -2258,7 +2256,6 @@
                               Set primary
                             </button>
                             <button
-                              v-if="!row.is_primary"
                               type="button"
                               class="btn btn-danger btn-sm"
                               :disabled="savingAffiliation"
@@ -2355,7 +2352,6 @@
                         Set primary
                       </button>
                       <button
-                        v-if="!row.is_primary"
                         type="button"
                         class="btn btn-danger btn-sm"
                         :disabled="savingAffiliation"
@@ -2392,7 +2388,7 @@
               </div>
 
               <div v-if="providerAssignmentsLoading" class="loading">Loading…</div>
-              <div v-else-if="providerAssignments.length === 0" class="hint">No providers assigned for this affiliation.</div>
+              <div v-else-if="providerAssignments.length === 0" class="hint">No roster provider assigned for this affiliation. Service providers are listed in Services &amp; providers above.</div>
               <div v-else class="table-wrap">
                 <table class="table">
                   <thead>
@@ -3556,6 +3552,7 @@ const viewerIsAssignedProvider = computed(() => {
   if (!me) return false;
   if (props.client?.user_is_assigned_provider) return true;
   if (Number(props.client?.provider_id) === me) return true;
+  if (Number(props.client?.directory_provider_id) === me) return true;
   const ids = String(props.client?.provider_ids || '')
     .split(',')
     .map((s) => parseInt(s, 10))
@@ -3626,7 +3623,8 @@ function openClientSecureMessage(){
  if(!canOpenClientSecureMessage.value)return;
  const clientId=Number(props.client.id),agencyId=Number(props.client.agency_id||selectedAgencyId.value);
  const slug=String(route.params?.organizationSlug||'').trim();
- return router.push({path:slug?`/${slug}/messages`:'/messages',query:{view:'hub',channel:'secure',secureRecipient:'client',secureClientId:String(clientId),agencyId:String(agencyId)}});
+ const family=showDependentFields.value||clientIsMinor.value||guardians.value.some(row=>row.relationship_type!=='self'&&Number(row.access_enabled)===1&&!row.permissions_json?.relationshipRevoked);
+ return router.push({path:slug?`/${slug}/messages`:'/messages',query:{view:'hub',channel:'secure',secureRecipient:family?'family':'client',secureClientId:String(clientId),agencyId:String(agencyId)}});
 }
 
 const demographicsEmailEditor = ref(null), clientEmailError = ref('');
@@ -4611,7 +4609,7 @@ function providersFromClientSnapshot(client) {
     const tokens = pname.split(/\s+/);
     return [{
       id: 'snap-legacy',
-      provider_user_id: client.provider_id || null,
+      provider_user_id: Object.hasOwn(client, 'directory_provider_id') ? client.directory_provider_id : client.provider_id || null,
       provider_first_name: tokens[0] || pname,
       provider_last_name: tokens.slice(1).join(' ') || '',
       service_day: client.service_day || null,

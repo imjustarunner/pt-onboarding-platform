@@ -20,7 +20,7 @@
       </form>
       <section v-for="bucket in buckets" :key="bucket.type" class="assignment-affiliations" :aria-label="bucket.label">
         <h5>{{ bucket.label }} ({{ rowsFor(bucket.type).length }})</h5>
-        <ul v-if="rowsFor(bucket.type).length"><li v-for="row in rowsFor(bucket.type)" :key="row.organization_id">{{ row.organization_name || row.name }} <span v-if="Number(row.is_primary)===1">· Primary</span></li></ul>
+        <ul v-if="rowsFor(bucket.type).length"><li v-for="row in rowsFor(bucket.type)" :key="row.organization_id">{{ row.organization_name || row.name }} <span v-if="Number(row.is_primary)===1">· Primary</span> <button type="button" :disabled="busy" @click="removeAffiliation(row)">Remove affiliation</button></li></ul>
         <p v-else>No {{ bucket.label.toLowerCase() }} linked for this agency.</p>
         <form @submit.prevent="addAffiliation(bucket.type)"><label>Add {{ bucket.singular }}<select v-model="additions[bucket.type]" :disabled="busy"><option value="">Select…</option><option v-for="org in availableFor(bucket.type)" :key="org.id" :value="String(org.id)">{{ org.name }}</option></select></label><label class="assignment-check"><input v-model="makePrimary[bucket.type]" type="checkbox" :disabled="busy" /> Make primary</label><button type="submit" :disabled="busy || !additions[bucket.type]">Add {{ bucket.singular }}</button></form>
       </section>
@@ -108,6 +108,13 @@ async function saveDefaults(){if(busy.value)return false;const own=generation,ci
 async function addAffiliation(type){if(busy.value||!additions[type])return;const own=generation,cid=props.clientId,aid=props.agencyId;saving.value=true;error.value='';try{
  await api.post(`/clients/${cid}/affiliations`,{agency_id:Number(aid),organization_id:Number(additions[type]),is_primary:makePrimary[type]},request());if(own!==generation)return;const response=await api.get(`/clients/${cid}/affiliations`,request());if(own!==generation)return;affiliations.value=rows(response);additions[type]='';makePrimary[type]=false;emit('updated');
  }catch(e){if(own===generation)error.value=e.response?.data?.error?.message||'Affiliation could not be saved.';}finally{if(own===generation)saving.value=false;}}
+async function removeAffiliation(row){
+ if(busy.value||!window.confirm(`Remove ${row.organization_name || row.name || 'this affiliation'}? Its roster assignments will end. Service providers remain assigned separately.`))return;
+ const own=generation,cid=props.clientId;saving.value=true;error.value='';
+ try{await api.delete(`/clients/${cid}/affiliations/${Number(row.organization_id)}`,request());if(own!==generation)return;
+ const response=await api.get(`/clients/${cid}/affiliations`,request());if(own!==generation)return;affiliations.value=rows(response);emit('updated');
+ }catch(e){if(own===generation)error.value=e.response?.data?.error?.message||'Affiliation could not be removed.';}finally{if(own===generation)saving.value=false;}
+}
 function workingDraftText(){
  const services=pendingServiceDraft||(servicesPanel.value?.hasWorkingDraft?.()?servicesPanel.value.workingDraft():null);
  return dirty.value||services?JSON.stringify({defaults:dirty.value?{...draft}:null,services}):'';

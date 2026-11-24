@@ -1,8 +1,8 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { defineComponent, onMounted } from 'vue';
 import { mount, flushPromises } from '@vue/test-utils';
-const m=vi.hoisted(()=>({get:vi.fn(),post:vi.fn(),leave:vi.fn(),user:{role:'support',billingAgencyIds:[2,3]}}));
-vi.mock('../../../../services/api',()=>({default:{get:m.get,post:m.post}}));
+const m=vi.hoisted(()=>({get:vi.fn(),post:vi.fn(),delete:vi.fn(),leave:vi.fn(),user:{role:'support',billingAgencyIds:[2,3]}}));
+vi.mock('../../../../services/api',()=>({default:{get:m.get,post:m.post,delete:m.delete}}));
 vi.mock('../../../../store/auth',()=>({useAuthStore:()=>({user:m.user})}));
 import Assignments from '../ClientUpdateAssignments.vue';
 const Services=defineComponent({name:'ClientServiceEnrollments',props:['clientId','agencyId','organizations'],emits:['loaded','updated','busy'],setup(props,{emit,expose}){expose({prepareLeave:m.leave});onMounted(()=>emit('loaded',{services:[{service_kind:'counseling',provider_user_id:props.clientId===7?20:30,is_active:1}]}));},template:'<div data-services>Services and providers</div>'});
@@ -25,6 +25,13 @@ async function render(){const wrapper=mount(Assignments,{props:{clientId:7,agenc
 it('omits school and other affiliation controls when this agency has no such organizations',async()=>{
  const original=m.get.getMockImplementation();m.get.mockImplementation(async(url,...args)=>url.endsWith('/affiliated-organizations')||url.endsWith('/affiliations')?{data:[]}:original(url,...args));
  const w=await render();expect(w.find('[aria-label="Schools"]').exists()).toBe(false);expect(w.text()).not.toContain('Add school');expect(w.text()).toContain('Services and providers');w.unmount();
+});
+
+it('allows removing the only primary affiliation and refreshes saved memberships without changing the provider',async()=>{
+ const w=await render();vi.spyOn(window,'confirm').mockReturnValue(true);m.delete.mockResolvedValue({data:{ok:true}});
+ const remove=w.findAll('button').find(button=>button.text()==='Remove affiliation');expect(remove).toBeDefined();
+ await remove.trigger('click');await flushPromises();expect(m.delete).toHaveBeenCalledWith('/clients/7/affiliations/8',expect.objectContaining({headers:{'X-Agency-Id':'2'}}));
+ expect(m.post).not.toHaveBeenCalled();expect(w.emitted('updated')).toHaveLength(1);w.unmount();vi.restoreAllMocks();
 });
 it('prefills the provider physical office as this agency’s office and billing defaults, then saves on review',async()=>{
  const wrapper=await render();expect(wrapper.get('[aria-label="Default office"]').element.value).toBe('21');expect(wrapper.get('[aria-label="Default place of service"]').element.value).toBe('11');expect(wrapper.get('[aria-label="Default billing location"]').element.value).toBe('41');expect(m.post).not.toHaveBeenCalled();expect(wrapper.vm.prepareLeave()).toBe(false);

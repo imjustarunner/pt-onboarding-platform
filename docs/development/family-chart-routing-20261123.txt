@@ -1,0 +1,73 @@
+Family chart routing and affiliations — release handoff
+
+Branch: codex/family-chart-routing-20261123
+Base: fd85a5fb0a295572ee58b9748bdcb726aa6c564e
+Implementation and testing only. This chat does not integrate main or deploy.
+
+Changes
+
+- Transition preparation: the production error stack came from
+  assignSmartDisclosureToPortal -> currentClientUpdateRecipient ->
+  assertClientCanViewOwnShared -> guardianAppointments.authorizedClient.
+  Preparing a new consent now checks the exact enabled, active, unrestricted
+  guardian relationship and signing permissions without requiring the portal
+  to be open already or granting access to previous clinical records.
+  Transition school-form preparation uses the same narrow consent-setup path.
+  Clinical assessment and existing-record viewing checks remain in place.
+- Overview shows all linked guardian accounts with each account's own name,
+  phone and email, including when the dependent chart-type metadata is absent.
+  Revoked, inactive and self-account rows are excluded from guardian cards.
+- The chart Secure message action routes dependent/family contexts to the
+  existing shared-family composer. It selects only a server-approved shared
+  family recipient and retains the exact child and agency. The existing
+  audience review, clinical restrictions and immutable historical audiences
+  continue to control sending and reading. Pending portal setup, denied access
+  and billing-only accounts do not gain clinical messaging access.
+- Primary affiliations can be removed from the chart and import assignment
+  panels. Removing the last affiliation clears the legacy organization_id,
+  ends only that affiliation's roster assignments and records history.
+  An active service referencing the affiliation must first be moved explicitly
+  using Change provider -> School / program -> No school or program, or ended.
+  The existing service assignment editor now exposes this program selector.
+  Removing an affiliation does not silently remove the counselor from a service.
+- Client.findById uses the same agency-specific provider projection as the
+  directory. Sibling and chart clinician labels therefore use current service
+  assignments, with the existing legacy fallback only when there is no service
+  history. Provider identity links use the projected provider ID. Legacy owner
+  IDs remain unchanged. Assigned-clinician access is returned explicitly for
+  authorized chart viewers. Roster-empty copy distinguishes affiliation-specific
+  rosters from the service provider shown above.
+- Prospective/Current remains a separate lifecycle choice. No new automatic
+  status transition or production data backfill is included.
+
+Validation (passed)
+
+backend/vitest.chart-import.config.js: 40 files, 347 tests
+backend/vitest.client-transition-settings.config.js: 10 files, 99 tests
+backend/vitest.release-recovery.config.js: 8 files, 134 tests
+backend/vitest.final1113-messages.config.js: 5 files, 61 tests
+backend/vitest.client-updates.config.js: 10 files, 94 tests
+frontend/vitest.chart-import.config.js: 26 files, 183 tests
+frontend/vitest.brief1112b-entry-pollers.config.js: 7 files, 126 tests
+frontend/vitest.client-assignment-experience.config.js: 24 files, 168 tests
+
+Counts overlap across suites. Provider projection also executes the actual
+query against isolated SQLite, including ended-service and cross-agency cases.
+Family privacy/history and document update SQL tests ran on an isolated local
+MySQL fixture, with no skipped tests in those two final runs.
+Backend JavaScript syntax checks and git diff --check passed.
+
+Run Vitest using frontend/node_modules/.bin/vitest run --config <config>.
+Backend chart tests require NODE_OPTIONS=--experimental-sqlite.
+SQL suites require the repository's isolatedWorkflowMysql fixture on an allowed
+loopback port via RECOVERY_TEST_MYSQL_HOST and RECOVERY_TEST_MYSQL_PORT. Never
+point their DB_* settings or fixtures at production.
+
+Release requirements
+
+No database migration, secret or new runtime configuration is required.
+The release chat should integrate this branch with its latest release candidate,
+resolve any shared ClientDetailPanel/client.controller/clientUpdate edits, rerun
+affected checks, and use the existing paired backend/frontend release queues.
+No production integration, deployment or live functional verification was
+performed by this implementation chat under the updated release instructions.

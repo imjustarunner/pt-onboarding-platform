@@ -92,7 +92,7 @@ export async function prepareClientTransitionInvitation(input) {
     const current=(await previewClientTransitionInvitation(input)).recipients.find(row=>row.key===input.recipientKey);
     if(!current||current.blockedReason)throw billingError(409,current?.blockedReason||'This portal account is no longer eligible.');
     const documents=current.forms.filter(form=>form.templateId&&!form.assigned);
-    if(documents.length){const request=await createClientUpdate({agencyId:input.agencyId,clientId:input.clientId,body:{documents:documents.map(form=>form.templateId)},actorUserId:input.actor.id});await assignClientUpdateToPortal(request.id,{actorUserId:input.actor.id,guardianUserId:recipient.guardianUserId});}
+    if(documents.length){const request=await createClientUpdate({agencyId:input.agencyId,clientId:input.clientId,body:{documents:documents.map(form=>form.templateId)},actorUserId:input.actor.id});await assignClientUpdateToPortal(request.id,{actorUserId:input.actor.id,guardianUserId:recipient.guardianUserId,consentSetup:true});}
     const disclosure=current.forms.find(form=>form.assignmentType==='smart_disclosure'&&(!form.assigned||form.requiresReplacement));
     if(disclosure)await assignSmartDisclosureToPortal({agencyId:input.agencyId,clientId:input.clientId,guardianUserId:recipient.guardianUserId,locale:disclosure.language,contentHash:disclosure.contentHash,actorUserId:input.actor.id});
     if(current.forms.some(form=>form.kind==='payment_authorization'&&!form.assigned))await createPaymentTask({agencyId:input.agencyId,guardianUserId:recipient.guardianUserId,clientIds:[input.clientId],actorUserId:input.actor.id,requireCard:true});

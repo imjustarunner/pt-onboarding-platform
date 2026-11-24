@@ -47,6 +47,24 @@ it('keeps a personal chart action closed when only a guardian can receive secure
   expect(m.get.mock.calls.some(([url])=>url.includes('user%3A20'))).toBe(false);
 });
 
+it('opens family composition through an authorized guardian even when the child has a separate personal login',async()=>{
+ m.route.query.secureRecipient='family';
+ const original=m.get.getMockImplementation();
+ const context={clientId:2542,sharedSecureAvailable:true,guardians:[
+  {personKey:'user:19@450',userId:19,sharedSecureEligible:false,methods:[{id:'secure',available:true}]},
+  {personKey:'user:20@450',userId:20,sharedSecureEligible:true,methods:[{id:'secure',available:true}]},
+  {personKey:'user:21@450',userId:21,sharedSecureEligible:true,methods:[{id:'secure',available:true}]}
+ ]};
+ m.get.mockImplementation((url,...args)=>url==='/messages/hub/people/client%3A2542%40450'
+  ? Promise.resolve({data:{person:{...person(2542),clientMessaging:context}}})
+  :url==='/messages/hub/people/user%3A20%40450'?Promise.resolve({data:{person:{personKey:'user:20@450',userId:20,agencyId:450,kinds:['guardian'],methods:[{id:'secure',available:true}]}}}):original(url,...args));
+ const state=await open();expect(state.selected.userId).toBe(20);expect(state.selected.clientMessaging).toEqual(context);
+ expect(state.familySecureCompose).toBe(true);expect(state.personalSecureRecipientId).toBeFalsy();
+ expect(state.selected.clientId).toBe(2542);expect(m.get.mock.calls.some(([url])=>url==='/messages/hub/people/user%3A19%40450')).toBe(false);
+ expect(w.findComponent({name:'SecureFamilyAudience'}).props()).toMatchObject({clientId:2542,agencyId:450,personKey:'user:20@450',required:true});
+ expect(m.post.mock.calls.some(([url])=>/send|invite/.test(url))).toBe(false);
+});
+
 it('addresses a client picked from the Clients list to their own portal',async()=>{
   const state=await open();
   state.listFilter='clients';

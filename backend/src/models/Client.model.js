@@ -240,6 +240,8 @@ class Client {
         org.slug as organization_slug,
         org.organization_type as organization_type,
         org.feature_flags as organization_feature_flags,
+        provider.id AS directory_provider_id,
+        directory_service.id AS assigned_service_id,
         provider.first_name as provider_first_name,
         provider.last_name as provider_last_name,
         cs.label as client_status_label,
@@ -261,7 +263,7 @@ class Client {
         ) AS paperwork_needed_count` : ''}
       FROM clients c
       LEFT JOIN agencies org ON c.organization_id = org.id
-      LEFT JOIN users provider ON c.provider_id = provider.id
+      ${clientDirectoryProviderJoin()}
       LEFT JOIN client_statuses cs ON c.client_status_id = cs.id
       LEFT JOIN paperwork_statuses ps ON c.paperwork_status_id = ps.id
       LEFT JOIN insurance_types it ON c.insurance_type_id = it.id

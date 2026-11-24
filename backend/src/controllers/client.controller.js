@@ -1208,6 +1208,7 @@ export const getClientById = async (req, res, next) => {
     if (!access.ok) {
       return res.status(access.status).json({ error: { message: access.message } });
     }
+    client.user_is_assigned_provider = access.isAssignedClinician === true;
 
     // Get user's organizations (for restricted school-staff view below)
     const userAgencies = await User.getAgencies(userId);
@@ -8242,14 +8243,24 @@ export const removeClientAffiliation = async (req, res, next) => {
     try {
       await connection.beginTransaction();
 
-      // Prevent removing the primary affiliation (must pick a new primary first).
+      // Removing the last/primary program is valid for office clients. Do not
+      // silently choose another school or change the client's service provider.
       const [primaryRows] = await connection.execute(
-        `SELECT is_primary FROM client_organization_assignments WHERE client_id = ? AND organization_id = ? LIMIT 1 FOR UPDATE`,
+        `SELECT is_primary FROM client_organization_assignments WHERE client_id = ? AND organization_id = ? AND is_active=TRUE LIMIT 1 FOR UPDATE`,
         [clientId, orgId]
       );
-      if (primaryRows?.[0]?.is_primary) {
+      if (!primaryRows?.length) {
         await connection.rollback();
-        return res.status(400).json({ error: { message: 'Cannot remove the primary affiliation. Set a different primary first.' } });
+        return res.status(404).json({ error: { message: 'Affiliation not found.' } });
+      }
+
+      const [services] = await connection.execute(
+        'SELECT id FROM client_service_enrollments WHERE client_id=? AND organization_id=? AND is_active=1 LIMIT 1 FOR UPDATE',
+        [clientId, orgId]
+      );
+      if (services.length) {
+        await connection.rollback();
+        return res.status(409).json({ error: { message: 'Move or end the service assigned to this affiliation in Services & providers before removing it. Your provider assignment has not changed.' } });
       }
 
       // Refund slots for all active provider assignments in this org and deactivate them.
@@ -8281,9 +8292,18 @@ export const removeClientAffiliation = async (req, res, next) => {
       // Deactivate affiliation
       await connection.execute(
         `UPDATE client_organization_assignments
-         SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP
+         SET is_active = FALSE, is_primary = FALSE, updated_at = CURRENT_TIMESTAMP
          WHERE client_id = ? AND organization_id = ?`,
         [clientId, orgId]
+      );
+
+      await connection.execute(
+        'UPDATE clients SET organization_id=NULL, updated_by_user_id=? WHERE id=? AND organization_id=?',
+        [userId, clientId, orgId]
+      );
+      await connection.execute(
+        "INSERT INTO client_status_history (client_id,changed_by_user_id,field_changed,from_value,to_value,note) VALUES (?,?,'affiliation',?,'removed','Affiliation removed; service assignments retained')",
+        [clientId, userId, String(orgId)]
       );
 
       await connection.commit();
