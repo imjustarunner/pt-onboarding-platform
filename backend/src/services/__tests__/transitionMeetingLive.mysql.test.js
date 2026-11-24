@@ -7,7 +7,7 @@ vi.mock('../../config/database.js',()=>({default:{execute:(...a)=>m.pool.execute
 vi.mock('../transitionWorkspace.service.js',()=>({transitionWorkspaceData:async()=>({people:[]})}));
 vi.mock('../meetingRecipientIdentity.service.js',()=>({resolveMeetingRecipient:async({user})=>({email:user.work_email||user.email})}));
 vi.mock('../meetingInvitations.service.js',()=>({personalMeetingInvitation:vi.fn()}));
-import {createEvent,upsertClaim,transitionClaimRate,recordTransitionInboxSetup,verifiedTransitionDeliveryReceipt} from '../transitionMeetingSequenceLive.service.js';
+import {createEvent,upsertClaim,transitionClaimRate,recordTransitionInboxSetup,verifiedTransitionDeliveryReceipt,hasVerifiedTransitionSmtpSender} from '../transitionMeetingSequenceLive.service.js';
 const port=Number(process.env.TRANSITION_SEQUENCE_TEST_MYSQL_PORT);
 describe.skipIf(!port)('native MySQL transition runtime',()=>{
  let admin,name,oldKey;
@@ -46,7 +46,8 @@ describe.skipIf(!port)('native MySQL transition runtime',()=>{
  });
  it('encrypts setup evidence and appends automation-attributed snapshots without inventing a human actor',async()=>{
   await expect(recordTransitionInboxSetup({address:'transitions@auricwell.com',roundTripVerified:true,senderIdentityId:8})).rejects.toThrow('Owner-verified');
-  await recordTransitionInboxSetup({address:'transitions@auricwell.com',roundTripVerified:true,groupSettingsVerifiedByOwner:true,senderIdentityId:8});await recordTransitionInboxSetup({address:'transitions@auricwell.com',roundTripVerified:true,groupSettingsVerifiedByOwner:true,senderIdentityId:8});
+  await recordTransitionInboxSetup({address:'transitions@auricwell.com',verifiedFrom:'transitions@auricwell.com',transport:'workspace_smtp_relay',automationSubject:'auricwell-transition-sequence@ptonboard-dev.iam.gserviceaccount.com',roundTripVerified:true,visibleFromVerified:true,groupSettingsVerifiedByOwner:true,groupMembershipVerifiedByOperator:true,senderIdentityId:8,verificationCommunicationId:17,relayReceipt:'relay-synthetic',verifiedAt:'2026-11-24T18:00:00Z'});await recordTransitionInboxSetup({address:'transitions@auricwell.com',verifiedFrom:'transitions@auricwell.com',transport:'workspace_smtp_relay',automationSubject:'auricwell-transition-sequence@ptonboard-dev.iam.gserviceaccount.com',roundTripVerified:true,visibleFromVerified:true,groupSettingsVerifiedByOwner:true,groupMembershipVerifiedByOperator:true,senderIdentityId:8,verificationCommunicationId:17,relayReceipt:'relay-synthetic',verifiedAt:'2026-11-24T18:00:00Z'});
+  expect(await hasVerifiedTransitionSmtpSender(8,m.pool)).toBe(true);expect(await hasVerifiedTransitionSmtpSender(9,m.pool)).toBe(false);
   const [[r]]=await m.pool.execute('SELECT payload_json,automation_subject,revision FROM transition_meeting_sequences');expect(JSON.stringify(r.payload_json)).not.toContain('roundTripVerified');expect(r.revision).toBe(1);const [[audit]]=await m.pool.execute('SELECT actor_type,actor_user_id FROM transition_meeting_sequence_audit');expect(audit).toEqual({actor_type:'automation',actor_user_id:null});
  });
  it('persists the actually delivered RFC thread identity and never treats held, redirected or uncertain sends as delivery',()=>{

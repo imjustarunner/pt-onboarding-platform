@@ -1,0 +1,9 @@
+{
+  "operation": "Deploy the tested transition sequence and verify its SMTP inbox before sending invitations",
+  "authorization": "User explicitly requested commit, push, live deployment and meeting invitations in this chat",
+  "requestedAt": "2026-11-24T18:05:00Z",
+  "preserveLiveSources": true,
+  "automationGroupRole": "MANAGER",
+  "groupOwnerSettingsConfirmed": true,
+  "directRelayTestCommunicationId": 7740
+}

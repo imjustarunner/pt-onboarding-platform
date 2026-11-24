@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/reconcile-deployment-queue.yml'
       - 'scripts/superseded-deployment-runs*'
+      - 'docs/operations/transition-meetings-2026-11-24/release-request.json'
   workflow_dispatch:
 permissions:
   contents: read
