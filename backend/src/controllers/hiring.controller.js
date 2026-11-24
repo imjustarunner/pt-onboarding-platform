@@ -1,6 +1,7 @@
 import { getSharedHireDefaults, saveSharedHireDefaults, validateJobHireDefaults } from '../services/hireJobDefaults.service.js';
 import { getPrehireDraft, savePrehireDraft } from '../services/prehireDraft.service.js';
 import { candidatePrehireProgress } from '../services/hireCandidateProgress.service.js';
+import { hiringCandidateScopeSql, hiringProfileJoinSql } from '../utils/hiringCandidateScope.js';
 import { referenceQuestionnaire, legacyReferenceQuestionnaire, normalizeReferenceAnswers } from '../utils/hiringReferenceQuestionnaire.js';
 import { listReferenceContacts, saveReferenceContact } from '../models/HiringReferenceContact.model.js';
 import { notifyApplicantReferenceCompleted } from '../services/hiringReferenceRequests.service.js';
@@ -105,8 +106,9 @@ function resolveHiringAgencyId(req) {
 async function ensureCandidateInAgency(candidateUserId, agencyId) {
   const [rows] = await pool.execute(
     `SELECT 1
-     FROM user_agencies
-     WHERE user_id = ? AND agency_id = ?
+     FROM users u JOIN user_agencies ua ON ua.user_id = u.id
+     ${hiringProfileJoinSql()}
+     WHERE u.id = ? AND ua.agency_id = ? AND ${hiringCandidateScopeSql()}
      LIMIT 1`,
     [candidateUserId, agencyId]
   );
@@ -533,6 +535,7 @@ export const listCandidates = async (req, res, next) => {
     } else if (['applied', 'review', 'interview', 'offered'].includes(stageFilter)) {
       whereSql = `
         WHERE (u.status != 'ARCHIVED' AND (u.is_archived = FALSE OR u.is_archived IS NULL))
+          AND hp.id IS NOT NULL
           AND LOWER(COALESCE(hp.stage, 'applied')) = ?
       `;
       params.push(stageFilter);
@@ -560,6 +563,7 @@ export const listCandidates = async (req, res, next) => {
       params.push(status);
     }
 
+    whereSql += ` AND ${hiringCandidateScopeSql()}`;
     if (q) {
       whereSql += ` AND (
         u.first_name LIKE ?
@@ -598,15 +602,8 @@ export const listCandidates = async (req, res, next) => {
         __VIEW_COLS__
       FROM users u
       JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
-      LEFT JOIN hiring_profiles hp
-        ON hp.id = (
-          SELECT hp_latest.id
-          FROM hiring_profiles hp_latest
-          WHERE hp_latest.candidate_user_id = u.id
-          ORDER BY hp_latest.updated_at DESC, hp_latest.id DESC
-          LIMIT 1
-        )
-      LEFT JOIN hiring_job_descriptions jd ON jd.id = hp.job_description_id
+      ${hiringProfileJoinSql()}
+      LEFT JOIN hiring_job_descriptions jd ON jd.id = hp.job_description_id AND jd.agency_id = ua.agency_id
       __VIEW_JOIN__
       LEFT JOIN (
         SELECT
@@ -628,11 +625,8 @@ export const listCandidates = async (req, res, next) => {
           COUNT(*) AS cnt
         FROM users u2
         JOIN user_agencies ua2 ON ua2.user_id = u2.id
-        WHERE EXISTS (
-            SELECT 1
-            FROM hiring_profiles hp2
-            WHERE hp2.candidate_user_id = u2.id
-          )
+        ${hiringProfileJoinSql({ user:'u2', agency:'ua2.agency_id', profile:'hp2' })}
+        WHERE hp2.id IS NOT NULL
           AND u2.status != 'ARCHIVED'
           AND (u2.is_archived = FALSE OR u2.is_archived IS NULL)
           AND COALESCE(NULLIF(u2.personal_email, ''), u2.email) IS NOT NULL
@@ -4672,14 +4666,11 @@ export const listPrehireCandidates = async (req, res, next) => {
          hp.created_at AS applied_at
        FROM users u
        INNER JOIN user_agencies ua ON u.id = ua.user_id
-       LEFT JOIN hiring_profiles hp ON hp.candidate_user_id = u.id
+       ${hiringProfileJoinSql()}
        WHERE u.status IN (${placeholders})
          AND u.is_active = TRUE
          AND u.role NOT IN ('client_guardian', 'client', 'guardian')
-         AND (
-           hp.id IS NOT NULL
-           OR u.hired_at IS NOT NULL
-         )
+         AND ${hiringCandidateScopeSql()}
          ${agencyClause}
        GROUP BY u.id, hp.id
        ORDER BY u.hired_at DESC, u.created_at DESC`,
@@ -4766,11 +4757,12 @@ export const listOnboardingCandidates = async (req, res, next) => {
          ) AS overdue_count
        FROM users u
        INNER JOIN user_agencies ua ON u.id = ua.user_id
-       LEFT JOIN hire_journeys hj ON hj.user_id = u.id
-       LEFT JOIN hiring_profiles hp ON hp.candidate_user_id = u.id
+       LEFT JOIN hire_journeys hj ON hj.user_id = u.id AND hj.agency_id = ua.agency_id
+       ${hiringProfileJoinSql()}
        WHERE u.status = 'ONBOARDING'
          AND u.is_active = TRUE
          AND u.role NOT IN ('client_guardian', 'client', 'guardian')
+         AND ${hiringCandidateScopeSql()}
          ${agencyClause}
        GROUP BY u.id, hp.id
        ORDER BY u.hired_at DESC, u.created_at DESC`,

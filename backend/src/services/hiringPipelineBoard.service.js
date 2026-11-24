@@ -6,6 +6,7 @@ import User from '../models/User.model.js';
 import {readAgencyAccess} from './agencyAccessProfiles.service.js';
 import {applyAgencyAccess} from '../utils/agencyAccessPolicy.js';
 import {getUserCapabilities} from '../utils/capabilities.js';
+import { hiringCandidateScopeSql, hiringProfileJoinSql, hiringDocumentScopeSql, isHiringWorkforceRole } from '../utils/hiringCandidateScope.js';
 
 const HIRE_STATUSES = new Set([
   'PROSPECTIVE',
@@ -14,6 +15,7 @@ const HIRE_STATUSES = new Set([
   'PREHIRE_REVIEW',
   'ONBOARDING'
 ]);
+const APPLICANT_STAGES = new Set(['applied', 'review', 'interview', 'offered']);
 
 function daysSince(raw) {
   if (!raw) return 0;
@@ -29,6 +31,7 @@ function bucketForRow(row) {
   const pendingDocs = Number(row.pending_docs || 0);
 
   if (pendingSig > 0) return 'pendingSignature';
+  if (APPLICANT_STAGES.has(stage) && (!isHiringWorkforceRole(row.role) || status === 'PENDING_SETUP')) return 'newApplicants';
   if (status === 'PREHIRE_REVIEW' || (status === 'PREHIRE_OPEN' && pendingDocs === 0 && pendingSig === 0)) {
     return 'readyForOnboarding';
   }
@@ -122,6 +125,7 @@ export async function loadPipelineBoard({ userId, role, agencyId = null } = {}) 
        u.email,
        u.personal_email,
        u.status,
+       u.role,
        u.created_at,
        u.hired_at,
        hp.stage,
@@ -135,6 +139,7 @@ export async function loadPipelineBoard({ userId, role, agencyId = null } = {}) 
          WHERE t.assigned_to_user_id = u.id
            AND t.assigned_to_agency_id = a.id
            AND t.task_type = 'document'
+           AND ${hiringDocumentScopeSql()}
            AND (t.document_action_type IS NULL OR t.document_action_type != 'countersignature')
            AND t.status != 'completed'
        ) AS pending_docs,
@@ -143,29 +148,22 @@ export async function loadPipelineBoard({ userId, role, agencyId = null } = {}) 
          WHERE t.assigned_to_user_id = u.id
            AND t.assigned_to_agency_id = a.id
            AND t.task_type = 'document'
+           AND ${hiringDocumentScopeSql()}
            AND t.document_action_type = 'signature'
            AND t.status != 'completed'
        ) AS pending_signatures
      FROM users u
      JOIN user_agencies ua ON ua.user_id = u.id
      JOIN agencies a ON a.id = ua.agency_id
-     LEFT JOIN hiring_profiles hp ON hp.id = (
-       SELECT hp_latest.id FROM hiring_profiles hp_latest
-       WHERE hp_latest.candidate_user_id = u.id
-         AND (hp_latest.job_description_id IS NULL OR EXISTS (
-           SELECT 1 FROM hiring_job_descriptions scoped_job
-           WHERE scoped_job.id = hp_latest.job_description_id AND scoped_job.agency_id = a.id
-         ))
-       ORDER BY hp_latest.updated_at DESC, hp_latest.id DESC
-       LIMIT 1
-     )
+     ${hiringProfileJoinSql({ agency: 'a.id' })}
      LEFT JOIN hiring_job_descriptions jd ON jd.id = hp.job_description_id AND jd.agency_id = a.id
      WHERE a.id IN (${placeholders})
+       AND ${hiringCandidateScopeSql({ agency: 'a.id' })}
        AND (u.is_archived = 0 OR u.is_archived IS NULL)
        AND u.status != 'ARCHIVED'
        AND (
          u.status IN ('PROSPECTIVE', 'PENDING_SETUP', 'PREHIRE_OPEN', 'PREHIRE_REVIEW', 'ONBOARDING')
-         OR hp.id IS NOT NULL
+         OR LOWER(hp.stage) IN ('applied', 'review', 'interview', 'offered')
        )
        AND LOWER(COALESCE(hp.stage, 'applied')) != 'not_hired'
      ORDER BY COALESCE(hp.updated_at, u.hired_at, u.created_at) DESC
@@ -185,7 +183,7 @@ export async function loadPipelineBoard({ userId, role, agencyId = null } = {}) 
 
   for (const row of rows || []) {
     const status = String(row.status || '').toUpperCase();
-    if (!HIRE_STATUSES.has(status) && !row.stage) continue;
+    if (!HIRE_STATUSES.has(status) && !APPLICANT_STAGES.has(String(row.stage || '').toLowerCase())) continue;
     const key = `${row.user_id}:${row.agency_id}`;
     if (seen.has(key)) continue;
     seen.add(key);

@@ -1,0 +1,66 @@
+HIRING PIPELINE — GUARDIAN / PORTAL ACCOUNT CLEANUP
+November 23, 2026
+
+Implementation/testing handoff only. The separate release chat owns integration,
+deployment and live verification. This is not evidence of changed live counts.
+Preserve the owner's screenshot privately; do not copy real family names/emails
+into test fixtures, public reports or repository documentation.
+
+CAUSE AND EXPECTED BEHAVIOR
+- PENDING_SETUP is used by ordinary guardian/client account creation as well as
+  hiring. The pipeline previously accepted that status without hiring evidence.
+- Status alone now qualifies nobody. A row needs a scoped hiring profile, an
+  explicit hire journey for this company, or a workforce role plus hired_at and
+  unambiguous legacy company membership. Clinical enrollment remains unchanged.
+- School affiliations do not count as another hiring company for that legacy
+  check. A job in another company is not evidence of an application here.
+- Jobless profiles use their explicit company journey or sole-company ownership.
+  Ambiguous multi-company legacy rows require ownership review; no data is erased.
+- Guardian-only/client-only contacts disappear from hiring views/counts after
+  rollout and refresh. Their accounts, clinical links, permissions, status,
+  documents and history are preserved. No deletion/archive/role rewrite is needed.
+- A guardian who genuinely applies remains an applicant. A family setup status
+  must not misclassify that application as pre-hire, and clinical documents must
+  not contribute to that person's HR document/signature totals.
+- Completed employees and not-hired applicants do not remain In Progress merely
+  because they retain a hiring profile. Actual reapplications remain visible.
+- The Applications filters, pre-hire/onboarding eligibility and direct candidate
+  lookups use the same evidence boundary. Existing pre-hire/onboarding family-role
+  restrictions remain in place; this patch does not convert a family account into
+  an employee account or bypass the ordinary employee setup requirements.
+
+LIVE RETEST — AFTER THE SEPARATE RELEASE CHAT DEPLOYS
+- Verify the coordinator's backend/frontend manifest and backend ready=true.
+- Use only an authorized scoped automation operator with hiring access for the
+  selected agency. Never use a human identity, app superadministrator or forged
+  session. Do not grant new access just to finish this test.
+- In the selected-company dashboard refresh the pipeline, each bucket and its
+  Needs Attention / In Progress tabs. Recount loaded eligible candidates and
+  compare the same filtered population to the displayed counts.
+- Confirm known portal-only guardians/clients are absent from hiring search,
+  Applications > Applied, setup/pre-hire and onboarding lists. Use retained
+  synthetic family accounts where permitted; do not expose real clinical data.
+- Try that synthetic guardian's candidate URL through the hiring route as the
+  hiring operator. Expect not found before private profile/document reads.
+  Do not sign in as the guardian to impersonate the hiring operator.
+- Check the family portal independently through its normal authorized session:
+  existing access and linked records remain available, with unchanged account
+  status and role. No hiring notices or account setup messages should be sent.
+- Confirm genuine submitted applicants, identifiable legacy staff hires and
+  explicitly assigned pre-hire/onboarding journeys remain visible. Check a
+  completed employee, rejected applicant and legitimate new reapplication.
+- Where a retained dual-purpose synthetic applicant exists, confirm its own
+  application is visible and clinical documents are absent from HR task counts.
+  Do not create a real employment record for a family merely to perform this case.
+- Switch companies. No borrowed job title, application or pending setup status
+  may make a candidate from the previous company appear in the next company.
+- Record actual builds, actor, company/object IDs, time in America/Denver with
+  offset, counts and redacted evidence using PASS / FAIL / BLOCKED / NOT RUN.
+
+RELEASE REQUIREMENTS
+- No new migration or cleanup job. Uses existing hiring_profiles, hire_journeys,
+  hiring_job_descriptions, user_agencies and tasks.metadata schema.
+- Backend runtime change. Frontend consumes the corrected API; follow the shared
+  paired-release/version-manifest process. Integrate later main changes and rerun
+  affected tests before release. Do not deploy production from this task branch.
+- Do not bulk-delete family accounts or rewrite their original audit evidence.
