@@ -71,6 +71,8 @@ function validateNarrivaPlan(draft) {
   let scaledGoals = 0;
   for (const goal of draft.goals) {
     if (!goal.goalText || !goal.objectives.length) throw planError(`Enter goal ${goal.goalIndex} and at least one objective.`);
+    const missingBaseline = goal.objectives.find(objective => !objective.scaleExemption && !Number.isInteger(objective.scaleCurrent));
+    if (missingBaseline) throw planError(`Enter a baseline from 1 to 10 for objective ${goal.goalIndex}.${missingBaseline.objectiveIndex}.`);
     if (goal.objectives.some(objective=>!objective.objectiveText || !objective.projectedCompletion || objective.projectedCompletion < draft.effectiveDate ||
       (!objective.scaleExemption && (!pair(objective.scaleCurrent,objective.scaleTarget) || !objective.kioskPrompt)))) {
       throw planError(`Complete the objective text and target dates for goal ${goal.goalIndex}. Enter a 1–10 scale and client question or specify an alternate measure.`);
@@ -80,20 +82,28 @@ function validateNarrivaPlan(draft) {
   if (scaledGoals < 2) throw planError('At least two separate goals need a 1–10 objective.');
 }
 
-export async function suggestNarrivaPlanDraft({ input, includeOther = false, generate = callGeminiText }) {
+export async function suggestNarrivaPlanDraft({ input, includeOther = false, completePlan = false, revision = '', generate = callGeminiText }) {
   const draft = normalizeNarrivaPlanDraft(input);
+  if (completePlan) {
+    while (draft.goals.length < 3) draft.goals.push({ goalText:'', objectives:[] });
+    for (const goal of draft.goals) {
+      if (!goal.objectives.length) goal.objectives.push({ objectiveText:'', interventions:[] });
+    }
+  }
+  const revisionThemes = clinicalThemes(revision);
+  const goals = draft.goals.map((goal, gi) => ({ ref:String(gi+1), themes:clinicalThemes(goal.goalText), needsTitle:!goal.goalText }));
   const objectives = draft.goals.flatMap((goal, gi) => goal.objectives.map((objective, oi) => ({
     ...anonymousObjective(objective,`${gi+1}.${oi+1}`),
     goalThemes: clinicalThemes(goal.goalText),
     interventionThemes: clinicalThemes(objective.interventions.join(' ')),
     durationMonths: objective.durationMonths || goal.durationMonths,
     alternateMeasure: !!objective.scaleExemption,
-    includeOther: includeOther || !!objective.kioskPromptOther
+    includeOther, needsObjective: !objective.objectiveText
   })));
   if (!objectives.length || objectives.length > 30) throw planError('Add 1–30 objectives, or use the rewrite on a single objective.');
   const result = await generate({
-    prompt: `Prepare suggestions for an outpatient treatment plan using the anonymous themes below. Use the exact objective refs. Preserve clinical intent and rewrite each objective into a concise, observable action with a specific frequency, measurable success criterion, and timeframe. Draft a revised objective instead of repeating the input’s measurement. Preserve documented scores and use no invented facts. Suggest linked interventions without dates/durations, a duration of 1–36 months per objective, and a natural client 1–10 question with concrete anchors. Add a third-person question only when includeOther is true. When alternateMeasure is true, preserve it and omit numeric scales and questions. Never supply a baseline or imply an observed score, symptom, diagnosis, or response that was not provided. Return only JSON {"objectives":[{"ref":"1.1","objectiveText":"...","target":8,"durationMonths":3,"interventions":["..."],"clientQuestion":"...","otherQuestion":"..."}],"dischargePlan":"short measurable draft criteria and planning, conditional on clinician review"}.
-${JSON.stringify({ objectives, presentingThemes: clinicalThemes(draft.presentingProblem) })}`,
+    prompt: `Prepare suggestions for an outpatient treatment plan using the anonymous themes below. Return exactly one entry for every supplied objective ref. Use the supplied goal refs to write a distinct, clinically appropriate goal title wherever needsTitle is true. When a new goal or objective has little context, use a clinician-reviewable priority based on the documented themes, without asserting new clinical facts. The default complete draft has three goals with at least one 1–10 objective each; retain all supplied goals and alternate measures. Apply the clinician’s revision themes where they support the documented plan. Preserve clinical intent and rewrite each objective into a concise, observable action with a specific frequency, measurable success criterion, and timeframe. Draft a revised objective instead of repeating the input’s measurement. Preserve documented scores and use no invented facts. Suggest linked interventions without dates/durations, a duration of 1–36 months per objective, and a natural client 1–10 question with concrete anchors. Add a third-person question only when includeOther is true. When alternateMeasure is true, preserve it and omit numeric scales and questions. Never supply a baseline or imply an observed score, symptom, diagnosis, or response that was not provided. Return only JSON {"goals":[{"ref":"3","goalText":"..."}],"objectives":[{"ref":"1.1","objectiveText":"...","target":8,"durationMonths":3,"interventions":["..."],"clientQuestion":"...","otherQuestion":"..."}],"dischargePlan":"short measurable draft criteria and planning, conditional on clinician review"}.
+${JSON.stringify({ goals, objectives, presentingThemes: clinicalThemes(draft.presentingProblem), revisionThemes })}`,
     ...clinicalNoteModelOptions(), vertexOnly:true, sensitive:true, temperature:0.2, maxOutputTokens:8192, jsonMode:true
   });
   let proposed;
@@ -103,15 +113,30 @@ ${JSON.stringify({ objectives, presentingThemes: clinicalThemes(draft.presenting
   if (![...proposals.keys()].some(ref=>objectives.some(objective=>objective.ref===ref))) {
     throw Object.assign(new Error('Narriva did not return a suggestion for these objectives.'),{status:502});
   }
+  const proposedGoals = new Map((Array.isArray(proposed?.goals) ? proposed.goals : []).filter(item=>item?.ref).map(item=>[String(item.ref),item]));
   return {
+    goals: goals.filter(goal=>goal.needsTitle).map(goal=>({
+      ref:goal.ref,
+      goalText:bounded(proposedGoals.get(goal.ref)?.goalText,6000)
+        || (draft.goals[Number(goal.ref)-1].objectives[0]?.objectiveText
+          ? 'Build skills for the treatment priority described in the objective'
+          : (revisionThemes[0] ? `Build skills for ${revisionThemes[0]}` : 'Practice a strategy for a treatment priority agreed with the client'))
+    })),
     objectives: objectives.map(objective => {
-      const suggestion = proposals.get(objective.ref);
-      if (!suggestion) return {ref:objective.ref};
-      const target = objective.alternateMeasure ? null : objective.target ?? safeScale(suggestion.target);
+      const draftSuggestion = proposals.get(objective.ref);
+      if (!draftSuggestion && !objective.needsObjective && !completePlan) return {ref:objective.ref};
+      const duration = objective.durationMonths || months(draftSuggestion?.durationMonths) || 3;
+      const suggestion = objective.needsObjective && !bounded(draftSuggestion?.objectiveText,6000) ? {
+        objectiveText: `Practice a clinician-approved skill for the agreed treatment priority each week over the next ${duration} months. Rate confidence in using the skill on a 1–10 scale and work toward the agreed target.`,
+        target: 8
+      } : draftSuggestion || {};
+      const suggestedTarget = safeScale(suggestion.target);
+      const target = objective.alternateMeasure ? null : objective.target ??
+        (Number.isInteger(suggestedTarget) && suggestedTarget !== objective.current ? suggestedTarget : objective.current === 8 ? 9 : 8);
       const anchors = scaleAnchorLabels(objective.themes.join(' '), objective.current != null && target < objective.current ? 'decrease' : 'increase');
       return {
         ref: objective.ref, objectiveText:bounded(suggestion.objectiveText,6000), target,
-        durationMonths: objective.durationMonths || months(suggestion.durationMonths),
+        durationMonths: duration,
         interventions: (Array.isArray(suggestion.interventions) ? suggestion.interventions : []).slice(0,12).map(interventionText).filter(Boolean),
         clientQuestion: objective.alternateMeasure ? '' : bounded(suggestion.clientQuestion,400) || `Where are you today on this objective from 1 (${anchors.one}) to 10 (${anchors.ten})?`,
         otherQuestion: objective.alternateMeasure || !objective.includeOther ? '' : bounded(suggestion.otherQuestion,400)

@@ -91,3 +91,11 @@ it('clears a duplicate imported diagnosis after intake confirmation while keepin
   const summary = await loadClientExchangeSummary({client:{id:3,agency_id:2}});
   expect(summary).toMatchObject({intakeReviewStatus:'draft',treatmentPlanOnFile:false,importedDiagnoses:[],diagnoses:[]});
 });
+
+it('uses a delivery record to clear the share task while family acknowledgement is pending', async () => {
+  mocks.clinical.mockImplementation(async sql => [sql.includes('clinical_treatment_plans') ? [{id:11,status:'active',client_ack_status:'awaiting_portal'}] : []]);
+  mocks.execute.mockImplementation(async sql => [sql.includes('treatment_plan_ack_links') ? [{present:1}] : []]);
+  const summary = await loadClientExchangeSummary({client:{id:3,agency_id:2},includePlanSharing:true});
+  expect(summary).toMatchObject({treatmentPlanOnFile:true,treatmentPlanShared:true});
+  expect(mocks.execute).toHaveBeenCalledWith(expect.stringContaining('dashboard_visible=1'), [2,3,11]);
+});

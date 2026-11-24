@@ -26,3 +26,23 @@ it('sends anonymous themes to the configured private writer and never takes a ba
  expect(response.objectives[0]).toMatchObject({target:3,otherQuestion:''});
  expect(response.objectives[0]).not.toHaveProperty('baseline');
 });
+
+it('completes a third goal even when the writer omits that goal, without supplying a baseline or observer question', async () => {
+  const draft = plan();
+  draft.goals[0].objectives[0].kioskPromptOther = 'An old observer question';
+  const generate = vi.fn(async () => ({ text: JSON.stringify({
+    objectives:[
+      {ref:'1.1',objectiveText:'Practice grounding',target:8,otherQuestion:'Observer prompt'},
+      {ref:'2.1',objectiveText:'Practice communication',target:8}
+    ]
+  }) }));
+  const result=await suggestNarrivaPlanDraft({ input:draft, completePlan:true, revision:'Add Goal 3 for sleep', generate });
+  expect(result.goals).toEqual([{ ref:'3', goalText:'Build skills for sleep' }]);
+  expect(result.objectives).toHaveLength(3);
+  expect(result.objectives[0].otherQuestion).toBe('');
+  expect(result.objectives[2]).toMatchObject({ ref:'3.1', objectiveText:expect.any(String), target:8, clientQuestion:expect.any(String) });
+  expect(result.objectives[2]).not.toHaveProperty('baseline');
+  expect(generate.mock.calls[0][0].prompt).not.toContain('Add Goal 3 for');
+  draft.goals[0].objectives[0].scaleCurrent=null;
+  expect(()=>normalizeNarrivaPlanDraft(draft,{finalize:true})).toThrow(/baseline from 1 to 10 for objective 1\.1/i);
+});

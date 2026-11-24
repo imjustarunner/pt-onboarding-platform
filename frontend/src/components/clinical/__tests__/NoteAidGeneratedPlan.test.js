@@ -21,11 +21,11 @@ it('shows the agency review schedule, keeps imported scheduling text separate an
   expect(w.get('[data-plan-review-policy]').text()).toContain('75 days');
   const state = w.vm.$.setupState;
   await state.save({ finalize: true });
-  expect(state.error).toContain('Enter a goal'); expect(api.post).not.toHaveBeenCalled();
+  expect(w.text()).toContain('Enter the title for goal 1.'); expect(api.post).not.toHaveBeenCalled();
   state.model.goals[0].goalText = 'Practice coping.';
   state.model.goals[0].durationMonths = 6;
   await state.save({ finalize: true });
-  expect(state.error).toContain('Discharge criteria'); expect(api.post).not.toHaveBeenCalled();
+  expect(w.text()).toContain('Enter discharge criteria.'); expect(api.post).not.toHaveBeenCalled();
   w.unmount();
 });
 
@@ -144,4 +144,38 @@ it('uses one chart action to suggest objectives, questions, dates, interventions
   await flushPromises();
   expect(reopened.vm.$.setupState.model.goals[0].objectives[0]).toMatchObject({reviewed:true,projectedCompletion:'2027-02-23',kioskPrompt:'Rate your current anxiety.'});
   reopened.unmount();
+});
+
+it('adds the third goal without discarding dates and requires its baseline before preparing the plan', async () => {
+  api.get.mockResolvedValue({ data:{} });
+  api.post.mockResolvedValue({ data:{ proposal:{
+    goals:[{ref:'3',goalText:'Improve daily routines'}],
+    objectives:[
+      {ref:'1.1',objectiveText:'New wording for the first objective',durationMonths:2,otherQuestion:'Observer question'},
+      {ref:'3.1',objectiveText:'Practice a daily routine',target:8,durationMonths:3,clientQuestion:'Rate your confidence.',otherQuestion:'Observer question'}
+    ]
+  } } });
+  const plan={id:44,status:'draft',effectiveDate:'2026-11-23',dischargePlan:'Review transition readiness.',goals:[
+    {goalText:'Build coping skills',durationMonths:6,objectives:[{objectiveText:'Practice grounding',scaleCurrent:4,scaleTarget:8,kioskPrompt:'Rate your coping.'}]},
+    {goalText:'Build confidence',durationMonths:6,objectives:[{objectiveText:'Practice a skill',scaleCurrent:3,scaleTarget:7,kioskPrompt:'Rate your confidence.'}]},
+    {goalText:'',durationMonths:6,objectives:[]}
+  ]};
+  const wrapper=shallowMount(Review,{props:{open:true,embedded:true,mode:'draft',agencyId:2,clientId:42,planId:44,initialPlan:plan}});
+  await flushPromises();
+  const state=wrapper.vm.$.setupState;
+  state.model.goals[0].objectives[0].projectedCompletion='2027-04-15';
+  state.addendum='Add Goal 3 for daily routines';
+  await state.regenerateFromAddendum();
+  expect(state.model.goals[0].objectives[0]).toMatchObject({objectiveText:'Practice grounding',projectedCompletion:'2027-04-15',scaleCurrent:4});
+  expect(state.model.goals[2]).toMatchObject({goalText:'Improve daily routines',objectives:[
+    expect.objectContaining({scaleCurrent:null,scaleTarget:8,kioskPromptOther:'',projectedCompletion:'2027-05-23'})
+  ]});
+  expect(wrapper.text()).not.toContain('Third-person rating question');
+  expect(wrapper.text()).not.toContain('Rewrite on a 1–10 scale');
+  expect(wrapper.text()).not.toMatch(/Goal 3 reviewed|Objective 3.1 reviewed/);
+  await state.save({finalize:true});
+  expect(wrapper.text()).toContain('Objective 3.1 needs a baseline from 1 to 10.');
+  expect(wrapper.text()).toContain('Confirm that you reviewed the full plan.');
+  expect(api.put).not.toHaveBeenCalled();
+  wrapper.unmount();
 });

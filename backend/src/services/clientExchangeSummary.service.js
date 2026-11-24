@@ -67,7 +67,7 @@ async function importedIntakeConcerns(clientId, agencyId) {
 }
 
 /** A single current summary for the chart overview, exchange, and match email. */
-export async function loadClientExchangeSummary({ client, agencyId = client.agency_id }) {
+export async function loadClientExchangeSummary({ client, agencyId = client.agency_id, includePlanSharing = false }) {
   const params = [Number(agencyId), Number(client.id)];
   const [diagnoses, plans, intakes, intakeNotes, screenings] = await Promise.all([
     optionalClinicalQuery(`SELECT icd10_code, description FROM clinical_diagnoses
@@ -82,6 +82,15 @@ export async function loadClientExchangeSummary({ client, agencyId = client.agen
         AND JSON_UNQUOTE(JSON_EXTRACT(metadata_json,'$.source'))='h0002_digital_screening'
       ORDER BY updated_at DESC`, params)
   ]);
+  const activePlan = plans.find(plan => plan.status === 'active');
+  let treatmentPlanShared = null;
+  if (includePlanSharing && activePlan) {
+    const [deliveries] = await pool.execute(`SELECT 1 FROM treatment_plan_ack_links
+      WHERE agency_id=? AND client_id=? AND treatment_plan_id=? AND status NOT IN ('cancelled','expired')
+        AND (dashboard_visible=1 OR sent_at IS NOT NULL OR signed_at IS NOT NULL)
+      LIMIT 1`, [...params, activePlan.id]);
+    treatmentPlanShared = deliveries.length > 0;
+  }
   const sourcePlan=plans.find(plan=>plan.status==='draft'&&String(plan.source_tool_id||'').startsWith('client_records_import:'));
   const importedPlan=sourcePlan?await readChartRecord({agencyId:Number(agencyId),clientId:Number(client.id)},`plan_source_${sourcePlan.id}`,0):null;
   const reviewedCodes = new Set((intakeNotes[0]?.reviewedDiagnosisCodes || []).map(code => String(code).toUpperCase()));
@@ -117,7 +126,8 @@ export async function loadClientExchangeSummary({ client, agencyId = client.agen
     planDiagnosisPending: Boolean(importedPlanDiagnoses.length),
     intakeReviewStatus: intakeNotes[0]?.source === 'Intake (review pending)'
       ? 'draft' : intakeNotes.some(note => note.source === 'Intake') || intakes.length ? 'complete' : 'missing',
-    treatmentPlanOnFile: plans.some(plan => plan.status === 'active'),
+    treatmentPlanOnFile: !!activePlan,
+    ...(includePlanSharing ? { treatmentPlanShared } : {}),
     diagnoses: summaryItems(diagnoses.length ? diagnoses : billing.length ? billing : referral.diagnoses),
     ...problem,
     preferences: {
