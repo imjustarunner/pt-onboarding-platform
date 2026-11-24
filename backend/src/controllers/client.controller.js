@@ -1014,13 +1014,8 @@ export const getInactiveClientProviderOptions=async(req,res,next)=>{
   const requested=String(req.query.agency_id||req.query.agency_ids||'').split(',').map(Number).filter(Boolean);
   const ids=String(req.query.agency_id||req.query.agency_ids||'').trim()?allowed.filter(id=>requested.includes(id)):allowed;
   if(!ids.length)return res.json([]);
-  const {realInactiveClientSql}=await import('../utils/clientInactivePolicy.js');
-  const [rows]=await pool.execute(`SELECT DISTINCT u.id,CONCAT_WS(' ',u.first_name,u.last_name) name FROM clients c
-   JOIN client_statuses cs ON cs.id=c.client_status_id JOIN users u ON u.id=c.provider_id OR u.id=c.termination_last_provider_id
-    OR EXISTS(SELECT 1 FROM client_provider_assignments p WHERE p.client_id=c.id AND p.provider_user_id=u.id)
-    OR EXISTS(SELECT 1 FROM client_status_history h WHERE h.client_id=c.id AND h.field_changed='provider_id' AND (u.id=CAST(h.from_value AS UNSIGNED) OR u.id=CAST(h.to_value AS UNSIGNED)))
-   WHERE c.agency_id IN (${ids.map(()=>'?').join(',')}) AND ${realInactiveClientSql} AND c.compliance_archived_at IS NULL ORDER BY name,u.id`,ids);
-  res.json(rows);
+  const {previousProviderOptionsForAgencies}=await import('../services/clientPreviousProviders.service.js');
+  res.json(await previousProviderOptionsForAgencies(ids));
  }catch(error){next(error);}
 };
 

@@ -1,4 +1,18 @@
 import pool from '../config/database.js';
+import {realInactiveClientSql} from '../utils/clientInactivePolicy.js';
+export async function previousProviderOptionsForAgencies(agencyIds,{db=pool}={}){
+ const ids=[...new Set(agencyIds.map(Number).filter(id=>Number.isSafeInteger(id)&&id>0))];if(!ids.length)return [];
+ const scope=`c.agency_id IN (${ids.map(()=>'?').join(',')}) AND ${realInactiveClientSql} AND c.compliance_archived_at IS NULL`;
+ const clients='FROM clients c JOIN client_statuses cs ON cs.id=c.client_status_id';
+ const branches=[
+  `SELECT p.provider_user_id provider_id ${clients} JOIN client_provider_assignments p ON p.client_id=c.id WHERE ${scope}`,
+  `SELECT c.provider_id ${clients} WHERE ${scope} AND c.provider_id IS NOT NULL`,
+  `SELECT c.termination_last_provider_id ${clients} WHERE ${scope} AND c.termination_last_provider_id IS NOT NULL`,
+  ...['from_value','to_value'].map(field=>`SELECT CAST(h.${field} AS UNSIGNED) ${clients} JOIN client_status_history h ON h.client_id=c.id AND h.field_changed='provider_id' WHERE ${scope} AND h.${field} REGEXP '^[0-9]+$'`)
+ ];
+ const [rows]=await db.execute(`SELECT u.id,CONCAT_WS(' ',u.first_name,u.last_name) name FROM (${branches.join(' UNION ')}) previous JOIN users u ON u.id=previous.provider_id ORDER BY name,u.id`,branches.flatMap(()=>ids));
+ return rows;
+}
 export async function attachPreviousClientProviders(rows,{db=pool}={}){
  const ids=[...new Set(rows.map(r=>Number(r.id)).filter(Boolean))];if(!ids.length)return rows;
  const placeholders=ids.map(()=>'?').join(',');
