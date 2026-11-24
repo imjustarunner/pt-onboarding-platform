@@ -694,6 +694,8 @@ export const updateSkillsGroupClient = async (req, res, next) => {
          ON DUPLICATE KEY UPDATE skills_group_id = skills_group_id`,
         [gid, clientId]
       );
+      const [[event]]=await pool.execute('SELECT company_event_id FROM skills_groups WHERE id=? AND organization_id=?',[gid,orgId]);
+      if(event?.company_event_id){const {ensureCompanyEventClientEnrollment}=await import('../services/companyEventClientEnrollmentSync.service.js');await ensureCompanyEventClientEnrollment({eventId:event.company_event_id,agencyId:access.activeAgencyId,clientId,actorUserId:req.user.id});}
     } else {
       await pool.execute(
         `DELETE FROM skills_group_clients WHERE skills_group_id = ? AND client_id = ?`,

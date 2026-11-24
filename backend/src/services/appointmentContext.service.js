@@ -81,7 +81,7 @@ async function ensureLockedAppointmentContext({
   }
 
   const eventStart = event.start_at instanceof Date ? event.start_at : new Date(String(event.start_at).replace(' ', 'T') + 'Z');
-  if (eventStart >= new Date()) assertClientNotTerminated(client);
+  if (eventStart >= new Date()) assertClientNotTerminated(client,{allowInactive:true});
 
   const savedContext = typeof event.session_context_json === 'string' ? JSON.parse(event.session_context_json) : (event.session_context_json || {});
   const resolvedAgencyId = parseIntId(agencyId) || parseIntId(sessionContext?.agencyId)

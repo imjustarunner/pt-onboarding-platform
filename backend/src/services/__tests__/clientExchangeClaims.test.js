@@ -22,6 +22,7 @@ beforeEach(() => {
   mocks.accepted.mockResolvedValue({ accepted: [{ name: 'Tricare' }], excluded: [] });
   mocks.poolExecute.mockImplementation(async () => [[{ listing_id: 1 }]]);
   mocks.execute.mockImplementation(async (sql, args) => {
+    if(sql.includes('s.status_key AS client_status_key'))return [[{...client,client_status_key:'current'}]];
     if (sql.startsWith('SELECT c.id,c.email')) return [[{...client,demo_guardian_email:0}]];
     if (sql.includes('FROM client_exchange_match_waivers')) return [waivers];
     if (sql.startsWith('SELECT * FROM client_exchange_listings')) return [[{ ...listing }]];

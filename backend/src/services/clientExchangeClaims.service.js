@@ -113,6 +113,8 @@ export async function resolveExchangeClaim({ requestId, action, actingUserId, ac
     await eligibleProvider(connection, request.requesting_provider_user_id, listing.agency_id);
     await assertExchangeRequestEligible({ listing, userId: request.requesting_provider_user_id, database: connection, client, forAssignment: true });
     if (listing.target_provider_user_id && Number(listing.target_provider_user_id) !== Number(request.requesting_provider_user_id)) throw fail('Request does not match the referral recipient', 403);
+    const {reactivateClientForActivity}=await import('./clientReactivation.service.js');
+    await reactivateClientForActivity({clientId:client.id,agencyId:listing.agency_id,trigger:'accepted_referral',sourceId:`exchange-request:${requestId}`,actorUserId:actingUserId},{executor:connection});
     const providerId = request.requesting_provider_user_id;
     const additional = listing.referral_kind === 'additional_service';
     if (additional) {

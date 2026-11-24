@@ -27,7 +27,7 @@ export async function assertAppointmentClients(agencyId, participants, { allowTe
     if (!clientId) continue;
     const client = await Client.findById(clientId);
     if (!client) throw Object.assign(new Error('Client not found'), { status: 404 });
-    if (!allowTerminated) assertClientNotTerminated(client);
+    if (!allowTerminated) assertClientNotTerminated(client,{allowInactive:true});
     clients.push(client);
     if (Number(client.agency_id) !== Number(agencyId)) {
       const [memberships] = await pool.execute(

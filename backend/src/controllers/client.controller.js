@@ -584,6 +584,8 @@ export const getClients = async (req, res, next) => {
     // Build query options
     const options = {
       includeSensitive: true, // Agency view includes all fields
+      clientDirectoryMode:req.clientDirectoryMode,
+      previousProviderId:req.clientDirectoryMode==='inactive'?Number(req.query.previous_provider_id)||null:null,
       directoryAssignments: !ownCaseload,
       directoryProviderAgencyId: agencyIds.length === 1 ? agencyIds[0] : null,
       status,
@@ -607,6 +609,7 @@ export const getClients = async (req, res, next) => {
       && String(req.query.includeServiceContext || '')!=='1'
       && supportsDirectorySort(String(req.query.sort || req.query.sort_by || ''))) {
       const result=await Client.findAll({...options,agency_ids:agencyIds,includeArchived,clientStatusKey:clientStatusKeyRaw,demo:String(req.query.demo || '').toLowerCase(),directoryPage:{page:pageParam,perPage:perPageParam,sort:String(req.query.sort || req.query.sort_by || ''),order:String(req.query.order || req.query.sort_order || 'desc'),summaryTone:String(req.query.summary_tone || '')}});
+      if(req.clientDirectoryMode==='inactive'){const {attachPreviousClientProviders}=await import('../services/clientPreviousProviders.service.js');result.items=await attachPreviousClientProviders(result.items);}
       try {result.items=attachRenewalFlagsToClients(result.items,await computeRenewalFlagsForClients(result.items));}
       catch(e){console.warn('[getClients] page renewal flags failed',e?.code || 'unknown');}
       result.items=await attachRosterAssignmentAudit(redactClientNamesForRole(result.items,userRole));
@@ -881,6 +884,7 @@ export const getClients = async (req, res, next) => {
 
     out=filterClientDemos(out,String(req.query.demo || '').toLowerCase());
     if (isBackofficeRole(req.user.role) && !ownCaseload) out=await attachRosterAssignmentAudit(out);
+    if(req.clientDirectoryMode==='inactive'){const {attachPreviousClientProviders}=await import('../services/clientPreviousProviders.service.js');out=await attachPreviousClientProviders(out);}
 
     if (String(req.query.includeServiceContext || '') === '1') {
       out = await attachRosterServiceContexts(out, { agencyIds, providerId: options.provider_id || null });
@@ -988,10 +992,31 @@ export const getArchivedClients = async (req, res, next) => {
     // Force archived-only view; reuse the same access rules as getClients.
     req.query.status = 'ARCHIVED';
     req.query.includeArchived = 'true';
+    req.clientDirectoryMode='archive';
     return await getClients(req, res, next);
   } catch (e) {
     next(e);
   }
+};
+
+export const getInactiveClients=async(req,res,next)=>{
+  if(!isBackofficeRole(req.user.role))return res.status(403).json({error:{message:'Backoffice access required.'}});
+  req.clientDirectoryMode='inactive';req.query.includeArchived='true';delete req.query.status;
+  return getClients(req,res,next);
+};
+
+export const getInactiveClientProviderOptions=async(req,res,next)=>{
+ try{
+  if(!isBackofficeRole(req.user.role))return res.status(403).json({error:{message:'Backoffice access required.'}});
+  let allowed;
+  if(req.user.role==='super_admin'){const [rows]=await pool.execute('SELECT id FROM agencies WHERE COALESCE(is_archived,0)=0');allowed=rows.map(r=>Number(r.id));}
+  else allowed=(await User.getAgencies(req.user.id)).filter(a=>![false,0,'0'].includes(a.is_active)).map(a=>Number(a.id));
+  const requested=String(req.query.agency_id||req.query.agency_ids||'').split(',').map(Number).filter(Boolean);
+  const ids=String(req.query.agency_id||req.query.agency_ids||'').trim()?allowed.filter(id=>requested.includes(id)):allowed;
+  if(!ids.length)return res.json([]);
+  const {previousProviderOptionsForAgencies}=await import('../services/clientPreviousProviders.service.js');
+  res.json(await previousProviderOptionsForAgencies(ids));
+ }catch(error){next(error);}
 };
 
 const canReviewNameDuplicates = (role) => {
@@ -2987,6 +3012,21 @@ export const reopenClientEnrollment = async (req, res, next) => {
     if (error.status) return res.status(error.status).json({ error: { message: error.message } });
     next(error);
   }
+};
+
+export const reactivateClient = async(req,res,next)=>{
+  try{
+    if(!isBackofficeRole(req.user.role))return res.status(403).json({error:{message:'Support staff access is required to reactivate a client.'}});
+    const client=await clientForTermination(req);
+    const requestId=String(req.body?.requestId||'');
+    if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestId))return res.status(400).json({error:{message:'Refresh this action and try again.'}});
+    const reason=String(req.body?.reason||'').trim();
+    if(!reason||reason.length>1000)return res.status(400).json({error:{message:'Enter a reason for reactivating this client, within 1,000 characters.'}});
+    const {reactivateClientForActivity}=await import('../services/clientReactivation.service.js');
+    const result=await reactivateClientForActivity({clientId:client.id,agencyId:client.agency_id,trigger:'staff_reactivation',sourceId:`staff:${requestId}`,actorUserId:req.user.id,reason});
+    if(!result.reactivated&&String(client.status).toUpperCase()!=='ACTIVE')return res.status(409).json({error:{message:result.reason==='activity_already_applied'?'This earlier reactivation was already processed. The client is inactive again; refresh and review a new action.':'Only real inactive client records can be reactivated. Retained demo or archived records require a separate review.'}});
+    res.json(result);
+  }catch(error){if(error.status)return res.status(error.status).json({error:{message:error.message}});next(error);}
 };
 
 /** Terminate a client with optional reason, historical provider and effective date. */
@@ -8638,7 +8678,7 @@ export const upsertClientProviderAssignment = async (req, res, next) => {
         );
         clientStatusKey = String(statusRows?.[0]?.status_key || '').toLowerCase();
       }
-      const slotConsumingClient = clientStatusConsumesProviderSlot(clientStatusKey);
+      let slotConsumingClient = clientStatusConsumesProviderSlot(clientStatusKey);
 
       // Ensure client is affiliated to this org
       const [affRows] = await connection.execute(
@@ -8669,6 +8709,10 @@ export const upsertClientProviderAssignment = async (req, res, next) => {
       if (!activeList.length) {
         const { assertNewProviderCoverageAdmission } = await import('../services/clientCoverageAdmission.service.js');
         await assertNewProviderCoverageAdmission(clientId, providerUserId, { db: connection });
+        const {reactivateClientForActivity}=await import('../services/clientReactivation.service.js');
+        const {randomUUID}=await import('node:crypto');
+        const reopened=await reactivateClientForActivity({clientId,agencyId:client.agency_id,trigger:'provider_assignment',sourceId:`provider:${providerUserId}:${randomUUID()}`,actorUserId:userId},{executor:connection});
+        if(reopened.reactivated)slotConsumingClient=clientStatusConsumesProviderSlot(reopened.statusKey);
       }
       const existingSameDay =
         [...activeList, ...(assignmentRows || [])].find((r) => (r.service_day == null && serviceDay == null) || String(r.service_day || '') === String(serviceDay || '')) ||

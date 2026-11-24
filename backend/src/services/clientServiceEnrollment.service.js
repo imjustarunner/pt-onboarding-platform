@@ -80,7 +80,7 @@ export async function guardianServiceContext({userId,clientId,agencyId,serviceId
  return {...client,agency_id:aid,portal_access:portalAccess,services,client_type:service?.service_kind==='tutoring'||(restriction&&restriction.kinds.every(kind=>kind==='tutoring'))?'learning':service?.service_kind==='counseling'?'clinical':client.client_type,service,...(restriction?{authorizedServices:services.filter(service=>service.is_active||allowEndedServices)}:{})};
 }
 export async function saveClientService(context,db=pool){
- if(context.input.serviceKind==='counseling'||context.input.addProvider===true)return withClientServiceLock(context.clientId,db,connection=>saveClientServiceRow(context,connection));
+ if(context.input.serviceKind==='counseling'||context.input.addProvider===true||Number(context.input.providerUserId)>0)return withClientServiceLock(context.clientId,db,connection=>saveClientServiceRow(context,connection));
  return saveClientServiceRow(context,db);
 }
 async function saveClientServiceRow({clientId,agencyId,input,userId},db){
@@ -96,6 +96,8 @@ async function saveClientServiceRow({clientId,agencyId,input,userId},db){
  if(organizationId&&organizationId!==Number(agencyId)){const [[org]]=await db.execute(`SELECT 1 FROM client_organization_assignments co JOIN organization_affiliations oa ON oa.organization_id=co.organization_id WHERE co.client_id=? AND co.organization_id=? AND co.is_active=1 AND oa.agency_id=? AND oa.is_active=1`,[clientId,organizationId,agencyId]);if(!org)throw fail(400,'Choose a linked school or program for this agency.');}
  const label=serviceKind==='counseling'?'Counseling':String(input.label||serviceKind).trim().slice(0,150);if(!label)throw fail(400,'Enter a service name.');
  const serviceId=input.serviceId == null ? null : Number(input.serviceId);
+ const [priorProvider]=providerId?await db.execute('SELECT id FROM client_service_enrollments WHERE client_id=? AND agency_id=? AND service_kind=? AND provider_user_id=? AND is_active=1 LIMIT 1',[clientId,agencyId,serviceKind,providerId]):[[]];
+ const reactivateAssignment=async()=>{if(providerId&&!priorProvider.length){const {reactivateClientForActivity}=await import('./clientReactivation.service.js');const {randomUUID}=await import('node:crypto');await reactivateClientForActivity({clientId,agencyId,trigger:'provider_assignment',sourceId:`service-provider:${serviceKind}:${providerId}:${randomUUID()}`,actorUserId:userId},{executor:db});}};
  if(serviceId!==null&&(!Number.isSafeInteger(serviceId)||serviceId<1))throw fail(400,'Choose a valid service enrollment.');
  if(!serviceId && !(await clientServiceKindsForAgency(agencyId,db)).includes(serviceKind))throw fail(400,'This service is not enabled for this agency.');
  if(serviceId){
@@ -110,6 +112,7 @@ async function saveClientServiceRow({clientId,agencyId,input,userId},db){
   if(ended?.[0]?.ended_service_id)throw fail(409,'This service was ended. Use Change status to explicitly reactivate it before adding another enrollment with this provider.');
    await db.execute(`INSERT INTO client_service_enrollments (client_id,agency_id,service_kind,provider_user_id,organization_id,label,created_by_user_id,updated_by_user_id)
     VALUES (?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE updated_by_user_id=VALUES(updated_by_user_id)`,[clientId,agencyId,serviceKind,providerId,Number(existing.organization_id)||0,label,userId,userId]);
+   await reactivateAssignment();
    return listClientServices(clientId,agencyId,db);
   }
   try {
@@ -129,6 +132,7 @@ async function saveClientServiceRow({clientId,agencyId,input,userId},db){
   await db.execute(`INSERT INTO client_service_enrollments (client_id,agency_id,service_kind,provider_user_id,organization_id,label,created_by_user_id,updated_by_user_id)
   VALUES (?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE label=VALUES(label),updated_by_user_id=VALUES(updated_by_user_id)`,[clientId,agencyId,serviceKind,providerId,organizationId,label,userId,userId]);
  }
+ await reactivateAssignment();
  return listClientServices(clientId,agencyId,db);
 }
 

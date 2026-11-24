@@ -2,6 +2,7 @@ import express from 'express';
 import { body } from 'express-validator';
 import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
 import { excludeSupportClinicalContent } from '../middleware/supportContentAccess.middleware.js';
+import { listUnsubmittedPackets } from '../controllers/referralDraftRecovery.controller.js';
 import {
   listUnassignedDocuments,
   assignToClient,
@@ -15,6 +16,7 @@ const router = express.Router();
 router.use(authenticate, excludeSupportClinicalContent, requireBackofficeAdmin);
 
 router.get('/', listUnassignedDocuments);
+router.get('/packet-drafts', listUnsubmittedPackets);
 router.get('/:id/download', downloadDocument);
 router.get('/:id/guardian-clients', getGuardianClients);
 router.post(

@@ -237,7 +237,7 @@ export async function reconcileSchoolClientStatus({ clientId, actorUserId = null
 
   const currentKey = String(client.client_status_key || '').toLowerCase();
   if (TERMINAL.has(currentKey) || currentKey === 'terminated') {
-    return { statusKey: 'terminated', changed: false };
+    return { statusKey: currentKey, changed: false };
   }
   if (currentKey === 'waitlist') {
     return { statusKey: 'waitlist', changed: false };

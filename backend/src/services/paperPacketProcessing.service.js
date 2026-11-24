@@ -21,13 +21,14 @@ import { sendHubPortalInvitation } from './messagesHub.service.js';
 import { readClientInsurance, finalizePaperInsurance } from './clientInsurance.service.js';
 import { isPaperSelfPayType, paperInsuranceCompletionIssues } from '../../../frontend/src/navigation/paperInsuranceCompletion.js';
 import { preparedGuardianLink } from '../utils/guardianPortalLinkState.js';
+import {reactivateClientForActivity} from './clientReactivation.service.js';
 
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 const object = value => { if (!value) return {}; if (typeof value === 'object') return value; try { return JSON.parse(value); } catch { return {}; } };
 export const PAPER_PROCESSING_STEPS = ['demographics', 'guardian1', 'guardian2', 'school', 'insurance', 'consents'];
 export const paperProcessingState = client => object(client?.onboarding_docs_json).paperProcessing || { completedSteps: [], invitations: {} };
 const dependencies = overrides => ({ contacts:ClientContactAffiliation, clients: Client, guardians: ClientGuardian, documents: ClientPhiDocument, agencies: Agency,
-  versions:findSchoolPacketVersionByLabel,staff:ClientSchoolStaffRoiAccess,encryptDraft:encryptDemographicsPayload,decryptDraft:decryptDemographicsPayload,
+  reactivate:reactivateClientForActivity,versions:findSchoolPacketVersionByLabel,staff:ClientSchoolStaffRoiAccess,encryptDraft:encryptDemographicsPayload,decryptDraft:decryptDemographicsPayload,
   vision: getLatestPaperPacketVisionEval, send: sendHubPortalInvitation, markSignatures: markPaperPacketSignatureReceived,
   markDocuments: updateClientOnboardingDocs, acknowledgeRoi: acknowledgeRoiStaffOnboarding, insurance:readClientInsurance,
   finalizeInsurance:finalizePaperInsurance,queueInsuranceFollowUp:async(...args)=>(await import('./insuranceVerificationTask.service.js')).queueInsuranceVerificationSafely(...args),database: pool, ...overrides });
@@ -219,6 +220,9 @@ async function complete({clientId, actorId, signaturesConfirmed, staffRoiConfirm
       await writeState(client, state, actorId, deps);
     }
     // Eligibility starts only after the completed packet is durably submitted.
+    if(['inactive','terminated'].includes(String(client.client_status_key||'').toLowerCase())||client.status==='ARCHIVED'){
+      await deps.reactivate({clientId:client.id,agencyId:client.agency_id,trigger:'form_submission',sourceId:`paper-document:${state.documentId}`,occurredAt:state.processedAt,actorUserId:actorId},{db:deps.database});
+    }
     // Coverage gaps and payer failures belong to billing, not the packet processor.
     if(!state.insuranceSubmission || state.insuranceSubmission.retryRequired) {
       try {

@@ -1,15 +1,28 @@
 <template>
-  <div class="modal-overlay" @click.self="$emit('close')">
+  <div class="modal-overlay" @click.self="requestClose">
     <div class="modal-content" data-tour="school-upload-packet-panel">
       <div class="modal-header">
         <h2>Upload Referral Packet</h2>
-        <button @click="$emit('close')" class="btn-close" aria-label="Close">×</button>
+        <button type="button" @click="requestClose" class="btn-close" aria-label="Close">×</button>
       </div>
       
       <div class="modal-body">
-        <form class="upload-form">
+        <p v-if="draftResumeLoading" role="status">Checking saved packet drafts…</p>
+        <div v-if="draftResumeError" class="error-message" role="alert">
+          {{ draftResumeError }} <button type="button" class="btn btn-secondary" @click="loadLatestDraft">Retry</button>
+        </div>
+        <div v-if="uploadComplete && !clientSubmitted" class="pending-packet-message" role="status">
+          <strong>{{ existingClientId ? 'Saved draft — packet not attached.' : 'Saved draft — referral not submitted.' }}</strong>
+          <p>Review the client details, then select {{ existingClientId ? 'Attach packet to this client' : 'Submit Client' }} to finish saving this packet to intake. Closing this window leaves the packet unfinished.</p>
+        </div>
+        <form class="upload-form" @submit.prevent>
           <label v-if="organizationOptions.length && !existingClientId" class="form-group">School<select v-model="uploadOrganizationSlug" :disabled="uploading || uploadComplete || submittingClient"><option v-for="school in organizationOptions" :key="school.slug" :value="school.slug">{{ school.name }}</option></select></label>
           <div v-if="resumableDraft && !uploadComplete && !selectedFile && !selectedImages.length && !firstName && !lastName" class="form-group">
+            <label v-if="openDrafts.length" for="saved-packet-draft">Your unfinished packets ({{ openDrafts.length }})
+              <select id="saved-packet-draft" :value="resumableDraft.id" @change="selectSavedDraft">
+                <option v-for="draft in openDrafts" :key="draft.id" :value="draft.id">#{{ draft.id }} · {{ draft.initials || 'Initials not set' }} · {{ String(draft.submissionDate || '').slice(0, 10) }} · {{ draft.status }}</option>
+              </select>
+            </label>
             <p>An unfinished packet is available for {{ resumableDraft.firstName }} {{ resumableDraft.lastName }} (draft {{ resumableDraft.id }}).</p>
             <button type="button" class="btn btn-secondary" @click="resumeDraft">Resume this packet</button>
             <p class="muted">To start a different packet, select its file below.</p>
@@ -117,7 +130,8 @@
             <button
               type="button"
               class="btn btn-secondary"
-              @click="confirmClose() ? $emit('close') : null"
+              :disabled="uploading || submittingClient"
+              @click="requestClose"
             >
               Cancel
             </button>
@@ -125,7 +139,7 @@
               v-if="!uploadComplete"
               type="button"
               class="btn btn-primary"
-              :disabled="!isAuthenticated || (!selectedFile && selectedImages.length === 0) || uploading"
+              :disabled="!isAuthenticated || (!selectedFile && selectedImages.length === 0) || uploading || draftResumeLoading || !!draftResumeError"
               @click="handleUpload"
             >
               <span v-if="uploading">Uploading...</span>
@@ -291,12 +305,14 @@
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
+import { onBeforeRouteLeave } from 'vue-router';
 import { PDFDocument } from 'pdf-lib';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import PDFPreview from '../documents/PDFPreview.vue';
 
 const props = defineProps({
+  initialDraftId: { type: Number, default: null },
   initialDraft: { type: Object, default: null },
   existingClientId: { type: Number, default: null },
   organizationOptions: { type: Array, default: () => [] },
@@ -344,6 +360,10 @@ const initialsSet = ref(false);
 const firstName = ref('');
 const lastName = ref('');
 const hasAttemptedDraftResume = ref(false);
+const draftResumeLoading = ref(false);
+const draftResumeError = ref('');
+const openDrafts = ref([]);
+const submissionDate = ref(null);
 const resumableDraft = ref(null);
 /** Bumps after submit so PDF preview remounts once the doc is linked to a client (same URL). */
 const pdfPreviewKey = ref(0);
@@ -874,6 +894,7 @@ const combineImagesToPdf = async () => {
 onMounted(() => {
   window.addEventListener('dragover', preventDocumentDragDefaults, false);
   window.addEventListener('drop', preventDocumentDragDefaults, false);
+  window.addEventListener('beforeunload', guardPageExit);
   if (isAuthenticated.value) {
     loadLatestDraft();
   }
@@ -882,7 +903,10 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener('dragover', preventDocumentDragDefaults, false);
   window.removeEventListener('drop', preventDocumentDragDefaults, false);
+  window.removeEventListener('beforeunload', guardPageExit);
 });
+
+onBeforeRouteLeave(() => confirmClose());
 
 watch(isAuthenticated, (next) => {
   if (next) {
@@ -925,8 +949,9 @@ const loadLatestDraft = async () => {
   // A chart upload is already bound to one child. Generic school drafts may be
   // for another family and must never be offered here.
   if (props.existingClientId && !props.initialDraft?.id) return;
-  if (!isAuthenticated.value || hasAttemptedDraftResume.value || uploadComplete.value) return;
-  hasAttemptedDraftResume.value = true;
+  if (!isAuthenticated.value || hasAttemptedDraftResume.value || uploadComplete.value || draftResumeLoading.value) return;
+  draftResumeLoading.value = true;
+  draftResumeError.value = '';
   const generation = ++latestDraftGeneration;
   const schoolSlug = uploadOrganizationSlug.value;
   try {
@@ -936,17 +961,25 @@ const loadLatestDraft = async () => {
       await resumeDraft();
       return;
     }
-    const response = await api.get(`/organizations/${uploadOrganizationSlug.value}/upload-referral/latest-draft`);
+    const params = props.initialDraftId ? { draftId: props.initialDraftId } : { list: '1' };
+    const response = await api.get(`/organizations/${uploadOrganizationSlug.value}/upload-referral/latest-draft`, { params });
     if (generation !== latestDraftGeneration || schoolSlug !== uploadOrganizationSlug.value) return;
-    const draft = response.data?.draft || null;
+    openDrafts.value = response.data?.drafts || (response.data?.draft ? [response.data.draft] : []);
+    const draft = props.initialDraftId ? response.data?.draft : openDrafts.value[0];
+    hasAttemptedDraftResume.value = true;
     if (!draft?.id) return;
     // A delayed resume must not replace work begun while this request was pending.
     if (uploading.value || uploadComplete.value || selectedFile.value || selectedImages.value.length
       || firstName.value || lastName.value || uploadNote.value) return;
 
     resumableDraft.value = draft;
-  } catch {
-    // silent: no draft to resume or endpoint unavailable
+    if (props.initialDraftId) await resumeDraft();
+  } catch (e) {
+    if (generation !== latestDraftGeneration || schoolSlug !== uploadOrganizationSlug.value) return;
+    draftResumeError.value = e.response?.data?.error?.message || 'Could not check saved drafts. Retry before uploading another packet.';
+  } finally {
+    draftResumeLoading.value = false;
+    if (generation !== latestDraftGeneration || schoolSlug !== uploadOrganizationSlug.value) void loadLatestDraft();
   }
 };
 
@@ -955,6 +988,7 @@ const resumeDraft = async () => {
   if (props.existingClientId && Number(draft?.clientId)!==Number(props.existingClientId))return;
   if (!draft || uploading.value || uploadComplete.value || selectedFile.value || selectedImages.value.length || firstName.value || lastName.value) return;
   draftId.value = Number(draft.id);
+  submissionDate.value = String(draft.submissionDate || '').slice(0, 10) || null;
   phiDocumentId.value = draft.phiDocumentId ? Number(draft.phiDocumentId) : null;
   fileScanStatus.value = draft.scanStatus || 'pending';
   uploadNote.value = String(draft.uploadNote || '');
@@ -966,12 +1000,15 @@ const resumeDraft = async () => {
 };
 
 const uploadComplete = computed(() => !!draftId.value);
-watch(uploadOrganizationSlug, () => { resumableDraft.value = null; hasAttemptedDraftResume.value = false; void loadLatestDraft(); });
+watch(uploadOrganizationSlug, () => { latestDraftGeneration += 1; resumableDraft.value = null; openDrafts.value = []; hasAttemptedDraftResume.value = false; void loadLatestDraft(); });
+
+const selectSavedDraft = event => { resumableDraft.value = openDrafts.value.find(d => Number(d.id) === Number(event.target.value)) || null; };
 
 const confirmClose = () => {
+  if (uploading.value || submittingClient.value) return false;
   if (clientSubmitted.value) return true;
   if (uploadComplete.value && !submittingClient.value) {
-    return window.confirm('Packet is uploaded but not submitted yet. Close anyway?');
+    return window.confirm('This packet is saved as a draft but has not been submitted to intake. Leave it unfinished? You can resume it from Upload Packet or the admin Unsubmitted Packets queue.');
   }
   if (canUseOcr.value && uploadComplete.value && !initialsSet.value) {
     return window.confirm('Initials were not set. Close anyway?');
@@ -979,7 +1016,15 @@ const confirmClose = () => {
   return true;
 };
 
+const requestClose = () => { if (confirmClose()) emit('close'); };
+const guardPageExit = event => {
+  if (uploading.value || submittingClient.value || (uploadComplete.value && !clientSubmitted.value)) {
+    event.preventDefault(); event.returnValue = '';
+  }
+};
+
 const handleUpload = async () => {
+  if (draftResumeLoading.value || draftResumeError.value) return;
   if (uploadComplete.value) {
     return;
   }
@@ -1026,6 +1071,7 @@ const handleUpload = async () => {
     success.value = 'Referral packet uploaded successfully!';
     draftId.value = response.data?.draftId || null;
     phiDocumentId.value = response.data?.phiDocumentId || null;
+    submissionDate.value = ymd;
     fileScanStatus.value = response.data?.scanStatus || 'pending';
     success.value = props.existingClientId
       ? 'File uploaded. Click Attach packet to this client to save it on this chart.'
@@ -1154,7 +1200,7 @@ const handleSubmitClient = async () => {
     const ymd = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     const payload = {
       reviewOnly: !props.existingClientId && !matchReviewComplete.value && !clientMatches.value.length,
-      submissionDate: ymd,
+      submissionDate: submissionDate.value || ymd,
       uploadNote: String(uploadNote.value || '').trim() || null,
       firstName: String(firstName.value || '').trim() || null,
       lastName: String(lastName.value || '').trim() || null,
@@ -1183,6 +1229,8 @@ const handleSubmitClient = async () => {
 </script>
 
 <style scoped>
+.pending-packet-message { padding: 14px; margin-bottom: 16px; background: #fff3cd; border: 1px solid #b7791f; border-radius: 8px; color: #663c00; }
+.pending-packet-message p { margin: 8px 0 0; }
 .modal-overlay {
   position: fixed;
   top: 0;

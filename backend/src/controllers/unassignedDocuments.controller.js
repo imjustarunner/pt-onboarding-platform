@@ -8,6 +8,8 @@ import pool from '../config/database.js';
 import Client from '../models/Client.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import PhiDocumentAuditLog from '../models/PhiDocumentAuditLog.model.js';
+import ReferralPacketDraft from '../models/ReferralPacketDraft.model.js';
+import { recoveryAgencyIds } from '../services/referralDraftRecovery.service.js';
 
 /**
  * GET /api/unassigned-documents
@@ -32,7 +34,11 @@ export const listUnassignedDocuments = async (req, res, next) => {
         agencyId: Number.isFinite(agencyId) ? agencyId : null,
         excludeMedicalRecords
       });
-      return res.json({ count });
+      const packets = await ReferralPacketDraft.listOpen({
+        agencyIds: await recoveryAgencyIds(req.user, Number.isFinite(agencyId) ? agencyId : null),
+        countOnly: true
+      });
+      return res.json({ count: Number(count) + packets.total });
     }
 
     const rows = await IntakeSubmissionDocument.listUnassigned({
