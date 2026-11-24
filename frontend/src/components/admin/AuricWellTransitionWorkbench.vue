@@ -25,8 +25,8 @@
             <section v-if="!currentClient" class="aw-identity">
               <h3>Find the client before creating a chart</h3>
               <p>School clients may already be here with incomplete details. Select their existing chart to improve it and keep school enrollment, guardians and history together.</p>
-              <label>Paste demographics to find the client <textarea v-model="identityPaste" rows="5" :disabled="busy" placeholder="Legal Name: …&#10;Date of Birth: …&#10;Phone: …" /></label>
-              <button type="button" class="btn btn-secondary" :disabled="busy || !identityPaste.trim()" @click="readIdentity">Read demographics and find matches</button>
+              <label>Paste patient info to find the client <textarea v-model="identityPaste" rows="5" :disabled="busy" placeholder="Legal Name: …&#10;Date of Birth: …&#10;Phone: …" /></label>
+              <button type="button" class="btn btn-secondary" :disabled="busy || !identityPaste.trim()" @click="readIdentity">Read patient info and find matches</button>
               <fieldset class="aw-context" :disabled="busy"><label>Full name <input v-model="identity.fullName" @input="searchComplete = false" /></label><label>Date of birth <input v-model="identity.dateOfBirth" type="date" @input="searchComplete = false" /></label><button type="button" class="btn btn-secondary" :disabled="!identity.fullName.trim()" @click="searchClients">Search existing charts</button></fieldset>
               <div v-if="searchComplete" class="aw-candidates">
                 <h4>Existing chart results</h4>

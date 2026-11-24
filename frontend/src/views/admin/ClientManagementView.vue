@@ -50,7 +50,7 @@
         <button type="button" class="cm-hbtn cm-hbtn--ghost" :disabled="loading" @click="refreshWorkspace">Refresh</button>
         <button v-if="canSeeRenewalFlags && activeAgencyId" type="button" class="cm-hbtn cm-hbtn--ghost" @click="clientUpdateOpen = true">Add client for selected updates</button>
         <button v-if="canUpdateCharts && recordImportQueue.length" type="button" class="cm-hbtn cm-hbtn--ghost" :disabled="loading" @click="openChartUpdates()">Bring clients up to date{{ selectedIds.size ? ` (${recordImportQueue.length} selected)` : '' }}</button>
-        <button v-if="canUpdateCharts" type="button" class="cm-hbtn cm-hbtn--ghost" @click="openOfficeClientModal">+ Add office client from records</button>
+        <button v-if="canUpdateCharts" type="button" class="cm-hbtn cm-hbtn--ghost" @click="openOfficeClientModal">+ Add client from TherapyNotes</button>
         <button @click="openCreateClientModal" class="cm-hbtn cm-hbtn--primary">+ Add client</button>
       </div>
     </div>

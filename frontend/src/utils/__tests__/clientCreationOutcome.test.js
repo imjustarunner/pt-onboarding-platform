@@ -51,3 +51,32 @@ it('assigns a learning provider to the existing learning enrollment and retries 
   expect(a.api.post).toHaveBeenCalledWith('/clients/12/service-enrollments',{agencyId:2,serviceKind:'tutoring',providerUserId:9,organizationId:3,serviceId:40,label:'Tutoring'});
   expect(a.api.put).not.toHaveBeenCalled();
 });
+
+it('creates the clinical service even when the chart already shows the same provider, then reuses it on retry',async()=>{
+ const a=args(),saved={id:40,service_kind:'counseling',organization_id:0,provider_user_id:9,is_active:1,label:'Counseling'};
+ a.api.get.mockResolvedValueOnce({data:{services:[]}}).mockResolvedValueOnce({data:{services:[saved]}});
+ a.api.post.mockResolvedValue({data:{services:[saved]}});
+ await finishClientCreation({...a,organizationId:2,outcome:'assign',serviceKind:'counseling'});
+ await finishClientCreation({...a,organizationId:2,outcome:'assign',serviceKind:'counseling'});
+ expect(a.api.post).toHaveBeenCalledOnce();expect(a.api.post).toHaveBeenCalledWith('/clients/12/service-enrollments',{agencyId:2,serviceKind:'counseling',providerUserId:9,organizationId:0,label:'Counseling'});
+ expect(a.api.put).not.toHaveBeenCalled();
+});
+it('fills a vacant clinical service without creating another enrollment',async()=>{
+ const a=args(),vacant={id:40,service_kind:'counseling',organization_id:0,provider_user_id:0,is_active:1,label:'Counseling'};
+ a.api.get.mockResolvedValue({data:{services:[vacant]}});a.api.post.mockResolvedValue({data:{services:[{...vacant,provider_user_id:9}]}});
+ await finishClientCreation({...a,organizationId:2,outcome:'assign',serviceKind:'counseling'});
+ expect(a.api.post).toHaveBeenCalledWith('/clients/12/service-enrollments',expect.objectContaining({serviceId:40,providerUserId:9}));
+});
+it('retains another counselor when adding the selected clinical provider and confirms nested providers',async()=>{
+ const a=args(),existing={id:40,service_kind:'counseling',organization_id:0,provider_user_id:8,is_active:1,label:'Counseling'};
+ a.api.get.mockResolvedValue({data:{services:[existing]}});a.api.post.mockResolvedValue({data:{services:[{...existing,providers:[{provider_user_id:8},{provider_user_id:9}]}]}});
+ await finishClientCreation({...a,organizationId:2,outcome:'assign',serviceKind:'counseling'});
+ expect(a.api.post).toHaveBeenCalledWith('/clients/12/service-enrollments',expect.objectContaining({serviceId:40,providerUserId:9,addProvider:true}));
+});
+it('leaves service assignment pending when the server rejects or cannot confirm it',async()=>{
+ const a=args();a.api.get.mockResolvedValue({data:{services:[]}});a.api.post.mockRejectedValueOnce(Error('Provider does not offer counseling'));
+ await expect(finishClientCreation({...a,organizationId:2,outcome:'assign',serviceKind:'counseling'})).rejects.toThrow('does not offer counseling');
+ a.api.post.mockResolvedValue({data:{services:[]}});
+ await expect(finishClientCreation({...a,organizationId:2,outcome:'assign',serviceKind:'counseling'})).rejects.toThrow('could not be confirmed');
+ expect(a.api.put).not.toHaveBeenCalled();
+});

@@ -51,3 +51,14 @@ it('does not fetch or overwrite restricted billing-location settings for routine
 it('ignores a provider office response from the previously selected client',async()=>{
  let finish;const original=m.get.getMockImplementation();m.get.mockImplementation((url,config)=>url==='/users/20/office-assignments'?new Promise(resolve=>{finish=resolve}):original(url,config));const wrapper=mount(Assignments,{props:{clientId:7,agencyId:2},global:{stubs:{ClientServiceEnrollments:Services}}});await flushPromises();assigned[30]=[{office_location_id:31,is_primary:1,is_active:1}];await wrapper.setProps({clientId:8,agencyId:3});await flushPromises();finish({data:{assigned:assigned[20]}});await flushPromises();expect(wrapper.get('[aria-label="Default office"]').element.value).toBe('31');expect(wrapper.text()).not.toContain('Other agency office');wrapper.unmount();
 });
+
+it('automatically creates the clinical service for a legacy assigned chart when completing its import',async()=>{
+ member={...member,default_office_location_id:21,default_place_of_service:'11',default_service_location_id:41};
+ const saved={id:91,service_kind:'counseling',provider_user_id:20,organization_id:0,is_active:1};let persisted=false;
+ const original=m.get.getMockImplementation();m.get.mockImplementation(async(url,...args)=>url.endsWith('/service-enrollments')?{data:{services:persisted?[saved]:[]}}:original(url,...args));
+ m.post.mockImplementation(async url=>{if(url.endsWith('/service-enrollments'))persisted=true;return{data:{services:persisted?[saved]:[]}};});
+ const EmptyServices=defineComponent({name:'ClientServiceEnrollments',setup(_, {emit,expose}){expose({savePendingAssignments:()=>true,refresh:()=>emit('loaded',{services:[saved]})});onMounted(()=>emit('loaded',{services:[]}));},template:'<div>No service yet</div>'});
+ const wrapper=mount(Assignments,{props:{clientId:7,agencyId:2},global:{stubs:{ClientServiceEnrollments:EmptyServices}}});await flushPromises();
+ expect(m.post).not.toHaveBeenCalled();await expect(wrapper.vm.savePendingAssignments()).resolves.toBe(true);await expect(wrapper.vm.savePendingAssignments()).resolves.toBe(true);
+ expect(m.post).toHaveBeenCalledTimes(1);expect(m.post).toHaveBeenCalledWith('/clients/7/service-enrollments',expect.objectContaining({serviceKind:'counseling',providerUserId:20,organizationId:0}));wrapper.unmount();
+});

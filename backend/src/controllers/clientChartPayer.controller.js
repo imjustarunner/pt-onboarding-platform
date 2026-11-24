@@ -1,7 +1,9 @@
 import { payerLinkFingerprint } from '../utils/chartPayerLink.js';
 import pool from '../config/database.js';
 import { requireClientChartImportAccess } from '../services/clientChartImportAccess.service.js';
-import { readChartRecord, saveChartRecord } from '../services/clientChartImport.service.js';
+import { readChartRecord, saveChartRecord, automaticallyLinkChartPayers } from '../services/clientChartImport.service.js';
+import { clientInsurancePayers } from '../services/clientInsurancePayers.service.js';
+import { latestPayerResponses } from '../services/coverageVerificationSummary.service.js';
 import { readClientInsurance, writeClientInsurance, claimInsuranceIssues } from '../services/clientInsurance.service.js';
 import { listPayerSetupRequests, saveDirectoryPayer } from '../services/payerSetupCatalog.service.js';
 import { resolveClaimMdConnection } from '../services/claimMdConnection.service.js';
@@ -24,22 +26,30 @@ function publicPayer(payer) { return { payerId: String(payer.payerid), name: pay
 export async function getClientPayerReadiness(req, res, next) {
   try {
     const scope = await scopeOf(req);
-    const [insurance, catalog, source, evidence] = await Promise.all([readClientInsurance(scope.clientId, scope.agencyId), listPayerSetupRequests(scope.agencyId, pool), readChartRecord(scope, 'payer'), readChartRecord(scope, 'payerLinks')]);
+    const [insurance, catalog, source, evidence] = await Promise.all([readClientInsurance(scope.clientId, scope.agencyId), clientInsurancePayers(scope.agencyId, pool), readChartRecord(scope, 'payer'), readChartRecord(scope, 'payerLinks')]);
     const policies = ['primary', 'secondary'].map(position => {
       const policy = insurance?.[position];
       const hasInsurance = !!policy && ['insurerName','memberId','payerId','sourcePayerId'].some(key => policy[key]);
-      const matches = policy?.payerId ? catalog.filter(row => row.directory_status === 'id_match' && String(row.claimmd_payer_id) === policy.payerId) : [];
+      const matches = policy?.payerId ? catalog.filter(row => String(row.payerId) === policy.payerId) : [];
       const verification = evidence.value?.[position];
       const verified = hasInsurance && !!verification && verification.payerId === policy.payerId && verification.policyFingerprint === payerLinkFingerprint(policy);
-      let capabilities = {};
-      try { capabilities = typeof matches[0]?.directory_snapshot_json === 'string' ? JSON.parse(matches[0].directory_snapshot_json) : matches[0]?.directory_snapshot_json || {}; } catch { /* Display unknown support until refreshed. */ }
       return { position, hasInsurance, subscriberIsClient:policy?.relationshipToSubscriber==='self',insurerName: policy?.insurerName || '', sourcePayerId: policy?.sourcePayerId || source.value?.[position]?.sourcePayerId || '',
-        payerId: policy?.payerId || '', linked: matches.length > 0 && (verified || insurance?.verifiedForClaims === true), directoryName: matches[0]?.directory_name || '', directoryCheckedAt: verified ? verification.checkedAt : matches[0]?.directory_checked_at || null,
-        claimsSupport: capabilities['1500_claims'] || 'unknown', eligibilitySupport: capabilities.eligibility || 'unknown',
+        payerId: policy?.payerId || '', linked: matches.length > 0 && (verified || insurance?.verifiedForClaims === true), directoryName: matches[0]?.directoryName || '', directoryCheckedAt: verified ? verification.checkedAt : matches[0]?.directoryCheckedAt || null,
+        claimsSupport: matches[0]?.claimsSupport || 'unknown', eligibilitySupport: matches[0]?.eligibilitySupport || 'unknown',
         missingFields: policy ? claimInsuranceIssues(policy) : ['Insurance is missing'] };
     });
-    res.set('Cache-Control','no-store').json({ policies, source: source.value, coverageVerifiedForClaims: insurance?.verifiedForClaims === true });
+    res.set('Cache-Control','no-store').json({ policies, source: source.value, coverageVerifiedForClaims: insurance?.verifiedForClaims === true, payerResponses:await latestPayerResponses(scope,insurance) });
   } catch (error) { next(error); }
+}
+
+export async function automateClientPayers(req,res,next) {
+  try {
+    const scope=await scopeOf(req);
+    const result=await automaticallyLinkChartPayers(scope,req.user.id);
+    await logAuditEvent(req,{actionType:'client_chart_payer_automation_requested',agencyId:scope.agencyId,targetType:'client',targetId:scope.clientId,
+      metadata:{linkedPositions:result.linked,unresolvedPositions:result.unresolved,eligibilityStatus:result.automaticEligibility?.status || null}});
+    res.set('Cache-Control','no-store').json(result);
+  } catch(error){next(error);}
 }
 
 export async function searchClientPayers(req, res, next) {

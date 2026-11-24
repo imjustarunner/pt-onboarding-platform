@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 const notificationImport=vi.hoisted(()=>vi.fn());
 vi.mock('../importedGuardianNotifications.service.js',()=>({seedImportedGuardianNotifications:notificationImport}));
-const m=vi.hoisted(()=>({execute:vi.fn(),getConnection:vi.fn(),readInsurance:vi.fn(),writeInsurance:vi.fn(),contacts:vi.fn(),upsert:vi.fn(),client:vi.fn(),prepareGuardian:vi.fn(),links:vi.fn()}));
+const m=vi.hoisted(()=>({execute:vi.fn(),getConnection:vi.fn(),readInsurance:vi.fn(),writeInsurance:vi.fn(),contacts:vi.fn(),upsert:vi.fn(),client:vi.fn(),prepareGuardian:vi.fn(),links:vi.fn(),queueBilling:vi.fn(),enqueue:vi.fn()}));
+vi.mock('../insuranceVerificationTask.service.js',()=>({queueInsuranceVerificationSafely:m.queueBilling}));
+vi.mock('../intakeEligibility.service.js',()=>({enqueueIntakeEligibility:m.enqueue}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute,getConnection:m.getConnection}}));
 vi.mock('../clientInsurance.service.js',()=>({readClientInsurance:m.readInsurance,writeClientInsurance:m.writeInsurance}));
 vi.mock('../clientContactAffiliation.service.js',()=>({upsertClientAffiliatedContact:m.upsert}));
@@ -10,12 +12,14 @@ vi.mock('../../models/ClientGuardian.model.js',()=>({default:{listForClient:m.li
 vi.mock('../../models/Client.model.js',()=>({default:{findById:m.client}}));
 vi.mock('../guardianAccountPreparation.service.js',()=>({prepareGuardianAccount:m.prepareGuardian}));
 import {encryptDemographicsPayload} from '../demographicsImport.service.js';
-import { readChartRecord,saveChartRecord,importSupplementaryChartSection } from '../clientChartImport.service.js';
+import {exactCatalogPayer} from '../../utils/chartPayerLink.js';
+import { readChartRecord,saveChartRecord,importSupplementaryChartSection,automaticallyLinkChartPayers } from '../clientChartImport.service.js';
 const scope={clientId:12,agencyId:2};
 let db, stored;
 beforeEach(()=>{
  vi.resetAllMocks();vi.stubEnv('CLIENT_PHI_ENCRYPTION_KEY_BASE64',Buffer.alloc(32,7).toString('base64'));
  notificationImport.mockResolvedValue(null);
+ m.enqueue.mockResolvedValue({status:'queued',jobId:77});m.queueBilling.mockResolvedValue(44);
  stored=new Map();db={beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn(),execute:m.execute};m.getConnection.mockResolvedValue(db);
  m.execute.mockImplementation(async(sql,args)=>{
    if(sql.startsWith('SELECT payload_enc'))return [[stored.get(args.join(':'))].filter(Boolean)];
@@ -136,4 +140,39 @@ it('automatically links only a unique matching agency route and queues eligibili
  rows=[sample,{...sample,id:32,claimmd_payer_id:'C002'}];
  await importSupplementaryChartSection(scope,'insurance',paste,10);
  expect(m.writeInsurance).toHaveBeenLastCalledWith(expect.objectContaining({queueEligibility:false}),db);
+});
+
+it('automatically links exact unique catalog names without a source ID and never marks coverage verified',async()=>{
+ const original=m.execute.getMockImplementation();m.execute.mockImplementation(async(sql,args)=>sql.includes('FROM medical_payer_setup_requests r')?[[{id:31,payer_name:'Example Carrier',claimmd_payer_id:'C001',directory_status:'id_match'}]]:original(sql,args));
+ m.readInsurance.mockResolvedValue({primary:{insurerName:'Example Carrier',memberId:'SYNTHETIC'},secondary:null,patient:{firstName:'Synthetic',lastName:'Client',dateOfBirth:'2010-01-01',state:'CO'}});
+ const result=await automaticallyLinkChartPayers(scope,10);
+ expect(result).toMatchObject({linked:['primary'],unresolved:[],automaticEligibility:{status:'queued'}});
+ const saved=m.writeInsurance.mock.calls[0][0];expect(saved).toMatchObject({primary:{payerId:'C001'},verifiedForClaims:false,queueEligibility:true});
+ expect(m.enqueue).toHaveBeenCalledWith({...scope,submissionId:0},db);
+ m.readInsurance.mockResolvedValue(saved);await automaticallyLinkChartPayers(scope,10);expect(m.writeInsurance).toHaveBeenCalledOnce();
+ expect((await readChartRecord(scope,'payerLinks',0,db)).value.primary).toMatchObject({payerId:'C001',method:'automatic_catalog_match'});
+});
+it('links primary and secondary independently and sends an ambiguous route to billing instead of guessing',async()=>{
+ const original=m.execute.getMockImplementation();m.execute.mockImplementation(async(sql,args)=>sql.includes('FROM medical_payer_setup_requests r')?[[{id:31,payer_name:'Known Carrier',claimmd_payer_id:'C001',directory_status:'id_match'},{id:32,payer_name:'Ambiguous Carrier',claimmd_payer_id:'C002',directory_status:'id_match'},{id:33,payer_name:'Ambiguous Carrier',claimmd_payer_id:'C003',directory_status:'id_match'}]]:original(sql,args));
+ m.readInsurance.mockResolvedValue({primary:{insurerName:'Known Carrier',memberId:'SYN-1'},secondary:{insurerName:'Ambiguous Carrier',memberId:'SYN-2'}});
+ const result=await automaticallyLinkChartPayers(scope,10);expect(result).toMatchObject({linked:['primary'],unresolved:['secondary'],billingFollowUpId:44});
+ expect(m.writeInsurance.mock.calls[0][0].secondary).toEqual({insurerName:'Ambiguous Carrier',memberId:'SYN-2'});
+ expect(m.queueBilling).toHaveBeenCalledWith({...scope,actorUserId:10,reason:'missing_payer'});
+});
+it('keeps saved payer matching when automatic verification cannot queue and creates billing follow-up',async()=>{
+ const original=m.execute.getMockImplementation();m.execute.mockImplementation(async(sql,args)=>sql.includes('FROM medical_payer_setup_requests r')?[[{id:31,payer_name:'Known Carrier',claimmd_payer_id:'C001',directory_status:'id_match'}]]:original(sql,args));
+ m.readInsurance.mockResolvedValue({primary:{insurerName:'Known Carrier',memberId:'SYN-1'}});m.enqueue.mockRejectedValue(Error('Unavailable'));
+ const result=await automaticallyLinkChartPayers(scope,10);expect(result).toMatchObject({linked:['primary'],billingFollowUpId:44});expect(result.eligibilityQueueWarning).toContain('billing follow-up');expect(db.commit).toHaveBeenCalled();
+});
+
+it('matches only unique exact payer names or configured aliases, retaining leading zeros and agency routing',()=>{
+ const own={id:1,payerId:'00050',eligibilityPayerId:'00051',sourcePayerId:'OLD-1',names:['Kaiser Colorado','Kaiser Permanente']};
+ const shared={id:'claimmd:99',payerId:'99',names:['Kaiser Permanente'],sharedDirectory:true};
+ expect(exactCatalogPayer({insurerName:'Kaiser Permanente'},[own,shared])).toBe(own);
+ expect(exactCatalogPayer({insurerName:'Kaiser Colorado',sourcePayerId:'OLD-1'},[own])).toBe(own);
+ expect(exactCatalogPayer({insurerName:'Kaiser'},[own])).toBeNull();
+ expect(exactCatalogPayer({insurerName:'Kaiser Colorado'},[own,{...own,id:2,payerId:'99'}])).toBeNull();
+ expect(exactCatalogPayer({insurerName:'Kaiser Colorado',sourcePayerId:'00050'},[own,{...own,id:2,payerId:'99'}])).toBe(own);
+ expect(exactCatalogPayer({insurerName:'Kaiser Colorado',sourcePayerId:'99'},[own,{...shared,names:['Other carrier']}])).toBeNull();
+ expect(exactCatalogPayer({insurerName:'Kaiser Colorado'},[own,{...own,id:2}])).toEqual(expect.objectContaining({payerId:'00050'}));
 });

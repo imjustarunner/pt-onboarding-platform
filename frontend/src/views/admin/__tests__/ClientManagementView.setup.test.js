@@ -42,8 +42,8 @@ it.each(creationLaunchCases)('opens the office records dialog for $role from $ta
  const wrapper=shallowMount(ClientManagement,{attachTo:document.body,global:{plugins:[pinia],stubs:{RouterLink:true,ClientRecordsCreateModal:false,Teleport:false}}});
  try {
   await flushPromises();await wrapper.findAll('.cm-view-tab').find(button=>button.text().trim().startsWith(tab)).trigger('click');
-  await wrapper.findAll('button').find(button=>button.text()==='+ Add office client from records').trigger('click');await flushPromises();
-  expect(document.body.querySelector('[role=dialog] h2')?.textContent).toBe('Add client from records');
+  await wrapper.findAll('button').find(button=>button.text()==='+ Add client from TherapyNotes').trigger('click');await flushPromises();
+  expect(document.body.querySelector('[role=dialog] h2')?.textContent).toBe('Add client from TherapyNotes');
   expect(apiMock.get).toHaveBeenCalledWith('/clients/creation-draft',expect.objectContaining({headers:{'X-Agency-Id':'2'}}));
   expect(document.body.querySelector('.create-records-modal select')?.value).toBe('2');
   expect(wrapper.get('.cm-view-tab.active').text()).toContain(tab);
@@ -56,7 +56,7 @@ it.each(creationLaunchCases)('opens the office records dialog for $role from $ta
   document.body.querySelector('.create-records-modal header button').click();await flushPromises();
   expect(document.body.querySelector('.create-records-modal')).toBeNull();
   await wrapper.findAll('.cm-header-actions button').find(button=>button.text()==='+ Add client').trigger('click');await flushPromises();
-  expect(document.body.querySelector('[role=dialog] h2')?.textContent).toBe('Add client from records');
+  expect(document.body.querySelector('[role=dialog] h2')?.textContent).toBe('Add client from TherapyNotes');
   document.body.querySelector('.create-records-modal header button').click();await flushPromises();
   await wrapper.findAll('.cm-header-actions button').find(button=>button.text()==='Add client for selected updates').trigger('click');
   expect(wrapper.getComponent({name:'ClientUpdateModal'}).props('open')).toBe(true);
