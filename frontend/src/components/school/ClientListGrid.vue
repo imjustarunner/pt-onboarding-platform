@@ -721,33 +721,12 @@
       </div>
     </div>
 
-    <div v-if="terminateModalClient" class="modal-overlay" style="z-index: 10000;" @click.self="terminateModalClient = null">
-      <div class="modal-content" style="max-width: 480px;" @click.stop>
-        <div class="modal-header">
-          <h3 style="margin: 0;">Mark as Terminated</h3>
-          <button type="button" class="btn-close" @click="terminateModalClient = null">×</button>
-        </div>
-        <p class="hint" style="margin-top: 0;">A termination reason is required. This will move the client to Terminated status and notify support staff and school staff.</p>
-        <label class="required">Termination reason</label>
-        <textarea
-          v-model="terminateReasonDraft"
-          rows="4"
-          placeholder="Explain why this client was terminated…"
-          class="inline-input"
-          style="width: 100%; margin-top: 6px; margin-bottom: 8px;"
-        />
-        <div class="form-actions" style="justify-content: flex-end; gap: 8px;">
-          <button type="button" class="btn btn-secondary" @click="terminateModalClient = null">Cancel</button>
-          <button type="button" class="btn btn-danger" @click="submitTerminate" :disabled="terminateSaving || !String(terminateReasonDraft || '').trim()">
-            {{ terminateSaving ? 'Terminating…' : 'Mark as Terminated' }}
-          </button>
-        </div>
-      </div>
-    </div>
+    <ClientTerminationDialog v-if="terminateModalClient" :client-id="Number(terminateModalClient.id)" :client-name="terminateModalClient.full_name || terminateModalClient.initials || 'Client'" :agency-id="Number(terminateModalClient.agency_id || props.agencyId)" mode="terminate" @close="terminateModalClient=null" @saved="onTerminationSaved" />
   </div>
 </template>
 
 <script setup>
+import ClientTerminationDialog from '../admin/ClientTerminationDialog.vue';
 import {sessionSnapshotKey,sessionDateLabel} from '../../composables/useClientSessionSnapshots.js';
 import {portalCalendarDate} from '../../utils/portalDates';
 import ParentContactAttempts from '../clients/ParentContactAttempts.vue';
@@ -1746,39 +1725,25 @@ const openTerminateModal = (client) => {
   terminateReasonDraft.value = '';
 };
 
-const submitTerminate = async () => {
-  const client = terminateModalClient.value;
-  if (!client?.id || !String(terminateReasonDraft.value || '').trim()) return;
-  try {
-    terminateSaving.value = true;
-    const reason = String(terminateReasonDraft.value || '').trim();
-    const r = await api.post(`/clients/${client.id}/terminate`, {
-      termination_reason: reason
-    });
-    terminateModalClient.value = null;
-    terminateReasonDraft.value = '';
-
+const onTerminationSaved = async ({client:updated}) => {
+  const client=terminateModalClient.value;
+  if(!client)return;
+  terminateModalClient.value=null;
     // "All schools" merged roster uses clientsOverride, which fetchClients() can't refresh —
     // patch the row locally so the terminated status/label show up immediately either way.
-    const updated = r?.data || {};
     const patchRow = (rows) => {
       if (!Array.isArray(rows)) return;
       const row = rows.find((c) => Number(c?.id) === Number(client.id));
       if (!row) return;
       row.client_status_key = 'terminated';
       row.client_status_label = updated.client_status_label || 'Terminated';
-      row.termination_reason = updated.termination_reason || reason;
+      row.termination_reason = updated.termination_reason || null;
       row.service_day = null;
       row.provider_day_pairs = null;
     };
     patchRow(clients.value);
     if (Array.isArray(props.clientsOverride)) patchRow(props.clientsOverride);
     if (!useClientsOverride()) await fetchClients();
-  } catch (err) {
-    alert(err.response?.data?.error?.message || err.message || 'Failed to terminate client');
-  } finally {
-    terminateSaving.value = false;
-  }
 };
 
 const onQuickChecklistSaved = () => {

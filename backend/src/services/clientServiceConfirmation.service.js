@@ -7,7 +7,7 @@ export async function confirmChecklistServices({ client, firstServiceAt, actorUs
   if (!date || date > today || !isDateInCurrentSchoolYear(date, now)) {
     return { confirmed: false, message: 'Checklist saved. Record a completed service date in the current school year to confirm Being Seen.' };
   }
-  const blocked = ['waitlist', 'terminated', 'archived', 'not_returning', 'unable_to_reach', 'other_transfer', 'recommend_termination'];
+  const blocked = ['inactive', 'waitlist', 'terminated', 'archived', 'not_returning', 'unable_to_reach', 'other_transfer', 'recommend_termination'];
   if (blocked.includes(client.client_status_key) || ['ARCHIVED', 'TERMINATED', 'ON_HOLD'].includes(client.status)) {
     return { confirmed: false, message: 'Checklist saved. Agency review is required before changing this client’s service status.' };
   }

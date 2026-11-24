@@ -77,3 +77,10 @@ it('omits school tools for an office clinical client', async () => {
   await flushPromises();
   expect(wrapper.find('[aria-label="School information and documents"]').exists()).toBe(false);
 });
+
+it.each(['admin','support','provider'])('keeps closure actions at the bottom with the correct %s permissions',async role=>{
+ await render({role,client:{provider_id:4}});
+ const section=wrapper.get('.client-care-closure');const labels=section.findAll('button').map(button=>button.text());
+ expect(labels).toContain('Terminate client');expect(labels.includes('Mark inactive')).toBe(role!=='provider');
+ expect(wrapper.findAll('.quick-actions button').some(button=>button.text().includes('Terminate'))).toBe(false);
+});

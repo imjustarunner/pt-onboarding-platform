@@ -6,16 +6,18 @@ import Dialog from '../ClientTerminationDialog.vue';
 let wrapper;
 beforeEach(() => {
   vi.clearAllMocks();
-  api.get.mockImplementation(async url => ({ data: url.endsWith('termination-providers') ? { providers: [] } : { from: 'schools@itsco.health', replyTo: 'schools@itsco.health', schoolName: 'Example School', agencyName: 'ITSCO', recipients: ['family@example.com'] } }));
+  api.get.mockImplementation(async url => ({ data: url.endsWith('closure-review') ? {reviewToken:'review',canMarkInactive:true,terminationNote:{id:91}} : url.endsWith('termination-providers') ? { providers: [] } : { from: 'schools@itsco.health', replyTo: 'schools@itsco.health', schoolName: 'Example School', agencyName: 'ITSCO', recipients: ['family@example.com'] } }));
   api.post.mockImplementation(async url => ({ data: url.endsWith('/preview') ? { html: '<html><body>Branded preview</body></html>' } : { sent: true, clientId: 51 } }));
 });
 afterEach(() => wrapper?.unmount());
 async function open() {
   wrapper = mount(Dialog, { props: { clientId: 51, clientName: 'Example Client', agencyId: 2 }, global: { stubs: { Teleport: true } } });
   await flushPromises();
+  await wrapper.get('#termination-reason').setValue('Other');
   await wrapper.get('.termination-email-toggle input').setValue(true);
   await flushPromises();
 }
+async function confirmAndSubmit(){if(!wrapper.find('.termination-confirmation').exists())await wrapper.get('[role="dialog"]').trigger('submit');await wrapper.get('[role="dialog"]').trigger('submit');}
 it('builds an editable email from selected reasons and sends from schools@ with optional termination details', async () => {
   await open();
   expect(wrapper.text()).toContain('From: schools@itsco.health');
@@ -27,7 +29,7 @@ it('builds an editable email from selected reasons and sends from schools@ with 
   expect(wrapper.get('#followup-message').element.value).toContain('TRICARE');
   expect(wrapper.get('#followup-message').element.value).toContain('MH4Kidz');
   await wrapper.get('#followup-message').setValue('Rachel reviewed and edited this email.');
-  await wrapper.get('[role="dialog"]').trigger('submit');
+  await confirmAndSubmit();
   await flushPromises();
   expect(api.post).toHaveBeenCalledWith('/clients/51/enrollment-followup', expect.objectContaining({
     request_key: expect.any(String), disposition: 'inactive', termination_date: null, termination_last_provider_id: null,
@@ -50,7 +52,7 @@ it('keeps school waitlist and inactive choices consistent', async () => {
   expect(wrapper.get('#followup-disposition').element.value).toBe('waitlist');
   expect(wrapper.get('#followup-disposition option[value="inactive"]').element.disabled).toBe(true);
   expect(wrapper.get('#followup-message').element.value).toContain('remain on the school waitlist');
-  expect(wrapper.get('.termination-submit').text()).toBe('Send email + keep on waitlist');
+  expect(wrapper.get('.termination-submit').text()).toBe('Review this change');
 });
 it('previews the edited email in a sandboxed frame before sending', async () => {
   await open();
@@ -65,22 +67,22 @@ it('previews the edited email in a sandboxed frame before sending', async () => 
 it('retries the same accepted email request without allowing edits or a new send key', async () => {
   await open();
   api.post.mockRejectedValueOnce({ response: { data: { error: { message: 'Email sent; retry completion.', followupSent: true } } } });
-  await wrapper.get('[role="dialog"]').trigger('submit');
+  await confirmAndSubmit();
   await flushPromises();
   const first = api.post.mock.calls[0][1];
   expect(wrapper.get('.termination-submit').text()).toBe('Finish status change');
   expect(wrapper.get('.followup-composer fieldset').element.disabled).toBe(true);
-  await wrapper.get('[role="dialog"]').trigger('submit');
+  await confirmAndSubmit();
   await flushPromises();
   expect(api.post.mock.calls[1][1]).toEqual(first);
 });
 it('blocks another send when delivery needs review', async () => {
   await open();
   api.post.mockRejectedValueOnce({ response: { data: { error: { message: 'Delivery needs review.', deliveryReview: true } } } });
-  await wrapper.get('[role="dialog"]').trigger('submit');
+  await confirmAndSubmit();
   await flushPromises();
   expect(wrapper.get('.termination-submit').element.disabled).toBe(true);
-  await wrapper.get('[role="dialog"]').trigger('submit');
+  await confirmAndSubmit();
   expect(api.post).toHaveBeenCalledOnce();
 });
 it('resumes an already-sent follow-up after closing and reopening the form', async () => {
@@ -95,9 +97,9 @@ it('resumes an already-sent follow-up after closing and reopening the form', asy
     return result;
   });
   await open();
-  expect(wrapper.get('.termination-submit').text()).toBe('Finish status change');
+  expect(wrapper.get('.termination-submit').text()).toBe('Review this change');
   expect(wrapper.get('#followup-message').element.value).toBe('Original reviewed message');
-  await wrapper.get('[role="dialog"]').trigger('submit');
+  await confirmAndSubmit();
   await flushPromises();
   expect(api.post).toHaveBeenCalledWith('/clients/51/enrollment-followup', expect.objectContaining({ request_key: 'original_request_123456', termination_reason: 'Missing paperwork', email: expect.objectContaining({ subject: 'Original reviewed subject', text: 'Original reviewed message' }) }), expect.any(Object));
 });

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const h = vi.hoisted(() => ({ execute: vi.fn(), find: vi.fn(), update: vi.fn(), agencies: vi.fn(), history: vi.fn(), status: vi.fn(), stamp: vi.fn(), notify: vi.fn(), log: vi.fn() }));
-vi.mock('../../config/database.js', () => ({ default: { execute: h.execute }, onTableWrite: vi.fn() }));
+const h = vi.hoisted(() => ({ execute: vi.fn(), find: vi.fn(), update: vi.fn(), agencies: vi.fn(), history: vi.fn(), status: vi.fn(), stamp: vi.fn(), notify: vi.fn(), log: vi.fn(), clinical:vi.fn(), connection:vi.fn(), commit:vi.fn(), rollback:vi.fn(), release:vi.fn() }));
+vi.mock('../../config/database.js', () => ({ default: { execute: h.execute,getConnection:h.connection }, onTableWrite: vi.fn() }));
 vi.mock('../../models/Client.model.js', () => ({ default: { findById: h.find, update: h.update } }));
 vi.mock('../../models/User.model.js', () => ({ default: { getAgencies: h.agencies } }));
 vi.mock('../../models/ClientStatusHistory.model.js', () => ({ default: { create: h.history } }));
@@ -10,12 +10,15 @@ vi.mock('../../services/clientTerminationSchoolYear.service.js', () => ({ stampC
 vi.mock('../../services/clientNotifications.service.js', () => ({ notifyClientBecameCurrent: vi.fn(), notifyClientChecklistUpdated: vi.fn(), notifyPaperworkReceived: vi.fn(), notifyClientTerminated: h.notify }));
 vi.mock('../../services/clientAccessLog.service.js', () => ({ logClientAccess: h.log }));
 
-import { getClientTerminationProviders, terminateClient, updateClient } from '../client.controller.js';
+vi.mock('../../services/clientSchedulingGuard.service.js',()=>({withClientSchedulingLock:async(ids,work)=>work()}));
+vi.mock('../../config/clinicalDatabase.js',()=>({default:{execute:h.clinical}}));
+import {clientClosureReview} from '../../services/clientClosureReview.service.js';
+import { markClientInactive, getClientTerminationProviders, terminateClient, updateClient } from '../client.controller.js';
 
 let req, res, next;
-beforeEach(() => {
+beforeEach(async () => {
   vi.clearAllMocks();
-  req = { params: { id: '51' }, user: { id: 8, role: 'admin' }, body: {} };
+  req = { params: { id: '51' }, user: { id: 8, role: 'admin' }, body: {termination_reason:'Services completed',confirmClientClosure:true} };
   res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
   next = vi.fn();
   h.find.mockResolvedValue({ id: 51, agency_id: 2, organization_id: 9, provider_id: null, client_status_id: 3 });
@@ -26,24 +29,27 @@ beforeEach(() => {
   h.stamp.mockResolvedValue(null);
   h.notify.mockResolvedValue(undefined);
   h.log.mockResolvedValue(undefined);
+  h.clinical.mockResolvedValue([[{id:91,created_at:'2026-11-23'}]]);
+  h.connection.mockResolvedValue({execute:vi.fn(async()=>[[await h.find()]]),beginTransaction:vi.fn(),commit:h.commit,rollback:h.rollback,release:h.release});
   h.execute.mockResolvedValue([[{ id: 37, first_name: 'Former', last_name: 'Provider', is_active: 0 }]]);
+  req.body.closureReviewToken=(await clientClosureReview(await h.find())).reviewToken;
 });
 
 describe('termination action', () => {
-  it('accepts all details omitted and uses the authenticated actor for the saved action', async () => {
+  it('uses the authenticated actor and records the reviewed documentation decision', async () => {
     await terminateClient(req, res, next);
     expect(next).not.toHaveBeenCalled();
     expect(h.update).toHaveBeenCalledWith('51', {
-      client_status_id: 7, termination_reason: null, termination_effective_date: null,
+      client_status_id: 7, termination_reason: 'Services completed', termination_note_required:true,termination_note_not_required_reason:null,termination_effective_date: null,
       termination_last_provider_id: null, termination_last_provider_name: null,
       terminated_at: expect.any(Date), terminated_by_user_id: 8, roi_expires_at: null
-    }, 8);
+    }, 8,expect.objectContaining({hydrate:false,executor:expect.any(Object)}));
     expect(h.history).toHaveBeenCalledWith(expect.objectContaining({ changed_by_user_id: 8, note: expect.stringContaining('Termination date: Not recorded') }));
-    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ status: 'ARCHIVED' }));
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ id: 51 }));
   });
 
   it('records historical details without creating a current provider assignment', async () => {
-    req.body = { termination_reason: 'Moved', termination_date: '2025-03-02', termination_last_provider_id: 37 };
+    req.body = { ...req.body, termination_reason: 'Moved', termination_date: '2025-03-02', termination_last_provider_id: 37 };
     await terminateClient(req, res, next);
     expect(next).not.toHaveBeenCalled();
     const patch = h.update.mock.calls[0][1];
@@ -120,4 +126,18 @@ describe('termination action', () => {
     expect(res.status).toHaveBeenCalledWith(400);
     expect(h.update).not.toHaveBeenCalled();
   });
+});
+
+it.each(['provider','provider_plus','intern','staff','clinical_practice_assistant'])('rejects direct inactive changes for %s before accessing the client',async role=>{
+ req.user.role=role;h.find.mockClear();await markClientInactive(req,res,next);expect(res.status).toHaveBeenCalledWith(403);expect(h.find).not.toHaveBeenCalled();expect(h.update).not.toHaveBeenCalled();
+});
+it('requires explicit confirmation even for an administrator',async()=>{delete req.body.confirmClientClosure;await terminateClient(req,res,next);expect(res.status).toHaveBeenCalledWith(400);expect(h.update).not.toHaveBeenCalled();});
+it('marks inactive separately from clinical termination for authorized support',async()=>{req.user.role='support';await markClientInactive(req,res,next);expect(h.status).toHaveBeenCalledWith({agencyId:2,statusKey:'inactive'});expect(h.history.mock.calls[0][0].note).toContain('Action: Marked inactive');});
+
+it('blocks the ordinary update endpoint from bypassing the inactive review',async()=>{
+ req.user.role='provider';req.body={status:'ARCHIVED'};await updateClient(req,res,next);expect(res.status).toHaveBeenCalledWith(403);expect(h.update).not.toHaveBeenCalled();
+});
+it('blocks terminated and inactive catalog choices in ordinary profile updates',async()=>{
+ req.body={client_status_id:10};h.execute.mockResolvedValue([[{id:10,status_key:'inactive',label:'Inactive'}]]);await updateClient(req,res,next);expect(res.status).toHaveBeenCalledWith(400);expect(h.update).not.toHaveBeenCalled();
+ expect(res.json.mock.calls[0][0].error.message).toContain('bottom of the profile');
 });

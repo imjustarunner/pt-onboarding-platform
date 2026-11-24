@@ -654,6 +654,8 @@ class Client {
       'client_type',
       'client_type_transitioned_at',
       'client_type_transitioned_by_user_id',
+      'termination_note_required',
+      'termination_note_not_required_reason',
       'termination_reason',
       'enrollment_followup_id',
       'enrollment_reopened_at',

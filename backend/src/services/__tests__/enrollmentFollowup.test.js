@@ -24,7 +24,7 @@ beforeEach(() => {
     Agency: { findById: vi.fn(async id => id === 2 ? { id: 2, name: 'ITSCO', slug: 'itsco' } : { id: 9, name: 'Example School', organization_type: 'school' }) },
     ClientGuardian: { listForClient: vi.fn(async () => [{ email: 'family@example.com', access_enabled: 1 }, { email: 'revoked@example.com', access_enabled: 0 }]) },
     EmailSenderIdentity: { list: vi.fn(async () => [{ id: 12, agency_id: 2, from_email: 'schools@itsco.health' }]) },
-    getClientStatusIdByKey: vi.fn(async ({ statusKey }) => statusKey === 'terminated' ? 7 : 8),
+    getClientStatusIdByKey: vi.fn(async ({ statusKey }) => statusKey === 'inactive' ? 7 : 8),
     clientTerminationDetails: vi.fn(async () => ({ termination_reason: null, termination_effective_date: null, termination_last_provider_id: null, termination_last_provider_name: null })),
     assertExchangeResolvedBeforeArchive: vi.fn(async () => {}),
     sendEmailFromIdentity: vi.fn(async () => { events.push('send'); return { id: 'accepted-1', communicationId: 99, internetMessageId: '<outbound-99@example.com>' }; }),

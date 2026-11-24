@@ -126,7 +126,7 @@ async function markFallConfirmationDue({ agencyId }) {
        ON d.client_id = c.id AND d.school_year = ?
      WHERE c.agency_id = ?
        AND c.client_type = 'school'
-       AND LOWER(COALESCE(cs.status_key, '')) NOT IN ('terminated', 'archived', 'being_seen', 'waitlist')
+       AND LOWER(COALESCE(cs.status_key, '')) NOT IN ('inactive', 'terminated', 'archived', 'being_seen', 'waitlist')
        AND (d.fall_completed_at IS NULL)
        AND (
          d.spring_outcome IN ('returning', 'unknown')

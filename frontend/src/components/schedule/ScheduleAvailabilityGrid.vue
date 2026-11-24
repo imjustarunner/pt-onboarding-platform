@@ -1137,7 +1137,7 @@
                 </button>
               </div>
               <div v-if="item.videoVisit" class="sched-agenda__meta"><span class="schedule-video-badge">Video</span> <button v-if="canJoinScheduleVideo(item)" type="button" class="btn btn-secondary btn-sm" @click.stop="joinScheduleVideo(item, agendaDayName, item.hour)">Join video</button></div>
-              <div v-if="item.isOfficeBlock" class="sched-agenda__meta">{{ item.officeStatusLabel }}</div>
+              <div v-if="item.isOfficeBlock" class="sched-agenda__meta">{{ item.officeOccupancyLabel || item.officeStatusLabel }}<RoomReservationQuickActions :context="item.roomQuickContext" :status="item.officeStatus" :pending="roomUsagePending" @change="updateRoomCardOccupancy" /></div>
               <div v-else-if="item.kind === 'peerbusy'" class="sched-agenda__meta muted">Peer busy</div>
               <div v-else-if="item.schedulingNoteSnippet" class="sched-agenda__meta muted">{{ item.schedulingNoteSnippet }}</div>
               <template v-else-if="isFallCheckinBookedBlock(item)">
@@ -1271,7 +1271,7 @@
                     <svg class="cell-block-door-icon" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2">
                       <path d="M3 21h18" /><path d="M5 21V7l7-4v18" /><path d="M19 21V11l-7-4" />
                     </svg>
-                    {{ b.officeStatusLabel }}
+                    {{ b.officeOccupancyLabel || b.officeStatusLabel }}
                     <span v-if="b.officeEmpty" class="cell-block-office-empty"> · No bookings</span>
                   </div>
                   <div v-else-if="b.kind === 'school-soft'" class="sched-day-card__meta">{{ b.status.label }}</div>
@@ -1281,6 +1281,7 @@
                   </div>
                 </div>
               </button>
+              <RoomReservationQuickActions :context="b.roomQuickContext" :status="b.officeStatus" :pending="roomUsagePending" @change="updateRoomCardOccupancy" />
               <button v-if="canJoinScheduleVideo(b)" class="btn btn-secondary btn-sm" type="button" @click.stop="joinScheduleVideo(b, mobileTimelineDay, h)">Join video</button>
               <ScheduleQuickRsvp v-if="showQuickRsvp(b)" :event="b" @saved="onQuickRsvpSaved" />
               <SecureSessionCommentButton v-if="b.appointmentId && canUseSessionComments(authStore.user?.role)" class="sched-day-comment-shortcut" icon-only :appointment-id="b.appointmentId" :client-id="parseClientIdFromScheduleEvent(b)" />
@@ -1579,8 +1580,9 @@
                       <svg class="cell-block-door-icon" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M3 21h18" /><path d="M5 21V7l7-4v18" /><path d="M19 21V11l-7-4" /><circle cx="10" cy="12" r="0.8" fill="currentColor" stroke="none" />
                       </svg>
-                      <span class="cell-block-office-status-text">{{ b.officeStatusLabel }}</span>
+                      <span class="cell-block-office-status-text">{{ b.officeOccupancyLabel || b.officeStatusLabel }}</span>
                     </span>
+                    <RoomReservationQuickActions :context="b.roomQuickContext" :status="b.officeStatus" :pending="roomUsagePending" @change="updateRoomCardOccupancy" />
                     <span v-if="b.officeEmpty && visibleDays.length === 1" class="cell-block-office-empty">No bookings</span>
                   </span>
                 </template>
@@ -6064,6 +6066,7 @@
 </template>
 
 <script setup>
+import RoomReservationQuickActions from './RoomReservationQuickActions.vue';
 import {serviceLocationDisplay,linkedReservationLocation} from '../../utils/serviceLocationDisplay.js';
 import {tutoringMakeupSelection} from '../../utils/tutoringMakeupSelection.js';
 import {canPollWorkspace,useSessionPolling} from '../../composables/useSessionPolling';
@@ -12431,6 +12434,7 @@ const buildCellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout 
           kind: 'ob',
           isOfficeBlock: true,
           officeStatus: 'occupied',
+        officeOccupancyLabel: 'Occupied',
           officeStatusLabel: 'Assigned available · Occupied',
           officeRoomLabel: borrow.bookerName ? `${officeRoomLabel} · ${borrow.bookerName}` : officeRoomLabel,
           borrowedRoom: { id: Number(top.bookedProviderId), name: takenLabel, room: officeRoomLabel, agencyId },
@@ -12501,6 +12505,10 @@ const buildCellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout 
         eventId: Number(top?.id || 0),
         isOfficeBlock: true,
         officeStatus: occupied ? 'occupied' : top?.roomOccupancy === 'vacant' ? 'vacant' : 'reserved',
+        officeOccupancyLabel: occupied ? 'Occupied' : top?.roomOccupancy === 'vacant' ? 'Vacant' : 'Not confirmed',
+        roomQuickContext: !occupied && top?.roomOccupancy !== 'vacant' && onSelectedSchedule
+          && (Number(authStore.user?.id) === Number(props.userId) || ['admin','support','super_admin'].includes(String(authStore.user?.role || '').toLowerCase()))
+          ? buildModalContext({dayName,hour,roomId,slot:top}) : null,
         officeStatusLabel: occupied ? 'Assigned available · Occupied' : top?.roomOccupancy === 'vacant' ? 'Assigned available · Vacant' : 'Assigned available',
         officeEmpty: true,
         officeRoomLabel,
@@ -14462,6 +14470,25 @@ async function changeSelectedRoomReservation(action, usage) {
     invalidateScheduleSummaryCacheForUser(props.userId);
     await Promise.allSettled([load({ forceRefresh: true }), loadSelectedOfficeGrid()]);
     if (roomUsageChanges.value === changes) roomUsageChanges.value = [];
+  }
+}
+async function updateRoomCardOccupancy(context,usage) {
+  if(roomUsagePending.value || !context?.officeLocationId || !['vacant','occupied'].includes(usage))return;
+  const resource=context.officeEventId ? `events/${context.officeEventId}` : context.standingAssignmentId ? `assignments/${context.standingAssignmentId}` : null;
+  if(!resource)return;
+  roomUsagePending.value=true;
+  const changes=[...roomUsageChanges.value,{...context,usage}];
+  roomUsageChanges.value=changes;
+  try {
+    await api.post(`/office-slots/${context.officeLocationId}/${resource}/occupancy`,{usage,date:context.dateYmd},{skipGlobalLoading:true});
+  } catch(error) {
+    if(roomUsageChanges.value===changes)roomUsageChanges.value=[];
+    scheduleChangeNotice.value=error?.response?.data?.error?.message || 'The room status could not be saved. Try again.';
+  } finally {
+    roomUsagePending.value=false;
+    invalidateScheduleSummaryCacheForUser(props.userId);
+    await Promise.allSettled([load({forceRefresh:true}),loadSelectedOfficeGrid()]);
+    if(roomUsageChanges.value===changes)roomUsageChanges.value=[];
   }
 }
 async function updateSelectedRoomOccupancy(usage) {
@@ -32170,7 +32197,7 @@ watch(editorClientSchoolLocationOptions, (schools, previous) => {
 .cell-block-office-status-text {
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 9.5em;
+  max-width: 100%;
 }
 .cell-block-office-empty {
   font-size: 9px;

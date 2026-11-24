@@ -268,31 +268,31 @@ class NoteAidWorkQueueItem {
       .then(items => items.map(({ archiveResourceType, clientQueueId, ...row }) => ({ ...row, id: clientQueueId })));
   }
 
-  static async findByIdForUser({ id, userId }) {
+  static async findByIdForUser({ id, userId, executor = pool }) {
     const rowId = safeInt(id);
     const uid = safeInt(userId);
     if (!rowId || !uid) return null;
-    const [rows] = await pool.execute(
+    const [rows] = await executor.execute(
       `SELECT * FROM note_aid_work_queue_items WHERE id = ? AND user_id = ? LIMIT 1`,
       [rowId, uid]
     );
     return rows?.[0] ? toApiItem(rows[0]) : null;
   }
 
-  static async findByClientKeyForUser({ clientKey, userId }) {
+  static async findByClientKeyForUser({ clientKey, userId, executor = pool }) {
     const uid = safeInt(userId);
     const key = clampText(clientKey, 96);
     if (!uid || !key) return null;
-    const [rows] = await pool.execute(
+    const [rows] = await executor.execute(
       `SELECT * FROM note_aid_work_queue_items WHERE user_id = ? AND client_key = ? LIMIT 1`,
       [uid, key]
     );
     return rows?.[0] ? toApiItem(rows[0]) : null;
   }
 
-  static async insertRow(vals) {
+  static async insertRow(vals, { executor = pool } = {}) {
     await assertClinicalWorkActive({ clinical_session_id: vals.clinicalSessionId, office_event_id: vals.officeEventId, draft_id: vals.draftId, clinical_note_id: vals.clinicalNoteId });
-    const [result] = await pool.execute(
+    const [result] = await executor.execute(
       `INSERT INTO note_aid_work_queue_items
         (user_id, agency_id, client_id, organization_id, office_event_id, clinical_session_id,
          task_id, draft_id, clinical_note_id, client_key, date_of_service, service_code,
@@ -320,7 +320,7 @@ class NoteAidWorkQueueItem {
         vals.signedAt
       ]
     );
-    return this.findByIdForUser({ id: result.insertId, userId: vals.userId });
+    return this.findByIdForUser({ id: result.insertId, userId: vals.userId, executor });
   }
 
   static async updateRow(id, userId, vals) {
@@ -437,12 +437,12 @@ class NoteAidWorkQueueItem {
   }
 
   // Reconciliation must never reset an existing clinician's draft or task status.
-  static async createIfMissingForUser(userId, item) {
+  static async createIfMissingForUser(userId, item, { executor = pool } = {}) {
     const vals = rowValuesFromItem(safeInt(userId), item);
-    const find = () => this.findByClientKeyForUser({ clientKey: vals.clientKey, userId: vals.userId });
+    const find = () => this.findByClientKeyForUser({ clientKey: vals.clientKey, userId: vals.userId, executor });
     const existing = await find();
     if (existing) return null;
-    try { return await this.insertRow(vals); }
+    try { return await this.insertRow(vals,{executor}); }
     catch (error) { if (error.code === 'ER_DUP_ENTRY') return null; throw error; }
   }
 

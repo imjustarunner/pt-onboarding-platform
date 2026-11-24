@@ -10,6 +10,7 @@ export default defineConfig({
     include: [
       'src/components/admin/__tests__/OfficeIntakeQueuePanel.termination.test.js',
       'src/components/admin/__tests__/ClientTerminationSummary.test.js',
+      'src/components/admin/clientChart/__tests__/ClientStatusEditor.test.js',
       'src/components/admin/__tests__/EnrollmentFollowupComposer.test.js',
       'src/components/admin/__tests__/InactiveClientsPanel.test.js',
       'src/components/admin/__tests__/OfficeIntakeQueuePanel.retest.test.js'

@@ -1,3 +1,4 @@
+import { queueClientClosureNote } from './clientClosureReview.service.js';
 import { createHash } from 'node:crypto';
 import pool from '../config/database.js';
 import Agency from '../models/Agency.model.js';
@@ -14,7 +15,7 @@ import { ENROLLMENT_FOLLOWUP_REASONS, enrollmentFollowupDraft } from '../../../f
 const fail = (message, status = 400, extra = {}) => Object.assign(new Error(message), { status, ...extra });
 const parse = value => typeof value === 'string' ? JSON.parse(value || '{}') : value || {};
 const validEmail = value => typeof value === 'string' && value.length <= 320 && /^[^\s<>@,;]+@[^\s<>@,;]+\.[^\s<>@,;]+$/.test(value);
-const defaults = { pool, Agency, Client, ClientGuardian, EmailSenderIdentity, getClientStatusIdByKey, clientTerminationDetails, assertExchangeResolvedBeforeArchive, sendEmailFromIdentity };
+const defaults = { queueClientClosureNote, pool, Agency, Client, ClientGuardian, EmailSenderIdentity, getClientStatusIdByKey, clientTerminationDetails, assertExchangeResolvedBeforeArchive, sendEmailFromIdentity };
 
 export async function enrollmentFollowupContext(client, overrides = {}) {
   const d = { ...defaults, ...overrides };
@@ -58,8 +59,9 @@ export async function sendEnrollmentFollowup({ client, actorUserId, body }, over
   const context = await enrollmentFollowupContext(client, d);
   const html = enrollmentFollowupPreview(context, text);
   const details = await d.clientTerminationDetails(body, client);
-  const statusId = await d.getClientStatusIdByKey({ agencyId: client.agency_id, statusKey: disposition === 'inactive' ? 'terminated' : 'waitlist' });
+  const statusId = await d.getClientStatusIdByKey({ agencyId: client.agency_id, statusKey: disposition === 'inactive' ? 'inactive' : 'waitlist' });
   if (!statusId) throw fail('The requested client status is not configured for this agency.', 409);
+  if(disposition==='inactive' && body.confirmClientClosure===true) Object.assign(details,{termination_note_required:body.termination_note_required,termination_note_provider_id:body.termination_note_provider_id || null,termination_note_not_required_reason:body.termination_note_not_required_reason || null});
   const reviewed = { to, subject: subject.trim(), text: text.trim(), reasons, disposition, details };
   const hash = createHash('sha256').update(JSON.stringify(reviewed)).digest('hex');
   const db = await d.pool.getConnection();
@@ -117,6 +119,7 @@ export async function sendEnrollmentFollowup({ client, actorUserId, body }, over
       if (!current || ['status', 'client_status_id', 'provider_id'].some(field => String(current[field] ?? '') !== String(before[field] ?? ''))) {
         throw fail('The email was sent, but the client’s status or assignment changed. Review the record before completing this action.', 409, { followupSent: true });
       }
+      if(disposition==='inactive' && body.confirmClientClosure===true) await d.queueClientClosureNote(db,{client,actorUserId,providerId:details.termination_note_provider_id,review:{...details,terminationNote:body.closureExistingNoteId ? {id:body.closureExistingNoteId} : null}});
       const patch = disposition === 'inactive'
         ? { ...details, client_status_id: statusId, terminated_at: new Date(), terminated_by_user_id: actorUserId, roi_expires_at: null }
         : { client_status_id: statusId, status: 'PENDING_REVIEW' };

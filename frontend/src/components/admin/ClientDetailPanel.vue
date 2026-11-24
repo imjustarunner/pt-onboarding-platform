@@ -85,7 +85,7 @@
                 </span>
               </div>
               <div v-show="!headerCollapsed" class="cdp-meta-row">
-                <button v-if="canEditAccount" type="button" class="cdp-pill cdp-status-edit" :class="statusPillClass" aria-label="Change client status" title="Change client status" @click="editHeaderStatus">
+                <button v-if="canEditAccount && !isClientArchived" type="button" class="cdp-pill cdp-status-edit" :class="statusPillClass" aria-label="Change client status" title="Change client status" @click="editHeaderStatus">
                   {{ isClientArchived ? 'Inactive' : displayStatusLabel }} ▾
                 </button>
                 <span v-else
@@ -232,7 +232,7 @@
               </section>
             </template>
           </ClientOverviewHub>
-          <section v-if="canLaunchRecordUpdate || canTerminate" class="quick-actions"><h3>Quick Actions</h3><div class="actions-grid"><ClientRecordsUpdateLauncher v-if="canLaunchRecordUpdate" :client-id="client.id" :agency-id="client.agency_id" :account-access="canEditAccount" @started="onRecordsUpdateStarted" /><button v-if="canTerminate && !isClientArchived" type="button" class="btn btn-danger" @click="openTerminateModal">Terminate client</button></div></section>
+          <section v-if="canLaunchRecordUpdate" class="quick-actions"><h3>Quick Actions</h3><div class="actions-grid"><ClientRecordsUpdateLauncher v-if="canLaunchRecordUpdate" :client-id="client.id" :agency-id="client.agency_id" :account-access="canEditAccount" @started="onRecordsUpdateStarted" /></div></section>
           <p v-if="chartReceiptError && !showPanel('records')" class="error" role="alert">
             {{ chartReceiptError }}
             <a v-if="chartReceiptFallbackUrl" :href="chartReceiptFallbackUrl" target="_blank" rel="noopener">Open the enrollment receipt</a>
@@ -1056,37 +1056,7 @@
 
           </div>
 
-          <div v-if="(canEditAccount && editingOverview) || (canTerminate && !editingOverview)" class="quick-actions">
-            <h3>Quick Actions</h3>
-            <div class="actions-grid"><ClientRecordsUpdateLauncher v-if="canLaunchRecordUpdate" :client-id="client.id" :agency-id="client.agency_id" :account-access="canEditAccount" @started="onRecordsUpdateStarted" />
-              <button
-                v-if="canTerminate && !isClientArchived"
-                class="btn btn-danger"
-                type="button"
-                @click="openTerminateModal"
-              >
-                Terminate client
-              </button>
-              <template v-else-if="canEditAccount && editingOverview">
-                <button
-                  v-if="!isClientArchived"
-                  class="btn btn-danger"
-                  type="button"
-                  @click="archiveClient"
-                >
-                  Archive client
-                </button>
-                <button
-                  v-else
-                  class="btn btn-secondary"
-                  type="button"
-                  @click="unarchiveClient"
-                >
-                  Reopen enrollment
-                </button>
-              </template>
-            </div>
-          </div>
+
             </div>
 
 
@@ -2755,17 +2725,20 @@
           @client-actions="openClientActions"
         />
 
+      <section v-if="(showPanel('overview') || showPanel('account')) && (canTerminate || canMarkInactive)" class="client-care-closure" aria-label="End active services">
+        <h3>End active services</h3>
+        <p>Review termination documentation and confirm before ending assignments or canceling future sessions.</p>
+        <div class="actions-grid">
+          <button v-if="canTerminate && !isClientArchived" type="button" class="btn btn-danger" @click="openTerminateModal">Terminate client</button>
+          <button v-if="canMarkInactive && !isClientArchived" type="button" class="btn btn-secondary" @click="closureMode = 'inactive'; terminateModalOpen = true">Mark inactive</button>
+          <button v-if="canMarkInactive && isClientArchived" type="button" class="btn btn-secondary" @click="unarchiveClient">Reopen enrollment</button>
+        </div>
+      </section>
+
     <template v-if="!props.fullPage" #footer>
       <footer class="cdp-footer">
         <div class="cdp-footer-left">
-          <button
-            v-if="canTerminate && !isClientArchived"
-            type="button"
-            class="cdp-footer-link cdp-footer-link--danger"
-            @click="openTerminateModal"
-          >
-            Terminate client
-          </button>
+
           <button
             v-if="canEditAccount && !isClientArchived"
             type="button"
@@ -2796,30 +2769,7 @@
 
     <template #modals>
       <ClientAlertDialog :client-id="client?.id" />
-      <!-- Terminate client modal -->
-      <div v-if="terminateModalOpen" class="modal-overlay" style="z-index: 10000;" @click.self="closeTerminateModal">
-        <div class="modal-content" style="max-width: 480px;" @click.stop>
-          <div class="modal-header">
-            <h3 style="margin: 0;">Terminate client</h3>
-            <button type="button" class="btn-close" @click="closeTerminateModal">×</button>
-          </div>
-          <p class="hint" style="margin-top: 0;">A termination reason is required. This will move the client to Terminated status and notify support staff.</p>
-          <label class="required">Termination reason</label>
-          <textarea
-            v-model="terminateReasonDraft"
-            rows="4"
-            placeholder="Explain why this client was terminated…"
-            class="inline-input"
-            style="width: 100%; margin-top: 6px; margin-bottom: 8px;"
-          />
-          <div class="form-actions" style="justify-content: flex-end; gap: 8px;">
-            <button type="button" class="btn btn-secondary" @click="closeTerminateModal">Cancel</button>
-            <button type="button" class="btn btn-danger" @click="terminateClient" :disabled="terminateSaving || !String(terminateReasonDraft || '').trim()">
-              {{ terminateSaving ? 'Terminating…' : 'Terminate client' }}
-            </button>
-          </div>
-        </div>
-      </div>
+      <ClientTerminationDialog v-if="terminateModalOpen" :client-id="Number(client.id)" :client-name="client.full_name || client.initials || 'Client'" :agency-id="Number(client.agency_id)" :mode="closureMode" @close="closeTerminateModal" @saved="closeTerminateModal(); emit('updated',{keepOpen:true})" />
 
       <div v-if="clientActionsOpen && canEditPaperwork && client?.id" class="modal-overlay client-actions-overlay" @click.self="clientActionsOpen = false">
         <div class="client-actions-dialog" role="dialog" aria-modal="true" aria-label="Client actions">
@@ -2877,6 +2827,8 @@
 </template>
 
 <script setup>
+import ClientTerminationDialog from './ClientTerminationDialog.vue';
+import {isClientClosureStatus} from '../../utils/clientClosure.js';
 import {serviceSettingName} from '../../utils/serviceLocationDisplay.js';
 import ClientDisclosurePanel from './clientChart/ClientDisclosurePanel.vue';
 import { guardianPortalStatus } from '../../utils/guardianPortalStatus.js';
@@ -3351,11 +3303,13 @@ const intakeGuardianAlreadyLinked = computed(() => {
 const canViewAdminNote = computed(() => ['super_admin', 'admin', 'support'].includes(roleNorm.value));
 const canManageClientCode = computed(() => isBackofficeRole.value || roleNorm.value === 'supervisor');
 // Support staff and CPAs terminate from this panel; assigned providers also use roster Terminate.
+const canMarkInactive=computed(()=>hasAgencyAccess.value && ['admin','support','super_admin'].includes(roleNorm.value));
 const canTerminate = computed(() => {
   if (!hasAgencyAccess.value) return false;
   if (isClientTerminated.value) return false;
   const r = roleNorm.value;
-  return ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant'].includes(r);
+  return ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant'].includes(r)
+    || (['provider','provider_plus','intern','intern_plus'].includes(r) && (Number(props.client?.provider_id)===Number(authStore.user?.id) || providerAssignments.value.some(a=>Number(a.provider_user_id)===Number(authStore.user?.id) && ![false,0,'0'].includes(a.is_active))));
 });
 const learningBillingEnabledForClient = computed(() => {
   const orgType = String(props.client?.organization_type || '').toLowerCase();
@@ -3464,7 +3418,7 @@ const loadOverviewOptions = async () => {
     overviewOrganizations.value = (orgResp.data || [])
       .filter((o) => ['school', 'program', 'learning', 'clinical'].includes(String(o?.organization_type || '').toLowerCase()))
       .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
-    overviewClientStatuses.value = (statusResp.data || []).filter((s) => s && (s.is_active === undefined || s.is_active === 1 || s.is_active === true));
+    overviewClientStatuses.value = (statusResp.data || []).filter((s) => s && (s.is_active === undefined || s.is_active === 1 || s.is_active === true) && !isClientClosureStatus(s));
     overviewInsuranceTypes.value = (insResp.data || []).filter((s) => s && (s.is_active === undefined || s.is_active === 1 || s.is_active === true));
   } catch {
     // best-effort; keep existing lists
@@ -5413,18 +5367,6 @@ const saveAdminNote = async () => {
   }
 };
 
-const archiveClient = async () => {
-  if (!canEditAccount.value) return;
-  if (!confirm('Archive this client?')) return;
-  try {
-    await api.put(`/clients/${props.client.id}/status`, { status: 'ARCHIVED' });
-    emit('updated');
-  } catch (err) {
-    console.error('Failed to archive client:', err);
-    alert(err.response?.data?.error?.message || 'Failed to archive client');
-  }
-};
-
 const unarchiveClient = async () => {
   if (!canEditAccount.value) return;
   try {
@@ -5436,36 +5378,9 @@ const unarchiveClient = async () => {
   }
 };
 
-const terminateModalOpen = ref(false);
-const terminateReasonDraft = ref('');
-const terminateSaving = ref(false);
-const openTerminateModal = () => {
-  if (!canTerminate.value) return;
-  terminateReasonDraft.value = '';
-  terminateModalOpen.value = true;
-};
-const closeTerminateModal = () => {
-  terminateModalOpen.value = false;
-  terminateReasonDraft.value = '';
-};
-const terminateClient = async () => {
-  if (!canTerminate.value || !props.client?.id) return;
-  const reason = String(terminateReasonDraft.value || '').trim();
-  if (!reason) {
-    alert('A termination reason is required.');
-    return;
-  }
-  try {
-    terminateSaving.value = true;
-    await api.post(`/clients/${props.client.id}/terminate`, { termination_reason: reason });
-    closeTerminateModal();
-    emit('updated');
-  } catch (err) {
-    alert(err.response?.data?.error?.message || 'Failed to terminate client');
-  } finally {
-    terminateSaving.value = false;
-  }
-};
+const terminateModalOpen=ref(false),closureMode=ref('terminate');
+const openTerminateModal=()=>{if(canTerminate.value){closureMode.value='terminate';terminateModalOpen.value=true;}};
+const closeTerminateModal=()=>{terminateModalOpen.value=false;};
 
 const saveSkills = async () => {
   if (!canEditAccount.value) return;
@@ -7631,6 +7546,9 @@ watch(
   border-color: rgba(230, 167, 0, 0.4);
   color: #8a5b00;
 }
+.client-care-closure { margin-top:32px;padding:20px;border-top:1px solid #e7c9c9; }
+.client-care-closure h3 { margin:0 0 8px; }
+.client-care-closure p { color:var(--text-secondary); }
 .cdp-pill--terminated {
   background: rgba(204, 61, 61, 0.10);
   border-color: rgba(204, 61, 61, 0.35);

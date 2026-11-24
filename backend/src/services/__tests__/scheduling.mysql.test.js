@@ -95,7 +95,7 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
       `CREATE TABLE provider_school_assignments (id INT PRIMARY KEY,provider_user_id INT,school_organization_id INT,day_of_week VARCHAR(32),is_active BOOLEAN,slots_total INT,slots_available INT)`,
       `CREATE TABLE client_status_history (id INT AUTO_INCREMENT PRIMARY KEY,client_id INT,changed_by_user_id INT,field_changed VARCHAR(64),from_value TEXT,to_value TEXT,note TEXT)`,
       `CREATE TABLE client_statuses (id INT PRIMARY KEY,status_key VARCHAR(64),label VARCHAR(80))`,
-      `INSERT INTO client_statuses VALUES (1,'current','Current'),(2,'terminated','Terminated')`,
+      `INSERT INTO client_statuses VALUES (1,'current','Current'),(2,'terminated','Terminated'),(3,'inactive','Inactive')`,
       `ALTER TABLE office_standing_assignments ADD COLUMN assigned_frequency VARCHAR(32) DEFAULT 'WEEKLY'`,
       `ALTER TABLE office_booking_plans ADD COLUMN booked_frequency VARCHAR(32) DEFAULT 'WEEKLY'`,
       `ALTER TABLE office_events ADD COLUMN slot_state VARCHAR(32), ADD COLUMN google_provider_event_id VARCHAR(255), ADD COLUMN source ENUM('SUPPORT','PROVIDER_REQUEST','YELLOW_CLAIM','ADMIN_OVERRIDE')`,
@@ -104,7 +104,7 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
         ADD COLUMN active_guard_end_at DATETIME GENERATED ALWAYS AS (CASE WHEN status<>'CANCELLED' THEN end_at ELSE NULL END) VIRTUAL,
         ADD UNIQUE KEY uniq_office_events_active_room_slot (active_guard_room_id,active_guard_start_at,active_guard_end_at)`,
       `ALTER TABLE appointments ADD COLUMN clinical_session_id INT, ADD COLUMN cancellation_reason VARCHAR(500), ADD COLUMN canceled_at DATETIME, ADD COLUMN canceled_by_user_id INT`,
-      `ALTER TABLE appointments ADD COLUMN notes TEXT, ADD COLUMN source VARCHAR(64), ADD COLUMN modality VARCHAR(32), ADD COLUMN service_code VARCHAR(32), ADD COLUMN tenant_service_id INT, ADD COLUMN office_location_id INT, ADD COLUMN business_type VARCHAR(64)`,
+      `ALTER TABLE appointments ADD COLUMN audio_only BOOLEAN DEFAULT FALSE, ADD COLUMN video_room_mode VARCHAR(32), ADD COLUMN notes TEXT, ADD COLUMN source VARCHAR(64), ADD COLUMN modality VARCHAR(32), ADD COLUMN service_code VARCHAR(32), ADD COLUMN tenant_service_id INT, ADD COLUMN office_location_id INT, ADD COLUMN business_type VARCHAR(64)`,
       `ALTER TABLE appointment_billing ADD COLUMN responsible_client_id INT, ADD COLUMN package_entitlement_id INT, ADD COLUMN notes VARCHAR(500)`,
       `CREATE TABLE appointment_participants (id INT AUTO_INCREMENT PRIMARY KEY,appointment_id INT,client_id INT,role VARCHAR(32) DEFAULT 'client',is_billing_responsible BOOLEAN DEFAULT FALSE)`,
       `CREATE TABLE appointment_reminders (id INT AUTO_INCREMENT PRIMARY KEY,appointment_id INT,recipient_participant_id INT,status VARCHAR(32))`,
@@ -125,6 +125,8 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
       const sql = await readFile(new URL(`../../../../database/migrations/${file}`,import.meta.url),'utf8');
       for (const statement of splitSqlStatements(stripSqlLineComments(sql))) await pool.query(statement);
     }
+    const closureSql=await readFile(new URL('../../../../database/migrations/1879_client_inactive_review.sql',import.meta.url),'utf8');
+    for(const statement of splitSqlStatements(stripSqlLineComments(closureSql)).filter(sql=>/^ALTER TABLE (clients|client_schedule_termination_jobs)\b/.test(sql.trim()))) await pool.query(statement);
     [migratedMonthly] = await pool.query('SELECT id,assigned_frequency,legacy_monthly_four_weeks FROM office_standing_assignments ORDER BY id');
     await clinicalPool.query(`CREATE TABLE clinical_notes (id INT AUTO_INCREMENT PRIMARY KEY, clinical_session_id INT, agency_id INT, client_id INT, title VARCHAR(255), note_payload LONGTEXT, metadata_json JSON, created_by_user_id INT, note_type VARCHAR(80), content_hash VARCHAR(128), provider_signed_by_user_id INT, is_billable BOOLEAN DEFAULT FALSE, is_deleted BOOLEAN DEFAULT FALSE, provider_signed_at DATETIME)`);
     await clinicalPool.query(`CREATE TABLE clinical_claims (id INT AUTO_INCREMENT PRIMARY KEY, clinical_session_id INT, agency_id INT, client_id INT, claim_number VARCHAR(120), claim_status VARCHAR(60), amount_cents INT, currency_code VARCHAR(8), claim_payload LONGTEXT, metadata_json JSON, created_by_user_id INT)`);
@@ -462,6 +464,15 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
     expect(row.sessions_remaining).toBe(5); expect(row.free_misses_remaining).toBe(2);
     const [[old]] = await pool.query('SELECT * FROM booking_package_entitlements WHERE id = 6');
     expect(old.free_misses_remaining).toBe(0); expect(old.bonus_sessions_remaining).toBe(0); lookup.mockRestore();
+  });
+
+  it('inactivation closes the roster and future care with accurate cancellation attribution',async()=>{
+    await Client.update(8,{client_status_id:3,terminated_at:new Date()},9,{hydrate:false});
+    const [[client]]=await pool.query('SELECT status,client_status_id,provider_id FROM clients WHERE id=8');
+    expect(client).toMatchObject({status:'ARCHIVED',client_status_id:3,provider_id:null});
+    const [[appointment]]=await pool.query('SELECT status,cancellation_reason,canceled_by_user_id FROM appointments WHERE id=10');
+    expect(appointment).toMatchObject({status:'canceled_by_organization',cancellation_reason:'Client made inactive',canceled_by_user_id:9});
+    const [[job]]=await pool.query('SELECT * FROM client_schedule_termination_jobs');expect(job.completed_at).toBeTruthy();
   });
 
   it('termination cancels future sessions, releases the package and restores a distinct available room without deleting history', async () => {
