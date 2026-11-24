@@ -1,5 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
+import { createPinia } from 'pinia';
 import Gallery from '../ClientDocumentsGallery.vue';
 import api from '../../../../services/api';
 
@@ -28,4 +29,16 @@ it('loads only authorized operational records for support and keeps unchecked pa
  const wrapper=mount(Gallery,{props:{clientId:42,operationalOnly:true,school:true,paperPacket:true}});await flushPromises();
  expect(api.get.mock.calls.map(([url])=>url)).toEqual(['/phi-documents/clients/42/enrollment-receipts','/clients/42/school-roi-access','/clients/42/paper-packet-documents','/phi-documents/clients/42/school-attachments']);
  const cards=wrapper.findAll('.cdg-card');expect(cards).toHaveLength(3);expect(cards[0].text()).toContain('Signed school ROI');expect(cards[1].find('button').exists()).toBe(false);expect(cards[2].find('button').attributes('disabled')).toBeUndefined();wrapper.unmount();
+});
+
+it('renders signature and upload dates in the document list', async () => {
+  api.get.mockResolvedValue({ data: { artifacts: [
+    { id: 'signed', kind: 'packet', title: 'Signed intake packet', signedAt: '2026-11-20' },
+    { id: 'uploaded', kind: 'session_material', title: 'Uploaded worksheet', uploadedAt: '2026-11-21' }
+  ] } });
+  const wrapper = mount(Gallery, { props: { clientId: 42 }, global: { plugins: [createPinia()] } });
+  await flushPromises();
+  expect(wrapper.find('.cdg-list').text()).toContain('Signed Nov 20, 2026');
+  expect(wrapper.find('.cdg-list').text()).toContain('Uploaded Nov 21, 2026');
+  wrapper.unmount();
 });

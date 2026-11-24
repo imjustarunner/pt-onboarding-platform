@@ -2,6 +2,19 @@ import pool from '../config/database.js';
 import { isDeepStrictEqual } from 'node:util';
 import { permissionsForAccessMode } from '../utils/portalRelationshipAccess.js';
 
+// Used by queries that join clients c and client_guardians cg.
+export const clientGuardianPortalLanguageSql = `COALESCE(
+  JSON_UNQUOTE(JSON_EXTRACT(IF(JSON_VALID(cg.permissions_json),cg.permissions_json,JSON_OBJECT()),'$.portalLanguage')),
+  JSON_UNQUOTE(JSON_EXTRACT(c.onboarding_docs_json,'$.paperProcessing.consentReview.locale')),
+  CASE WHEN LOWER(TRIM(c.preferred_language)) IN ('es','spanish','español') THEN 'es'
+       WHEN LOWER(TRIM(c.preferred_language)) IN ('en','english') THEN 'en' END,
+  (SELECT il.language_code FROM intake_submissions s
+   JOIN intake_links il ON il.id=s.intake_link_id
+   JOIN intake_submission_clients isc ON isc.intake_submission_id=s.id
+   WHERE isc.client_id=c.id AND s.guardian_user_id=cg.guardian_user_id AND s.status='submitted'
+   ORDER BY s.submitted_at DESC,s.id DESC LIMIT 1),
+  'en')`;
+
 class ClientGuardian {
   static _hasRelationshipTypeColumn = null;
 
@@ -291,11 +304,7 @@ class ClientGuardian {
            JOIN agencies school ON school.id=ca.organization_id AND school.organization_type='school' AND school.is_active=1
            WHERE ca.client_id=c.id AND ca.is_active=1) AS has_active_school,` : ''}
          c.guardian_portal_enabled,
-         COALESCE(JSON_UNQUOTE(JSON_EXTRACT(IF(JSON_VALID(cg.permissions_json),cg.permissions_json,JSON_OBJECT()),'$.portalLanguage')),JSON_UNQUOTE(JSON_EXTRACT(c.onboarding_docs_json,'$.paperProcessing.consentReview.locale')),CASE WHEN LOWER(TRIM(c.preferred_language)) IN ('es','spanish','español') THEN 'es' WHEN LOWER(TRIM(c.preferred_language)) IN ('en','english') THEN 'en' ELSE NULL END,(SELECT il.language_code FROM intake_submissions s
-           JOIN intake_links il ON il.id=s.intake_link_id
-           JOIN intake_submission_clients isc ON isc.intake_submission_id=s.id
-           WHERE isc.client_id=c.id AND s.guardian_user_id=cg.guardian_user_id AND s.status='submitted'
-           ORDER BY s.submitted_at DESC,s.id DESC LIMIT 1),'en') AS portal_language,
+         ${clientGuardianPortalLanguageSql} AS portal_language,
          o.name AS organization_name,
          o.organization_type AS organization_type,
          (o.is_active=1 AND COALESCE(o.is_archived,0)=0) AS organization_active,

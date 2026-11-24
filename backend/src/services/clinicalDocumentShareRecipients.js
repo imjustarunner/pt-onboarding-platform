@@ -1,6 +1,7 @@
 import {documentEmailPolicy} from './clinicalDocumentShareQa.js';
 import directory from '../config/database.js';
 import Client from '../models/Client.model.js';
+import { clientGuardianPortalLanguageSql } from '../models/ClientGuardian.model.js';
 import { ageOn } from './guardianClinicalAccess.service.js';
 import { requireGuardianPlanAccess } from './guardianPlanProgress.service.js';
 import { recipientAccess } from './safetyPlans/access.js';
@@ -20,10 +21,12 @@ async function chartContacts(clientId, agencyId) {
       client.is_archived || client.deleted_at || ['ARCHIVED','TERMINATED','DISCHARGED'].includes(String(client.status).toUpperCase())) return [];
   const [relationships] = await directory.execute(
     `SELECT cg.relationship_type, cg.access_enabled, cg.permissions_json, u.id, u.first_name, u.last_name,
-      u.email,u.portal_language,COALESCE(NULLIF(u.phone_number,''),NULLIF(u.personal_phone,'')) AS phone,
+      u.email,${clientGuardianPortalLanguageSql} AS portal_language,
+      COALESCE(NULLIF(u.phone_number,''),NULLIF(u.personal_phone,'')) AS phone,
       u.is_active,u.is_archived,u.status,u.role,u.terminated_at,u.status_expires_at,
       EXISTS (SELECT 1 FROM user_activity_log l WHERE l.user_id=u.id AND l.action_type='login') AS has_signed_in
-     FROM client_guardians cg JOIN users u ON u.id=cg.guardian_user_id WHERE cg.client_id=?`,[client.id]);
+     FROM client_guardians cg JOIN users u ON u.id=cg.guardian_user_id
+     JOIN clients c ON c.id=cg.client_id WHERE c.id=?`,[client.id]);
   const contacts = relationships.filter(row=>{
     const permissions=typeof row.permissions_json==='string'?JSON.parse(row.permissions_json):row.permissions_json||{};
     return Number(row.access_enabled)===1&&Number(row.is_active)===1&&!Number(row.is_archived)&&!row.terminated_at&&

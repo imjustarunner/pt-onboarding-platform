@@ -27,8 +27,8 @@
         <div class="cdg-card__kicker">{{ card.kindLabel || card.kind }}</div>
         <strong class="cdg-card__title">{{ card.title }}</strong>
         <div class="cdg-card__meta muted tiny">
-          <span v-if="card.signedAt">Signed {{ formatWhen(card.signedAt) }}</span>
-          <span v-else-if="card.uploadedAt">Uploaded {{ formatWhen(card.uploadedAt) }}</span>
+          <span v-if="card.signedAt">Signed {{ formatAuditTimestamp(card.signedAt) }}</span>
+          <span v-else-if="card.uploadedAt">Uploaded {{ formatAuditTimestamp(card.uploadedAt) }}</span>
           <span v-else-if="card.missing">Not on file</span>
           <span v-if="card.hasSignature" class="cdg-sig">Signature on file</span>
           <span v-if="card.kind === 'session_material' && card.available === false">Opening is unavailable. Open the session’s Supporting materials for security scan and retention status and recovery.</span>
@@ -68,7 +68,7 @@
         </div>
         <div class="modal-body">
           <p class="hint">
-            Signed {{ formatWhen(selectedPacket.signed_at) }}
+            Signed {{ formatAuditTimestamp(selectedPacket.signed_at) }}
             <span v-if="selectedPacket.master_form_version">
               · Digital form V{{ selectedPacket.master_form_version }}
             </span>
@@ -97,6 +97,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../../services/api';
+import { formatAuditTimestamp } from '../../../utils/formatDate.js';
 import { operationalClientDocuments } from '../../../utils/operationalClientDocuments.js';
 import { enrollmentReceiptCards } from '../../../utils/enrollmentReceiptCards.js';
 import { openEnrollmentReceipt } from '../../../utils/openEnrollmentReceipt.js';
