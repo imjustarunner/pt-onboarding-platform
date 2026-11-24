@@ -3,3 +3,20 @@
 @media(max-width:850px){.tw-group-layout{grid-template-columns:1fr;gap:20px}.tw-group-nav{position:static;flex-direction:row;overflow-x:auto}.tw-group-nav button{min-width:150px;max-width:220px}.tw-page{padding:24px 20px}.tw-topbar{padding:15px 20px}.tw-private{display:none}.tw-heading{flex-wrap:wrap}.tw-save{justify-content:flex-start;max-width:none}.tw-save small{text-align:left}.tw-video-row header{flex-wrap:wrap}.tw-video-row .tw-watch{margin-left:71px}.tw-tabs{gap:18px}.tw-modal{padding:12px}.tw-modal-body{padding:22px}}
 @media(max-width:520px){.tw-topbar{gap:12px;font-size:.8rem}.tw-back{font-size:.75rem}.tw-page{padding:20px 16px}.tw-practices{gap:3px;margin-bottom:25px}.tw-practices button{padding:9px 10px;font-size:.84rem}.tw-tabs{gap:15px}.tw-tabs button{font-size:.84rem}.tw-tabs button span{display:block;width:max-content;margin:5px 0 0}.tw-priority{padding:17px;gap:12px}.tw-priority h2{font-size:1rem}.tw-priority p{font-size:.86rem}.tw-checks{grid-template-columns:1fr}.tw-person{padding:10px}.tw-person-open{gap:10px!important}.tw-person-open small{font-size:.73rem}.tw-avatar{width:31px;height:31px;font-size:.66rem}.tw-person>button:last-child{padding:8px 10px;font-size:.8rem}.tw-fields>label{min-width:100%}.tw-task-list fieldset{padding:0 0 22px}.tw-video-row details{margin-left:0}.tw-play{width:42px;height:42px}.tw-video-row .tw-watch{margin-left:58px}.tw-modal-body{padding:18px}.tw-topbar .tw-wordmark{max-width:110px;text-align:right}}
 @media(max-width:520px){.tw-practices{margin-bottom:18px}.tw-board>.tw-heading{gap:10px}.tw-board>.tw-heading>div:first-child>p:not(.tw-eyebrow){font-size:.85rem;margin-bottom:0}.tw-heading h1{font-size:1.65rem;margin:5px 0 10px}.tw-save{align-items:center;gap:10px}.tw-save small{width:auto}.tw-tabs{margin:18px 0}.tw-priority{margin:18px 0}.tw-ranking{margin:18px 0}.tw-group-layout{margin-top:18px}}
+/* Each provider owns a visible assignment and checklist inside their own card. */
+.tw-person{display:block;padding:20px 22px;border-bottom:1px solid var(--tw-line)}
+.tw-person-header{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.tw-person-header .tw-person-open{min-width:230px}
+.tw-person-actions{display:flex;gap:8px;flex-wrap:wrap}
+.tw-person-actions button{font-size:.82rem;padding:8px 11px}
+.tw-person-instructions{color:var(--tw-muted);font-size:.82rem;margin:12px 0 0}
+.tw-person .tw-checklist-compact{padding:0 0 6px}
+.tw-checklist-compact .tw-fields{margin:12px 0}
+.tw-checklist-compact .tw-fields>label:first-child{flex:2}
+.tw-checklist-compact .tw-checks{margin:0 0 8px}
+.tw-checklist-compact .tw-checks label{padding:8px 0}
+.tw-person-notes summary{font-size:.82rem;color:var(--tw-green);padding:8px 0}
+.tw-person-notes textarea{margin-bottom:6px}
+.tw-checklist-compact .tw-actions{margin-top:10px}
+.tw-person .tw-person-detail{margin:20px 0 0;padding-top:18px}
+@media(max-width:520px){.tw-person{padding:15px 12px}.tw-person-header{gap:10px}.tw-person-header .tw-person-open{width:100%;min-width:0;flex-basis:100%}.tw-person-actions{width:100%}.tw-person-actions button:first-child{flex:1}.tw-checklist-compact .tw-fields{gap:10px}.tw-checklist-compact .tw-checks label{padding:8px 0}.tw-person-instructions{margin-top:14px}}
