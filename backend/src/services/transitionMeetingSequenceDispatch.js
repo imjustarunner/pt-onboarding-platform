@@ -24,6 +24,10 @@ export async function dispatchTransitionAction({plan,state,key,identity,store,ad
   const report=['rachel_roster_report','rachel_missed_report'].includes(action.kind);
   const attendee=plan.providers.find(p=>p.userId===action.userId);
   if(report ? action.userId!==plan.coordinatorUserId : !attendee||plan.hostIds.includes(action.userId))throw Error('Only campaign providers or the designated Rachel report recipient may receive these actions.');
+  if(action.kind==='submit_time_claim'&&Number(action.agencyId||2)!==2){
+    if(!attendee?.explicitAddition||attendee.payrollAgencyId!==6||action.agencyId!==6)throw Error('The payroll practice is outside this approved audience.');
+    audit.payrollAgencyId=6; // Named guest only; no host-tenant membership grant.
+  }
   // An attendance result or a newly canceled invitation may have arrived after
   // the worker read its snapshot. claim() must verify the latest state and key.
   if(!await store.claim({planId:plan.id,fingerprint:plan.fingerprint,key,revision:state.revision,audit}))return {skipped:true,reason:'already_claimed_or_changed'};

@@ -36,7 +36,7 @@ export async function trainingAccess(eventId, actor, { edit = false, visible = f
     EXISTS(SELECT 1 FROM meeting_participant_preferences p JOIN provider_schedule_event_attendees a ON a.event_id=p.event_id AND a.user_id=p.user_id WHERE p.event_id=e.id AND p.user_id=? AND p.is_cohost=1) actor_coproctor
     FROM provider_schedule_events e JOIN scheduled_trainings t ON t.event_id=e.id WHERE e.id=?`, [actor.id,actor.id,eventId]);
   const event = rows[0];
-  if (!event || !await hasActiveMeetingMembership(event.agency_id,actor.id)) throw trainingError(404, 'Training not found.');
+  if (!event || (!await hasActiveMeetingMembership(event.agency_id,actor.id)&&!await canJoinTeamMeeting(event,actor.id))) throw trainingError(404, 'Training not found.');
   const proctor = Number(event.provider_id)===Number(actor.id) || !!event.actor_coproctor;
   const visibleStaff = !['client','client_guardian','guardian','parent','family_member','school_staff','school_support','school_admin','school','kiosk','prehire','candidate'].includes(String(actor.role || '').toLowerCase());
   if (edit ? !proctor : !proctor && !event.actor_invited && !(visible && event.agency_visible && visibleStaff)) throw trainingError(403, edit ? 'Only the proctor or coproctors may change this training.' : 'You are not invited to this training.');

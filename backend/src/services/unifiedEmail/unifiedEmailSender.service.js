@@ -1039,6 +1039,8 @@ export async function sendEmailFromIdentity({
   source = 'auto',
   /** When set, replaces identity.display_name in the From header (and signature label) only. */
   fromDisplayNameOverride = null,
+  /** Scoped transition guest: inbox ownership stays in the recipient's practice. */
+  appInboxAgencyId = null,
   generatedByUserId = null,
   userId = null,
   clientId = null,
@@ -1073,6 +1075,11 @@ export async function sendEmailFromIdentity({
   await managedGroupEnvelope({ to, cc, bcc, actorUserId: generatedByUserId });
   const identity = await EmailSenderIdentity.findById(senderIdentityId);
   if (!identity) throw new Error('Sender identity not found');
+  const inboxAgencyId=Number(appInboxAgencyId||identity.agency_id);
+  if(appInboxAgencyId!=null&&inboxAgencyId!==Number(identity.agency_id)){
+    const {transitionTrainingGuestHomeAgency}=await import('../transitionMeetingGuestAccess.service.js');
+    if(Number(identity.agency_id)!==2||identity.from_email!=='transitions@auricwell.com'||source!=='auto'||inboxAgencyId!==6||await transitionTrainingGuestHomeAgency(userId)!==6)throw new Error('This recipient inbox practice is not authorized.');
+  }
   if (['school_contact_plan', 'school_contact_example'].includes(templateType)) {
     const { assertSchoolContactMailRoute } = await import('../schoolContactPlan.service.js');
     await assertSchoolContactMailRoute({ identity, providerUserId: generatedByUserId, replyTo: replyToOverride });
@@ -1555,7 +1562,7 @@ export async function sendEmailFromIdentity({
   }
 
   if (eventDelivery.appOnly && messageId && !redirected.redirected && PRIORITY_EVENT_EMAILS.has(templateType)) {
-    await savePriorityEventInboxCopy({agencyId,userId,templateType,messageId,threadId:result.data?.threadId,fromEmail:identity.from_email,replyToEmail:replyTo,subject,text:signedContent.text,html:signedContent.html,attachments}).catch(error=>console.warn('[event email] Inbox copy needs retry',userId,error.code||'persistence_failed'));
+    await savePriorityEventInboxCopy({agencyId:inboxAgencyId,userId,templateType,messageId,threadId:result.data?.threadId,fromEmail:identity.from_email,replyToEmail:replyTo,subject,text:signedContent.text,html:signedContent.html,attachments}).catch(error=>console.warn('[event email] Inbox copy needs retry',userId,error.code||'persistence_failed'));
   }
 
   if (agencyId && to) {
@@ -1587,6 +1594,7 @@ export async function sendEmailFromIdentity({
     testInboxRedirect: redirected.redirected ? { agencyId: Number(identity.agency_id), deliveredTo: extractEmailAddresses(redirected.to) } : null,
     originalTo: redirected.originalTo || null,
     bodyText: isPrivateDocument?privateBody:signedContent.text,
+    deliveredTo: deliveryEnvelope.to,
     bodyHtml: isPrivateDocument?null:signedContent.html
   };
 }

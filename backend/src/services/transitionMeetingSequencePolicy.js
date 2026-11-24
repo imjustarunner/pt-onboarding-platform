@@ -27,7 +27,9 @@ export function prepareTransitionSequence(input, snapshot, now = new Date()) {
   const hostIds=input.hostIds;
   if (!Array.isArray(hostIds) || hostIds.length!==3 || new Set(hostIds).size!==3 || hostIds.some(id=>!validId(id)||!byId.has(id))) fail('Select Megan, Rachel and Michael as three distinct active ITSCO hosts.');
   const kimiId=input.additionalGroupOneUserId;
-  if (!validId(kimiId) || !byId.has(kimiId) || hostIds.includes(kimiId)) fail('Select Kimi’s active ITSCO account for group 1.');
+  const kimiAgency=Number(input.additionalGroupOneAgencyId||2);
+  if (!validId(kimiId) || !byId.has(kimiId) || hostIds.includes(kimiId) || ![2,6].includes(kimiAgency) || Number(byId.get(kimiId)?.agencyId||2)!==kimiAgency) fail('Select Kimi’s verified practice staff account for group 1.');
+  if(hostIds.some(id=>Number(byId.get(id)?.agencyId||2)!==2))fail('Hosts must be active ITSCO practice staff.');
   if(!hostIds.includes(input.coordinatorUserId))fail('Select Rachel’s active host account for private roster and follow-up reports.');
   if (!Array.isArray(input.sessions) || input.sessions.length!==4) fail('Choose exactly four meetings: two Wednesday and two Friday.');
   const sessions=input.sessions.map((s,i)=>{
@@ -42,11 +44,11 @@ export function prepareTransitionSequence(input, snapshot, now = new Date()) {
   });
   const seen=new Set();
   const providers=snapshot.ranking.map(row=>{
-    if (!validId(row.providerId)||seen.has(row.providerId)||!byId.has(row.providerId)||!Number.isSafeInteger(row.cohort)||row.cohort<1||row.cohort>8) fail('Review the current provider payroll groups; expected unique active providers in groups 1–8.');
+    if (!validId(row.providerId)||seen.has(row.providerId)||!byId.has(row.providerId)||Number(byId.get(row.providerId)?.agencyId||2)!==2||!Number.isSafeInteger(row.cohort)||row.cohort<1||row.cohort>8) fail('Review the current provider payroll groups; expected unique active providers in groups 1–8.');
     seen.add(row.providerId);
-    return {userId:row.providerId,name:byId.get(row.providerId).name,cellPhone:byId.get(row.providerId).cellPhone||null,group:row.cohort,initialMeeting:row.cohort<=3?1:row.cohort<=6?2:3};
+    return {userId:row.providerId,name:byId.get(row.providerId).name,cellPhone:byId.get(row.providerId).cellPhone||null,payrollAgencyId:2,group:row.cohort,initialMeeting:row.cohort<=3?1:row.cohort<=6?2:3};
   }).filter(p=>!hostIds.includes(p.userId) && p.userId!==kimiId);
-  providers.push({userId:kimiId,name:byId.get(kimiId).name,cellPhone:byId.get(kimiId).cellPhone||null,group:1,initialMeeting:1,explicitAddition:true});
+  providers.push({userId:kimiId,name:byId.get(kimiId).name,cellPhone:byId.get(kimiId).cellPhone||null,payrollAgencyId:kimiAgency,group:1,initialMeeting:1,explicitAddition:true});
   if (!providers.length) fail('No eligible providers were found.');
   const inbox={senderIdentityId:input.senderIdentityId,replyTo:email(input.replyTo)};
   if (!validId(inbox.senderIdentityId)) fail('Select an approved ITSCO sender identity.');
@@ -135,7 +137,7 @@ export function transitionSequenceEvent(plan,previous,event,now=new Date()) {
     if(existing?.finalized && !same(existing.seconds,seconds))fail('Use an attendance correction and reconcile affected invitations/claims; do not overwrite final evidence.');
     state.attendance[event.meeting] ||= {finalized:true,seconds,evidence,at:stamp(now)};
     for(const [uid,secondsPresent] of Object.entries(seconds))if(secondsPresent>0&&!plan.hostIds.includes(Number(uid)))queue(state,{
-      key:keyFor(plan,'claim',Number(uid),event.meeting),kind:'submit_time_claim',userId:Number(uid),meeting:event.meeting,seconds:secondsPresent,
+      key:keyFor(plan,'claim',Number(uid),event.meeting),kind:'submit_time_claim',userId:Number(uid),agencyId:member(plan,Number(uid)).payrollAgencyId||2,meeting:event.meeting,seconds:secondsPresent,
       minutes:secondsPresent/60,hourlyRate:18,serviceCode:'MEETING',category:'Support Activity',claimStatus:'submitted',
       // Approval/payment is a separate payroll operation. An adapter must reuse
       // the existing meeting claim identity rather than create a second claim.

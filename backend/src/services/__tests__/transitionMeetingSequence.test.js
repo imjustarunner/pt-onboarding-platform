@@ -18,6 +18,13 @@ function finalize(p,s,n,seconds={},at=p.sessions[n-1]?.endAt||p.sunday.endAt){
  return transitionSequenceEvent(p,s,{type:'attendance_finalized',meeting:n,allAttendanceSourcesReviewed:true,evidence:'Synthetic attendance and in-person register verified',seconds:{...all,...seconds}},new Date(at));
 }
 describe('launch preparation',()=>{
+ it('keeps the specifically invited NLU guest in her own payroll practice and rejects foreign ranked providers or hosts',()=>{
+  const data=structuredClone(snapshot);data.staff.find(p=>p.id===99).agencyId=6;const config={...input(),additionalGroupOneAgencyId:6};
+  const p=prepareTransitionSequence(config,data,now);expect(p.providers.find(p=>p.userId===99)).toMatchObject({group:1,payrollAgencyId:6,explicitAddition:true});
+  const state=finalize(p,initial(p),1,{99:600});expect(Object.values(state.outbox).find(a=>a.kind==='submit_time_claim'&&a.userId===99)).toMatchObject({agencyId:6,hourlyRate:18,seconds:600});
+  data.staff.find(p=>p.id===1).agencyId=6;expect(()=>prepareTransitionSequence(config,data,now)).toThrow('active providers');data.staff.find(p=>p.id===1).agencyId=2;
+  data.staff.find(p=>p.id===91).agencyId=6;expect(()=>prepareTransitionSequence(config,data,now)).toThrow('Hosts');
+ });
  it('freezes provider groups, adds Kimi to group 1, and creates four independent host-only meeting manifests',()=>{
   const p=plan(),m=meetingCreationManifest(p);expect(p.providers).toHaveLength(41);expect(p.providers.find(p=>p.userId===99)).toMatchObject({group:1,initialMeeting:1,explicitAddition:true});
   expect(m).toHaveLength(4);for(const e of m){expect(e.participants).toEqual(hostIds);expect(e.recurrenceSeriesId).toBeNull();expect(e.cc).toHaveLength(3);expect(e.participantCompensation.hourlyRate).toBe(18);}

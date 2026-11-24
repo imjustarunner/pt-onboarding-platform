@@ -219,7 +219,7 @@ async function canAccessTeamMeeting(req, event) {
   const actorId = Number(req.user?.id || 0);
   if (!actorId) return false;
 
-  if (!await hasActiveMeetingMembership(event?.agency_id, actorId)) return false;
+  if (!await hasActiveMeetingMembership(event?.agency_id, actorId)) return canJoinTeamMeeting(event,actorId);
 
   const agencyId = Number(event?.agency_id || 0);
   const providerId = Number(event?.provider_id || 0);

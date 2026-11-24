@@ -3,8 +3,8 @@ import pool from '../config/database.js';
 import {encryptChatText,decryptChatText,isChatEncryptionConfigured} from './chatEncryption.service.js';
 import {prepareTransitionSequence,newTransitionSequenceState,transitionSequenceEvent,SEQUENCE_ID} from './transitionMeetingSequencePolicy.js';
 import {transitionSequenceEmail,parseTransitionReply} from '../content/transitionMeetingSequenceEmail.js';
-import {TRANSITION_INBOX,TRANSITION_LIVE_SCHEDULE} from '../content/transitionMeetingLiveConfig.js';
-import {transitionWorkspaceData} from './transitionWorkspace.service.js';
+import {TRANSITION_INBOX,TRANSITION_LIVE_SCHEDULE,TRANSITION_ADDITIONAL_PROVIDER} from '../content/transitionMeetingLiveConfig.js';
+import {transitionWorkspaceData,transitionStaff} from './transitionWorkspace.service.js';
 import {personalMeetingInvitation} from './meetingInvitations.service.js';
 import {tenantMeetingBase} from '../utils/tenantMeetingUrl.js';
 import {generateJoinToken} from '../utils/joinToken.js';
@@ -34,19 +34,27 @@ async function locked(operation){
 }
 async function identity(){const [[row]]=await pool.execute('SELECT * FROM email_sender_identities WHERE agency_id=2 AND identity_key=\'transition_sequence\' AND from_email=? AND reply_to=? AND is_active=1',[TRANSITION_INBOX,TRANSITION_INBOX]);if(!row)throw error('The dedicated transition sender and inbound route must be verified first.');const [[route]]=await pool.execute('SELECT id FROM email_inbound_routes WHERE sender_identity_id=? AND email_address=? AND is_active=1',[row.id,TRANSITION_INBOX]);if(!route)throw error('The dedicated transition inbound route is missing.');return row;}
 export async function transitionSequencePreview(now=new Date()){
- const {people}=await transitionWorkspaceData(2);
+ const {people,staff:eligible}=await transitionWorkspaceData(2);
+ const eligibleIds=eligible.map(p=>Number(p.id));if(!eligibleIds.length)throw error('No active ITSCO practice staff were found.');
  const [users]=await pool.execute(`SELECT u.id,u.first_name,u.preferred_name,u.last_name,u.email,u.work_email,u.personal_phone,u.phone_number
   FROM users u JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=2 AND ua.is_active=1
-  WHERE u.is_active=1 AND COALESCE(u.is_archived,0)=0 AND COALESCE(u.is_demo,0)=0 AND UPPER(COALESCE(u.status,'')) IN ('ACTIVE','ACTIVE_EMPLOYEE')`);
- const unique=(first,knownEmail=null)=>{const matches=users.filter(u=>knownEmail?[u.email,u.work_email].includes(knownEmail):[u.first_name,u.preferred_name].some(n=>String(n||'').trim().toLowerCase()===first.toLowerCase()));if(matches.length!==1)throw error(`Resolve the exact active ${first} account; found ${matches.length} matches.`);return matches[0].id;};
- const hostIds=[unique('Megan'),unique('Rachel'),unique('Michael','michael@plottwistco.com')],kimiId=unique('Kimi');
+  WHERE u.id IN (${eligibleIds.map(()=>'?').join(',')}) AND u.is_active=1 AND COALESCE(u.is_archived,0)=0 AND COALESCE(u.is_demo,0)=0 AND UPPER(COALESCE(u.status,'')) IN ('ACTIVE','ACTIVE_EMPLOYEE','ONBOARDING')`,eligibleIds);
+ const internalUsers=users.filter(u=>eligibleIds.includes(Number(u.id)));
+ const unique=(first,knownEmail=null)=>{const matches=internalUsers.filter(u=>knownEmail?[u.email,u.work_email].includes(knownEmail):[u.first_name,u.preferred_name].some(n=>String(n||'').trim().toLowerCase()===first.toLowerCase()));if(matches.length!==1)throw error(`Resolve the exact active ${first} account; found ${matches.length} matches.`);return matches[0].id;};
+ const hostIds=[unique('Megan'),unique('Rachel'),unique('Michael','michael@plottwistco.com')];
+ const guestEligible=await transitionStaff(TRANSITION_ADDITIONAL_PROVIDER.agencyId),guestIds=guestEligible.map(p=>Number(p.id));if(!guestIds.length)throw error('Resolve Kimi’s active NLU staff account.');
+ const [guestRows]=await pool.execute(`SELECT u.id,u.first_name,u.preferred_name,u.last_name,u.email,u.work_email,u.personal_phone,u.phone_number FROM users u
+  JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=? AND ua.is_active=1 WHERE u.id IN (${guestIds.map(()=>'?').join(',')}) AND u.is_active=1 AND COALESCE(u.is_archived,0)=0
+  AND (LOWER(u.email)=? OR LOWER(u.work_email)=?)`,[TRANSITION_ADDITIONAL_PROVIDER.agencyId,...guestIds,TRANSITION_ADDITIONAL_PROVIDER.email,TRANSITION_ADDITIONAL_PROVIDER.email]);
+ const guests=guestRows.filter(u=>guestIds.includes(Number(u.id)));if(guests.length!==1)throw error('Resolve Kimi’s exact active NLU staff account.');const kimi=guests[0],kimiId=Number(kimi.id);
+ const neededIds=new Set([...people.map(p=>Number(p.providerId)),...hostIds]);
  const staff=[];
- for(const u of users)staff.push({id:Number(u.id),name:[u.preferred_name||u.first_name,u.last_name].filter(Boolean).join(' '),email:deliveryEmail(u),cellPhone:u.personal_phone||u.phone_number||null});
+ for(const u of [...internalUsers.filter(u=>neededIds.has(Number(u.id))),kimi])staff.push({id:Number(u.id),agencyId:Number(u.id)===kimiId?6:2,name:[u.preferred_name||u.first_name,u.last_name].filter(Boolean).join(' '),email:deliveryEmail(u),cellPhone:u.personal_phone||u.phone_number||null});
  const sender=await identity();
  const ready={senderApproved:true,replyInboxMonitored:true,inboundRoutingTested:true,rsvpEmailAndAppTested:true,hostCcTested:true,attendanceFinalizationTested:true,supportActivity18Tested:true,automationIdentityScoped:true};
  // Activation requires the real round-trip setup proof, not just these values.
  const setup=await stored();if(!isVerifiedTransitionSmtpSetup(setup?.data?.setup,sender.id))throw error('Confirm the dedicated SMTP sender, group settings, membership and real inbox delivery before activating.');
- return prepareTransitionSequence({agencyId:2,hostIds,coordinatorUserId:hostIds[1],additionalGroupOneUserId:kimiId,senderIdentityId:Number(sender.id),replyTo:TRANSITION_INBOX,
+ return prepareTransitionSequence({agencyId:2,hostIds,coordinatorUserId:hostIds[1],additionalGroupOneUserId:kimiId,additionalGroupOneAgencyId:6,senderIdentityId:Number(sender.id),replyTo:TRANSITION_INBOX,
   sessions:TRANSITION_LIVE_SCHEDULE,sundayLocation:'Windchime office (ask Rachel for the office address)',sundayEndAt:'2026-11-29T09:30:00-07:00',readiness:ready},
   {agencyId:2,staff,ranking:people.map(p=>({providerId:p.providerId,cohort:p.cohort}))},now);
 }
@@ -95,11 +103,11 @@ export async function createEvent(db,plan,session){
  for(const uid of plan.hostIds){if(uid!==plan.hostIds[2])await db.execute('INSERT INTO provider_schedule_event_attendees(event_id,user_id) VALUES(?,?)',[id,uid]);await db.execute('INSERT INTO meeting_participant_preferences(event_id,user_id,is_required,is_cohost) VALUES(?,?,0,1)',[id,uid]);}
  await db.execute('INSERT INTO transition_meeting_sequence_events(sequence_id,meeting_number,event_id) VALUES(?,?,?)',[SEQUENCE_ID,session.number,id]);return id;
 }
-async function liveMember(uid,db=pool){const [[u]]=await db.execute(`SELECT u.id,u.email,u.work_email,u.first_name,u.preferred_name,u.last_name FROM users u JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=2 AND ua.is_active=1 WHERE u.id=? AND u.is_active=1 AND COALESCE(u.is_archived,0)=0 AND UPPER(COALESCE(u.status,'')) IN ('ACTIVE','ACTIVE_EMPLOYEE')`,[uid]);if(!u)throw error('The recipient is no longer active in ITSCO.');return u;}
+async function liveMember(uid,plan,db=pool){const p=plan?.providers.find(p=>p.userId===Number(uid));const agencyId=p?.explicitAddition&&p.payrollAgencyId===6?6:2;if(!(await transitionStaff(agencyId,db)).some(p=>p.id===Number(uid)))throw error('The recipient is no longer active practice staff.');const [[u]]=await db.execute(`SELECT u.id,u.email,u.work_email,u.first_name,u.preferred_name,u.last_name FROM users u JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=? AND ua.is_active=1 WHERE u.id=? AND u.is_active=1 AND COALESCE(u.is_archived,0)=0 AND UPPER(COALESCE(u.status,'')) IN ('ACTIVE','ACTIVE_EMPLOYEE','ONBOARDING')`,[agencyId,uid]);if(!u)throw error('The recipient is no longer active practice staff.');return u;}
 async function eventFor(number,db=pool){const [[e]]=await db.execute('SELECT e.* FROM transition_meeting_sequence_events m JOIN provider_schedule_events e ON e.id=m.event_id WHERE m.sequence_id=? AND m.meeting_number=? AND e.agency_id=2',[SEQUENCE_ID,number]);return e;}
 async function linksFor(event,uid){const invitation=await personalMeetingInvitation(event,uid,{queue:false});const base=await tenantMeetingBase(2),path=`${base}/join/invitation/${encodeURIComponent(invitation.join_token)}`;return {invitation,acceptedUrl:`${path}?rsvp=1&eventId=${event.id}&response=accepted`,declinedUrl:`${path}?rsvp=1&eventId=${event.id}&response=declined`};}
 async function deliver(data,action){
- const {plan}=data;const user=await liveMember(action.userId);const sender=await identity();let links={};
+ const {plan}=data;const user=await liveMember(action.userId,plan);const sender=await identity();let links={};
  if(action.kind==='submit_time_claim')return upsertClaim(plan,action);
  if(action.kind==='withdraw_invitation'){
   const event=await eventFor(action.meeting);await pool.execute('DELETE FROM provider_schedule_event_attendees WHERE event_id=? AND user_id=?',[event.id,action.userId]);await pool.execute('UPDATE meeting_participant_preferences SET rsvp=\'declined\',rsvp_at=UTC_TIMESTAMP() WHERE event_id=? AND user_id=?',[event.id,action.userId]);return {status:'created',reference:`withdrawn:${event.id}:${action.userId}`};
@@ -115,22 +123,27 @@ async function deliver(data,action){
  const recipientEmail=deliveryEmail(user);
  const {sendEmailFromIdentity}=await import('./unifiedEmail/unifiedEmailSender.service.js');
  const result=await sendEmailFromIdentity({senderIdentityId:sender.id,to:recipientEmail,cc:content.cc,subject:content.subject,text:content.text,html:content.html,internetMessageIdOverride:action.internetMessageId,
-  replyToOverride:TRANSITION_INBOX,source:'auto',userId:action.userId,generatedByUserId:null,templateType:'meeting_invited'});
+  replyToOverride:TRANSITION_INBOX,source:'auto',userId:action.userId,appInboxAgencyId:plan.providers.find(p=>p.userId===action.userId)?.payrollAgencyId||2,generatedByUserId:null,templateType:'meeting_invited'});
+ const delivered=Array.isArray(result?.deliveredTo)&&result.deliveredTo.length===1?result.deliveredTo[0]:result?.deliveredTo;
+ if(typeof delivered==='string')action.deliveryAddress=(delivered.match(/<([^<>]+)>/)?.[1]||delivered).trim().toLowerCase();
  return verifiedTransitionDeliveryReceipt(result,action);
 }
 export async function upsertClaim(plan,action){
  if(plan.hostIds.includes(action.userId))throw error('Hosts are excluded from participant claims.');const event=await eventFor(action.meeting);
+ const participant=plan.providers?.find(p=>p.userId===action.userId),agencyId=Number(participant?.payrollAgencyId||2);
+ if(agencyId!==2&&!(agencyId===6&&participant?.explicitAddition))throw error('The payroll practice is outside this approved training audience.');
+ if(action.agencyId&&Number(action.agencyId)!==agencyId)throw error('Reconcile the participant payroll practice before creating a claim.');
  const db=await pool.getConnection();try{
   await db.beginTransaction();const [[link]]=await db.execute('SELECT claim_id FROM transition_meeting_claim_links WHERE event_id=? AND user_id=? FOR UPDATE',[event.id,action.userId]);if(link){await db.commit();return {status:'submitted',reference:`claim:${link.claim_id}`};}
-  const [[old]]=await db.execute(`SELECT id FROM payroll_time_claims WHERE agency_id=2 AND user_id=? AND claim_type='meeting_training' AND CAST(JSON_UNQUOTE(JSON_EXTRACT(payload_json,'$.scheduleEventId')) AS UNSIGNED)=? LIMIT 1 FOR UPDATE`,[action.userId,event.id]);if(old)throw error('An existing meeting claim needs reconciliation; no duplicate was created.');
-  const payload={source:'meeting_compensation_auto',scheduleEventId:event.id,serviceCode:'MEETING',totalMinutes:action.seconds/60,transitionSequence:SEQUENCE_ID,automation:{actorType:'automation',subject:subject()},attendanceSeconds:action.seconds};
-  const [r]=await db.execute(`INSERT INTO payroll_time_claims(agency_id,user_id,submitted_by_user_id,status,claim_type,claim_date,payload_json) VALUES(2,?,NULL,'submitted','meeting_training',?,?)`,[action.userId,new Intl.DateTimeFormat('en-CA',{timeZone:'America/Denver',year:'numeric',month:'2-digit',day:'2-digit'}).format(parseUtcDate(event.start_at)),JSON.stringify(payload)]);
+  const [[old]]=await db.execute(`SELECT id FROM payroll_time_claims WHERE user_id=? AND claim_type='meeting_training' AND CAST(JSON_UNQUOTE(JSON_EXTRACT(payload_json,'$.scheduleEventId')) AS UNSIGNED)=? LIMIT 1 FOR UPDATE`,[action.userId,event.id]);if(old)throw error('An existing meeting claim needs reconciliation; no duplicate was created.');
+  const payload={source:'meeting_compensation_auto',scheduleEventId:event.id,meetingAgencyId:2,serviceCode:'MEETING',totalMinutes:action.seconds/60,transitionSequence:SEQUENCE_ID,automation:{actorType:'automation',subject:subject()},attendanceSeconds:action.seconds};
+  const [r]=await db.execute(`INSERT INTO payroll_time_claims(agency_id,user_id,submitted_by_user_id,status,claim_type,claim_date,payload_json) VALUES(?,?,NULL,'submitted','meeting_training',?,?)`,[agencyId,action.userId,new Intl.DateTimeFormat('en-CA',{timeZone:'America/Denver',year:'numeric',month:'2-digit',day:'2-digit'}).format(parseUtcDate(event.start_at)),JSON.stringify(payload)]);
   await db.execute('INSERT INTO transition_meeting_claim_links(sequence_id,event_id,user_id,claim_id,rate_amount,attendance_seconds) VALUES(?,?,?,?,18,?)',[SEQUENCE_ID,event.id,action.userId,r.insertId,action.seconds]);await db.commit();return {status:'submitted',reference:`claim:${r.insertId}`};
  }catch(e){await db.rollback();throw e;}finally{db.release();}
 }
 export async function transitionClaimRate(claim,db=pool){
- if(Number(claim.agency_id)!==2)return null;
- try{const [[r]]=await db.execute('SELECT rate_amount FROM transition_meeting_claim_links WHERE sequence_id=? AND claim_id=? AND user_id=?',[SEQUENCE_ID,claim.id,claim.user_id]);return r?Number(r.rate_amount):null;}catch(e){if(e.code==='ER_NO_SUCH_TABLE')return null;throw e;}
+ if(![2,6].includes(Number(claim.agency_id)))return null;
+ try{const [[r]]=await db.execute('SELECT l.rate_amount FROM transition_meeting_claim_links l JOIN payroll_time_claims c ON c.id=l.claim_id AND c.user_id=l.user_id WHERE l.sequence_id=? AND l.claim_id=? AND l.user_id=? AND c.agency_id=?',[SEQUENCE_ID,claim.id,claim.user_id,Number(claim.agency_id)]);return r?Number(r.rate_amount):null;}catch(e){if(e.code==='ER_NO_SUCH_TABLE')return null;throw e;}
 }
 export async function processTransitionSequence(){
  // Only the exact live HTTP revision may dispatch; the separately authenticated
@@ -185,8 +198,8 @@ export async function handleTransitionInbound({agencyId,senderIdentityId,fromEma
   // communication Message-ID, never just a name or a forged subject line.
   const original=Object.values(row.data.state.outbox).find(a=>a.internetMessageId===String(inReplyTo||'').trim()&&a.status==='sent'&&!a.kind.startsWith('rachel_'));
   const p=plan.providers.find(p=>p.userId===Number(original?.userId));if(!p)return {handled:true,review:true};
-  const user=await liveMember(p.userId);
-  const command=parseTransitionReply({bodyText,verifiedThreadRecipient:deliveryEmail(user)===String(fromEmail).toLowerCase(),automated,authenticatedSender});
+  const user=await liveMember(p.userId,plan);
+  const command=parseTransitionReply({bodyText,verifiedThreadRecipient:(original.deliveryAddress||deliveryEmail(user))===String(fromEmail).trim().toLowerCase(),automated,authenticatedSender});
   if(['ignore','review'].includes(command.kind))return {handled:true,review:true};
   const last=Object.values(row.data.state.issued).filter(i=>i.userId===p.userId&&!i.withdrawn).sort((a,b)=>b.meeting-a.meeting)[0];
   if(!last)return {handled:true,review:true};

@@ -8,6 +8,7 @@ import { canAccessHiringInterview } from './hiringInterviewAccess.service.js';
 import VideoMeetingActivity from '../models/VideoMeetingActivity.model.js';
 import { mapMeetingAgendaItem } from '../models/MeetingAgendaItem.model.js';
 import { hasActiveMeetingMembership } from './meetingJoinPolicy.service.js';
+import {hasTransitionTrainingGuestAccess,transitionGuestTrainingEventIds} from './transitionMeetingGuestAccess.service.js';
 import TeamArtifact from '../models/ProviderScheduleEventArtifact.model.js';
 import SupervisionArtifact from '../models/SupervisionSessionArtifact.model.js';
 import SupervisionPersonalNote from '../models/SupervisionSessionPersonalNote.model.js';
@@ -50,17 +51,19 @@ const interviewColumn = type => type === 'team' ? 'hi.id AS interview_id,' : '';
 export async function listMyMeetings({ agencyId, userId, actor = { id: userId }, offset = 0, category = '', from = '', to = '', search = '' }) {
   if (!await hasActiveMeetingMembership(agencyId, userId)) deny();
   const meetings = [];
+  const guestIds=Number(agencyId)===6?await transitionGuestTrainingEventIds(userId,6):[];
   for (const type of ['team','supervision']) {
     const s = sources[type];
+    const guests=type==='team'?guestIds:[],scope=guests.length?`(m.agency_id=? OR m.id IN (${guests.map(()=>'?').join(',')}))`:'m.agency_id=?';
     const [rows] = await pool.execute(`SELECT m.id,m.agency_id,m.start_at,m.end_at,m.status,
       ${type === 'team' ? "m.title,m.kind,m.meeting_subtype,m.meeting_completed_at," : "m.session_type,m.live_ended_at,m.event_timezone,COALESCE(NULLIF(supervisee.preferred_name,''),supervisee.first_name) AS supervisee_first_name,"}
       ${interviewColumn(type)} CONCAT_WS(' ',COALESCE(NULLIF(host.preferred_name,''),host.first_name),host.last_name) AS facilitator,
       j.status AS summary_status FROM ${s.table} m
       LEFT JOIN meeting_summary_jobs j ON j.meeting_type=? AND j.meeting_id=m.id
       LEFT JOIN users host ON host.id=m.${s.host} ${interviewJoin(type)} ${type === 'supervision' ? 'LEFT JOIN users supervisee ON supervisee.id=m.supervisee_user_id' : ''}
-      WHERE m.agency_id=? AND (${attendedSql(type)} OR (${invitedRecordSql(type,userId)} AND m.start_at<UTC_TIMESTAMP()))
+      WHERE ${scope} AND (${attendedSql(type)} OR (${invitedRecordSql(type,userId)} AND m.start_at<UTC_TIMESTAMP()))
       AND (?='' OR m.start_at>=?) AND (?='' OR m.start_at<DATE_ADD(?,INTERVAL 1 DAY))`,
-      [type,Number(agencyId),...attendanceArgs(userId),from,from || null,to,to || null]);
+      [type,Number(agencyId),...guests,...attendanceArgs(userId),from,from || null,to,to || null]);
     for (const row of rows) {
       const category = meetingCategory(type, row);
       if (category === 'interview' && !await allowedInterview(row.id, actor)) continue;
@@ -112,7 +115,7 @@ export async function requireAttendedMeeting(type, id, userId, actor = { id: use
   const [rows] = await pool.execute(`SELECT m.*, ${interviewColumn(type)} CONCAT_WS(' ',COALESCE(NULLIF(host.preferred_name,''),host.first_name),host.last_name) AS facilitator
     FROM ${s.table} m LEFT JOIN users host ON host.id=m.${s.host} ${interviewJoin(type)}
     WHERE m.id=? AND ${attendedSql(type)} LIMIT 1`, [Number(id),...attendanceArgs(userId)]);
-  if (!rows[0] || !await hasActiveMeetingMembership(rows[0].agency_id,userId)) deny();
+  if (!rows[0] || (!await hasActiveMeetingMembership(rows[0].agency_id,userId)&&!(type==='team'&&await hasTransitionTrainingGuestAccess(rows[0],userId)))) deny();
   if (meetingCategory(type, rows[0]) === 'interview' && !await allowedInterview(id, actor)) deny();
   return rows[0];
 }
@@ -128,7 +131,7 @@ export async function myMeetingDetail(type,id,userId,actor = { id: userId }) {
     if(error.status!==403)throw error;
     const source=sources[type]; if(!source)deny();
     const [[invited]]=await pool.execute(`SELECT m.*, CONCAT_WS(' ',COALESCE(NULLIF(host.preferred_name,''),host.first_name),host.last_name) facilitator FROM ${source.table} m LEFT JOIN users host ON host.id=m.${source.host} WHERE m.id=? AND ${invitedRecordSql(type,userId)}`,[Number(id)]);
-    if(!invited || invited.meeting_subtype==='interview' || invited.interview_id || !await hasActiveMeetingMembership(invited.agency_id,userId))deny();
+    if(!invited || invited.meeting_subtype==='interview' || invited.interview_id || (!await hasActiveMeetingMembership(invited.agency_id,userId)&&!(type==='team'&&await hasTransitionTrainingGuestAccess(invited,userId))))deny();
     meeting=invited;attended=false;
   }
   const s = sources[type];

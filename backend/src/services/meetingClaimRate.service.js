@@ -32,7 +32,7 @@ export async function getMeetingClaimRateOverride(claim) {
 export async function meetingClaimHourlyRate(claim, override = undefined) {
   const chosen = override === undefined ? await getMeetingClaimRateOverride(claim) : override;
   if (chosen?.rate_type === 'custom') return positiveRate(chosen.hourly_rate);
-  if(Number(claim.agency_id)===2 && claim.payload?.transitionSequence==='itsco-auricwell-2026-11-30-v2'){
+  if([2,6].includes(Number(claim.agency_id)) && claim.payload?.transitionSequence==='itsco-auricwell-2026-11-30-v2'){
     const rate=await (await import('./transitionMeetingSequenceLive.service.js')).transitionClaimRate(claim);
     if(rate!==null)return rate;
   }

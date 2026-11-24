@@ -3,6 +3,7 @@ import { supervisionCalendarStaffSql } from '../utils/supervisionCalendarAudienc
 import pool from '../config/database.js';
 import { parseMeetingSettings } from './meetingSettingsPolicy.js';
 import { isAuricwellQaAgency, allowQaExchangeRecipient } from '../utils/auricwellQaPolicy.js';
+import {hasTransitionTrainingGuestAccess} from './transitionMeetingGuestAccess.service.js';
 
 // Room access follows the current account and roster, never the role of a URL.
 // Shared by access checks and agenda scope discovery. A directory affiliation is
@@ -51,7 +52,7 @@ export async function hasActiveMeetingMembership(agencyId, userId) {
 }
 
 export async function canJoinTeamMeeting(event, userId) {
-  if (!await hasActiveMeetingMembership(event.agency_id, userId)) return false;
+  if (!await hasActiveMeetingMembership(event.agency_id, userId)) return hasTransitionTrainingGuestAccess(event,userId);
   if (Number(event.provider_id) === Number(userId)) return true;
   const [rows] = await pool.execute(
     'SELECT 1 FROM provider_schedule_event_attendees WHERE event_id=? AND user_id=? LIMIT 1',

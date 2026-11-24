@@ -1,5 +1,6 @@
 export const TRANSITION_INBOX = 'transitions@auricwell.com';
 export const TRANSITION_AUTOMATION = 'auricwell-transition-sequence@ptonboard-dev.iam.gserviceaccount.com';
+export const TRANSITION_ADDITIONAL_PROVIDER = Object.freeze({agencyId:6,email:'kimi@nextleveluplcc.com'});
 export const TRANSITION_LIVE_SCHEDULE = [
  ['2026-11-25T11:00:00-07:00','2026-11-25T12:30:00-07:00'],
  ['2026-11-25T14:00:00-07:00','2026-11-25T15:30:00-07:00'],

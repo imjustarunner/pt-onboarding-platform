@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import pool from '../config/database.js';
 import { createScheduledTraining, trainingRoster, trainingAccess, trainingError } from '../services/scheduledTraining.service.js';
 import { hasActiveMeetingMembership } from '../services/meetingJoinPolicy.service.js';
+import {transitionGuestTrainingEventIds} from '../services/transitionMeetingGuestAccess.service.js';
 import Storage from '../services/storage.service.js';
 import Vonage from '../services/vonageVideo.service.js';
 export const getTrainingRoster = async(req,res,next) => { try { res.json({people:await trainingRoster(Number(req.query.agencyId),req.user)}); } catch(e){next(e);} };
@@ -106,8 +107,10 @@ export const trainingLogs = async(req,res,next) => {
   try {
     const agencyId=Number(req.query.agencyId);
     if(!await hasActiveMeetingMembership(agencyId,req.user.id))throw trainingError(403,'Access denied.');
+  const guests=agencyId===6?await transitionGuestTrainingEventIds(req.user.id,agencyId):[];
+  const scope=guests.length?`(l.agency_id=? OR l.event_id IN (${guests.map(()=>'?').join(',')}))`:'l.agency_id=?';
     const [logs]=await pool.execute(`SELECT l.*,e.title,e.start_at,e.event_timezone FROM scheduled_training_logs l JOIN provider_schedule_events e ON e.id=l.event_id
-      WHERE l.agency_id=? AND l.user_id=? AND l.attendance_seconds>0 ORDER BY e.start_at DESC LIMIT 250`,[agencyId,req.user.id]);res.json({logs});
+      WHERE ${scope} AND l.user_id=? AND l.attendance_seconds>0 ORDER BY e.start_at DESC LIMIT 250`,[agencyId,...guests,req.user.id]);res.json({logs});
   }catch(e){next(e);}
 };
 export const trainingCalendar = async(req,res,next) => {
@@ -115,10 +118,12 @@ export const trainingCalendar = async(req,res,next) => {
   const agencyId=Number(req.query.agencyId);
   if(['client','client_guardian','guardian','parent','family_member','school_staff','school_support','school_admin','school','kiosk','prehire','candidate'].includes(String(req.user.role || '').toLowerCase()))throw trainingError(403,'Staff access required.');
   if(!await hasActiveMeetingMembership(agencyId,req.user.id))throw trainingError(403,'Access denied.');
-  const [events]=await pool.execute(`SELECT e.id,e.title,e.start_at,e.end_at,e.event_timezone,
+  const guests=agencyId===6?await transitionGuestTrainingEventIds(req.user.id,agencyId):[];
+  const scope=guests.length?`(e.agency_id=? OR e.id IN (${guests.map(()=>'?').join(',')}))`:'e.agency_id=?';
+  const [events]=await pool.execute(`SELECT e.id,e.agency_id,e.title,e.start_at,e.end_at,e.event_timezone,
     (e.provider_id=? OR EXISTS(SELECT 1 FROM provider_schedule_event_attendees a WHERE a.event_id=e.id AND a.user_id=?)) invited
-    FROM scheduled_trainings t JOIN provider_schedule_events e ON e.id=t.event_id WHERE e.agency_id=? AND e.status='ACTIVE' AND e.end_at>UTC_TIMESTAMP()
-    AND (t.agency_visible=1 OR e.provider_id=? OR EXISTS(SELECT 1 FROM provider_schedule_event_attendees a WHERE a.event_id=e.id AND a.user_id=?)) ORDER BY e.start_at LIMIT 120`,[req.user.id,req.user.id,agencyId,req.user.id,req.user.id]);res.json({events});
+    FROM scheduled_trainings t JOIN provider_schedule_events e ON e.id=t.event_id WHERE ${scope} AND e.status='ACTIVE' AND e.end_at>UTC_TIMESTAMP()
+    AND (t.agency_visible=1 OR e.provider_id=? OR EXISTS(SELECT 1 FROM provider_schedule_event_attendees a WHERE a.event_id=e.id AND a.user_id=?)) ORDER BY e.start_at LIMIT 120`,[req.user.id,req.user.id,agencyId,...guests,req.user.id,req.user.id]);res.json({events});
  }catch(e){next(e);}
 };
 
