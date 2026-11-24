@@ -26,3 +26,8 @@ it('rejects acceptance after the first date registration deadline even from a la
  await expect(saveTrainingRsvp({...event,start_at:'2099-10-01 18:00:00'},4,'accepted')).rejects.toMatchObject({status:409});
  expect(m.execute.mock.calls.some(([sql])=>sql.startsWith('INSERT'))).toBe(false);
 });
+
+it('permits an immediate No for this ITSCO transition only without weakening ordinary mandatory training',async()=>{
+ await expect(saveTrainingRsvp({...event,agency_id:2,meeting_settings_json:{transitionSequence:'itsco-auricwell-2026-11-30'}},4,'declined')).resolves.toMatchObject({response:'declined'});
+ await expect(saveTrainingRsvp({...event,agency_id:6,meeting_settings_json:{transitionSequence:'itsco-auricwell-2026-11-30'}},4,'declined')).rejects.toMatchObject({status:400});
+});

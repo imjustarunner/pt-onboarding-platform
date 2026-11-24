@@ -1181,6 +1181,17 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
     const agencyName = agency?.name || 'your organization';
 
     const bodyText = pickBodyText(payload);
+    if(identity?.identity_key==='transition_sequence'&&Number(agencyId)===2){
+      try{
+        const {authenticatedFamilySender}=await import('../familyEmailPolicy.js');
+        const result=await (await import('../transitionMeetingSequenceLive.service.js')).handleTransitionInbound({agencyId,senderIdentityId,fromEmail:rawFromEmail,bodyText,headers:payload?.headers||[],gmailMessageId:id,inReplyTo:hdrs.get('in-reply-to'),automated:!!hdrs.get('auto-submitted')&&hdrs.get('auto-submitted')!=='no',authenticatedSender:authenticatedFamilySender(payload?.headers||[],rawFromEmail)});
+        if(result?.retry||result?.busy)continue;
+        if(result?.handled){
+          if(result.review)continue; // Keep unusual replies visible and unread for Rachel.
+          await gmail.users.messages.modify({userId:'me',id,requestBody:{removeLabelIds:['UNREAD'],addLabelIds:[processedLabelId]}});continue;
+        }
+      }catch(error){console.warn('[Transition inbound] Review needed',error.code||error.status||'reply_failed');continue;}
+    }
 
     // Private family commands precede the outbound-identity filter: a parent may also
     // have a personal sending identity. Use the actual From, never a rewritten Reply-To.

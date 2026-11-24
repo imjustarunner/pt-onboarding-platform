@@ -17,7 +17,9 @@ export async function saveTrainingRsvp(event, userId, response, reason = '') {
   if (declineReason.length > 2000) throw Object.assign(new Error('Keep your reason under 2,000 characters.'), { status: 400 });
   if (response === 'declined') {
     const [preferences] = await pool.execute('SELECT is_required FROM meeting_participant_preferences WHERE event_id=? AND user_id=?', [event.id,userId]);
-    if (Number(preferences[0]?.is_required) === 1 && !declineReason) throw Object.assign(new Error('Please explain why you cannot attend this mandatory training.'), { status: 400 });
+    const settings=typeof event.meeting_settings_json==='string'?JSON.parse(event.meeting_settings_json):event.meeting_settings_json;
+    const transition=Number(event.agency_id)===2&&settings?.transitionSequence==='itsco-auricwell-2026-11-30';
+    if (Number(preferences[0]?.is_required) === 1 && !declineReason && !transition) throw Object.assign(new Error('Please explain why you cannot attend this mandatory training.'), { status: 400 });
   }
   const [result] = await pool.execute(`INSERT INTO meeting_participant_preferences (event_id,user_id,rsvp,rsvp_at,rsvp_decline_reason)
     SELECT e.id,?,?,UTC_TIMESTAMP(),? FROM scheduled_trainings t

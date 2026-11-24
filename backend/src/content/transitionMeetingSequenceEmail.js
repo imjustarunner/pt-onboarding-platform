@@ -80,6 +80,7 @@ export function transitionSequenceEmail(plan,action,links={}) {
       'All notes are still due Sunday, November 29 by 10 p.m. Mountain Time. Everyone is expected to be ready to work in AuricWell on Monday morning.',...TRANSITION_EXPECTATIONS];
     if(plan.videoUrl)buttons=[{label:'Watch the example video',href:link(plan.videoUrl)}];
   } else throw Error('This action is not an email.');
+  if(action.kind==='meeting_invitation')subject=`PLEASE READ THIS ENTIRE EMAIL — RSVP REQUIRED | ${subject}`;
   return {subject,toUserId:person.userId,cc:plan.hosts.map(p=>p.email),replyTo:plan.inbox.replyTo,senderIdentityId:plan.inbox.senderIdentityId,
     text:paragraphs.join('\n\n')+'\n\n'+buttons.map(b=>`${b.label}: ${b.href}`).join('\n'),
     html:renderTransitionMeetingEmail({subject,paragraphs,buttons,invitation:action.kind==='meeting_invitation'}),buttons};

@@ -8,6 +8,19 @@ export async function verifyWorkspaceRelaySender(address, { env = process.env, d
   if (!/^[a-z0-9.!#$%&'*+\/=?^_`{|}~-]+@[a-z0-9.-]+$/.test(from) || from.startsWith('ai@') || !domains.includes(from.split('@')[1])) {
     throw relayError('EMAIL_SENDER_FORBIDDEN', 'The Workspace relay sender is not permitted.');
   }
+  if(from==='transitions@auricwell.com'){
+    db ||= (await import('../config/database.js')).default;
+    const [[sender]]=await db.execute("SELECT id FROM email_sender_identities WHERE agency_id=2 AND identity_key='transition_sequence' AND LOWER(from_email)=? AND is_active=1",[from]);
+    if(!sender)throw relayError('EMAIL_SENDER_UNVERIFIED','The dedicated transition sender has not completed setup.');
+    // Verify this exact Group as its existing NONHUMAN app manager. Do not use
+    // Directory's human-admin delegation path for transition automation.
+    const {google}=await import('../utils/googleApis.js');
+    const {buildImpersonatedJwtClient}=await import('./googleWorkspaceAuth.service.js');
+    const auth=await buildImpersonatedJwtClient({subjectEmail:'ai@plottwistco.com',scopes:['https://www.googleapis.com/auth/apps.groups.settings']});
+    const {data:group}=await google.groupssettings({version:'v1',auth}).groups.get({groupUniqueId:from});
+    if(group.email!==from)throw relayError('EMAIL_SENDER_UNVERIFIED','The dedicated transition Group did not verify.');
+    return {transport:'workspace_smtp_relay',groupId:from};
+  }
   directory ||= (await import('./googleWorkspaceDirectory.service.js')).default;
   db ||= (await import('../config/database.js')).default;
   const [identities] = await db.execute('SELECT id FROM email_sender_identities WHERE LOWER(from_email)=? AND is_active=1 LIMIT 1', [from]);

@@ -128,7 +128,7 @@ describe('provider-facing emails and inbound choices',()=>{
  const links={acceptedUrl:'https://example.test/personal/yes',declinedUrl:'https://example.test/personal/no',options:{sunday:'https://example.test/personal/sunday'},noneUrl:'https://example.test/personal/none'};
  it('personalizes initial invitations, shows two RSVP choices, CCs the hosts and omits future times and pay',()=>{
   const p=plan(),s=initial(p);for(const action of invites(s)){
-   const msg=transitionSequenceEmail(p,action,links);expect(msg.buttons.map(b=>b.label)).toEqual(['I will be there','I can’t make it']);expect(msg.cc).toHaveLength(3);expect(msg.replyTo).toBe('transition@example.test');expect(msg.text).toContain('10 p.m.');expect(msg.text).toContain('Transitioned to AuricWell');expect(msg.text).not.toMatch(/\$18|payroll|Support Activity|Sunday.*8 a.m./);expect(msg.text).toContain('as soon as possible');
+   const msg=transitionSequenceEmail(p,action,links);expect(msg.subject).toMatch(/^PLEASE READ THIS ENTIRE EMAIL — RSVP REQUIRED/);expect(msg.html).toContain('PLEASE READ THIS ENTIRE EMAIL — RSVP REQUIRED');expect(msg.buttons.map(b=>b.label)).toEqual(['I will be there','I can’t make it']);expect(msg.cc).toHaveLength(3);expect(msg.replyTo).toBe('transition@example.test');expect(msg.text).toContain('10 p.m.');expect(msg.text).toContain('Transitioned to AuricWell');expect(msg.text).not.toMatch(/\$18|payroll|Support Activity|Sunday.*8 a.m./);expect(msg.text).toContain('as soon as possible');
   }
  });
  it('uses different wording for makeup and final invitations and retains expectations',()=>{

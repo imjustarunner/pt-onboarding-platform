@@ -1,6 +1,6 @@
 # ITSCO transition meetings — November 25–30, 2026
 
-**Status: implementation and test package; no meetings, emails, claims or inbox have been created by this branch.** Production integration and activation belong to the separate release chat. This package supplies a tested planning/state library, dispatcher contract, invitation/report content, offline visual previews and the launch request. It does not install a live scheduler, a reply webhook, calendar endpoints or a database store.
+**Status: live integration implemented; activation is gated by verified inbox setup.** The latest user instruction authorizes commit, push and production deployment from this chat. The implementation now includes durable encrypted state/audit tables, a scoped Cloud Run job, calendar creation, the actual sender/inbound route, RSVP and reply processing, conditional reports and attendance claims. Do not describe meetings or email as sent until their receipts confirm it.
 
 ## Confirmed schedule
 
@@ -16,7 +16,7 @@ All times are Mountain Time. The user selected the start times and video-only fo
 
 Megan, Rachel and Michael host the four video meetings and are CC'd on provider emails. Resolve each person to their actual active ITSCO account and approved delivery address; do not guess between duplicate names. Sunday is Michael's office help session; confirm other hosts' availability separately.
 
-Use **transitions@auricwell.com** as the dedicated sender/reply inbox, owned/administered by **admin@itsco.health**. Both are user-approved addresses. The new inbox is **not yet provisioned**. See `inbox-setup.json`. This is separate from `portal@auricwell.com`, whose normal route is used for family portal correspondence.
+Use **transitions@auricwell.com** as the dedicated sender/reply inbox, owned/administered by **admin@itsco.health**. Google Cloud Identity has created the new Group. Google rejected the requested admin address as owner because it is itself a Group. The user’s actual account **michael@plottwistco.com** is now its verified owner; **admin@itsco.health** is a member, and the nonhuman **ai@plottwistco.com** application transport is a manager. Sender and routing setup are verified separately before activation. See `inbox-setup.json`. This is separate from `portal@auricwell.com`, whose normal route is used for family portal correspondence.
 
 ## Invitation rules
 
@@ -48,7 +48,7 @@ Providers confirm actual next-week dates/times, series exceptions, school closur
 
 All outstanding notes are due **Sunday, November 29 at 10 p.m. MT**. Include corrections and needed supervisor/signature follow-up. Optional administrative transition notes may say **“Transitioned to AuricWell”** in each applicable area. They are not a mandatory clinical discharge. After source records are preserved and the destination schedule is checked, cancel/remove duplicate **future** TherapyNotes sessions from November 30; preserve history, notes and charts.
 
-Target access retirement is **Monday, November 30 between midnight and 5 a.m. MT**, after record, schedule, family, billing and login checks. The sequence library does **not** suspend Google users, cancel TherapyNotes, delete sessions, sign notes or automatically mark provider/client checklists complete. The transition lead needs a documented exception path if a critical readiness check fails.
+Target access retirement is **Monday, November 30 between midnight and 5 a.m. MT**, after record, schedule, family, billing and login checks. The meeting workflow does **not** suspend Google users, cancel TherapyNotes, delete sessions, sign notes or automatically mark provider/client checklists complete. The transition lead needs a documented exception path if a critical readiness check fails.
 
 ## Attendance compensation
 
@@ -58,20 +58,22 @@ The live claim adapter must upsert using the existing **agency + meeting + provi
 
 The current generic training path treats optional/student attendance and some host compensation differently and does not supply this exact campaign policy. Test campaign scoping so the requested explicit compensation does not change unrelated trainings. `PayrollTimeClaim.create` currently defaults a missing submitter to the provider; an automation adapter must **not** use that fallback. Record `submitted_by_user_id=NULL` plus explicit automation identity/audit evidence through an authorized scoped path, or stop the claim operation. Do not attribute agent work to a host or provider.
 
-## Required release integration before activation
+## Live setup and activation
 
-This branch intentionally contains no production side effects. The release chat must supply and test:
+Migration **1881_transition_meeting_sequence.sql** creates four additive tables: encrypted sequence state, append-only automation audit, event mapping and a claim/rate mapping. It does not activate or send anything. The backend's existing invitation worker polls only an explicitly active sequence.
 
-- A normal authenticated administrative setup path that resolves the roster, hosts, Rachel's account, Kimi and current staff cell numbers within agency 2. Fill `launch-request.json` and preserve the frozen campaign snapshot. Fields are unresolved deliberately, not fabricated.
-- The dedicated inbox/group, approved owner and staff access, verified sender, outbound CC and Reply-To, inbound delivery, threading/authentication and a real round-trip test. Use a normal authorized administrator session or explicitly scoped nonhuman provisioning identity. The repository's existing Directory helper impersonates an administrator and is not an agent access path under AGENTS.md.
-- Four actual independent events and actual personal invitation tokens. Attach the **same** Yes/No state to the email and My Schedule. The preview links are `example.invalid` and unusable. Email GET previews/scanners must not change RSVP; use the existing personal capability and deliberate response POST, with a visible result. Test the exact number of user clicks before calling it “one-click.”
-- A durable encrypted sequence store with an atomic revision check/lock and atomic state/outbox save. No database migration is added here; choose an approved existing store or add/test the schema in the integration branch. In-memory state alone is unsuitable.
-- An outbox worker with scoped automation attribution and durable idempotency keys for events, membership, emails and claims. `dispatchTransitionAction` supplies the contract. Claim against the latest state; hold uncertain outcomes in review and reconcile receipts before retrying. Do not blindly resend after a timeout.
-- Concrete `inviteToMeeting`, `withdrawInvitation`, `sendSequenceEmail`, and `upsertAttendanceClaim` adapters. Recheck active memberships and agency scope on every operation. Do not send placeholder links, ignore an approval hold, or treat an email queue entry as delivery.
-- Hooks for app/email RSVP, authenticated threaded replies, original and revised Rachel rosters, all-source final attendance and scheduler ticks. Final reports wait for opportunity 4's attendance review. A worker must stop sending outdated invitations when their start time passes.
-- An updated recording/watch URL and the readiness owners' actual records/schedule work. Dry-run the live audience counts before activation; the visual preview contains fictional names and phones only.
+1. Deploy this branch with the migration. `configureTransitionRuntime.mjs --dry-run` identifies the required runtime configuration without printing values. The apply mode uploads only the necessary values through stdin to Secret Manager and creates the dedicated Cloud Run job. Its service account is **auricwell-transition-sequence@ptonboard-dev.iam.gserviceaccount.com**. The job checks its actual metadata identity and permits only the fixed setup/preview/activate/tick/status operations.
+2. Run job mode **setup**. It configures only transitions@auricwell.com, acting as the existing nonhuman app mailbox (not a human administrator). It restricts membership/history, allows provider replies, verifies the exact Gmail send-as identity, and tests Group-to-app inbox delivery. It registers the exact agency-2 sender/inbound route and encrypted setup proof only after that test succeeds. Never mark a failed routing test passed.
+3. Run mode **preview**. Resolve unique active Megan/Rachel/Kimi accounts and Michael's known account, freeze the current authorized payroll groups and actual staff contact details. It outputs counts/host identities, not a phone-list dump. An ambiguous name or unexpected ninth group stops for review.
+4. Run mode **activate** once. Four independent events are created transactionally with null human creation actors and actual hosts/cohosts. The worker creates each personal membership/capability and sends the branded invitation through the verified app sender, with deterministic RFC Message-IDs, actual recipient addresses, correct CC and Reply-To. Repeated activation returns the existing mapping.
+5. App and personal email RSVP share the existing response tables. This campaign permits No without a mandatory reason; ordinary mandatory training retains its reason requirement. Email landing-page loads/scanners never write an RSVP; a deliberate response click submits the choice. Test the full recipient flow before calling the email interaction “one-click.”
+6. Every minute, the worker imports RSVP choices, queues alternatives, and sends pending outbox items once. Exact RFC threading and authenticated sender checks bind email choices to the original recipient. Unclear/unverified replies remain unread for Rachel. An uncertain send is held for review and is never blindly resent.
+7. For the four app-video-only opportunities, a host's explicit End meeting plus a successful attendance-segment rebuild establishes the single attendance source. Only then are absent invitees recorded as zero and follow-ups/reports released. Automatic expiry alone does not establish host-reviewed attendance. Sunday in-person records require an actual reviewed register; scheduled time is never substituted.
+8. Participant claims are inserted with a null human submitter and explicit automation evidence, plus a protected database link to the actual $18 rate. Existing/edited/approved/paid claims are preserved for reconciliation. The generic training compensation worker is disabled only for these campaign events to avoid duplicate claims. The rate resolver honors the protected mapping; client-submitted payload alone cannot establish the rate.
 
-No route, cron hook, identity, migration, inbox or live adapter is registered automatically by importing this branch's modules. The release chat must finish that integration; this is not a claim that the full live automation is already installed.
+Operational status should show the actual inbox proof, event IDs, delivery receipts, review holds, attendance status and claims. Publishing code alone is not evidence that the invitations were delivered. The video still needs to be recorded/reviewed/uploaded and its real link supplied; current video-route wording does not claim that an unavailable video was sent.
+
+All production actions must retain actual Cloud IAM attribution or the named nonhuman application identity, with no copied human sessions, forged app credentials or fabricated human audit actors.
 
 ## Validation
 

@@ -76,7 +76,7 @@ const attendees=computed(()=>state.value?.participants.filter(p=>!p.isHost && !N
 const declining=ref(false),declineReason=ref(''),rsvpSaving=ref(false),reasonInput=ref(null);
 const myInvitation=computed(()=>state.value?.viewerInvitation || state.value?.participants.find(p=>Number(p.id)===Number(state.value?.viewerUserId || auth.user?.id)));
 const myResponseLabel=computed(()=>({accepted:'Attending',declined:'Not attending',pending:'Pending'})[myInvitation.value?.rsvp] || 'Pending');
-async function startDecline(){if(!Number(myInvitation.value?.is_required))return rsvp('declined');declineReason.value=myInvitation.value?.rsvp_decline_reason || '';declining.value=true;await nextTick();reasonInput.value?.focus();}
+async function startDecline(){if(state.value?.event?.transitionSequence || !Number(myInvitation.value?.is_required))return rsvp('declined');declineReason.value=myInvitation.value?.rsvp_decline_reason || '';declining.value=true;await nextTick();reasonInput.value?.focus();}
 const visibleResponses=computed(()=>state.value?.participants.filter(p=>state.value?.canSeeDeclined || p.rsvp==='accepted') || []);
 const myHand=computed(()=>state.value?.hands.find(p=>Number(p.user_id)===Number(state.value?.viewerUserId || auth.user?.id)));
 const raisedHands=computed(()=>state.value?.hands.filter(p=>p.status==='raised') || []);
@@ -95,7 +95,7 @@ watch(()=>props.eventId,()=>{state.value=null;refresh=createMeetingRefresh();voi
 watch(()=>props.live,live=>{clearInterval(timer);if(live)timer=setInterval(load,10000);},{immediate:true});
 onUnmounted(()=>clearInterval(timer));
 async function rsvp(response){
- if(rsvpSaving.value || (response==='declined' && Number(myInvitation.value?.is_required) && !declineReason.value.trim()))return;
+ if(rsvpSaving.value || (response==='declined' && !state.value?.event?.transitionSequence && Number(myInvitation.value?.is_required) && !declineReason.value.trim()))return;
  rsvpSaving.value=true;error.value='';
  try{
   const reason=response==='declined'?declineReason.value.trim():'';

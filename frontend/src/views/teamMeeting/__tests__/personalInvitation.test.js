@@ -117,3 +117,9 @@ it.each(['1','absence'])('lets an optional invitee stop reminders immediately wi
  expect(m.post).toHaveBeenCalledWith('/meeting-invitations/personal/rsvp',{eventId:19,response:'declined',reason:''},{skipAuthRedirect:true});
  wrapper.unmount();
 });
+
+it('shows RSVP REQUIRED and saves a transition No with one deliberate response click and no reason form',async()=>{
+ Object.assign(m.query,{rsvp:'1',eventId:'19',response:'declined'});m.get.mockResolvedValue({data:{meeting:{transitionSequence:true,attendance:{tier:'mandatory',label:'Required'},title:'ITSCO transition'}}});m.post.mockResolvedValue({data:{ok:true}});
+ const w=render();await flushPromises();expect(w.get('h1').text()).toContain('RSVP REQUIRED');expect(w.find('textarea').exists()).toBe(false);expect(m.post).not.toHaveBeenCalled();
+ await w.findAll('button').find(b=>b.text()==='I can’t make it').trigger('click');await flushPromises();expect(m.post).toHaveBeenCalledWith('/meeting-invitations/personal/rsvp',{eventId:19,response:'declined',reason:''},{skipAuthRedirect:true});w.unmount();
+});

@@ -15,7 +15,7 @@ export function renderTransitionMeetingEmail({subject,paragraphs,buttons,invitat
 <table role="presentation" class="aw-shell" width="680" cellspacing="0" cellpadding="0" style="width:100%;max-width:680px;background:white;border-radius:18px;overflow:hidden;border:1px solid #e3e8f0">
 <tr><td align="center" style="padding:20px"><table role="presentation" cellspacing="0" cellpadding="0"><tr><td><img src="https://auricwell.com/auricwell/logo.png" width="78" alt="AuricWell" style="width:78px;height:auto;display:block;border:0"></td><td class="aw-brand" style="padding-left:12px;font-size:42px;font-weight:700;color:#082e6c">AuricWell</td></tr></table></td></tr>
 <tr><td class="aw-pad" style="padding:32px;background:#073275;background-image:linear-gradient(125deg,#052453,#0852a9);border-bottom:6px solid #f3bf36">
-<p style="margin:0 0 12px;color:#ffdc75;font-size:12px;font-weight:700;letter-spacing:2px">ITSCO · PROVIDER TRANSITION</p>
+<p style="margin:0 0 12px;color:#ffdc75;font-size:12px;font-weight:700;letter-spacing:2px">${invitation?'PLEASE READ THIS ENTIRE EMAIL — RSVP REQUIRED':'ITSCO · PROVIDER TRANSITION'}</p>
 <h1 class="aw-title" style="margin:0;color:white;font-size:37px;line-height:1.16;font-weight:700">Goodbye, TherapyNotes.<br>Hello, <span style="color:#ffd052">AuricWell.</span></h1>
 <p style="margin:18px 0 0;color:white;font-size:17px;line-height:1.5">Training, hands-on practice, and help for your move.</p></td></tr>
 <tr><td class="aw-pad" style="padding:28px 32px 16px">${primary.map((p,i)=>invitation&&i===2?`<p style="margin:18px 0;padding:18px;background:#f5f8fc;border-left:4px solid #efb629;border-radius:6px;font-size:18px;line-height:1.55;font-weight:700;color:#082e6c">${esc(p)}</p>`:paragraph(p)).join('')}</td></tr>

@@ -1,14 +1,14 @@
 <template>
   <main class="invitation-page">
-    <h1>Your meeting invitation</h1>
+    <h1>{{ meeting?.transitionSequence ? 'RSVP REQUIRED — AuricWell transition' : 'Your meeting invitation' }}</h1>
     <p v-if="meeting?.recipientName">Personal invitation for {{ meeting.recipientName }}. This link opens only your invited meeting; it does not sign you into the app.</p>
     <section v-if="meeting?.attendance" aria-label="Your attendance requirement">
       <h2>{{ meeting.attendance.label }}</h2>
       <p>{{ meeting.attendance.description }}</p>
       <p>RSVP confirms your plans; it does not record attendance time.</p>
     </section>
-    <section v-if="(route.query.rsvp || route.name === 'InterviewRsvp') && !rsvpSaved && !signInRequired && (meeting || route.name === 'InterviewRsvp')"><p>Please confirm your response for this meeting.</p><button class="btn btn-primary" :disabled="saving" @click="respond('accepted')">I’m attending</button> <button v-if="meeting?.attendance?.tier !== 'optional'" class="btn btn-secondary" :disabled="saving" @click="declining = true">Decline</button> <button v-else class="btn btn-secondary" :disabled="saving" @click="respond('declined')">Not interested · Stop reminders</button>
-      <div v-if="declining">
+    <section v-if="(route.query.rsvp || route.name === 'InterviewRsvp') && !rsvpSaved && !signInRequired && (meeting || route.name === 'InterviewRsvp')"><p>Please confirm your response for this meeting.</p><button class="btn btn-primary" :disabled="saving" @click="respond('accepted')">I’m attending</button> <button v-if="meeting?.attendance?.tier !== 'optional'" class="btn btn-secondary" :disabled="saving" @click="meeting?.transitionSequence ? respond('declined') : declining = true">{{ meeting?.transitionSequence ? 'I can’t make it' : 'Decline' }}</button> <button v-else class="btn btn-secondary" :disabled="saving" @click="respond('declined')">Not interested · Stop reminders</button>
+      <div v-if="declining && !meeting?.transitionSequence">
         <fieldset v-if="meeting?.canSkipRecurring" class="absence-options">
           <legend>Which dates can’t you attend?</legend>
           <label><input v-model="absenceScope" type="radio" value="occurrence" /> This date only</label>

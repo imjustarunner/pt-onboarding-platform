@@ -115,6 +115,7 @@ router.get('/:token', async (req,res,next) => {
       }
       const format = new Intl.DateTimeFormat('en-US', {dateStyle:'full', timeStyle:'short', timeZone:tz});
       return res.json({meeting:{
+        transitionSequence:Number(event.agency_id)===2&&(typeof event.meeting_settings_json==='string'?JSON.parse(event.meeting_settings_json):event.meeting_settings_json)?.transitionSequence==='itsco-auricwell-2026-11-30',
         isTraining:event.meeting_subtype==='training',
         recipientName:recipient?.name || '',
         agenda:agendaRows.map(mapMeetingAgendaItem).map(i=>({title:i.title})),
