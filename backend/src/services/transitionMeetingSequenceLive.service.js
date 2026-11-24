@@ -76,6 +76,7 @@ export async function createEvent(db,plan,session){
  VALUES(2,?,'TEAM_MEETING','training',?,?,?,?,'America/Denver','ACTIVE',0,0,?,?,?, ?,1,0,1,?,NULL,NULL)`,
  [plan.hostIds[2],`ITSCO → AuricWell transition · opportunity ${session.number}`,'PLEASE READ THIS ENTIRE EMAIL — RSVP REQUIRED. Confirm intakes, treatment plans, clients, next-week sessions, email, messages, notes and non-Google access.',mysqlTime(session.startAt),mysqlTime(session.endAt),session.modality==='in_person'?0:1,token,token,generateJoinToken(),JSON.stringify(settings)]);
  const id=result.insertId;
+ if(session.modality==='in_person')await db.execute('UPDATE provider_schedule_events SET location_text=? WHERE id=?',[session.location||plan.sunday?.location||'Windchime office',id]);
  await db.execute('INSERT INTO scheduled_trainings(event_id,series_key,topic,agency_visible,video_default_on,video_allowed,mute_all) VALUES(?,?,?,0,0,1,0)',[id,randomUUID(),'ITSCO transition readiness']);
  for(const uid of plan.hostIds){if(uid!==plan.hostIds[2])await db.execute('INSERT INTO provider_schedule_event_attendees(event_id,user_id) VALUES(?,?)',[id,uid]);await db.execute('INSERT INTO meeting_participant_preferences(event_id,user_id,is_required,is_cohost) VALUES(?,?,0,1)',[id,uid]);}
  await db.execute('INSERT INTO transition_meeting_sequence_events(sequence_id,meeting_number,event_id) VALUES(?,?,?)',[SEQUENCE_ID,session.number,id]);return id;
@@ -165,6 +166,7 @@ export async function processTransitionSequence(){
 }
 export async function handleTransitionInbound({agencyId,senderIdentityId,fromEmail,bodyText,headers=[],gmailMessageId,inReplyTo,automated=false,authenticatedSender=false}){
  if(Number(agencyId)!==2)return {handled:false};const sender=await identity().catch(()=>null);if(!sender||Number(senderIdentityId)!==Number(sender.id))return {handled:false};
+ if(automated)return {handled:true,ignored:true};
  return locked(async db=>{
   const row=await stored(db);if(!row?.data?.plan||row.status!=='active')return {handled:true,retry:true};const {plan}=row.data;
   // Require the actual provider's resolved address AND an original campaign

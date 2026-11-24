@@ -18,6 +18,7 @@ describe.skipIf(!port)('native MySQL transition runtime',()=>{
   admin=await mysql.createConnection({host:'127.0.0.1',port,user:'root',multipleStatements:true});name=`transition_live_${process.pid}`;await admin.query(`CREATE DATABASE \`${name}\``);m.pool=mysql.createPool({host:'127.0.0.1',port,user:'root',database:name,multipleStatements:true});
   await m.pool.query(await fs.readFile(new URL('../../../../database/migrations/1881_transition_meeting_sequence.sql',import.meta.url),'utf8'));
   await m.pool.query(`CREATE TABLE provider_schedule_events(id INT PRIMARY KEY AUTO_INCREMENT,agency_id INT,provider_id INT,kind VARCHAR(30),meeting_subtype VARCHAR(30),title VARCHAR(200),description TEXT,start_at DATETIME,end_at DATETIME,event_timezone VARCHAR(60),status VARCHAR(20),all_day TINYINT,is_private TINYINT,platform_video_link TINYINT,join_token VARCHAR(40),participant_join_token VARCHAR(40),host_join_token VARCHAR(40),waiting_room_enabled TINYINT,notify_participants TINYINT,attendance_tracking_enabled TINYINT,meeting_settings_json JSON,created_by_user_id INT NULL,updated_by_user_id INT NULL);
+   ALTER TABLE provider_schedule_events ADD COLUMN location_text VARCHAR(500) NULL;
    CREATE TABLE scheduled_trainings(event_id INT,series_key VARCHAR(100),topic TEXT,agency_visible TINYINT,video_default_on TINYINT,video_allowed TINYINT,mute_all TINYINT);
    CREATE TABLE provider_schedule_event_attendees(event_id INT,user_id INT,UNIQUE KEY(event_id,user_id));
    CREATE TABLE meeting_participant_preferences(event_id INT,user_id INT,is_required TINYINT,is_cohost TINYINT,UNIQUE KEY(event_id,user_id));
@@ -34,6 +35,9 @@ describe.skipIf(!port)('native MySQL transition runtime',()=>{
   const receipt=await upsertClaim(plan,{meeting:1,userId:1,seconds:1800});expect(receipt.status).toBe('submitted');expect(await upsertClaim(plan,{meeting:1,userId:1,seconds:1800})).toEqual(receipt);
   const [[claim]]=await m.pool.execute('SELECT * FROM payroll_time_claims WHERE user_id=1');expect(claim.submitted_by_user_id).toBeNull();expect(claim.status).toBe('submitted');expect(claim.payload_json.totalMinutes).toBe(30);expect(claim.payload_json.automation.actorType).toBe('automation');expect(await transitionClaimRate(claim)).toBe(18);
   expect(await transitionClaimRate({...claim,user_id:999})).toBeNull();
+ });
+ it('puts the conditional Sunday fallback at Windchime without a video link',async()=>{
+  const c=await m.pool.getConnection();try{await c.beginTransaction();const id=await createEvent(c,plan,{number:5,startAt:'2026-11-29T15:00:00Z',endAt:'2026-11-29T16:30:00Z',modality:'in_person',location:'Windchime office'});await c.commit();const [[e]]=await m.pool.execute('SELECT platform_video_link,location_text FROM provider_schedule_events WHERE id=?',[id]);expect(e).toEqual({platform_video_link:0,location_text:'Windchime office'});}finally{c.release();}
  });
  it('preserves unrelated/approved claims and excludes all hosts from participant claims',async()=>{
   for(const userId of [91,92,93])await expect(upsertClaim(plan,{meeting:1,userId,seconds:900})).rejects.toThrow('Hosts');
