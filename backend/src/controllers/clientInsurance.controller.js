@@ -1,3 +1,4 @@
+import { readChartRecord } from '../services/clientChartRecordRead.service.js';
 import pool from '../config/database.js';
 import ClientPhiDocument from '../models/ClientPhiDocument.model.js';
 import {coverageInsuranceFingerprint as coverageFingerprint} from '../utils/paperInsuranceReviewGate.js';
@@ -42,8 +43,9 @@ async function getInsurance(req,res,next,support=false) {
     const policies=submitted.map(row=>{const value=decodeInsuranceProfile(row);return{id:row.id,submittedBy:[row.first_name,row.last_name].filter(Boolean).join(' '),primary:value.primary || {},secondary:value.secondary || null,hasCardEvidence:!!value.primary_card_front_url,cardEvidence:Object.fromEntries(['primary_front','primary_back','secondary_front','secondary_back'].map(slot=>[slot,!!value[`${slot.replace('_','_card_')}_url`]]))};});
     const findings=!support || insurance?.paperReviewRequired ? await readEligibilityProfile({...c,fingerprint:coverageFingerprint(insurance)}) : [];
     const eligibilityStatus=await paperInsuranceStatus({...c,insurance,findings},pool);
+    const insuranceHandoff = support ? null : (await readChartRecord(c, 'insuranceHandoff')).value;
     await auditBilling({...c,userId:req.user.id,action:'staff_view_insurance'});
-    res.set('Cache-Control','no-store').json({insurance:support?supportInsurance(insurance):insurance,policies,demographics,payers,paperCoverage,eligibilityStatus,...(support?{}:{insuranceFingerprint:coverageFingerprint(insurance),missingClaimFields:claimInsuranceIssues(insurance?.primary),eligibilityFindings:findings})});
+    res.set('Cache-Control','no-store').json({insurance:support?supportInsurance(insurance):insurance,policies,demographics,payers,paperCoverage,eligibilityStatus,...(support?{}:{insuranceHandoff,insuranceFingerprint:coverageFingerprint(insurance),missingClaimFields:claimInsuranceIssues(insurance?.primary),eligibilityFindings:findings})});
   } catch(e){next(e);}
 }
 async function saveInsurance(req,res,next,support=false) {

@@ -244,3 +244,49 @@ it('uses fresh merge pastes and preserves saved drafts and insurance slots left 
  }),expect.anything());
  wrapper.unmount();
 });
+
+it('sends only the unresolved policy to Billing and completes the import while coverage review is pending',async()=>{
+  mocks.post.mockImplementation(async (url,body)=>{
+    if(url.endsWith('/sections/insurance')){
+      if(body.deferToBilling)return {data:{result:{taskId:91}}};
+      if(body.position==='primary')throw Error('Choose the client’s relationship to the subscriber.');
+    }
+    return {data:{result:{}}};
+  });
+  const wrapper=mount(Panel,{props:{open:true,clientId:12,agencyId:2,creationFlow:true,autoImport:false,onlySections:['insurance']},global:{stubs}});
+  await flushPromises();
+  await wrapper.get('textarea[data-section=insurance]').setValue('Example Plan: Primary\nMember ID\nTEST\nPolicy Holder\nUnclear');
+  await wrapper.get('textarea[data-section=secondaryInsurance]').setValue('Other Plan: Secondary\nMember ID\nTEST2\nPolicy Holder\nSelf');
+  await wrapper.findAll('button').find(b=>b.text()==='Import insurance').trigger('click');
+  await flushPromises();
+  expect(wrapper.text()).toContain('Choose the client’s relationship to the subscriber.');
+  expect(wrapper.text()).toContain('Secondary insurance imported.');
+  await wrapper.findAll('button').find(b=>b.text()==='Send primary insurance to Billing').trigger('click');
+  await flushPromises();
+  expect(mocks.post).toHaveBeenCalledWith('/clients/12/chart-import/sections/insurance',
+    expect.objectContaining({position:'primary',deferToBilling:true,text:expect.stringContaining('Unclear')}),expect.anything());
+  expect(wrapper.text()).toContain('Sent to Billing · Task #91');
+  await wrapper.findAll('button').find(b=>b.text()==='Finish client import').trigger('click');
+  await confirmCompletion(wrapper);
+  expect(mocks.post).toHaveBeenCalledWith('/clients/12/chart-import/complete',{keptBlankSections:[]},expect.anything());
+  expect(wrapper.emitted('imported')).toHaveLength(1);
+  wrapper.unmount();
+});
+
+it('restores the Billing handoff on reload and requires new review after changing the policy paste',async()=>{
+  const text='Example Plan: Secondary\nMember ID\nTEST2\nPolicy Holder\nUnclear';
+  mocks.get.mockResolvedValue({data:{drafts:{insurance:{revision:1,billingTaskIds:{secondary:91},value:{
+    position:'secondary',text,coverageDrafts:{primary:{text:'',imported:false},secondary:{text,imported:false}}
+  }}}}});
+  const wrapper=mount(Panel,{props:{open:true,clientId:12,agencyId:2,creationFlow:true,autoImport:false,onlySections:['insurance']},global:{stubs}});
+  await flushPromises();
+  expect(wrapper.text()).toContain('Sent to Billing · Task #91');
+  const section=wrapper.get('textarea[data-section=secondaryInsurance]').element.parentElement.parentElement;
+  await wrapper.findAll('select').find(select=>section.contains(select.element)).setValue('self');
+  expect(wrapper.get('textarea[data-section=secondaryInsurance]').element.value).toContain('Relationship to Subscriber:\tself');
+  expect(wrapper.text()).toContain('Self coverage uses the client’s saved name, birth date and address');
+  expect(wrapper.text()).not.toContain('Sent to Billing · Task #91');
+  await wrapper.findAll('button').find(b=>b.text()==='Finish client import').trigger('click');
+  expect(wrapper.findAll('button').find(b=>b.text()==='Complete records import').attributes('disabled')).toBeDefined();
+  wrapper.unmount();
+});

@@ -5,7 +5,9 @@ const m=vi.hoisted(()=>({execute:vi.fn(),getConnection:vi.fn(),readInsurance:vi.
 vi.mock('../insuranceVerificationTask.service.js',()=>({queueInsuranceVerificationSafely:m.queueBilling}));
 vi.mock('../intakeEligibility.service.js',()=>({enqueueIntakeEligibility:m.enqueue}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute,getConnection:m.getConnection}}));
-vi.mock('../clientInsurance.service.js',()=>({readClientInsurance:m.readInsurance,writeClientInsurance:m.writeInsurance}));
+vi.mock('../clientInsurance.service.js', async importOriginal => ({
+ ...await importOriginal(), readClientInsurance:m.readInsurance, writeClientInsurance:m.writeInsurance
+}));
 vi.mock('../clientContactAffiliation.service.js',()=>({upsertClientAffiliatedContact:m.upsert}));
 vi.mock('../../models/ClientContactAffiliation.model.js',()=>({default:{listForClient:m.contacts}}));
 vi.mock('../../models/ClientGuardian.model.js',()=>({default:{listForClient:m.links}}));
@@ -13,7 +15,7 @@ vi.mock('../../models/Client.model.js',()=>({default:{findById:m.client}}));
 vi.mock('../guardianAccountPreparation.service.js',()=>({prepareGuardianAccount:m.prepareGuardian}));
 import {encryptDemographicsPayload} from '../demographicsImport.service.js';
 import {exactCatalogPayer} from '../../utils/chartPayerLink.js';
-import { readChartRecord,saveChartRecord,importSupplementaryChartSection,automaticallyLinkChartPayers } from '../clientChartImport.service.js';
+import { handOffChartInsurance,readChartRecord,saveChartRecord,importSupplementaryChartSection,automaticallyLinkChartPayers } from '../clientChartImport.service.js';
 const scope={clientId:12,agencyId:2};
 let db, stored;
 beforeEach(()=>{
@@ -190,4 +192,41 @@ it('links CCHA secondary coverage with the verified COCHA ID despite a missing s
  m.readInsurance.mockResolvedValue({...saved,secondary:{...saved.secondary,payerId:'',payerCatalogId:''}});
  expect(await automaticallyLinkChartPayers(scope,10)).toMatchObject({linked:['secondary'],unresolved:['primary']});
  expect(exactCatalogPayer({insurerName:'COLORADO COMMUNITYHEALTH ALLIANCE'},[{name:'Colorado Community Health Alliance',payerId:'COCHA'}])).toBeNull();
+});
+
+it.each(['Self (Patient)', 'Test Patient'])('uses the saved child demographics for a commercial policy with holder %s', async holder => {
+ const original=m.execute.getMockImplementation();
+ m.execute.mockImplementation(async(sql,args)=>sql.startsWith('SELECT full_name')
+  ? [[{full_name:'Test Patient',date_of_birth:'2013-01-01',address_street:'101 Example St',address_city:'Denver',address_state:'CO',address_zip:'80202'}]]
+  : original(sql,args));
+ m.readInsurance.mockResolvedValue({patient:{firstName:'Test',lastName:'Patient'},secondary:{memberId:'SECOND'}});
+ await importSupplementaryChartSection(scope,'insurance',`Example Plan: Primary\nMember ID\nTEST123\nPolicy Holder\n${holder}`,10);
+ expect(m.writeInsurance).toHaveBeenCalledWith(expect.objectContaining({
+  primary:expect.objectContaining({memberId:'TEST123',relationshipToSubscriber:'self'}),
+  patient:expect.objectContaining({dateOfBirth:'2013-01-01',addressLine1:'101 Example St',postalCode:'80202'}),
+  secondary:{memberId:'SECOND'},verifiedForClaims:false
+ }),db);
+});
+
+it('does not borrow the child’s birth date for a policy held by another person', async () => {
+ const policy='Example Plan: Primary\nMember ID\nTEST123\nPolicy Holder\nSomeone Else';
+ await expect(importSupplementaryChartSection(scope,'insurance',policy,10)).rejects.toMatchObject({status:400});
+ expect(m.writeInsurance).not.toHaveBeenCalled();
+ await importSupplementaryChartSection(scope,'insurance',`${policy}\nRelationship to Subscriber:\tchild`,10);
+ expect(m.writeInsurance.mock.calls[0][0].primary).toMatchObject({relationshipToSubscriber:'child'});
+ expect(m.writeInsurance.mock.calls[0][0].primary.subscriberDob).toBeUndefined();
+});
+
+it('routes separate policies to Billing while retaining both original pastes in the encrypted chart', async () => {
+ await expect(handOffChartInsurance(scope,'primary','Synthetic primary insurance',10)).resolves.toEqual({taskId:44});
+ await expect(handOffChartInsurance(scope,'secondary','Synthetic secondary insurance',10)).resolves.toEqual({taskId:44});
+ expect(m.queueBilling).toHaveBeenCalledWith({...scope,actorUserId:10,reason:'records_import_handoff'});
+ expect(stored.get('2:12:insuranceHandoff:0').payload_enc).not.toContain('Synthetic');
+ expect((await readChartRecord(scope,'insuranceHandoff')).value).toMatchObject({
+  primary:{taskId:44,text:'Synthetic primary insurance'},secondary:{taskId:44,text:'Synthetic secondary insurance'}
+ });
+ expect(m.writeInsurance).not.toHaveBeenCalled();
+ m.queueBilling.mockResolvedValue(null);
+ await expect(handOffChartInsurance(scope,'primary','Synthetic retry',10)).rejects.toMatchObject({status:503});
+ expect((await readChartRecord(scope,'insuranceHandoff')).value.primary.text).toBe('Synthetic primary insurance');
 });

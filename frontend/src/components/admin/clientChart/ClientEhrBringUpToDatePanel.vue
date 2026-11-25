@@ -32,6 +32,10 @@
             <ClientImportPolicyholderBirthDate :text="coverageDrafts[position].text" :position="position"
               :disabled="busy || coverageDrafts[position].imported && !unlocked.insurance" @update="updateCoveragePaste(position,$event)" />
             <p v-if="coverageDrafts[position].imported" class="ehr-imported">✓ {{ position==='primary'?'Primary':'Secondary' }} insurance imported. <button type="button" class="ehr-link" :disabled="busy" @click="unlocked.insurance=true">Edit imported coverage</button></p>
+            <p v-if="billingTaskIds[position]" class="ehr-imported" role="status">Sent to Billing · Task #{{ billingTaskIds[position] }}</p>
+            <button v-else-if="coverageDrafts[position].text.trim() && !historicalImport" type="button" class="ehr-btn-ghost"
+              :disabled="busy" @click="sendCoverageToBilling(position)">Send {{ position }} insurance to Billing</button>
+            <p v-if="coverageErrors[position]" class="ehr-error" role="alert">{{ coverageErrors[position] }}</p>
           </div>
         </div>
         <label v-else-if="section.key!=='insurance'" class="ehr-label">
@@ -92,7 +96,7 @@
 
       <p v-if="historicalImport" class="ehr-muted">Records from {{ sourceSystem }} are saved as unsigned drafts with their original dates and source author. Review them in the clinical chart before approving current care. Importing does not recreate the original clinician’s signature.</p>
       <label v-if="historicalImport" class="ehr-label"><span><input v-model="sourceReviewed" type="checkbox" :disabled="busy" /> I compared this paste and original dates/authorship with the source. Clinical approval remains a separate review.</span></label>
-      <p v-else class="ehr-muted">Intakes are saved as unlinked, nonbillable imported notes. Treatment plans are saved as drafts for the provider to review and finalize in the clinical chart. You can finish the records import after all filled sections are saved.</p>
+      <p v-else class="ehr-muted">Intakes are saved as unlinked, nonbillable imported notes. Treatment plans are saved as drafts for the provider to review and finalize in the clinical chart. Send unresolved insurance to Billing to finish the records import.</p>
 
       <ul v-if="stepLog.length" class="ehr-log">
         <li v-for="(entry, i) in stepLog" :key="i" :class="entry.ok ? 'ok' : 'bad'">{{ entry.message }}</li>
@@ -118,12 +122,14 @@
         </button>
       </div>
       <template v-if="!historicalImport && canPrepareAccounts">
-        <p v-if="!recordsReadyForInvitation" class="ehr-muted">You can update portal access and preview the invitation now. Import the filled record sections before sending it.</p>
+        <p v-if="coverageAwaitingBilling" class="ehr-muted">You can preview the invitation now. Review the chart’s saved coverage and assigned forms after Billing resolves the policy.</p>
+        <p v-else-if="!recordsReadyForInvitation" class="ehr-muted">You can update portal access and preview the invitation now. Import the filled record sections before sending it.</p>
         <div class="ehr-invitation"><ClientTransitionInvitation :personal-account-only="personalAccountOnly" :sending-enabled="recordsReadyForInvitation" :patient-info-pending="pendingPatientInfo" @review-patient-info="reviewPatientInfo" :client-id="clientId" :agency-id="agencyId" :refresh-key="transitionRefreshKey" @busy="invitationBusy = $event" /></div>
       </template>
       <div v-if="creationFlow && !historicalImport" class="ehr-finish"><p v-if="creationPendingReasons.length">Remaining setup actions (records import can finish separately):</p><ul v-if="creationPendingReasons.length" aria-label="Remaining import steps"><li v-for="reason in creationPendingReasons" :key="reason">{{ reason }}</li></ul><button type="button" class="ehr-btn-primary" :disabled="busy" @click="completeCreation">Finish client import</button></div>
       <section v-if="completionReview" class="ehr-completion-review" aria-label="Review records import completion">
-        <h4>Review before marking done</h4><p v-if="completionPreparing" role="status">Saving provider assignments and record drafts…</p>
+        <h4>Review before marking done</h4><p v-if="completionPreparing" role="status">Saving record drafts…</p>
+        <p v-if="hasBillingHandoff">Billing has the saved insurance paste. You can complete the records import while coverage review is pending.</p>
         <p v-if="error" class="ehr-error" role="alert">{{ error }}</p>
         <template v-if="unimportedSections.length"><p>These paste boxes contain information that has not been imported:</p><ul><li v-for="key in unimportedSections" :key="key">{{ sectionLabel(key) }}</li></ul><button type="button" class="ehr-btn-primary" :disabled="busy" @click="importAll()">Import remaining pasted sections</button><p>Resolve any import errors before finishing.</p></template>
         <template v-if="blankSections.length"><p>These paste boxes are blank. Existing information on the chart is preserved:</p><ul><li v-for="key in blankSections" :key="key">{{ sectionLabel(key) }}</li></ul><label class="ehr-label"><span><input v-model="keepBlankConfirmed" type="checkbox" :disabled="busy" /> Keep these boxes blank and finish with the information imported.</span></label></template>
@@ -220,8 +226,8 @@ const visibleSections = computed(() => sections.filter(section => (!props.onlySe
 const drafts = useChartImportDrafts();
 const unlocked=reactive({}),completionReview=ref(false),keepBlankConfirmed=ref(false);
 const sectionLabel=key=>sections.find(section=>section.key===key)?.label||key;
-const sectionLocked=key=>status[key]==='imported'&&!unlocked[key]&&(key!=='insurance'||allCoverageImported.value);
-const unimportedSections=computed(()=>filledSections().filter(key=>key==='insurance'?!allCoverageImported.value:status[key]!=='imported'&&status[key]!=='done'));
+const sectionLocked=key=>status[key]==='imported'&&!unlocked[key]&&(key!=='insurance'||allCoverageHandled.value);
+const unimportedSections=computed(()=>filledSections().filter(key=>key==='insurance'?!allCoverageHandled.value:status[key]!=='imported'&&status[key]!=='done'));
 const blankSections=computed(()=>visibleSections.value.filter(section=>!(section.key==='insurance'?hasCoveragePaste.value:sectionTexts[section.key].trim())&&!['done','imported'].includes(status[section.key])).map(section=>section.key));
 const billingContactBusy=ref(false);
 const assignmentsBusy=ref(false),assignmentsReady=ref(false),assignmentsPanel=ref(null);
@@ -232,11 +238,18 @@ const payerRefreshKey = ref(0), payerReady = ref(false), payerBusy = ref(false);
 const transitionRefreshKey = ref(0), invitationBusy = ref(false);
 const payerPosition = ref('primary');
 const coverageMode=ref('insurance'),selfPay=ref({code:'',amount:'',basis:'visit',reason:'',imported:false});
+const coveragePositions = ['primary', 'secondary'];
 const coverageDrafts = reactive({ primary: { text: '', imported: false }, secondary: { text: '', imported: false } });
-const allCoverageImported = computed(() => props.onlySections&&!props.onlySections.includes('insurance')?true:coverageMode.value==='no_policy'?status.insurance==='imported':coverageMode.value==='self_pay'?selfPay.value.imported===true:Object.values(coverageDrafts).every(draft => !draft.text.trim() || draft.imported));
+const billingTaskIds = reactive({ primary: null, secondary: null });
+const coverageErrors = reactive({ primary: '', secondary: '' });
+const sendingToBilling = ref(false);
+const hasBillingHandoff = computed(() => coverageMode.value === 'insurance' && coveragePositions.some(position => billingTaskIds[position]));
+const coverageAwaitingBilling = computed(() => hasBillingHandoff.value && coveragePositions.some(position => billingTaskIds[position] && !coverageDrafts[position].imported));
+const coverageHandled = position => coverageDrafts[position].imported || Boolean(billingTaskIds[position]);
+const allCoverageHandled = computed(() => props.onlySections&&!props.onlySections.includes('insurance')?true:coverageMode.value==='no_policy'?status.insurance==='imported':coverageMode.value==='self_pay'?selfPay.value.imported===true:coveragePositions.every(position => !coverageDrafts[position].text.trim() || coverageHandled(position)));
 const hasCoveragePaste = computed(() => props.onlySections&&!props.onlySections.includes('insurance')?false:coverageMode.value!=='insurance'||Boolean(payerText.value.trim()) || Object.values(coverageDrafts).some(draft => draft.text.trim()));
-const creationRecordsReady = computed(() => allCoverageImported.value && visibleSections.value.filter(section => sectionTexts[section.key].trim()).every(section => ['imported','done'].includes(status[section.key])));
-const recordsReadyForInvitation = computed(() => creationRecordsReady.value && visibleSections.value.every(section => !reviewPending[section.key]));
+const creationRecordsReady = computed(() => allCoverageHandled.value && visibleSections.value.filter(section => section.key !== 'insurance' && sectionTexts[section.key].trim()).every(section => ['imported','done'].includes(status[section.key])));
+const recordsReadyForInvitation = computed(() => creationRecordsReady.value && !coverageAwaitingBilling.value && visibleSections.value.every(section => !reviewPending[section.key]));
 let hydratingDrafts = false;
 let pipelineSections = [];
 
@@ -255,16 +268,16 @@ const status = reactive({
 const hasAnyPaste = computed(
   () => visibleSections.value.some(section => sectionTexts[section.key].trim()) || (!props.historicalImport && hasCoveragePaste.value)
 );
-const networkBusy = computed(() => importing.value || markingDone.value || invitationBusy.value || payerBusy.value || assignmentsBusy.value || guardianPreparing.value || billingContactBusy.value || progressBusy.value || drafts.state.loading);
+const networkBusy = computed(() => importing.value || markingDone.value || invitationBusy.value || payerBusy.value || assignmentsBusy.value || sendingToBilling.value || guardianPreparing.value || billingContactBusy.value || progressBusy.value || drafts.state.loading);
 const busy=computed(()=>networkBusy.value||completionPreparing.value);
 const filledSections=()=>visibleSections.value.filter(section=>sectionTexts[section.key].trim()||(section.key==='insurance'&&hasCoveragePaste.value)).map(section=>section.key);
 const creationPendingReasons=computed(()=>[
  ...(visibleSections.value.some(section=>section.key==='intake')&&intakeText.value.trim()&&!intakeServiceCode.value?['Choose H0031 or 90791 for the imported intake.']:[]),
  ...(props.pendingProviderAssignment?['Resolve the provider assignment above or choose Continue unassigned.']:[]),
- ...filledSections().filter(key=>key==='insurance'?!allCoverageImported.value:status[key]!=='imported').map(key=>`${status[key]==='failed'?'Retry':'Import'} ${sections.find(section=>section.key===key).label.toLowerCase()}.`),
+ ...filledSections().filter(key=>key==='insurance'?!allCoverageHandled.value:status[key]!=='imported').map(key=>`${status[key]==='failed'?'Retry':'Import'} ${sections.find(section=>section.key===key).label.toLowerCase()}.`),
  ...visibleSections.value.map(section=>section.key).filter(key=>reviewPending[key]).map(key=>`Finish the ${key==='plan'?'treatment plan':key} review.`),
  ...(showAssignments.value&&!assignmentsReady.value?['Review assignments and save any changes.']:[]),
- ...(coverageMode.value==='insurance'&&hasCoveragePaste.value&&!payerReady.value?['Automatic insurance verification is pending; unresolved payer routes remain with billing.']:[])
+ ...(coverageMode.value==='insurance'&&hasCoveragePaste.value&&!payerReady.value?['Insurance verification is pending in Billing.']:[])
 ]);
 watch(busy, value => emit('busy', value), { flush: 'sync' });
 let scopeGeneration = 0;
@@ -359,6 +372,8 @@ function restoreCoverage(saved, preserve = false) {
     const payer = (legacyPayer?.position || 'primary') === position ? payerText.value : '';
     const text = stored?.text ?? (position === 'primary' && supplied ? supplied : [legacyInsurance, payer].filter(Boolean).join('\n'));
     Object.assign(coverageDrafts[position], { text, imported: stored && stored.text !== text ? false : stored?.imported ?? (Boolean(text) && status.insurance === 'imported' && !payer) });
+    const savedText = previous?.text ?? ((insurance?.position || 'primary') === position ? insurance?.text : '');
+    billingTaskIds[position] = savedText?.trim() === text.trim() ? saved?.insurance?.billingTaskIds?.[position] || null : null;
   }
   payerPosition.value = active;
   insuranceText.value = coverageDrafts[active].text;
@@ -389,7 +404,11 @@ watch(
     const generation = scopeGeneration;
     hydratingDrafts = true;
     payerPosition.value = 'primary';
-    for (const position of ['primary', 'secondary']) Object.assign(coverageDrafts[position], { text: '', imported: false });
+    for (const position of coveragePositions) {
+      Object.assign(coverageDrafts[position], { text: '', imported: false });
+      billingTaskIds[position] = null;
+      coverageErrors[position] = '';
+    }
     importedContacts.value = []; preparePrimaryGuardian.value = false; contactOwner.value = props.initialContactOwner;
     contactOwnerConfirmed.value = props.initialContactOwnerConfirmed; clientClassification.value = props.initialClientClassification; parsedPatientInfo.value = props.initialPatientInfo;
     for (const section of sections) { sectionTexts[section.key] = props.initialTexts[section.key] || ''; status[section.key] = props.recordStatus?.[section.key] || 'missing'; }
@@ -447,9 +466,31 @@ for (const section of sections) {
 watch(intakeServiceCode, () => { if (hydratingDrafts) return; status.intake = 'missing'; importedIntakeDraft = null; drafts.schedule('intake', draftValue('intake')); }, { flush: 'sync' });
 function updateCoveragePaste(position,text) {
   coverageDrafts[position].text=text;coverageDrafts[position].imported=false;
+  billingTaskIds[position]=null;coverageErrors[position]='';
   if(position===payerPosition.value)insuranceText.value=text;
   status.insurance='missing';progressSectionsKey=null;
   drafts.schedule('insurance',draftValue('insurance'));
+}
+async function sendCoverageToBilling(position) {
+  const own = scopeGeneration;
+  sendingToBilling.value = true;
+  coverageErrors[position] = '';
+  try {
+    drafts.schedule('insurance', draftValue('insurance'));
+    await drafts.flush('insurance');
+    if (own !== scopeGeneration) return;
+    if (drafts.state.loadError || drafts.state.sections.insurance?.error) throw Error('Save the original insurance paste before sending it to Billing.');
+    const { data } = await api.post(`/clients/${props.clientId}/chart-import/sections/insurance`, {
+      text: coverageDrafts[position].text, position, deferToBilling: true
+    }, { skipGlobalLoading:true, headers:agencyHeaders() });
+    if (own !== scopeGeneration) return;
+    billingTaskIds[position] = data.result.taskId;
+    if (!unimportedSections.value.length) error.value = '';
+  } catch (e) {
+    if (own === scopeGeneration) coverageErrors[position] = e.response?.data?.error?.message || e.message;
+  } finally {
+    sendingToBilling.value = false;
+  }
 }
 watch(payerPosition, position => {
   if (hydratingDrafts) return;
@@ -624,12 +665,14 @@ async function importPlan() {
 }
 
 async function finishImportPipeline() {
-  const incomplete = pipelineSections.some(key => sectionTexts[key].trim() && status[key] !== 'imported') || (importingAllCoverage && !allCoverageImported.value);
+  const incomplete = pipelineSections.some(key => key !== 'insurance' && sectionTexts[key].trim() && status[key] !== 'imported') || (importingAllCoverage && !allCoverageHandled.value);
   if (incomplete) {
-    error.value = 'Some records still need attention. Retry the incomplete steps before finishing or posting to the exchange.';
+    error.value = coveragePositions.some(position => coverageErrors[position])
+      ? 'Review the insurance boxes. Correct the policy and retry, or send it to Billing to finish the records import.'
+      : 'Some records still need attention. Retry the incomplete steps before finishing or posting to the exchange.';
     return;
   }
-  const anyOk = pipelineSections.some(key => status[key] === 'imported' || (key === 'insurance' && Object.values(coverageDrafts).some(draft => draft.imported)));
+  const anyOk = pipelineSections.some(key => status[key] === 'imported' || (key === 'insurance' && coveragePositions.some(coverageHandled)));
   if (!anyOk) {
     error.value = 'Nothing imported successfully. Check the paste text and try again.';
     return;
@@ -652,7 +695,7 @@ async function finishReviewedImport() {
   if(unimportedSections.value.length || busy.value || blankSections.value.length&&!keepBlankConfirmed.value)return;
   const own=scopeGeneration;completionPreparing.value=true;error.value='';
   try{
-    if(showAssignments.value && await assignmentsPanel.value?.savePendingAssignments?.()===false){error.value='The provider assignment could not be saved. Review Assignments below before completing the import.';return;}
+    if(showAssignments.value && !hasBillingHandoff.value && await assignmentsPanel.value?.savePendingAssignments?.()===false){error.value='The provider assignment could not be saved. Review Assignments below before completing the import.';return;}
     if(own!==scopeGeneration)return;
     if(await prepareLeave({confirmPending:false,fromCompletion:true})===false)return;
     if(own!==scopeGeneration)return;
@@ -719,16 +762,21 @@ async function importCoverage() {
     await api.put(`/family-billing/account/clients/${props.clientId}/service-rates/${encodeURIComponent(code)}`,{agencyId:props.agencyId,amountCents,priceBasis:selfPay.value.basis||'visit',reason,revision:existing?.revision||0},{skipGlobalLoading:true,headers:agencyHeaders()});assertScope();
     hydratingDrafts=true;selfPay.value={...selfPay.value,imported:true};hydratingDrafts=false;status.insurance='imported';drafts.schedule('insurance',draftValue('insurance'));transitionRefreshKey.value++;log(true,'Self-pay and client service rate saved. Billing responsibility and payment authorization remain pending.');return;
   }
-  if (!importingAllCoverage) return importSupplementary('insurance');
   const active = payerPosition.value;
   try {
     for (const position of ['primary', 'secondary']) {
       const draft = coverageDrafts[position];
-      if (!draft.text.trim() || draft.imported) continue;
+      if (!draft.text.trim() || coverageHandled(position)) continue;
+      coverageErrors[position] = '';
       hydratingDrafts = true;
       payerPosition.value = position; insuranceText.value = draft.text; status.insurance = 'missing';
       hydratingDrafts = false;
-      await importSupplementary('insurance');
+      try {
+        await importSupplementary('insurance');
+      } catch (e) {
+        assertScope();
+        coverageErrors[position] = e.response?.data?.error?.message || e.message;
+      }
     }
   } finally {
     hydratingDrafts = true;
@@ -762,7 +810,7 @@ async function importAll(onlySection = null) {
     const importers = { demographics: importDemographics, insurance: importCoverage, intake: importIntake, plan: importPlan };
     for (const key of pipelineSections) {
       assertScope();
-      if (status[key] === 'imported' && !(key === 'insurance' && importingAllCoverage && !allCoverageImported.value)) continue;
+      if (status[key] === 'imported' && !(key === 'insurance' && importingAllCoverage && !allCoverageHandled.value)) continue;
       if (key === 'plan' && pipelineSections.includes('intake') && status.intake !== 'imported') continue;
       try {
         const result = importers[key] ? await importers[key]() : await importSupplementary(key);
