@@ -108,3 +108,46 @@ it('shows completion and allows the next client before the completed chart refre
  await w.findAll('button').find(b=>b.text().startsWith('Add next client')).trigger('click');await flushPromises();expect(w.get('textarea[data-section=demographics]').element.value).toBe('');
  resolveRefresh({data:{id:12,agency_id:2,full_name:'Previous Synthetic Client',provider_id:20,services:[]}});await flushPromises();expect(w.text()).not.toContain('Previous Synthetic Client');expect(w.text()).not.toContain('Chart #12');w.unmount();
 });
+
+it('puts completion below portal access and saves failed school setup for retry without reassigning an existing provider',async()=>{
+ const get=m.get.getMockImplementation();
+ m.get.mockImplementation(async(url,...args)=>{
+  if(url==='/clients/12')return {data:{id:12,agency_id:2,client_type:'school',provider_id:20}};
+  if(url.endsWith('/service-enrollments'))return {data:{services:[{id:1,service_kind:'counseling',provider_user_id:20,provider_name:'Pat Provider',is_active:1}],availableServiceKinds:['counseling']}};
+  return get(url,...args);
+ });
+ let schoolSetupFails=true;
+ m.post.mockImplementation(async url=>{
+  if(url.endsWith('/chart-import/school-setup')){
+   if(schoolSetupFails)throw {response:{status:500,data:{error:{message:'Request failed'}}}};
+   return {data:{schoolSetup:{schoolOrganizationId:8,providerId:20,placeOfService:'03',serviceLocation:{id:61,name:'Example School'}}}};
+  }
+  return {data:{progress:{status:'complete'}}};
+ });
+ const w=render();await flushPromises();
+ const portal=w.get('.ehr-invitation').element,actions=w.get('.ehr-actions').element;
+ expect(portal.compareDocumentPosition(actions)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+ expect(w.get('.ehr-actions').text()).toContain('Mark done');
+ expect(w.get('.ehr-actions').text()).toContain('Import all filled sections');
+ expect(w.text()).toContain('School scheduling and billing defaults still need review');
+ expect(w.findComponent(Assignments).text()).toContain('Pat Provider');
+
+ await w.findAll('button').find(b=>b.text()==='Mark done').trigger('click');
+ expect(w.get('.ehr-completion-review').text()).toContain('School setup is pending');
+ await w.get('.ehr-completion-review input[type=checkbox]').setValue(true);
+ await w.findAll('button').find(b=>b.text()==='Complete records import').trigger('click');await flushPromises();
+ expect(m.post).toHaveBeenCalledWith('/clients/12/chart-import/complete',expect.anything(),expect.anything());
+ expect(m.post.mock.calls.some(([url])=>url.endsWith('/service-enrollments'))).toBe(false);
+ expect(w.emitted('done')[0][0].assignmentDraftPending).toBe(true);
+ expect(JSON.parse(savedAssignment)).toMatchObject({schoolSetupPending:true});
+ w.unmount();
+
+ const reopened=render();await flushPromises();
+ expect(reopened.text()).toContain('School scheduling and billing defaults still need review');
+ schoolSetupFails=false;
+ await reopened.findAll('button').find(b=>b.text()==='Retry school setup').trigger('click');await flushPromises();
+ expect(reopened.findComponent(Assignments).get('[aria-label="Default place of service"]').element.value).toBe('03');
+ expect(savedAssignment).toBe('');
+ expect(reopened.text()).toContain('School setup saved.');
+ reopened.unmount();
+});
