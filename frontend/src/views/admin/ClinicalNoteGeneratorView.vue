@@ -368,6 +368,7 @@
 
         <div v-if="!needsClientAttachStep" class="na-write-after-attach">
         <NarrivaModeChooser v-if="!signedNoteViewerId && !chartNoteReadOnly" :disabled="needsActualProgressSession" v-model="noteWriterMode" :default-mode="narrivaDefaultMode" :allow-manual="canUseManualSkipAi" :allow-narriva="narrivaFeatures.writing !== false" :allow-smart="showCsNoteBuildPathway && narrivaFeatures.writing !== false" :saving="narrivaPreferenceSaving" :error="narrivaPreferenceError" @save-default="saveNarrivaDefault" />
+        <button v-if="encounterToolLocked && (isClientChartAid || therapyNotesWriterOnly) && !chartNoteReadOnly && !signedNoteViewerId" class="na-btn-outline" type="button" :disabled="savingDraftManual || needsActualProgressSession" @click="saveDraftNow">{{ savingDraftManual ? 'Saving…' : 'Save draft' }}</button>
         <div v-if="!encounterToolLocked && (isClientChartAid || therapyNotesWriterOnly)" class="na-aid-bar">
           <div class="na-aid-bar-copy">
             <span class="na-aid-kicker">{{ selectedCategoryLabel || 'Selected aid' }}</span>

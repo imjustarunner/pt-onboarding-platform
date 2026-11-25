@@ -221,7 +221,9 @@ async function confirmManualEncounter(wrapper){
  await flushPromises();
 }
 it.each([['90834','PROGRESS_NOTE'],['90791','INTAKE'],['H0031','INTAKE']])('retries %s on the same reviewed %s without attaching or checking again',async(code,noteType)=>{
- const initial=fixture();initial.session.serviceCode=code;initial.serviceCodes=[{code,label:code,serviceInfo:{code,status:'verified',title:code}}];api.get.mockResolvedValue({data:initial});
+ const initial=fixture();initial.session.serviceCode=code;
+ if(noteType==='INTAKE')initial.clinicalContext={diagnoses:[{id:73,icd10_code:'F41.9',description:'Synthetic chart diagnosis',justification:'Synthetic chart rationale.',is_primary:1}]};
+ initial.serviceCodes=[{code,label:code,serviceInfo:{code,status:'verified',title:code}}];api.get.mockResolvedValue({data:initial});
  let attempts=0;
  api.post.mockImplementation(async(url,body)=>{
    if(url.endsWith('/drafts'))return {data:{draft:{id:61}}};
@@ -243,6 +245,12 @@ it.each([['90834','PROGRESS_NOTE'],['90791','INTAKE'],['H0031','INTAKE']])('retr
  expect(w.text()).toContain('Provider signature saved');
  const attachments=api.post.mock.calls.filter(([url])=>url.endsWith('/sessions/82/notes'));
  expect(attachments).toHaveLength(1);expect(attachments[0][1].noteType).toBe(noteType);
+ if(noteType==='INTAKE'){
+   const saved=attachments[0][1];
+   expect(saved.primaryDiagnosisId).toBe(73);
+   expect(JSON.parse(saved.notePayload).sections).toMatchObject({Diagnosis:expect.stringContaining('F41.9'),'Diagnostic Justification':expect.stringContaining('Synthetic chart rationale.')});
+   expect(api.post.mock.calls.filter(([url])=>url.endsWith('/diagnoses'))).toHaveLength(0);
+ }
  expect(api.post.mock.calls.filter(([url])=>url.endsWith('/narriva/reviews'))).toHaveLength(0);
  w.unmount();
 });

@@ -25,6 +25,7 @@ import SessionSupportingMaterials from '../components/clinical/SessionSupporting
 import ConfidentialClinicalEntries from '../components/clinical/ConfidentialClinicalEntries.vue';
 import ClinicalDiagnosisSearch from '../components/clinical/ClinicalDiagnosisSearch.vue';
 import ClinicalDiagnosisFields from '../components/clinical/ClinicalDiagnosisFields.vue';
+import {intakeSectionsForRecord} from '../utils/noteAidIntakeIntegration.js';
 import {encounterConsentStatement,progressContextSections} from '../utils/narrivaProgressContext.js';
 import {participantChoice,encounterMethod,currentGenerationReceipt} from './noteWorkflow.js';
 import { mobileClinicalClient } from './clinicalTransport.js';
@@ -321,24 +322,35 @@ async function sign(){
     if(!accurate.value || !necessary.value || assessmentPending.value || !await save(true))return;
     await saveRatings();
     if(current!==generation || !accurate.value || !necessary.value)return;
-    if (mode.value==='manual' && aidKind(encounterAid.value)==='intake' && ['full','zr_only'].includes(clinicalContextDiagnosisMode.value)) {
-      for (const dx of clinicalDiagnoses.value) {
-        if (!diagnosisAllowed(dx) || !dx.justification) continue;
-        await api.value.post('/sessions/'+context.value.session.id+'/diagnoses',{
-          agencyId:agencyId.value,clientId:context.value.client.id,clinicalSessionId:context.value.session.id,
-          icd10Code:dx.icd10_code || dx.code,description:dx.description,justification:dx.justification,isPrimary:!!Number(dx.is_primary)
-        });
-        if(current!==generation)return;
-      }
-    }
     const signatureRevision=revision;
     const {outputJson}=draftPayload();
+    const intake=aidKind(encounterAid.value)==='intake';
+    const chart={...outputJson.meta.structuredChart,diagnoses:outputJson.meta.structuredChart.diagnoses.map(dx=>({...dx}))};
+    outputJson.meta.structuredChart=chart;
+    const recordSections=mode.value==='manual' && intake
+      ? intakeSectionsForRecord(outputJson.sections,{...chart,skipMse:!mseRequired.value})
+      : outputJson.sections;
+    if (!pendingAuthorSignature && mode.value==='manual' && intake && ['full','zr_only'].includes(clinicalContextDiagnosisMode.value)) {
+      const existing=context.value.clinicalContext?.diagnoses || context.value.treatmentPlan?.diagnoses || [];
+      for (const dx of chart.diagnoses) {
+        const code=dx.icd10_code || dx.code;
+        const previous=existing.find(row=>(row.icd10_code || row.code)===code);
+        if (!diagnosisAllowed(dx) || !dx.justification || previous?.justification===dx.justification) continue;
+        const {data}=await api.value.post('/sessions/'+context.value.session.id+'/diagnoses',{
+          agencyId:agencyId.value,clientId:context.value.client.id,clinicalSessionId:context.value.session.id,
+          icd10Code:code,description:dx.description,justification:dx.justification,isPrimary:!!Number(dx.is_primary)
+        });
+        if(current!==generation || signatureRevision!==revision)return;
+        if(!data?.id)throw Error('The chart could not confirm the saved diagnosis. Your draft is preserved.');
+        dx.id=data.id;
+      }
+    }
     let note=pendingAuthorSignature?.note;
     if(!note){
       const {data}=await api.value.post(`/sessions/${context.value.session.id}/notes`,{
         title:`Clinical note ${encounter.dateOfService}`,noteType:aidKind(encounterAid.value)==='intake'?'INTAKE':'PROGRESS_NOTE',serviceCode:encounter.serviceCode,
-        notePayload:JSON.stringify({sections:outputJson.sections}),
-        primaryDiagnosisId:context.value.treatmentPlan?.diagnoses?.[0]?.id || null,
+        notePayload:JSON.stringify({sections:recordSections}),
+        primaryDiagnosisId:(chart.diagnoses.find(dx=>Number(dx.is_primary)===1) || chart.diagnoses[0])?.id || null,
         diagnosticJustification:outputJson.meta.structuredChart.diagnosticJustification || null,
         metadata:{...outputJson.meta,dateOfService:encounter.dateOfService,serviceCode:encounter.serviceCode,
           draftId:Number(draftId.value),generatedBy:'clinical_note_generator',manualSections:mode.value==='manual',
