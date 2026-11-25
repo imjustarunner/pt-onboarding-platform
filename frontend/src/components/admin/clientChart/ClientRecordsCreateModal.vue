@@ -38,7 +38,7 @@
          </select>
        </label>
        <dl v-if="demographicPreview.length" class="cr-identity" aria-label="Patient info preview"><template v-for="field in demographicPreview" :key="field.key"><dt>{{ field.label }}</dt><dd>{{ field.value }}</dd></template></dl>
-       <section v-if="candidates.length" class="cr-matches" aria-label="Existing clients and possible siblings"><h3>Review existing clients and household matches</h3><p>Choose the matching client to apply your new entries to their chart. Shared contact details can also indicate siblings.</p><ul><li v-for="candidate in candidates" :key="candidate.id"><strong>{{candidate.full_name}}</strong> · {{candidate.date_of_birth || 'Birth date not recorded'}} · #{{candidate.id}} · {{candidate.reason}} <button v-if="candidate.canMerge" type="button" class="cr-button cr-primary" :disabled="parsing" @click="create(candidate)">Merge into this chart</button> <button type="button" class="cr-button" @click="openExisting(candidate)">Open existing client</button></li></ul><label v-if="candidates.some(row=>row.kind==='possible_duplicate')"><input v-model="duplicatesReviewed" type="checkbox" /> I reviewed these possible duplicates and this is a different client.</label></section>
+       <section v-if="candidates.length" class="cr-matches" aria-label="Existing clients and possible household connections"><h3>Review existing clients and possible household connections</h3><p>Choose the chart for the same person to import these records. A shared address or contact could indicate siblings, partners, a parent and child, or another connection.</p><ul><li v-for="candidate in candidates" :key="candidate.id"><strong>{{candidate.full_name}}</strong> · {{candidate.date_of_birth || 'Birth date not recorded'}} · #{{candidate.id}} · {{candidate.reason}} <button v-if="candidate.canMerge" type="button" class="cr-button cr-primary" :disabled="parsing" @click="create(candidate)">Merge into this chart</button> <button type="button" class="cr-button" @click="openExisting(candidate)">Open existing client</button></li></ul><label v-if="candidates.some(row=>row.kind==='possible_duplicate')"><input v-model="duplicatesReviewed" type="checkbox" /> I reviewed these possible duplicates and this is a different client.</label></section>
        <section v-for="section in otherSections" :key="section.key" class="cr-record-section">
         <template v-if="section.key==='insurance'"><label>Payment basis<select aria-label="Payment basis" v-model="form.coverageMode"><option value="insurance">Insurance</option><option v-if="!delegatedImport" value="self_pay">Self-pay — agreed client rate</option><option value="no_policy">No policy to import</option></select></label><ClientImportSelfPayFields v-if="form.coverageMode==='self_pay'" v-model="form.selfPay" :agency-id="agencyId" /></template>
         <template v-if="section.key==='insurance' && form.coverageMode==='insurance'">
@@ -143,14 +143,19 @@ watch(()=>form.demographics,()=>{if(hydrating||form.manual||created.value)return
 async function readDemographics(){
  if(!form.demographics.trim()||form.manual)return;const version=++parseVersion,text=form.demographics,context=generation;parsing.value=true;error.value='';
  try{const{data}=await api.post('/clients/demographics/preview',{text},{skipGlobalLoading:true,headers:{'X-Agency-Id':String(agencyId.value)}});if(version!==parseVersion||context!==generation||text!==form.demographics||form.manual)return false;form.parsedDemographics=data.parsed||null;form.fullName=data.parsed?.fullName||'';form.dateOfBirth=data.parsed?.dateOfBirth||'';if(!form.fullName)error.value='The name could not be read. Check the demographics paste or use Manual entry.';else await checkCandidates();return !!form.fullName;}
- catch(e){if(context===generation)error.value=e.response?.data?.error?.message||'Demographics could not be read.';return false;}finally{if(version===parseVersion)parsing.value=false;}
+ catch(e){if(context===generation)error.value=e.response?.data?.error?.message||e.message||'Demographics could not be read.';return false;}finally{if(version===parseVersion)parsing.value=false;}
 }
 async function checkCandidates(){
  if(!isBackoffice.value||!form.fullName)return;const own=generation;
  const fields={fullName:form.fullName,dateOfBirth:form.dateOfBirth,email:form.parsedDemographics?.email||'',phone:form.parsedDemographics?.contactPhone||'',addressStreet:form.parsedDemographics?.addressStreet||'',addressZip:form.parsedDemographics?.addressZip||''};
  const fingerprint=JSON.stringify([agencyId.value,fields]);if(fingerprint!==candidateFingerprint){duplicatesReviewed.value=false;candidates.value=[];}candidateFingerprint=fingerprint;
- const {data}=await api.post('/clients/import-candidates',fields,{skipGlobalLoading:true,headers:{'X-Agency-Id':String(agencyId.value)}});
- if(own===generation&&candidateFingerprint===fingerprint)candidates.value=data?.candidates||[];
+ try {
+  const {data}=await api.post('/clients/import-candidates',fields,{skipGlobalLoading:true,headers:{'X-Agency-Id':String(agencyId.value)}});
+  if(own===generation&&candidateFingerprint===fingerprint)candidates.value=data?.candidates||[];
+ } catch (err) {
+  if (err.response?.status && err.response.status < 500) throw err;
+  throw new Error('The existing chart check could not finish. Your entries are still here. Try again before creating a chart.');
+ }
 }
 async function openExisting(client){if(await prepareLeave()){emit('open-existing',client);emit('close');}}
 async function changeAgency(value){

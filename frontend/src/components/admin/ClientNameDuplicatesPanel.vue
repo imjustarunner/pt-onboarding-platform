@@ -18,6 +18,12 @@
       </div>
     </div>
 
+    <div v-if="linkedAgencyCharts.length" class="cnd-merge-review" role="status">
+      <p>Linked as the same client. Each agency keeps its own chart. Open either chart to switch agencies from the client profile.</p>
+      <div class="cnd-merge-controls">
+        <button v-for="chart in linkedAgencyCharts" :key="chart.id" type="button" class="cnd-open" @click="$emit('open-client', chart)">Open {{ chart.agency_name || 'agency' }} chart</button>
+      </div>
+    </div>
     <p v-if="loading" class="cnd-empty">Scanning names…</p>
     <p v-else-if="error" class="cnd-error">{{ error }}</p>
     <p v-else-if="!groups.length" class="cnd-empty">No unresolved matching names found.</p>
@@ -107,6 +113,7 @@ import api from '../../services/api';
 const emit = defineEmits(['open-client', 'merged']);
 
 const groups = ref([]);
+const linkedAgencyCharts = ref([]);
 const agencies = ref([]);
 const props = defineProps({ directoryAgency: String });
 const scopedAgency = computed(() => props.directoryAgency === 'all' ? null : (props.directoryAgency || agencyFilter.value));
@@ -144,15 +151,21 @@ async function applyMerge(group) {
   merging.value=true;mergeError.value='';
   try {
     const keepId = Number(keepByGroup[group.key]);
-    const payload = mergePreview.value.crossAgency
+    const crossAgency = mergePreview.value.crossAgency;
+    const chartsToLink = crossAgency ? selectedCharts(group) : [];
+    const payload = crossAgency
       ? { keepId, sourceIds: mergePreview.value.records.map(row => Number(row.id)).filter(id => id !== keepId), confirmIdentity: true }
       : { keepId, sourceIds: mergePreview.value.others.map(row => row.id), fieldChoices: { ...fieldChoices }, completedOrganizationIds: completedOrganizationIds.value, guardianAccessResolution: keepCurrentGuardianAccess.value ? 'keep_current' : null };
-    await api.post('/clients/merge', payload, { skipGlobalLoading: true });
+    const { data } = await api.post('/clients/merge', payload, { skipGlobalLoading: true });
+    if (crossAgency) {
+      if (data?.result?.linked !== true) throw Error('The agency chart link could not be confirmed.');
+      linkedAgencyCharts.value = chartsToLink;
+    }
     cancelMerge();
     await loadGroups();
     emit('merged');
   }
-  catch(e){mergeError.value=e.response?.data?.error?.message || 'The merge could not finish. Your review is still here.';}
+  catch(e){mergeError.value=e.response?.data?.error?.message || e.message || 'The merge could not finish. Your review is still here.';}
   finally{merging.value=false;}
 }
 const loading = ref(false);
@@ -206,7 +219,7 @@ async function loadGroups() {
   }
 }
 
-watch([scopedAgency, includeArchived], () => { cancelMerge(); return loadGroups(); }, { immediate: true });
+watch([scopedAgency, includeArchived], () => { linkedAgencyCharts.value=[]; cancelMerge(); return loadGroups(); }, { immediate: true });
 
 defineExpose({ loadGroups, groups });
 </script>

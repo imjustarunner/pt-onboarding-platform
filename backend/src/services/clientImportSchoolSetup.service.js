@@ -31,11 +31,11 @@ export async function syncClientImportSchoolSetup(scope, actorId, { preserveDefa
   try {
     await db.beginTransaction();
     const [[client]] = await db.execute(
-      `SELECT c.id,c.status,c.is_archived,c.organization_id,c.provider_id,s.status_key AS client_status_key
+      `SELECT c.id,c.status,c.compliance_archived_at,c.organization_id,c.provider_id,s.status_key AS client_status_key
        FROM clients c LEFT JOIN client_statuses s ON s.id=c.client_status_id
        WHERE c.id=? AND c.agency_id=? FOR UPDATE`, [clientId, agencyId]
     );
-    const school = client && !['ARCHIVED','TERMINATED'].includes(client.status) && Number(client.is_archived)!==1 && !hasTerminalClientStatus(client) && await resolveClientImportSchool(scope, db);
+    const school = client && !['ARCHIVED','TERMINATED'].includes(client.status) && !client.compliance_archived_at && !hasTerminalClientStatus(client) && await resolveClientImportSchool(scope, db);
     if (!school) {
       await db.commit();
       return null;
