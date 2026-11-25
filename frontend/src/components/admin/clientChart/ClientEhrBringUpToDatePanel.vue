@@ -107,6 +107,11 @@
       <ClientUpdateAssignments v-if="showAssignments" :key="`${agencyId}:${clientId}`" ref="assignmentsPanel" :client-id="clientId" :agency-id="agencyId" :initial-assignment="initialAssignment" @busy="assignmentsBusy=$event" @ready="assignmentsReady=$event" @updated="transitionRefreshKey++" />
 
       <div v-if="!creationFlow && !historicalImport && creationPendingReasons.length"><p>Still pending in this workflow:</p><ul><li v-for="reason in creationPendingReasons" :key="reason">{{ reason }}</li></ul></div>
+      <template v-if="!historicalImport && canPrepareAccounts">
+        <p v-if="coverageAwaitingBilling" class="ehr-muted">You can preview the invitation now. Review the chart’s saved coverage and assigned forms after Billing resolves the policy.</p>
+        <p v-else-if="!recordsReadyForInvitation" class="ehr-muted">You can update portal access and preview the invitation now. Import the filled record sections before sending it.</p>
+        <div class="ehr-invitation"><ClientTransitionInvitation :personal-account-only="personalAccountOnly" :sending-enabled="recordsReadyForInvitation" :patient-info-pending="pendingPatientInfo" @review-patient-info="reviewPatientInfo" :client-id="clientId" :agency-id="agencyId" :refresh-key="transitionRefreshKey" @busy="invitationBusy = $event" /></div>
+      </template>
       <div class="ehr-actions">
         <button v-if="!creationFlow && !historicalImport" type="button" class="ehr-btn-ghost" :disabled="busy" @click="markDoneOnly">
           {{ markingDone ? 'Marking…' : 'Mark done' }}
@@ -121,15 +126,11 @@
           {{ importing ? 'Importing…' : historicalImport ? 'Save historical intake and plan for clinical review' : 'Import all filled sections' }}
         </button>
       </div>
-      <template v-if="!historicalImport && canPrepareAccounts">
-        <p v-if="coverageAwaitingBilling" class="ehr-muted">You can preview the invitation now. Review the chart’s saved coverage and assigned forms after Billing resolves the policy.</p>
-        <p v-else-if="!recordsReadyForInvitation" class="ehr-muted">You can update portal access and preview the invitation now. Import the filled record sections before sending it.</p>
-        <div class="ehr-invitation"><ClientTransitionInvitation :personal-account-only="personalAccountOnly" :sending-enabled="recordsReadyForInvitation" :patient-info-pending="pendingPatientInfo" @review-patient-info="reviewPatientInfo" :client-id="clientId" :agency-id="agencyId" :refresh-key="transitionRefreshKey" @busy="invitationBusy = $event" /></div>
-      </template>
       <div v-if="creationFlow && !historicalImport" class="ehr-finish"><p v-if="creationPendingReasons.length">Remaining setup actions (records import can finish separately):</p><ul v-if="creationPendingReasons.length" aria-label="Remaining import steps"><li v-for="reason in creationPendingReasons" :key="reason">{{ reason }}</li></ul><button type="button" class="ehr-btn-primary" :disabled="busy" @click="completeCreation">Finish client import</button></div>
       <section v-if="completionReview" class="ehr-completion-review" aria-label="Review records import completion">
         <h4>Review before marking done</h4><p v-if="completionPreparing" role="status">Saving record drafts…</p>
         <p v-if="hasBillingHandoff">Billing has the saved insurance paste. You can complete the records import while coverage review is pending.</p>
+        <p v-if="assignmentsPanel?.schoolSetupPending">School setup is pending. You can finish the records import and retry school setup from Assignments in this chart.</p>
         <p v-if="error" class="ehr-error" role="alert">{{ error }}</p>
         <template v-if="unimportedSections.length"><p>These paste boxes contain information that has not been imported:</p><ul><li v-for="key in unimportedSections" :key="key">{{ sectionLabel(key) }}</li></ul><button type="button" class="ehr-btn-primary" :disabled="busy" @click="importAll()">Import remaining pasted sections</button><p>Resolve any import errors before finishing.</p></template>
         <template v-if="blankSections.length"><p>These paste boxes are blank. Existing information on the chart is preserved:</p><ul><li v-for="key in blankSections" :key="key">{{ sectionLabel(key) }}</li></ul><label class="ehr-label"><span><input v-model="keepBlankConfirmed" type="checkbox" :disabled="busy" /> Keep these boxes blank and finish with the information imported.</span></label></template>
@@ -695,7 +696,7 @@ async function finishReviewedImport() {
   if(unimportedSections.value.length || busy.value || blankSections.value.length&&!keepBlankConfirmed.value)return;
   const own=scopeGeneration;completionPreparing.value=true;error.value='';
   try{
-    if(showAssignments.value && !hasBillingHandoff.value && await assignmentsPanel.value?.savePendingAssignments?.()===false){error.value='The provider assignment could not be saved. Review Assignments below before completing the import.';return;}
+    if(showAssignments.value && !hasBillingHandoff.value && await assignmentsPanel.value?.savePendingAssignments?.()===false){error.value='The assignment changes could not be saved. Check the error in Assignments above and retry.';return;}
     if(own!==scopeGeneration)return;
     if(await prepareLeave({confirmPending:false,fromCompletion:true})===false)return;
     if(own!==scopeGeneration)return;
@@ -703,7 +704,10 @@ async function finishReviewedImport() {
     await beginImportProgress();if(own!==scopeGeneration)return;progressBusy.value=true;
     const {data}=await api.post(`/clients/${props.clientId}/chart-import/complete`,{keptBlankSections:blankSections.value},{skipGlobalLoading:true,headers:agencyHeaders()});
     if(own!==scopeGeneration)return;
-    completionReview.value=false;successMessage.value='Records import marked done. Remaining profile actions stay pending.';
+    completionReview.value=false;
+    successMessage.value=assignmentsPanel.value?.schoolSetupPending
+      ? 'Records import marked done. Review the school setup draft in this chart’s Assignments.'
+      : 'Records import marked done. Remaining profile actions stay pending.';
     const current=data?.progress?.clientStatus;
     const client=current?{id:Number(props.clientId),status:'ACTIVE',client_status_id:current.id,client_status_key:current.key,client_status_label:current.label}:null;
     emit(props.creationFlow?'imported':'done',{...status,marked:true,...(client?{client}:{}),assignmentDraftPending:assignmentsPanel.value?.hasPendingDraft?.()===true});

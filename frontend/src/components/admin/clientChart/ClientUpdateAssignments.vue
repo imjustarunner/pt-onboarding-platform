@@ -3,6 +3,9 @@
     <header><h3>Assignments</h3><p>Review services, providers, agency memberships and scheduling defaults before finishing this client.</p></header>
     <p v-if="loading" role="status">Loading assignments…</p>
     <p v-if="workingDraftNotice" role="status">{{ workingDraftNotice }}</p><p v-if="assignmentDrafts.state.loadError || assignmentDrafts.state.sections.assignments?.error" role="alert">{{ assignmentDrafts.state.loadError || assignmentDrafts.state.sections.assignments?.error }} <button type="button" :disabled="busy" @click="retryWorkingDraft">Retry saving these choices</button></p>
+    <p v-if="schoolSetupPending" role="status">School scheduling and billing defaults still need review.
+      <button v-if="canSyncSchool" type="button" :disabled="busy" @click="retrySchoolSetup">Retry school setup</button>
+    </p>
     <p v-if="error" role="alert">{{ error }} <button v-if="!loaded" type="button" @click="load">Retry</button></p>
     <fieldset class="assignment-services" :disabled="loading || saving || suggesting"><ClientServiceEnrollments ref="servicesPanel" auto-save-provider :key="`${agencyId}:${clientId}`" :client-id="clientId" :agency-id="agencyId" :organizations="scopedAffiliations" :initial-assignment="schoolSetupApplies ? {} : initialAssignment" :start-assigning="!!initialAssignment.providerId && !schoolSetupApplies" @loaded="onServicesLoaded" @updated="onServicesUpdated" @busy="servicesBusy=$event" @draft-change="scheduleWorkingDraft" /></fieldset>
     <template v-if="loaded">
@@ -54,7 +57,7 @@ const isSchool=computed(()=>client.value?.organization_type==='school'
   || client.value?.client_type==='school'
   || rowsFor('school').some(row=>Number(row.is_primary)===1));
 const schoolSetupApplies=computed(()=>isSchool.value || props.initialAssignment.school===true);
-const schoolLocationLabel=ref('');
+const schoolLocationLabel=ref(''),schoolSetupPending=ref(false);
 const canSyncSchool=computed(()=>['super_admin','admin','support'].includes(auth.user?.role)||delegatedImport.value);
 const providerId=computed(()=>primaryAssignmentProvider(client.value,services.value)||Number(props.initialAssignment.providerId||0));
 const agencyName=computed(()=>memberships.value.find(row=>Number(row.agency_id)===Number(props.agencyId))?.agency_name || client.value?.agency_name || `Agency #${props.agencyId}`);
@@ -63,7 +66,7 @@ const dirty=computed(()=>Object.keys(draft).some(key=>draft[key]!==saved.value[k
 const locationOptions=computed(()=>billingServiceLocationOptions(locations.value,draft.serviceLocationId));
 const busy=computed(()=>loading.value||saving.value||suggesting.value||servicesBusy.value);
 watch(busy,value=>emit('busy',value),{flush:'sync'});
-watch(()=>loaded.value&&!busy.value&&!dirty.value&&!error.value&&!servicesError.value,value=>emit('ready',value),{immediate:true,flush:'sync'});
+watch(()=>loaded.value&&!busy.value&&!dirty.value&&!error.value&&!servicesError.value&&!schoolSetupPending.value,value=>emit('ready',value),{immediate:true,flush:'sync'});
 const rows=response=>Array.isArray(response?.data)?response.data:[];
 const request=()=>({skipGlobalLoading:true,headers:{'X-Agency-Id':String(props.agencyId)}});
 let generation=0,providerRequest=0,manualDefaults=false,autoSuggested=false,attemptedProviderId=0;
@@ -77,7 +80,7 @@ function changeOffice(){touched();const office=offices.value.find(row=>String(ro
 function changePlaceOfService(){touched();if(canReadBilling.value)matchLocation();}
 function resetDefaults(){providerRequest++;Object.assign(draft,saved.value);manualDefaults=false;autoSuggested=false;error.value='';hint.value='Changes reset.';}
 async function load(){
- providerSuggestion=undefined;schoolLocationLabel.value='';savedSchoolDefaultsManually=false;
+ providerSuggestion=undefined;schoolLocationLabel.value='';schoolSetupPending.value=false;savedSchoolDefaultsManually=false;
  const own=++generation;providerRequest++;client.value=null;loaded.value=false;loading.value=true;saving.value=false;suggesting.value=false;servicesError.value='';workingDraftNotice.value='';hydratingWorkingDraft=true;pendingServiceDraft=null;servicesLoaded=false;attemptedProviderId=0;error.value='';hint.value='';services.value=[];manualDefaults=false;autoSuggested=false;Object.assign(draft,blank());saved.value=blank();for(const key of Object.keys(additions)){additions[key]='';makePrimary[key]=false;}
  try{
   const [c,m,a,o,f,l,working]=await Promise.all([api.get(`/clients/${props.clientId}`,request()),api.get(`/clients/${props.clientId}/agency-affiliations`,request()),api.get(`/clients/${props.clientId}/affiliations`,request()),api.get(`/agencies/${props.agencyId}/affiliated-organizations`,request()),api.get('/offices',request()),canReadBilling.value?api.get('/medical-billing/service-locations',{...request(),params:{agencyId:Number(props.agencyId)}}):Promise.resolve({data:[]}),assignmentDrafts.load(props.clientId,props.agencyId)]);
@@ -87,7 +90,7 @@ async function load(){
   const member=memberships.value.find(row=>Number(row.agency_id)===Number(props.agencyId))||record;
   saved.value={officeId:String(member.default_office_location_id||record.default_office_location_id||''),pos:String(member.default_place_of_service||record.default_place_of_service||''),serviceLocationId:String(member.default_service_location_id||record.default_service_location_id||'')};Object.assign(draft,saved.value);loaded.value=true;
   const source=working?.assignments?.value?.text;
-  if(source){const pending=JSON.parse(source);if(pending.defaults){Object.assign(draft,pending.defaults);manualDefaults=true;}pendingServiceDraft=pending.services||null;if(servicesLoaded&&pendingServiceDraft){servicesPanel.value?.restoreWorkingDraft?.(pendingServiceDraft);pendingServiceDraft=null;}workingDraftNotice.value='Saved assignment draft restored. These choices remain pending until you save the assignments.';}
+  if(source){const pending=JSON.parse(source);schoolSetupPending.value=pending.schoolSetupPending===true;if(pending.defaults){Object.assign(draft,pending.defaults);manualDefaults=true;}pendingServiceDraft=pending.services||null;if(servicesLoaded&&pendingServiceDraft){servicesPanel.value?.restoreWorkingDraft?.(pendingServiceDraft);pendingServiceDraft=null;}workingDraftNotice.value='Saved assignment draft restored. These choices remain pending until you save the assignments.';}
 
   if(isSchool.value && canSyncSchool.value && !manualDefaults) await syncSchoolDefaults(own);
   if(!isSchool.value&&!draft.officeId&&providerId.value)await suggestProvider(false);
@@ -116,14 +119,16 @@ async function addAffiliation(type){if(busy.value||!additions[type])return;const
  }catch(e){if(own===generation)error.value=e.response?.data?.error?.message||'Affiliation could not be saved.';}finally{if(own===generation)saving.value=false;}}
 function workingDraftText(){
  const services=pendingServiceDraft||(servicesPanel.value?.hasWorkingDraft?.()?servicesPanel.value.workingDraft():null);
- return dirty.value||services?JSON.stringify({defaults:dirty.value?{...draft}:null,services}):'';
+ return dirty.value || services || schoolSetupPending.value
+  ? JSON.stringify({defaults:dirty.value?{...draft}:null,services,...(schoolSetupPending.value?{schoolSetupPending:true}:{})})
+  : '';
 }
 function scheduleWorkingDraft(){if(hydratingWorkingDraft)return;assignmentDrafts.schedule('assignments',{text:workingDraftText(),metadata:{}});}
 watch(()=>JSON.stringify(draft),scheduleWorkingDraft,{flush:'post'});
 async function retryWorkingDraft(){if(assignmentDrafts.state.loadError)await assignmentDrafts.load(props.clientId,props.agencyId);scheduleWorkingDraft();await assignmentDrafts.retry('assignments');if(!assignmentDrafts.state.sections.assignments?.error)error.value='';}
 async function saveWorkingDraft(){
  if(busy.value){error.value='Wait for the assignment request to finish before saving this draft.';return false;}
- if(assignmentDrafts.state.loadError){if(!dirty.value&&!servicesPanel.value?.hasWorkingDraft?.())return true;error.value='The saved assignment draft could not be loaded. Retry loading it before replacing pending choices.';return false;}
+ if(assignmentDrafts.state.loadError){if(!workingDraftText())return true;error.value='The saved assignment draft could not be loaded. Retry loading it before replacing pending choices.';return false;}
  if(!loaded.value&&!servicesPanel.value?.hasWorkingDraft?.())return true;
  scheduleWorkingDraft();await assignmentDrafts.flush();
  if(assignmentDrafts.state.sections.assignments?.error){error.value=assignmentDrafts.state.sections.assignments.error;section.value?.scrollIntoView?.({block:'center'});return false;}
@@ -131,27 +136,42 @@ async function saveWorkingDraft(){
  return true;
 }
 function prepareLeave(){if(busy.value||!loaded.value||error.value||servicesError.value)return false;if(servicesPanel.value?.prepareLeave?.()===false)return false;if(dirty.value){error.value='Save or reset scheduling defaults before moving to another client.';section.value?.scrollIntoView?.({block:'center'});return false;}return true;}
-async function syncSchoolDefaults(own){
- const {data}=await api.post(`/clients/${props.clientId}/chart-import/school-setup`,
-  {preserveDefaults:savedSchoolDefaultsManually},request());
- if(own!==generation || !data?.schoolSetup)return;
- const setup=data.schoolSetup;
- schoolLocationLabel.value=setup.serviceLocation?.name ? `${setup.serviceLocation.name} (POS 03)` : '';
- if(!savedSchoolDefaultsManually){
-  saved.value={...saved.value,pos:setup.placeOfService,serviceLocationId:String(setup.serviceLocation.id)};
-  if(!manualDefaults)Object.assign(draft,saved.value);
+async function syncSchoolDefaults(own,{notify=true}={}){
+ try {
+  const {data}=await api.post(`/clients/${props.clientId}/chart-import/school-setup`,
+   {preserveDefaults:savedSchoolDefaultsManually},request());
+  if(own!==generation)return;
+  schoolSetupPending.value=false;
+  const setup=data?.schoolSetup;
+  if(!setup)return;
+  schoolLocationLabel.value=setup.serviceLocation?.name ? `${setup.serviceLocation.name} (POS 03)` : '';
+  if(!savedSchoolDefaultsManually){
+   saved.value={...saved.value,pos:setup.placeOfService,serviceLocationId:String(setup.serviceLocation.id)};
+   if(!manualDefaults)Object.assign(draft,saved.value);
+  }
+  await servicesPanel.value?.refresh?.();
+  if(own===generation && notify)emit('updated');
+ } catch {
+  if(own===generation)schoolSetupPending.value=true;
  }
- await servicesPanel.value?.refresh?.();
+}
+async function retrySchoolSetup(){
+ if(busy.value || !isSchool.value || !canSyncSchool.value)return;
+ const own=generation;
+ saving.value=true;
+ try { await syncSchoolDefaults(own,{notify:false}); }
+ finally { if(own===generation)saving.value=false; }
+ if(own!==generation)return;
+ const draftSaved=await saveWorkingDraft();
+ if(!draftSaved || own!==generation)return;
+ if(!schoolSetupPending.value && !workingDraftText())workingDraftNotice.value='School setup saved.';
  emit('updated');
 }
 async function savePendingAssignments(){
  const own=generation;
  if(busy.value)return false;
  if(await servicesPanel.value?.savePendingAssignments?.()===false){error.value='The provider assignment could not be saved. Review Services & providers above and retry.';section.value?.scrollIntoView?.({block:'center'});return false;}
- if(isSchool.value && canSyncSchool.value){
-  try { await syncSchoolDefaults(own); }
-  catch(e) { error.value=e.response?.data?.error?.message||e.message||'The school assignment could not be saved.';return false; }
- }
+ if(isSchool.value && canSyncSchool.value)await syncSchoolDefaults(own);
  // Legacy chart assignments also need a service enrollment. Staff should not
  // have to find Add service after choosing the client's clinical provider.
  if(!isSchool.value && client.value?.client_type==='clinical' && providerId.value
@@ -170,7 +190,7 @@ async function savePendingAssignments(){
  error.value='';return true;
 }
 async function refresh(){const own=generation;const {data}=await api.get(`/clients/${props.clientId}`,request());if(own!==generation)return;client.value=data.client||data;await servicesPanel.value?.refresh?.();}
-defineExpose({prepareLeave,saveWorkingDraft,savePendingAssignments,reload:load,refresh,hasPendingDraft:()=>!!workingDraftText()});
+defineExpose({prepareLeave,saveWorkingDraft,savePendingAssignments,reload:load,refresh,schoolSetupPending,hasPendingDraft:()=>!!workingDraftText()});
 watch(()=>[props.clientId,props.agencyId],load,{immediate:true});
 onBeforeUnmount(()=>{assignmentDrafts.detach();generation++;providerRequest++;emit('busy',false);});
 </script>
