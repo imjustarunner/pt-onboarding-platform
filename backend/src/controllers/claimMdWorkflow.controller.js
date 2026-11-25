@@ -1,3 +1,5 @@
+import { assertNoteBillingAllowed } from '../services/noteBillingDisposition.service.js';
+import { claimBillingIdentity } from '../services/claimBillingIdentity.service.js';
 import {requireTestingEligibility} from '../services/testingEligibility.service.js';
 import {requiresTestingRole} from '../content/testingServicePolicy.js';
 import { assertConfiguredTestingReferenceCodes } from '../services/testingCatalogClaimGuard.service.js';
@@ -51,6 +53,7 @@ async function agencyFor(req) {
 export async function prepareClaimReview(agencyId, claimId) {
   const [[claim]] = await clinicalPool.execute('SELECT * FROM clinical_claims WHERE id = ? AND agency_id = ? AND is_deleted = 0', [claimId, agencyId]);
   if (!claim) throw fail(404, 'Claim not found');
+  await assertNoteBillingAllowed({agencyId,noteId:claim.clinical_note_id,sessionId:claim.clinical_session_id});
   await assertClinicalWorkActive({ claimId: claim.id, clinical_session_id: claim.clinical_session_id });
   await attachClaimReferences([claim], clinicalPool);
   const family=await loadClaimFamily(agencyId,claimId);
@@ -72,8 +75,8 @@ export async function prepareClaimReview(agencyId, claimId) {
   const secondary = Number(claim.payer_sequence || 1) === 2;
   const cob = secondary ? readSecondaryAdjudication(claim, sourceInsurance,{medicaidSecondary:programForPolicy(sourceInsurance?.secondary,billingPayerRules).program==='medicaid'}) : null;
   if(!secondary && !claim.claimmd_submitted_at){
-    const [[externalReview]]=await clinicalPool.execute("SELECT id FROM claimmd_claim_events WHERE agency_id=? AND clinical_claim_id=? AND event_type='external_primary_adjudication_recorded' LIMIT 1",[agencyId,claimId]);
-    if(externalReview)readiness.blockers.push('This primary was reported submitted externally with ERA/EOB proof. Do not send it again from the app. Continue through its linked secondary claim.');
+    const [[externalReview]]=await clinicalPool.execute("SELECT id FROM claimmd_claim_events WHERE agency_id=? AND clinical_claim_id=? AND event_type IN ('external_primary_adjudication_recorded','external_final_adjudication_recorded') LIMIT 1",[agencyId,claimId]);
+    if(externalReview)readiness.blockers.push('This claim has externally reviewed ERA/EOB evidence. Do not send it again from the app. Continue the documented payer follow-up or coordination-of-benefits workflow.');
   }
   if (secondary) {
     await validateClaimAdjudicationEvidence({agencyId,claimId:claim.parent_claim_id,clientId:claim.client_id,evidenceIds:cob.evidence.map(file=>file.id)},clinicalPool);
@@ -336,11 +339,13 @@ export async function claimDraft(req, res, next) {
       FROM clinical_claims WHERE id = ? AND agency_id = ? AND is_deleted = 0`, [req.params.claimId, agencyId]);
     if (!claim) throw fail(404, 'Claim not found');
     const [lines] = await clinicalPool.execute('SELECT id, procedure_code, units, modifiers_json, charge_cents, diagnosis_pointers, service_date FROM clinical_claim_lines WHERE clinical_claim_id = ? ORDER BY line_number', [claim.id]);
-    let approvedClinicalVersion = null, approvedClinicalVersionError = null;
+    let approvedClinicalVersion = null, approvedClinicalVersionError = null, identityDefaults = null, identityWarnings = [];
     if (claim.clinical_note_id) {
       const [[note]] = await clinicalPool.execute('SELECT * FROM clinical_notes WHERE id=? AND agency_id=? AND clinical_session_id=? AND client_id=? AND is_deleted=0', [claim.clinical_note_id, agencyId, claim.clinical_session_id, claim.client_id]);
       const [[session]] = await clinicalPool.execute('SELECT * FROM clinical_sessions WHERE id=? AND agency_id=? AND client_id=?', [claim.clinical_session_id, agencyId, claim.client_id]);
       if (note && session) {
+        try {const approvedIdentity=await getApprovedClinicalContext({note,session});identityDefaults=await claimBillingIdentity({claim,note:approvedIdentity.note,session:approvedIdentity.session});identityWarnings=identityDefaults.warnings||[];}
+        catch(error){if(error.status!==409)throw error;identityWarnings=[error.message];}
         try { approvedClinicalVersion = await approvedClinicalClaimPlan({ note, session, agencyId, clientId: claim.client_id }); }
         catch (error) { if (error.status !== 409) throw error; approvedClinicalVersionError = error.message; }
       }
@@ -357,8 +362,13 @@ export async function claimDraft(req, res, next) {
       const evidence = feeSnapshots.find(item => item.serviceCode === line.procedure_code);
       return Number(line.charge_cents) === 0 && (!evidence || evidence.needsRate);
     }).map(line => `${line.procedure_code} has a saved $0 charge without a confirmed fee. Enter the charge for this claim. Fee schedule changes apply to new claims and do not reprice this saved claim.`))];
+    const currentOffice=billingOffices.find(o=>Number(o.id)===Number(billingOfficeId));
+    const editContext={clientId:Number(claim.client_id),providerUserId:identityDefaults?.billingProviderUserId||claimMetadata(claim).billingUserId||identityDefaults?.providerUserId||null,payerId:identityDefaults?.payerId||claim.destination_payer_id||null};
+    if(!claim.billing_npi)claim.billing_npi=currentOffice?.practice_npi||null;
+    if(!claim.rendering_npi)claim.rendering_npi=identityDefaults?.renderingNpi||null;
+    if(!claim.taxonomy_code)claim.taxonomy_code=identityDefaults?.taxonomyCode||null;
     delete claim.metadata_json;
-    res.json({ claim, lines, feeWarnings, billingOffices, billingOfficeId, billingOfficeError, approvedClinicalVersion, approvedClinicalVersionError, clinicalVersionChanged: !!approvedClinicalVersion && claimDiffersFromApprovedVersion(claim, lines, approvedClinicalVersion), previouslyTransmitted: previouslyTransmitted(claim) });
+    res.json({ claim, lines, editContext,identityWarnings, feeWarnings, billingOffices, billingOfficeId, billingOfficeError, approvedClinicalVersion, approvedClinicalVersionError, clinicalVersionChanged: !!approvedClinicalVersion && claimDiffersFromApprovedVersion(claim, lines, approvedClinicalVersion), previouslyTransmitted: previouslyTransmitted(claim) });
   } catch (e) { next(e); }
 }
 
@@ -395,8 +405,8 @@ export async function correctClaim(req, res, next) {
     const pos = String(req.body.placeOfService || '');
     const billingNpi = String(req.body.billingNpi || ''), renderingNpi = String(req.body.renderingNpi || ''), taxonomy = String(req.body.taxonomyCode || '');
     const lines = req.body.lines;
-    if (!reason || reason.length > 1000 || !/^\d{2}$/.test(pos) || !/^\d{10}$/.test(billingNpi) || !/^\d{10}$/.test(renderingNpi) || (taxonomy && !/^[A-Z0-9]{10}$/.test(taxonomy))) throw fail(400, 'Provide valid billing identifiers, place of service, and a correction reason');
-    if (!Array.isArray(lines) || !lines.length || lines.length > 50 || lines.some(l => !Number.isSafeInteger(l.id) || !Number.isSafeInteger(l.chargeCents) || l.chargeCents < 1 || l.chargeCents > 100000000 || !Array.isArray(l.modifiers) || l.modifiers.length > 4 || l.modifiers.some(m => !/^[A-Z0-9]{2}$/.test(m)))) throw fail(400, 'Review service-line charges and modifiers');
+    if (!reason || reason.length > 1000) throw fail(400, 'Provide a correction reason.');
+    if (!Array.isArray(lines) || !lines.length || lines.length > 50 || lines.some(l => !Number.isSafeInteger(l.id) || !Number.isSafeInteger(l.chargeCents) || l.chargeCents < 0 || l.chargeCents > 100000000 || !Array.isArray(l.modifiers) || l.modifiers.length > 4 || l.modifiers.some(m => !/^[A-Z0-9]{2}$/.test(m)))) throw fail(400, 'Review service-line charges and modifiers');
     db = await clinicalPool.getConnection();
     await db.beginTransaction();
     const [[claim]] = await db.execute('SELECT * FROM clinical_claims WHERE id = ? AND agency_id = ? AND is_deleted = 0 FOR UPDATE', [claimId, agencyId]);
@@ -404,6 +414,7 @@ export async function correctClaim(req, res, next) {
     if (!['draft', 'ready', 'rejected'].includes(claim.claim_lifecycle)) throw fail(409, 'This claim cannot be edited until its clearinghouse status is reconciled');
     if(previouslyTransmitted(claim))throw fail(409,'Preserve the original submitted claim. Use payer follow-up for corrections instead of editing its submitted fields.');
     if (Number(req.body.revision) !== claim.billing_revision) throw fail(409, 'Someone changed this claim. Reload before saving.');
+    for(const [value,existing,pattern,label] of [[pos,claim.place_of_service,/^\d{2}$/,'place of service'],[billingNpi,claim.billing_npi,/^\d{10}$/,'billing NPI'],[renderingNpi,claim.rendering_npi,/^\d{10}$/,'rendering NPI'],[taxonomy,claim.taxonomy_code,/^[A-Z0-9]{10}$/,'taxonomy']])if(value&&value!==String(existing||'')&&!pattern.test(value))throw fail(400,`Enter a valid ${label}, or leave unresolved setup blank while saving charges for review.`);
     const priorOfficeId=claimOfficeId(claim);
     let selectedOfficeId=priorOfficeId;
     const savedMetadata=claimMetadata(claim);
@@ -411,10 +422,11 @@ export async function correctClaim(req, res, next) {
       selectedOfficeId=Number(req.body.billingOfficeId);
       if(!Number.isSafeInteger(selectedOfficeId)||selectedOfficeId<1)throw fail(400,'Select a billing office for this agency.');
       const profile=await getClaimMdBillingProfile(agencyId,selectedOfficeId,{requireComplete:false});
-      assertClaimBillingNpi(profile,billingNpi);
+      if(billingNpi)assertClaimBillingNpi(profile,billingNpi);
       savedMetadata.billingOfficeOverride={officeId:selectedOfficeId,actorUserId:Number(req.user.id),reason,recordedAt:new Date().toISOString()};
     }
     const [originalLines] = await db.execute('SELECT id, charge_cents, modifiers_json FROM clinical_claim_lines WHERE clinical_claim_id = ? FOR UPDATE', [claimId]);
+    if(lines.some(line=>Number(originalLines.find(o=>Number(o.id)===line.id)?.charge_cents)!==line.chargeCents)&&req.body.chargeChangeConfirmed!==true)throw fail(400,'Confirm whether this charge change is for this claim only or matching defaults before saving.');
     if (lines.length !== originalLines.length || new Set(lines.map(l => l.id)).size !== lines.length || lines.some(l => !originalLines.some(o => Number(o.id) === l.id))) throw fail(409, 'Service lines changed. Reload the claim.');
     let clinicalVersion = null;
     if (claim.clinical_note_id) {
@@ -423,12 +435,12 @@ export async function correctClaim(req, res, next) {
       const [[session]] = await db.execute('SELECT * FROM clinical_sessions WHERE id=? AND agency_id=?',[claim.clinical_session_id,agencyId]);
       const approved = await getApprovedClinicalContext({ note: originalNote, session }, db);
       const approvedPos = approved.note.metadata_json?.structuredChart?.placeOfService || approved.session.place_of_service;
-      if (approvedPos && String(approvedPos) !== pos) throw fail(409, 'Propose a clinical amendment and obtain the author signature and required supervisor approval before changing this claim’s place of service.');
+      if (approvedPos && pos && String(approvedPos) !== pos) throw fail(409, 'Propose a clinical amendment and obtain the author signature and required supervisor approval before changing this claim’s place of service.');
       clinicalVersion = clinicalVersionReference(approved.note);
     }
     for (const line of lines) await db.execute('UPDATE clinical_claim_lines SET charge_cents = ?, modifiers_json = ? WHERE id = ? AND clinical_claim_id = ?', [line.chargeCents, JSON.stringify(line.modifiers), line.id, claimId]);
     await db.execute(`UPDATE clinical_claims SET place_of_service = ?, billing_npi = ?, rendering_npi = ?, taxonomy_code = ?, amount_cents = ?, metadata_json = ?, billing_revision = billing_revision + 1 WHERE id = ? AND agency_id = ?`,
-      [pos, billingNpi, renderingNpi, taxonomy || null, lines.reduce((sum, l) => sum + l.chargeCents, 0), JSON.stringify(savedMetadata), claimId, agencyId]);
+      [pos || null, billingNpi || null, renderingNpi || null, taxonomy || null, lines.reduce((sum, l) => sum + l.chargeCents, 0), JSON.stringify(savedMetadata), claimId, agencyId]);
     await recordClaimEvent({ agencyId, claimId, connectionId: claim.claimmd_connection_id || `agency:${agencyId}`, eventKey: `correction:${crypto.randomUUID()}`,
       eventType: 'correction', actorUserId: req.user.id, payload: { reason, clinicalVersion,
         before: { billingOfficeId:priorOfficeId, placeOfService: claim.place_of_service, billingNpi: claim.billing_npi, renderingNpi: claim.rendering_npi, taxonomyCode: claim.taxonomy_code, lines: originalLines },

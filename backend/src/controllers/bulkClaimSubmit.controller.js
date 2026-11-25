@@ -39,7 +39,7 @@ export async function submitReadyClaimSet(req, res, next) {
       let prepared;
       try { prepared = await prepareClaimReview(agencyId, claim.id); }
       catch (error) {
-        if (error.code !== 'CLINICAL_WORK_ARCHIVED') throw error;
+        if (error.code !== 'CLINICAL_WORK_ARCHIVED' && ![400,403,409,422].includes(error.status)) throw error;
         held.push({ claimId: claim.id, message: error.message });
         continue;
       }

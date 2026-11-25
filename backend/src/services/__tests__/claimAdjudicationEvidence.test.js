@@ -19,6 +19,14 @@ function setup(){
  const record=vi.fn();return{db,storage,record,rows,objects};
 }
 describe('private primary adjudication proof',()=>{
+ it('allows final responsibility proof on a secondary claim while keeping the primary-only upload restricted',async()=>{
+  const d=setup(),original=d.db.execute.getMockImplementation();
+  d.db.execute.mockImplementation((sql,args)=>sql.startsWith('SELECT id,agency_id')?[[{id:11,agency_id:2,client_id:3,payer_sequence:2,parent_claim_id:9}]]:original(sql,args));
+  await expect(uploadClaimAdjudicationEvidence({agencyId:2,claimId:11,actorUserId:7,file:example(),kind:'primary_eob',source:'Payer portal'},d)).rejects.toMatchObject({status:404});
+  const result=await uploadClaimAdjudicationEvidence({agencyId:2,claimId:11,actorUserId:7,file:example(),kind:'final_eob',source:'Final payer portal',finalAdjudication:true},d);
+  expect(result.kind).toBe('final_eob');expect(d.record).toHaveBeenCalledWith(expect.objectContaining({eventType:'final_adjudication_proof_uploaded',actorUserId:7}),d.db);
+  const downloaded=await downloadClaimAdjudicationEvidence({agencyId:2,claimId:11,evidenceId:result.id,actorUserId:7,finalAdjudication:true},d);expect(downloaded.buffer).toEqual(example().buffer);
+ });
  it('stores encrypted bytes and metadata, records the actual actor, and validates an authenticated download',async()=>{
   const d=setup(),file=example(),result=await uploadClaimAdjudicationEvidence({agencyId:2,claimId:11,actorUserId:7,file,kind:'primary_eob',source:'Primary payer portal'},d);
   expect(d.storage.writeObject).toHaveBeenCalled();const stored=[...d.objects.values()][0];expect(stored.includes(file.buffer)).toBe(false);expect(stored.toString()).not.toContain('Synthetic EOB');expect(d.rows[0].metadata_encrypted).not.toContain('primary-eob.pdf');

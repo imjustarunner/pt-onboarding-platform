@@ -16,12 +16,13 @@ suite('canonical fee schedule against isolated MySQL', () => {
   let admin, db, d;
   const actor = { id: 501, role: 'super_admin' };
   beforeAll(async () => {
-    if (socket && socket !== '/private/tmp/auricwell-narriva-mysql.sock' && !/^\/private\/tmp\/pt-billing-fees-(?:h0002-)?mysql-20261103\//.test(socket)) throw new Error('Only the owned socket-only synthetic MySQL instance may run this test');
+    if (socket && socket !== '/private/tmp/pt-claim-billing-mysql-20261125/mysql.sock' && socket !== '/private/tmp/auricwell-narriva-mysql.sock' && !/^\/private\/tmp\/pt-billing-fees-(?:h0002-)?mysql-20261103\//.test(socket)) throw new Error('Only the owned socket-only synthetic MySQL instance may run this test');
     admin = await mysql.createConnection(connection);
     await admin.query('DROP DATABASE IF EXISTS fee_schedule_qa');
     await admin.query('CREATE DATABASE fee_schedule_qa');
     db = mysql.createPool({ ...connection, database: 'fee_schedule_qa', connectionLimit: 8 });
     for (const sql of [
+      'CREATE TABLE clients (id INT PRIMARY KEY,agency_id INT)',
       'CREATE TABLE agencies (id INT PRIMARY KEY,feature_flags JSON)',
       'CREATE TABLE agency_medical_service_codes (id INT AUTO_INCREMENT PRIMARY KEY,agency_id INT,service_code VARCHAR(32),description VARCHAR(100),unit_calc_mode VARCHAR(32),unit_minutes INT,is_addon TINYINT,is_active TINYINT,min_minutes INT,max_minutes INT,max_units_per_session INT,max_units_per_day INT,default_place_of_service CHAR(2),allowed_credential_tiers_json JSON,session_mode VARCHAR(20),created_by_user_id INT,UNIQUE(agency_id,service_code))',
       'CREATE TABLE users (id INT PRIMARY KEY,first_name VARCHAR(40),last_name VARCHAR(40),credential VARCHAR(80),title VARCHAR(50),role VARCHAR(30),is_hourly_worker TINYINT,is_active TINYINT,is_archived TINYINT,status VARCHAR(30))',
@@ -42,6 +43,7 @@ suite('canonical fee schedule against isolated MySQL', () => {
       `INSERT INTO agencies VALUES (2,'{"medicalBillingEnabled":true}'),(6,'{"medicalBillingEnabled":true}'),(7,'{"medicalBillingEnabled":false}'),(8,'{"medicalBillingEnabled":true}')`,
       "INSERT INTO agency_medical_service_codes (id,agency_id,service_code,description,unit_calc_mode,unit_minutes,is_addon,is_active) VALUES (1,2,'90834','Saved therapy description','SINGLE',NULL,0,1),(2,2,'H0002','Saved screening rules','SINGLE',NULL,0,1),(3,2,'CUSTOM','Inactive service','SINGLE',NULL,0,0),(4,6,'90834','Other practice','SINGLE',NULL,0,1),(5,7,'90834','Disabled billing practice','SINGLE',NULL,0,1)",
       "INSERT INTO users VALUES (8,'DEMO','Licensed','LPC','Therapist','provider',0,1,0,'ACTIVE'),(9,'DEMO','Candidate','LPCC','Therapist','provider',0,1,0,'ACTIVE'),(10,'DEMO','Other','LPC','Therapist','provider',0,1,0,'ACTIVE')",
+      'INSERT INTO clients VALUES(31,2),(32,6)',
       'INSERT INTO user_agencies VALUES (8,2,1),(9,2,1),(10,6,1)',
       "INSERT INTO insurance_credentialing_definitions VALUES (1,2,'Aetna',NULL,NULL,0),(2,6,'Other practice insurer',NULL,NULL,0)",
       "INSERT INTO user_insurance_credentialing VALUES (1,8,1,'2000-01-01'),(2,9,1,'2000-01-01'),(3,10,2,'2000-01-01')",
@@ -91,7 +93,8 @@ suite('canonical fee schedule against isolated MySQL', () => {
     view = await change({ scope: 'provider', payerId: 'AET', providerUserId: 8, rateCents: 13000 });
     let quote = await resolveCanonicalFeeQuote({ agencyId: 2, serviceCode: '90834', payerId: 'AET', providerUserId: 8, units: 2 }, d);
     expect(quote).toMatchObject({ source: 'provider', amountCents: 26000, providerRateEligible: true });
-    await expect(change({ scope: 'provider', payerId: 'AET', providerUserId: 9, rateCents: 1 })).rejects.toMatchObject({ status: 409 });
+    view=await change({ scope: 'provider', payerId: 'AET', providerUserId: 9, rateCents: 11000 });
+    await expect(change({scope:'provider',payerId:'AET',providerUserId:9,action:'set_modifiers',modifiers:['U9']})).rejects.toMatchObject({status:409});
     await expect(change({ scope: 'payer', payerId: 'OTHER', rateCents: 1 })).rejects.toMatchObject({ status: 409 });
     view = await change({ action: 'reset', serviceCode: 'H0002' });
     expect(view.rows.find(r => r.serviceCode === 'H0002')).toMatchObject({ rateCents: 3000, source: 'platform_starter' });
@@ -104,7 +107,7 @@ suite('canonical fee schedule against isolated MySQL', () => {
     await expect(db.query('DELETE FROM medical_fee_schedule_rates WHERE id=1')).rejects.toThrow('cannot be deleted');
     await db.query("UPDATE credentialing_workflow_tracking SET status='denied' WHERE agency_id=2 AND credential_id=1");
     quote = await resolveCanonicalFeeQuote({ agencyId: 2, serviceCode: '90834', payerId: 'AET', providerUserId: 8 }, d);
-    expect(quote).toMatchObject({ source: 'payer', rateCents: 14000, providerRateEligible: false });
+    expect(quote).toMatchObject({ source: 'provider', rateCents: 13000, providerRateEligible: true }); // A rate is not permission to submit.
     const revision = view.revision;
     const raced = await Promise.allSettled([change({ revision, serviceCode: '90834', rateCents: 17000 }), change({ revision, serviceCode: 'H0002', rateCents: 5000 })]);
     expect(raced.filter(r => r.status === 'fulfilled')).toHaveLength(1);
@@ -129,4 +132,14 @@ suite('canonical fee schedule against isolated MySQL', () => {
     expect(added[0].allowed_credential_tiers_json).toEqual(['intern_plus']);
     expect(await resolveCanonicalFeeQuote({agencyId:6,serviceCode:'H0002',units:1},d)).toMatchObject({serviceCodeAvailable:true,rateCents:3000,amountCents:3000,source:'platform_starter'});
   });
+  it('writes a client default, inherits provider-type defaults, and rejects cross-practice client writes',async()=>{
+    await db.query("UPDATE agency_medical_service_codes SET is_active=1 WHERE agency_id=2 AND service_code='H0002'");
+    let view=await getCanonicalFeeSchedule(actor,{agencyId:2,scope:'client',clientId:31,providerUserId:9,payerId:'AET'},d);
+    view=await saveCanonicalFeeSchedule(actor,{agencyId:2,scope:'category',categoryKey:'category_2',mode:'insurance',serviceCode:'H0002',revision:view.revision,action:'set',rateCents:4100,reason:'Reviewed provider type rate'},d);
+    expect(await resolveCanonicalFeeQuote({agencyId:2,serviceCode:'H0002',providerUserId:9,payerId:'AET',clientId:31},d)).toMatchObject({rateCents:4100,source:'category'});
+    view=await saveCanonicalFeeSchedule(actor,{agencyId:2,scope:'client',clientId:31,mode:'insurance',serviceCode:'H0002',revision:view.revision,action:'set',rateCents:4200,reason:'Reviewed this client rate'},d);
+    expect(await resolveCanonicalFeeQuote({agencyId:2,serviceCode:'H0002',providerUserId:9,payerId:'AET',clientId:31},d)).toMatchObject({rateCents:4200,source:'client'});
+    await expect(saveCanonicalFeeSchedule(actor,{agencyId:2,scope:'client',clientId:32,mode:'insurance',serviceCode:'H0002',revision:view.revision,action:'set',rateCents:99999,reason:'Must reject another tenant'},d)).rejects.toMatchObject({status:404});
+  });
+
 });

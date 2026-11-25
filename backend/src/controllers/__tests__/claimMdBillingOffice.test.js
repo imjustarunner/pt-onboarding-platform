@@ -1,7 +1,8 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-const m=vi.hoisted(()=>({execute:vi.fn(),main:vi.fn(),begin:vi.fn(),commit:vi.fn(),rollback:vi.fn(),profile:vi.fn(),resolve:vi.fn(),offices:vi.fn(),event:vi.fn(),build:vi.fn(),approved:vi.fn()}));
+const m=vi.hoisted(()=>({execute:vi.fn(),main:vi.fn(),begin:vi.fn(),commit:vi.fn(),rollback:vi.fn(),profile:vi.fn(),resolve:vi.fn(),offices:vi.fn(),event:vi.fn(),build:vi.fn(),approved:vi.fn(),identity:vi.fn()}));
 vi.mock('../../config/clinicalDatabase.js',()=>({default:{execute:m.execute,getConnection:async()=>({execute:m.execute,beginTransaction:m.begin,commit:m.commit,rollback:m.rollback,release:vi.fn()})}}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.main},onTableWrite:vi.fn()}));
+vi.mock('../../services/claimBillingIdentity.service.js',()=>({claimBillingIdentity:m.identity}));
 vi.mock('../../services/clinicalEligibility.service.js',()=>({default:{ensureAgencyAccess:vi.fn()}}));
 vi.mock('../../services/claimMdBillingProfile.service.js',async original=>({...await original(),getClaimMdBillingProfile:m.profile,resolveClaimMdBillingProfile:m.resolve,listClaimMdBillingProfiles:m.offices}));
 vi.mock('../../services/claimMdWorkflow.service.js',async original=>({...await original(),recordClaimEvent:m.event,claimEventHistory:vi.fn(async()=>[])}));
@@ -14,7 +15,7 @@ vi.mock('../../services/clientDocumentationReadiness.service.js',()=>({documenta
 vi.mock('../../services/claimContentReview.service.js',()=>({claimDocumentation:vi.fn(async()=>({note:{id:7,provider_signed_at:'2026-11-01',provider_signed_by_user_id:22},addenda:[]})),reviewSourceHash:input=>JSON.stringify(input),currentClaimContentReview:vi.fn(async()=>({status:'passed',findings:[]})),runClaimContentReview:vi.fn()}));
 vi.mock('../../services/providerBillingRollout.service.js',()=>({providerBillingRolloutReview:vi.fn(async()=>({ready:true,revision:1}))}));
 vi.mock('../../services/providerBillingNpi.service.js',()=>({providerBillingNpi:vi.fn(async()=> '2222222222')}));
-vi.mock('../../services/supervisedBillingPolicy.service.js',()=>({resolveNoteDocumentationPolicy:vi.fn(async()=>({supervisorUserId:null,billingMode:'own'})),resolveDocumentationPolicy:vi.fn(async()=>({supervisorUserId:null,billingMode:'own'})),loadPayerPolicy:vi.fn(async()=>({})),evaluateSupervisedBilling:()=>({blockers:[],warnings:[]}),isNonBillableDocument:()=>false}));
+vi.mock('../../services/supervisedBillingPolicy.service.js',async original=>({...await original(),resolveNoteDocumentationPolicy:vi.fn(async()=>({supervisorUserId:null,billingMode:'own'})),resolveDocumentationPolicy:vi.fn(async()=>({supervisorUserId:null,billingMode:'own'})),loadPayerPolicy:vi.fn(async()=>({})),evaluateSupervisedBilling:()=>({blockers:[],warnings:[]}),isNonBillableDocument:()=>false}));
 vi.mock('../../services/applyBillingClaimOverrides.service.js',()=>({applyBillingClaimOverrides:vi.fn(async()=>null)}));
 vi.mock('../../services/claimServiceChanges.service.js',async original=>({...await original(),hasPendingClaimChange:vi.fn(async()=>false)}));
 vi.mock('../../services/claimMd.service.js',async original=>({...await original(),buildClaimMdJsonClaim:m.build}));
@@ -26,7 +27,7 @@ const profile={officeId:8,officeName:'Billing group',billingNpi:'1111111111',pra
 const request=(body={})=>({user:{id:99,role:'admin'},params:{claimId:'11'},body:{agencyId:1,revision:2,reason:'Correct billing office selection',placeOfService:'10',billingNpi:'1111111111',renderingNpi:'2222222222',taxonomyCode:'101Y00000X',billingOfficeId:8,lines:[{id:14,chargeCents:10000,modifiers:[]}],...body}});
 const response=()=>({json:vi.fn()});
 beforeEach(()=>{
- vi.clearAllMocks();claim={id:11,agency_id:1,client_id:4,clinical_session_id:3,clinical_note_id:7,date_of_service:'2026-11-01',claim_lifecycle:'ready',billing_revision:2,billing_npi:'1111111111',rendering_npi:'2222222222',place_of_service:'10',metadata_json:{clinicalVersion:{revisionId:12},rateEvidence:{source:'existing'}}};
+ vi.clearAllMocks();m.identity.mockResolvedValue({renderingNpi:'2222222222',taxonomyCode:'101Y00000X',providerUserId:22,billingProviderUserId:22,payerId:'QA-PAYER',warnings:[]});claim={id:11,agency_id:1,client_id:4,clinical_session_id:3,clinical_note_id:7,date_of_service:'2026-11-01',claim_lifecycle:'ready',billing_revision:2,billing_npi:'1111111111',rendering_npi:'2222222222',place_of_service:'10',metadata_json:{clinicalVersion:{revisionId:12},rateEvidence:{source:'existing'}}};
  m.execute.mockImplementation(async sql=>sql.includes('FROM clinical_claim_references')?[[{agency_id:1,clinical_claim_id:11,public_reference:'001-2026-11-001'}]]:sql.includes('FROM clinical_claims')?[[{...claim}]]:sql.includes('FROM clinical_claim_lines')?[[{id:14,clinical_note_id:7,procedure_code:'90834',charge_cents:10000,modifiers_json:'[]'}]]:sql.includes('FROM clinical_sessions')?[[session]]:sql.includes('FROM clinical_notes')?[[{id:7,agency_id:1,client_id:4,clinical_session_id:3}]]:sql.startsWith('SELECT')?[[]]:[{affectedRows:1}]);
  m.main.mockImplementation(async sql=>sql.includes('FROM users')?[[{id:22,first_name:'QA',last_name:'Clinician'}]]:[[]]);
  m.profile.mockResolvedValue(profile);m.resolve.mockResolvedValue(profile);m.offices.mockResolvedValue([{id:8,name:'Billing group',practice_npi:'1111111111'}]);
@@ -91,4 +92,22 @@ it('exposes saved coverage dates as context without claiming a different date wa
  listCoverageEvidence.mockResolvedValueOnce({review:null,latestReview:{id:7,status:'verified',service_date:'2026-11-04',created_at:'2026-11-04T20:24:26Z'}});
  const result=await prepareClaimReview(1,11);
  expect(result.readiness.coverageReview).toEqual({applicable:null,latest:{id:7,status:'verified',serviceDate:'2026-11-04',recordedAt:'2026-11-04T20:24:26Z'}});expect(result.claim.date_of_service).toBe('2026-11-01');expect(m.execute.mock.calls.some(([sql])=>/^UPDATE|^INSERT/.test(sql))).toBe(false);
+});
+it('saves a confirmed charge correction while rendering NPI, taxonomy, and office setup remain unresolved',async()=>{
+ claim.billing_npi=null;claim.rendering_npi=null;claim.taxonomy_code=null;
+ const req=request({billingNpi:'',renderingNpi:'',taxonomyCode:'',chargeChangeConfirmed:true,lines:[{id:14,chargeCents:13500,modifiers:[]}]});delete req.body.billingOfficeId;
+ const res=response(),next=vi.fn();await correctClaim(req,res,next);expect(next).not.toHaveBeenCalled();expect(m.commit).toHaveBeenCalled();
+ const [sql,values]=m.execute.mock.calls.find(([sql])=>sql.startsWith('UPDATE clinical_claims'));
+ expect(values.slice(1,5)).toEqual([null,null,null,13500]);
+ expect(m.execute.mock.calls.some(([sql])=>/^UPDATE clinical_(notes|sessions)/.test(sql))).toBe(false);
+});
+it('requires explicit charge-change confirmation before changing money, and keeps the old amount on rejection',async()=>{
+ const req=request({lines:[{id:14,chargeCents:13500,modifiers:[]}]});const next=vi.fn();await correctClaim(req,response(),next);
+ expect(next.mock.calls[0][0]).toMatchObject({status:400,message:expect.stringContaining('Confirm')});expect(m.commit).not.toHaveBeenCalled();expect(m.execute.mock.calls.some(([sql])=>sql.startsWith('UPDATE clinical_claim_lines'))).toBe(false);
+});
+
+it('prefills missing rendering identity and taxonomy from verified configuration without persisting or replacing saved identifiers',async()=>{
+ claim.rendering_npi=null;claim.taxonomy_code=null;let res=response();const next=vi.fn();const req={user:{id:99},params:{claimId:11},query:{agencyId:1}};
+ await claimDraft(req,res,next);expect(next).not.toHaveBeenCalled();expect(res.json.mock.calls[0][0]).toMatchObject({claim:{rendering_npi:'2222222222',taxonomy_code:'101Y00000X'},editContext:{clientId:4,providerUserId:22,payerId:'QA-PAYER'}});
+ expect(m.execute.mock.calls.some(([sql])=>sql.startsWith('UPDATE'))).toBe(false);claim.rendering_npi='3333333333';claim.taxonomy_code='103T00000X';res=response();await claimDraft(req,res,next);expect(res.json.mock.calls[0][0].claim).toMatchObject({rendering_npi:'3333333333',taxonomy_code:'103T00000X'});
 });

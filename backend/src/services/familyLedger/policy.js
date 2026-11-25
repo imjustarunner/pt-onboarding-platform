@@ -97,6 +97,8 @@ export async function assertCollectible(receivable, db = pool) {
       WHERE c.id=? AND c.agency_id=? AND c.client_id=? AND c.is_deleted=0`,[receivable.source_key,receivable.agency_id,receivable.client_id]);
     const claim=claims[0];
     if(!claim||claim.claim_lifecycle==='void'||claim.encounter_status!=='completed'||['VOID','VOIDED','CANCELLED','CANCELED'].includes(String(claim.claim_status).toUpperCase())||Number(claim.correction_pending))throw billingError(409,'The visit or claim needs review before collecting patient responsibility');
+    const {assertNoteBillingAllowed}=await import('../noteBillingDisposition.service.js');
+    await assertNoteBillingAllowed({agencyId:receivable.agency_id,sessionId:claim.clinical_session_id});
     const {assertSessionAttendanceNotSuppressed}=await import('./copayAttendance.js');
     await assertSessionAttendanceNotSuppressed({agencyId:receivable.agency_id,clientId:receivable.client_id,sessionId:claim.clinical_session_id},db);
     const payload=receivable.source_payload?decryptFamilyBilling(receivable.source_payload,`receivable:${receivable.agency_id}:${receivable.client_id}`):{};

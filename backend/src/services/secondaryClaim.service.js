@@ -1,3 +1,4 @@
+import {assertNoteBillingAllowed} from './noteBillingDisposition.service.js';
 import crypto from 'node:crypto';
 import clinicalPool from '../config/clinicalDatabase.js';
 import { assertClinicalWorkActive } from './clinicalWorkArchiveRead.service.js';
@@ -74,6 +75,7 @@ export async function prepareSecondaryClaim({agencyId,parentClaimId,actorUserId,
   if(!session||session.encounter_status!=='completed')throw policyError(409,'Only a completed visit can have a secondary claim');
   const [[parent]]=await db.execute('SELECT * FROM clinical_claims WHERE id=? AND agency_id=? FOR UPDATE',[parentClaimId,agencyId]);
   if(!parent||parent.is_deleted||Number(parent.payer_sequence||1)!==1||parent.claim_lifecycle==='void')throw policyError(409,'Use the primary claim and its actual payer adjudication; a clearinghouse acceptance alone is insufficient');
+  await assertNoteBillingAllowed({agencyId,noteId:parent.clinical_note_id,sessionId:parent.clinical_session_id},db);
   await assertClinicalWorkActive({ claimId: parent.id, clinical_session_id: ref.clinical_session_id });
   if(await hasPendingClaimChange(parent,db))throw policyError(409,'Resolve outstanding primary service corrections first');
   const insurance=await readClientInsurance(parent.client_id,agencyId);secondaryInsurance(insurance);

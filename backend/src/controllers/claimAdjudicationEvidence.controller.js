@@ -8,7 +8,7 @@ async function scope(req){
  const agencyId=Number(req.query.agencyId),claimId=Number(req.params.claimId);
  if(!Number.isSafeInteger(agencyId)||agencyId<1||!Number.isSafeInteger(claimId)||claimId<1)throw Object.assign(new Error('Valid agency and primary claim identifiers are required.'),{status:400});
  await ClinicalEligibilityService.ensureAgencyAccess({reqUser:req.user,agencyId});
- return {agencyId,claimId,actorUserId:req.user.id};
+ return {agencyId,claimId,actorUserId:req.user.id,finalAdjudication:req.finalAdjudicationProof===true};
 }
 export async function listPrimaryProof(req,res,next){try{res.set('Cache-Control','no-store').json({items:await listClaimAdjudicationEvidence(await scope(req))});}catch(error){next(error);}}
 export async function getSecondaryManualReview(req,res,next){

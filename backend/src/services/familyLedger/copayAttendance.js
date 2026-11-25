@@ -1,3 +1,4 @@
+import {noteBillingExclusion,assertNoteBillingAllowed} from '../noteBillingDisposition.service.js';
 import {missedNote,completeMissedSessionDocumentation} from '../nonbillableNoteCompletion.service.js';
 import pool from '../../config/database.js';
 import { assertClinicalWorkActive } from '../clinicalWorkArchiveRead.service.js';
@@ -103,6 +104,7 @@ export async function requireAttendanceProvider(agencyId, providerUserId, db = p
 // Exact amount comes from signed, staff-verified benefit terms, never a browser,
 // gross fee schedule, eligibility guess, or claim billed charge.
 export async function attendanceCopayTerms(session, db = pool) {
+  await assertNoteBillingAllowed({agencyId:session.agency_id,sessionId:session.id});
   await assertClinicalWorkActive({ clinical_session_id: session.id, appointment_id: session.appointment_id }, { db });
   const agencyId = session.agency_id, clientId = session.client_id;
   const [[agency]]=await db.execute('SELECT timezone FROM agencies WHERE id=?',[agencyId]);
@@ -270,6 +272,7 @@ export async function assertSessionAttendanceNotSuppressed({agencyId,clientId,se
 export async function assertAttendanceCopay(receivable, db = pool) {
   const payload = sourcePayload(receivable), sessionId = payload.attendanceSessionId || (receivable.source_type === 'clinical_copay' ? receivable.source_key : null);
   if (!sessionId) return;
+  await assertNoteBillingAllowed({agencyId:receivable.agency_id,sessionId});
   const [[decision]] = await db.execute('SELECT * FROM family_copay_attendance WHERE agency_id=? AND clinical_session_id=? FOR UPDATE', [receivable.agency_id, sessionId]);
   if (decision?.attendance !== 'occurred') throw billingError(409, 'This session has not been confirmed as occurring.');
   const session = await sessionFor(receivable.agency_id, sessionId);
@@ -318,6 +321,7 @@ export async function collectAttendanceCopay({ agencyId, sessionId }) {
 }
 export async function onSignedNoteCopay({ agencyId, noteId, providerUserId }) {
   const [[note]] = await clinicalPool.execute('SELECT * FROM clinical_notes WHERE id=? AND agency_id=? AND is_deleted=0', [noteId, agencyId]);
+  if(note&&await noteBillingExclusion({agencyId,noteId,sessionId:note.clinical_session_id}))return {eligible:false,reason:'Saved in chart without billing'};
   if(note && missedNote(note) && (note.provider_signed_at||note.content_review_source==='provider_review')) {
     if(Number(note.created_by_user_id)!==Number(providerUserId))throw billingError(403,'Only the author can complete this attendance entry.');
     const session=await sessionFor(agencyId,note.clinical_session_id);

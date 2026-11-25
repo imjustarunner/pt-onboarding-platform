@@ -132,6 +132,7 @@ export async function loadBillingWorkItems(agencyIds, deps) {
     AND LOWER(COALESCE(s.encounter_status,'')) NOT IN ('cancelled','canceled','no_show','void','voided','rescheduled')
     AND (n.id IS NOT NULL OR COALESCE(s.scheduled_end_at,s.scheduled_start_at)<UTC_TIMESTAMP())
     AND (n.id IS NULL OR COALESCE(n.note_type,'') NOT IN ('treatment_plan','discharge_summary','treatment_summary'))
+    AND NOT EXISTS(SELECT 1 FROM clinical_note_billing_exclusions x WHERE x.agency_id=s.agency_id AND (x.clinical_session_id=s.id OR x.clinical_note_id=n.id))
     AND NOT EXISTS(SELECT 1 FROM clinical_claims c WHERE c.agency_id=s.agency_id AND c.clinical_session_id=s.id AND c.is_deleted=0)
     AND NOT EXISTS(SELECT 1 FROM clinical_claim_sessions cs WHERE cs.agency_id=s.agency_id AND cs.clinical_session_id=s.id)`, agencyIds);
   let drafts = [], appointments = [], draftsAvailable = true, appointmentsAvailable = true;
@@ -209,7 +210,7 @@ export function filterBillingWorkItems(items, query = {}, organizations = []) {
   let rows = items.filter(row => id(row.client_id) && row.client_link_verified !== false && (includesDemoBilling(query) || !syntheticBillingRow(row)) && (!query.clientId || Number(row.client_id) === Number(query.clientId)) &&
     matchesClaimQueue(row,status) &&
     (!search || [row.key,row.claim_reference,row.claim_number,row.claimId,row.client_id,row.clinical_note_id,row.draft_id,row.clinical_session_id,row.appointment_id,row.client_name,row.provider_name,row.billing_provider_name,row.supervisor_name,row.payer_name,row.service_code,org.get(row.agency_id),...(row.claim_aliases||[]),...(row.diagnosis_codes || [])].some(value => String(value || '').toLowerCase().includes(search))));
-  const allowed = ['organization','date_of_service','claimmd_submitted_at','client_name','service_code','provider_name','billing_provider_name','supervisor_name','payer_name','amount_cents','place_of_service','diagnosis_codes','units','stage','submission_type'];
+  const allowed = ['claim_reference','organization','date_of_service','claimmd_submitted_at','client_name','service_code','provider_name','billing_provider_name','supervisor_name','payer_name','amount_cents','place_of_service','diagnosis_codes','units','stage','submission_type'];
   const sort = query.sortBy || 'date_of_service', direction = query.direction === 'asc' ? 1 : -1;
   if (!allowed.includes(sort)) throw Object.assign(new Error('Invalid claim sort column.'), { status: 400 });
   rows.sort((a,b) => {

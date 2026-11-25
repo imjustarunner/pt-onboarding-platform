@@ -2,12 +2,13 @@
   <div class="cndf">
     <div v-if="loading" class="cndf-muted">Loading clinical note…</div>
     <div v-else-if="error" class="cndf-error">{{ error }}</div>
-    <ClinicalNoteReadOnlyView ref="readOnlyView" v-else-if="note" :note="note" :compact="compact" @amended="onAmended" />
+    <ClinicalNoteReadOnlyView ref="readOnlyView" v-else-if="note" :note="note" :compact="compact" @amended="onAmended" @open-claim="openClaim" />
   </div>
 </template>
 
 <script setup>
 import { onBeforeUnmount, ref, watch } from 'vue';
+import {useRouter} from 'vue-router';
 import api from '../../services/api.js';
 import ClinicalNoteReadOnlyView from './ClinicalNoteReadOnlyView.vue';
 
@@ -18,6 +19,8 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['amended']);
+const router=useRouter();
+function openClaim(claim){return router.push({name:'BillingWorkspace',query:{agencyId:String(claim.agencyId||note.value?.agencyId||note.value?.agency_id||props.agencyId),billingSection:'claims',claimId:String(claim.id)}});}
 const readOnlyView = ref(null);
 defineExpose({ openRevision: revisionId => readOnlyView.value?.openRevision(revisionId) });
 async function onAmended(result) { emit('amended', result); await load(); }

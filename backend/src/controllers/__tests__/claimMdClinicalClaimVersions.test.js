@@ -99,8 +99,8 @@ it('does not reprice a supplied zero charge', async () => {
   expect(next).not.toHaveBeenCalled();expect(m.quote).not.toHaveBeenCalled();expect(m.create.mock.calls[0][0].amountCents).toBe(0);
 });
 
-it('blocks automatic pricing when billing-provider resolution failed', async () => {
+it('saves a priced draft for billing review when provider configuration is incomplete', async () => {
   m.providers.mockRejectedValue(new Error('Provider configuration missing'));
   const next=vi.fn();await createMedicalClaim(request({primaryChargeCents:undefined}),response(),next);
-  expect(next).toHaveBeenCalledWith(expect.objectContaining({status:409}));expect(m.quote).not.toHaveBeenCalled();expect(m.create).not.toHaveBeenCalled();
+  expect(next).not.toHaveBeenCalled();expect(m.quote).toHaveBeenCalled();expect(m.create.mock.calls[0][0]).toMatchObject({amountCents:15000,metadataJson:{billingUserId:null}});
 });

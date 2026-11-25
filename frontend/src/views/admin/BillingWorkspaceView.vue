@@ -21,6 +21,7 @@
       <p v-else-if="!organizations.length && !error" class="empty-state">No organizations with medical billing access are available for your account.</p>
       <template v-if="organizations.length">
         <div class="lifecycle" aria-label="Billing lifecycle"><button @click="setSection('payers')"><b>1</b><span>Payer connection<small>Claims and ERA enrollment</small></span></button><span>→</span><button @click="setSection('claims')"><b>2</b><span>Claim submission<small>Review, approve, track responses</small></span></button><span>→</span><button @click="setSection('payments')"><b>3</b><span>ERA &amp; payment<small>Match, reconcile, post</small></span></button></div>
+        <section v-if="['workspace','claims'].includes(section)" class="panel-toolbar" aria-label="Submit eligible claims"><button type="button" class="primary" @click="filterQueue('ready_to_submit')">Review and submit eligible claims</button><p>Open signed-note claims for final checks, then submit eligible claims for the selected organization.</p></section>
         <div class="acceptance-note"><span aria-hidden="true">ⓘ</span> <strong>Accepted does not mean paid.</strong> Acknowledgements confirm claim processing; payment requires remittance and reconciliation.</div>
 
         <ClientPendingTasks v-if="!route.meta?.auricwellPreview && scopedOrganization && Number(route.query.clientId)>0" :key="`client-tasks-${scopeId}-${route.query.clientId}`" :agency-id="scopedOrganization.id" :client-id="route.query.clientId" :agency-slug="scopedOrganization.slug" billing-enabled />
@@ -52,7 +53,7 @@
           <label class="panel-toolbar"><input v-model="includeDemo" type="checkbox" data-testid="billing-include-demo" @change="page = 1" /> Include retained test records</label>
           <p v-if="hiddenTestRecords" class="panel-note" role="status" data-testid="billing-hidden-test-records">{{ hiddenTestRecords }} retained test {{ hiddenTestRecords === 1 ? 'work item is' : 'work items are' }} excluded from this scope and its totals. Their history is retained.</p>
           <div class="queue-tabs" aria-label="Claim filters"><button v-for="tab in queueTabs" :key="tab.id" :class="{ active: status === tab.id }" :aria-pressed="status === tab.id" @click="changeStatus(tab.id)">{{ tab.label }}</button></div>
-          <div v-if="scopedOrganization && status === 'ready_to_submit'" class="panel-toolbar"><button class="primary" :disabled="submittingSet || !claims.length" @click="submitReadySet">{{ submittingSet ? 'Submitting…' : 'Check and submit eligible claims' }}</button><p v-if="submitSetResult" class="panel-note">{{ submitSetResult }}</p></div>
+          <div v-if="scopedOrganization && status === 'ready_to_submit'" class="panel-toolbar"><button class="primary" :disabled="submittingSet || !claims.length" @click="submitReviewOpen=true">{{ submittingSet ? 'Submitting…' : 'Check and submit eligible claims' }}</button><p v-if="submitSetResult" class="panel-note">{{ submitSetResult }}</p></div>
           <p v-if="!capabilities.claims" class="empty-state">Claim data is unavailable until billing setup is complete.</p>
           <ClaimWorkTable v-else :items="claims" :organizations="organizations" :multiple-organizations="hasMultipleOrganizations" :sort-by="sortBy" :direction="sortDirection" :preference-key="`billing-columns:${authStore.user?.id || 'session'}`" @sort="sortClaims" @open="openClaim" />
           <p v-if="capabilities.claims && !claims.length && !loading" class="empty-state">No claims match this scope and filter.</p><div class="pagination"><span>{{ total.toLocaleString() }} work items · Page {{ page }} of {{ Math.max(1, Math.ceil(total / 30)) }}</span><div><button class="secondary" :disabled="loading || page <= 1" @click="page--">Previous</button><button class="secondary" :disabled="loading || page * 30 >= total" @click="page++">Next</button></div></div>
@@ -91,6 +92,7 @@
         <section v-if="section === 'billing-setup'" class="panel" aria-label="Billing setup"><h2>Billing setup</h2><p>Choose a company to manage service codes, billing rules, fees and billing settings.</p><select v-model="scopeId" aria-label="Billing setup company"><option value="all">Select a company</option><option v-for="org in organizations" :key="org.id" :value="String(org.id)">{{ org.name }}</option></select><p v-if="scopedOrganization"><router-link :to="serviceCodeSettingsPath">Open billing setup for {{ scopedOrganization.name }} →</router-link></p></section>
     </main>
 
+    <div v-if="submitReviewOpen" class="claim-overlay" @click.self="submitReviewOpen=false"><section class="claim-drawer" role="dialog" aria-modal="true" aria-label="Review eligible claim submission"><h2>Submit eligible claims</h2><p>{{ scopedOrganization?.name }} · {{ claims.filter(item=>workStage(item)==='ready_to_submit'&&workClaimId(item)).length }} claims on this page.</p><p>The system reruns final checks for each claim. Held claims stay in the queue. No claim is sent until you confirm below.</p><ul><li v-for="item in claims.filter(item=>workStage(item)==='ready_to_submit'&&workClaimId(item))" :key="workItemKey(item)">{{ item.client_name }} · {{ date(item.date_of_service) }} · {{ workItemTitle(item) }}</li></ul><button class="primary" type="button" :disabled="submittingSet" @click="submitReadySet">Confirm · Check and submit eligible claims</button><button class="secondary" type="button" @click="submitReviewOpen=false">Keep reviewing</button></section></div>
     <div v-if="selectedClaim" class="claim-overlay" @click.self="closeClaim"><aside class="claim-drawer" role="dialog" aria-modal="true" aria-labelledby="claim-dialog-title" tabindex="-1" ref="claimDialog" @keydown="trapClaimFocus">
       <div class="panel-heading"><div><span class="eyebrow">{{ companyName(selectedClaim.agency_id) }} · {{ workItemTitle(selectedClaim) }}</span><h2 id="claim-dialog-title">{{ selectedClaim.client_name || `Client #${selectedClaim.client_id}` }}</h2></div><button class="icon-button" aria-label="Close claim" @click="closeClaim">×</button></div>
       <p>{{ date(selectedClaim.date_of_service) }} · {{ selectedClaim.service_code || 'Service not recorded' }} · {{ selectedClaim.provider_name || 'Provider not recorded' }}</p>
@@ -111,6 +113,9 @@
       <form v-if="editableClaim && !selectedClaim.claimmd_submitted_at && !selectedClaim.claimmd_claim_id && !selectedClaim.claimmd_connection_id" class="panel-note" @submit.prevent="closeUnsubmittedClaim"><h3>Close without submitting</h3><label>Reason<textarea v-model="closureReason" required minlength="10" maxlength="2000" placeholder="For example: Not intended for submission; awaiting external billing confirmation." /></label><button class="secondary" :disabled="closingClaim || closureReason.trim().length < 10">{{ closingClaim ? 'Closing…' : 'Record reason and close claim' }}</button></form>
       <p v-if="selectedClaim.claim_lifecycle === 'queued'" class="panel-note">Submission is unresolved. Sync and reconcile before attempting another upload.</p><p v-if="selectedClaim.claim_lifecycle === 'denied'" class="panel-note">Review the payer’s adjudication before choosing a replacement claim or appeal.</p>
       <ClaimResubmissionPanel v-if="selectedClaimId && !clinicalDraft" :agency-id="Number(selectedClaim.agency_id)" :claim-id="selectedClaimId" :revision="selectedClaim.billing_revision == null ? null : Number(selectedClaim.billing_revision)" :lifecycle="selectedClaim.claim_lifecycle" :claim-reference="selectedClaim.claim_reference" @created="openResubmission" />
+      <div v-if="selectedClaimId&&!clinicalDraft" class="panel-toolbar"><button type="button" class="secondary" @click="showRateDefaults=!showRateDefaults">Edit defaults</button></div>
+      <ClaimRateDefaults :key="`defaults-${selectedClaim.agency_id}-${selectedClaimId}`" v-if="selectedClaimId&&!clinicalDraft&&showRateDefaults" :agency-id="Number(selectedClaim.agency_id)" :claim-id="selectedClaimId" :service-codes="(selectedClaim.service_lines||[]).map(line=>line.procedureCode)" />
+      <ClaimFinancialReview v-if="selectedClaimId&&!clinicalDraft" :key="`financial-${selectedClaim.agency_id}-${selectedClaimId}`" :agency-id="Number(selectedClaim.agency_id)" :claim-id="selectedClaimId" @edit-defaults="showRateDefaults=true" @updated="claimUpdated" />
       <ExternalRemittanceProcessing v-if="selectedClaimId && !selectedClaim.administrativeArchive && selectedClaim.canReviewClaim !== false" :key="`external-${selectedClaim.agency_id}-${selectedClaimId}`" :agency-id="Number(selectedClaim.agency_id)" :claim-id="selectedClaimId" />
       <SecondaryClaimPanel v-if="canPrepareSecondary" :agency-id="Number(selectedClaim.agency_id)" :claim-id="selectedClaimId" @created="claimUpdated" />
       <ClaimMdWorkspace v-if="selectedClaimId" ref="claimTools" :key="`${selectedClaim.agency_id}-${selectedClaimId}`" :agency-id="Number(selectedClaim.agency_id)" :connection="claimOrganization?.connection || {}" :read-only="clinicalDraft" section="detail" @updated="claimUpdated" />
@@ -119,6 +124,8 @@
 </template>
 
 <script setup>
+import ClaimFinancialReview from '../../components/billing/ClaimFinancialReview.vue';
+import ClaimRateDefaults from '../../components/billing/ClaimRateDefaults.vue';
 import InsuranceVerificationQueue from '../../components/billing/InsuranceVerificationQueue.vue';
 import BillingUnitPreview from '../../components/billing/BillingUnitPreview.vue';
 import BillingTransactionHistory from '../../components/billing/BillingTransactionHistory.vue';
@@ -182,6 +189,7 @@ const scopeId = ref(String((route.meta?.auricwellPreview ? agencyStore.currentAg
 const organizations = ref([]), claims = ref([]), total = ref(0), capabilities = ref({}), updatedAt = ref(null), loading = ref(false), error = ref('');
 const includeDemo = ref(false), hiddenTestRecords = ref(0), archiveStatus = ref('active');
 const queueMode = ref('claims'), sortBy = ref('date_of_service'), sortDirection = ref('desc');
+const showRateDefaults=ref(false),submitReviewOpen=ref(false);
 const showClientHistory = ref(false), preparingClaim = ref(false), claimActionError = ref(''), submittingSet = ref(false), submitSetResult = ref('');
 const selectedCompanyId = ref(null), selectedClaim = ref(null), claimTools = ref(null), claimDialog = ref(null);
 const closureReason=ref(''),closingClaim=ref(false);
@@ -277,7 +285,7 @@ watch(() => route.query.billingScope, id => { if (id && String(id) !== scopeId.v
 watch(() => route.query.billingSection, value => { if (navigation.some(item => item.id === value)) section.value = value; });
 watch(() => route.query.billingStatus, value => { status.value=validQueueStatus(value);page.value=1; });
 watch(() => agencyStore.currentAgency?.id, () => { organizations.value = []; claims.value = []; scopeId.value = 'all'; reload(); });
-async function openClaim(claim) { priorFocus = document.activeElement; selectedClaim.value = claim; closureReason.value='';showClientHistory.value = false; claimActionError.value = ''; await nextTick(); claimDialog.value?.focus(); if (workClaimId(claim)) await claimTools.value?.showHistory(workClaimId(claim)); }
+async function openClaim(claim) { priorFocus = document.activeElement; selectedClaim.value = claim; closureReason.value='';showClientHistory.value = false;showRateDefaults.value=false; claimActionError.value = ''; await nextTick(); claimDialog.value?.focus(); if (workClaimId(claim)) await claimTools.value?.showHistory(workClaimId(claim)); }
 async function closeUnsubmittedClaim(){
   const claim=selectedClaim.value;if(!claim||closingClaim.value)return;
   closingClaim.value=true;claimActionError.value='';
@@ -288,7 +296,7 @@ async function closeUnsubmittedClaim(){
 async function submitReadySet() {
   const ids = claims.value.filter(item => !item.administrativeArchive && workStage(item) === 'ready_to_submit' && workClaimId(item)).map(item => workClaimId(item));
   if (!ids.length || !scopedOrganization.value || submittingSet.value) return;
-  if (!window.confirm(`Submit ${ids.length} ready claim${ids.length === 1 ? '' : 's'} for ${scopedOrganization.value.name}? A claim that fails a billing check stays in the queue.`)) return;
+  submitReviewOpen.value=false;
   submittingSet.value = true;
   submitSetResult.value = '';
   try {

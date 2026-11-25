@@ -1,5 +1,5 @@
 <template>
-  <div class="ccn-view" :class="{ 'ccn-view--compact': compact }">
+  <div class="ccn-view" :class="{ 'ccn-view--compact': compact }"><NoteBillingDisposition v-if="!compact" :agency-id="Number(note.agencyId||note.agency_id)" :note-id="Number(note.id)" @saved="emit('amended',$event)" /><p v-if="note.billingDisposition" role="status" class="ccn-billing-disposition"><strong>{{ note.billingDisposition.disposition==='entered_in_error'?'Entered in error':'Chart record · Excluded from billing' }}</strong> · {{ note.billingDisposition.reason }} · The original clinical record is retained.</p>
     <header v-if="!compact" class="ccn-head">
       <div class="ccn-head-main">
         <h3>{{ note.title || 'Clinical note' }}</h3>
@@ -374,6 +374,7 @@
 </template>
 
 <script setup>
+import NoteBillingDisposition from './NoteBillingDisposition.vue';
 import InternalDiagnosticCriteriaReview from './InternalDiagnosticCriteriaReview.vue';
 import { canAccessMedicalBilling } from '../../config/medicalBillingAccess.js';
 import ConfidentialClinicalEntries from './ConfidentialClinicalEntries.vue';

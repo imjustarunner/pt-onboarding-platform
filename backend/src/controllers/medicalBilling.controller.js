@@ -1,3 +1,4 @@
+import { assertNoteBillingAllowed, excludeNoteFromBilling, noteBillingExclusion } from '../services/noteBillingDisposition.service.js';
 import {clinicalServiceRequirements} from '../../../frontend/src/utils/clinicalEncounterRequirements.js';
 import { visibleClinicalWork } from '../services/clinicalWorkArchiveRead.service.js';
 import {treatmentPlanGoalTimeframes} from '../services/treatmentPlanGoalTimeframes.js';
@@ -1796,6 +1797,7 @@ export const getClinicalNoteById = async (req, res, next) => {
         sessionTiming,
         providerSigner,
         linkedClaim,
+        billingDisposition:await noteBillingExclusion({agencyId:note.agency_id,noteId:note.id,sessionId:note.clinical_session_id}),
         clientPayer,
         locationLabel: serviceDetailView.locationLabel,
         startTime: serviceDetailView.startTime,
@@ -1942,6 +1944,7 @@ export async function draftClaimAfterSignature(req, note) {
   // Derive lines from the saved clinical record, not a second browser request.
   // Failed drafts remain visible in the billing desk's missing-claim queue.
   if (!note.clinical_session_id) return;
+  if(await noteBillingExclusion({agencyId:note.agency_id,noteId:note.id,sessionId:note.clinical_session_id}))return;
   // This symbol can only be supplied by the already-authorized signature paths;
   // a public request body cannot impersonate the final clinical signer.
   let code = 200;
@@ -2802,14 +2805,20 @@ export const createMedicalClaim = async (req, res, next) => {
 
     let placeOfService = req.body.placeOfService || sessionRow?.place_of_service || null;
     const insuranceSnapshot = await readClientInsurance(clientId, agencyId);
+    let resolvedTaxonomyCode=req.body.taxonomyCode||null;
+    try{const {claimBillingIdentity}=await import('../services/claimBillingIdentity.service.js');const defaults=await claimBillingIdentity({claim:{agency_id:agencyId,client_id:clientId,date_of_service:dateOfService,metadata_json:{billingUserId:claimProviderMeta?.billingUserId}},note:approvedNote,session:approvedSession});
+      if(!req.body.renderingNpi&&defaults.renderingNpi)resolvedRenderingNpi=defaults.renderingNpi;
+      resolvedTaxonomyCode ||= defaults.taxonomyCode||null;
+    }catch(error){if(error.status!==409)throw error;providerResolutionFailed=true;}
     const payerName = insuranceSnapshot?.primary?.insurerName || null;
     const afterHoursPolicy=await reconcileNewClaimAfterHours({session:sessionRow,note:approvedNote,lines,metadata:parseObject(approvedNote?.metadata_json),billing:sourceFunding});
     lines=afterHoursPolicy.lines;
     const resolvedClaimCodes = lines.map(line => line.procedureCode || line.serviceCode);
     await assertConfiguredTestingReferenceCodes({agencyId,serviceCodes:resolvedClaimCodes});
     await requireTestingEligibility({agencyId,userId:Number(sessionRow?.provider_user_id||session.provider_user_id),serviceCodes:resolvedClaimCodes,clientId,serviceDate:sessionRow?.scheduled_start_at||dateOfService});
-    if (providerResolutionFailed && lines.some(line => line.chargeCents == null || line.chargeCents === '')) throw Object.assign(new Error('Resolve the claim billing provider before applying its fee schedule.'), { status: 409 });
-    lines = await priceNewClaimLines({ lines, agencyId, payerId: insuranceSnapshot?.primary?.payerId || null,
+    // Missing identity setup does not prevent a saved charge draft. The full
+    // submission review still requires valid provider and payer mapping.
+    lines = await priceNewClaimLines({ lines, agencyId, clientId, payerId: insuranceSnapshot?.primary?.payerId || null,
       providerUserId: claimProviderMeta?.billingUserId || claimProviderMeta?.renderingUserId || sessionRow?.rendering_provider_user_id || sessionRow?.provider_user_id || null,
       dateOfService, durationMinutes: sessionDurationMinutes });
 
@@ -2863,6 +2872,7 @@ export const createMedicalClaim = async (req, res, next) => {
     if (approvedNote?.clinical_version_id && lines.some(line => line.serviceDate && String(line.serviceDate).slice(0, 10) !== dateOfService)) clinicalBlockers.push('Claim line dates must match the approved clinical version.');
     if (clinicalBlockers.length) return res.status(409).json({ error: { message: 'Claim services must match the latest approved clinical version.' }, blockers: clinicalBlockers });
     const clinicalVersion = clinicalVersionReference(approvedNote);
+    await assertNoteBillingAllowed({agencyId,noteId,sessionId});
     const amountCents = lines.reduce((s, l) => s + Number(l.chargeCents || 0), 0);
     let claim;
     // Clinical checks alone do not establish insurance, intake documentation,
@@ -2874,6 +2884,7 @@ export const createMedicalClaim = async (req, res, next) => {
     try {
       await draftDb.beginTransaction();
       await draftDb.execute('SELECT id FROM clinical_sessions WHERE id = ? AND agency_id = ? FOR UPDATE', [sessionId, agencyId]);
+      await assertNoteBillingAllowed({agencyId,noteId,sessionId},draftDb);
       const [[lockedNote]] = await draftDb.execute('SELECT * FROM clinical_notes WHERE id=? AND agency_id=? FOR UPDATE', [noteId, agencyId]);
       if (!lockedNote) throw Object.assign(new Error('The clinical note is unavailable.'), { status: 409 });
       await assertClinicalBillingApproval({ noteId, agencyId }, draftDb);
@@ -2939,7 +2950,7 @@ export const createMedicalClaim = async (req, res, next) => {
           insuranceSnapshot ? encryptFamilyBilling(insuranceSnapshot, `claim-insurance:${agencyId}:${claim.id}`) : null,
           resolvedBillingNpi,
           resolvedRenderingNpi,
-          req.body.taxonomyCode || null,
+          resolvedTaxonomyCode,
           placeOfService,
           dateOfService,
           claimLifecycle,
@@ -4022,3 +4033,9 @@ async function shareSavedPlanToGuardians(plan, actorUserId) {
     return { shared: 0, needsRetry: true, message: 'The plan was saved. Portal review is pending and will resume automatically when an authorized recipient and delivery are ready.' };
   }
 }
+
+export const setNoteBillingDisposition=async(req,res,next)=>{try{
+ const agencyId=Number(req.body?.agencyId),noteId=Number(req.params.noteId);
+ await ClinicalEligibilityService.ensureAgencyAccess({reqUser:req.user,agencyId});
+ res.json(await excludeNoteFromBilling({agencyId,noteId,actor:req.user,disposition:req.body?.disposition,reason:req.body?.reason,confirmed:req.body?.confirmed}));
+}catch(error){next(error);}};

@@ -55,6 +55,7 @@ describe('secondary coordination of benefits',()=>{
  function setup(existing){
   const parent={id:7,agency_id:1,client_id:3,clinical_session_id:2,payer_sequence:1,claimmd_submitted_at:'2026-09-20',claimmd_claim_id:'remote7',claim_lifecycle:'paid',billing_revision:0};
   const db={beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn(),execute:vi.fn(async sql=>{
+   if(sql.includes('FROM clinical_note_billing_exclusions'))return [[]];
    if(sql.startsWith('SELECT id,encounter_status'))return [[{id:2,encounter_status:'completed'}]];
    if(sql.startsWith('SELECT clinical_session_id'))return [[{clinical_session_id:2}]];
    if(sql.startsWith('SELECT * FROM clinical_claims WHERE id='))return [[parent]];

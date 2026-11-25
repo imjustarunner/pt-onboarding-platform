@@ -9,7 +9,7 @@ export const CREDENTIAL_MODIFIER_SCOPES = Object.freeze([
   { key: 'hcbs_3', label: 'HCBS category 3 · fully licensed' }
 ]);
 export const PLATFORM_STARTER_FEES = Object.freeze({
-  '90791': 10000, H0002: 3000, H0031: 10000, '90785': 3000, '99051': 3000,
+  '90791': 13500, H0002: 3000, H0031: 10000, '90785': 3000, '99051': 3000,
   '90837': 10000, '90832': 7500, '90834': 10000, '90839': 13000,
   '90846': 10000, '90847': 10000, '99404': 10000, H0004: 3000, T1017: 3000,
   '90840': 6000, '90853': 7500, H0023: 3000, H0025: 3000, H0038: 1700,
@@ -23,7 +23,7 @@ export const SELF_PAY_CATEGORIES = Object.freeze([
   { key: 'unclassified', label: 'Category not recorded' }
 ]);
 export const RATE_SOURCE_LABELS = Object.freeze({
-  provider: 'Provider override', payer: 'Payer default', category: 'Provider category default', credential: 'HCBS credential category',
+  client: 'Client default', provider: 'Provider override', payer: 'Payer default', category: 'Provider category default', credential: 'HCBS credential category',
   practice: 'Practice default', platform: 'Platform default', platform_starter: 'Platform starter default',
   legacy_provider: 'Saved provider rate', legacy_practice: 'Saved practice rate', legacy_payer: 'Saved payer rate',
   legacy_catalog: 'Saved service rate', legacy_conflict: 'Multiple saved service rates · review required', unset: 'Rate not set'
@@ -34,19 +34,21 @@ export function normalizeFeeScope(input = {}) {
   const agencyId = positiveId(input.agencyId);
   if (!agencyId) throw feeError(400, 'Select a practice.');
   const mode = input.mode || 'insurance', scope = input.scope || 'practice';
-  if (!['insurance', 'self_pay'].includes(mode) || !['platform', 'practice', 'payer', 'provider', 'category', 'credential'].includes(scope)) throw feeError(400, 'Select a supported fee schedule.');
-  if (scope === 'category' && mode !== 'self_pay' || scope === 'payer' && mode !== 'insurance' || scope === 'credential' && mode !== 'insurance') throw feeError(400, 'This rate scope does not apply to the selected payment method.');
+  if (!['insurance', 'self_pay'].includes(mode) || !['platform', 'practice', 'payer', 'provider', 'category', 'credential', 'client'].includes(scope)) throw feeError(400, 'Select a supported fee schedule.');
+  if (scope === 'payer' && mode !== 'insurance' || scope === 'credential' && mode !== 'insurance') throw feeError(400, 'This rate scope does not apply to the selected payment method.');
   const payerId = input.payerId == null ? '' : String(input.payerId).trim();
   if ((scope === 'payer' || scope === 'provider' && mode === 'insurance') && !/^[A-Za-z0-9_-]{1,32}$/.test(payerId)) throw feeError(400, 'Select the verified billing payer.');
-  const providerUserId = scope === 'provider' ? positiveId(input.providerUserId ?? input.providerId) : null;
+  const providerUserId = ['provider','client'].includes(scope) ? positiveId(input.providerUserId ?? input.providerId) : null;
   if (scope === 'provider' && !providerUserId) throw feeError(400, 'Select a provider.');
   const categoryKey = String(input.categoryKey || '');
   if (scope === 'category' && !SELF_PAY_CATEGORIES.some(c => c.key === categoryKey)) throw feeError(400, 'Select a provider category.');
   const credentialKey = String(input.credentialKey || '');
   if (scope === 'credential' && !CREDENTIAL_MODIFIER_SCOPES.some(c => c.key === credentialKey)) throw feeError(400, 'Select an HCBS credential category.');
-  const scopeKey = scope === 'provider' ? `provider:${providerUserId}${mode === 'insurance' ? `:payer:${payerId}` : ''}`
+  const clientId = scope === 'client' ? positiveId(input.clientId) : null;
+  if (scope === 'client' && !clientId) throw feeError(400, 'Select a client.');
+  const scopeKey = scope === 'client' ? `client:${clientId}` : scope === 'provider' ? `provider:${providerUserId}${mode === 'insurance' ? `:payer:${payerId}` : ''}`
     : scope === 'payer' ? `payer:${payerId}` : scope === 'category' ? `category:${categoryKey}` : scope === 'credential' ? `credential:${credentialKey}` : scope;
-  return { agencyId, mode, scope, scopeKey, payerId, providerUserId, categoryKey, credentialKey, ownerKey: scope === 'platform' ? 'platform' : `agency:${agencyId}` };
+  return { agencyId, clientId, mode, scope, scopeKey, payerId, providerUserId, categoryKey, credentialKey, ownerKey: scope === 'platform' ? 'platform' : `agency:${agencyId}` };
 }
 export function normalizeFeeMutation(input = {}) {
   const scope = normalizeFeeScope(input), serviceCode = normalizeFeeCode(input.serviceCode ?? input.procedureCode);
@@ -78,7 +80,7 @@ export function latestFeeEntries(rows = []) {
   return map;
 }
 const amount = (rateCents, source, rateUnit, entry = null) => ({ rateCents, source, sourceLabel: RATE_SOURCE_LABELS[source], rateUnit, rateRevisionId: entry?.id ? Number(entry.id) : null });
-export function resolveFeeFromEntries({ agencyId, mode = 'insurance', serviceCode, payerId, providerUserId, categoryKey, scope = 'provider', entries = new Map(), legacy = {}, excludeScopeKey = null }) {
+export function resolveFeeFromEntries({ agencyId, mode = 'insurance', serviceCode, payerId, providerUserId, clientId, categoryKey, scope = 'client', entries = new Map(), legacy = {}, excludeScopeKey = null }) {
   const code = normalizeFeeCode(serviceCode), unit = mode === 'insurance' ? 'unit' : 'session';
   const read = (ownerKey, scopeKey) => scopeKey === excludeScopeKey ? null : entries.get(feeLedgerKey({ ownerKey, mode, scopeKey, serviceCode: code }));
   const own = `agency:${agencyId}`;
@@ -95,10 +97,12 @@ export function resolveFeeFromEntries({ agencyId, mode = 'insurance', serviceCod
   if (scope === 'platform') return result;
   result = choose('practice', 'practice', legacy.practice || legacy.catalog, result);
   if (scope === 'practice') return result;
+  if (categoryKey) result = choose(`category:${categoryKey}`, 'category', null, result);
+  if (scope === 'category') return result;
   if (mode === 'insurance' && payerId) result = choose(`payer:${payerId}`, 'payer', legacy.payer, result);
-  if (mode === 'self_pay' && categoryKey) result = choose(`category:${categoryKey}`, 'category', null, result);
-  if (['payer', 'category'].includes(scope)) return result;
+  if (scope === 'payer') return result;
   if (providerUserId) result = choose(`provider:${providerUserId}${mode === 'insurance' ? `:payer:${payerId}` : ''}`, 'provider', legacy.provider, result);
+  if (scope !== 'provider' && clientId) result = choose(`client:${clientId}`, 'client', null, result);
   return result;
 }
 export function normalizeModifierList(value) {

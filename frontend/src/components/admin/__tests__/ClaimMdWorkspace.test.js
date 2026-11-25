@@ -257,3 +257,13 @@ it('shows one numbered claim with chronological attempts, field changes and paye
  const history=w.find('[aria-label="Claim history"]');expect(history.text()).toContain('002-2026-11-009');expect(history.text()).toContain('Earlier payer reference: 12');expect(history.text()).toContain('Line 1 charge: $25.00 → $30.00');expect(history.text()).toContain('Line 1 modifiers: None → U9');expect(history.text()).toContain('Paid $20.00');expect(history.text()).toContain('DEMO Biller');
  await history.find('button').trigger('click');await flushPromises();expect(history.findAll('article').map(a=>a.text())).toEqual([expect.stringContaining('Submitted'),expect.stringContaining('Billing fields updated'),expect.stringContaining('Payer adjudication posted')]);expect(history.find('button').exists()).toBe(false);w.unmount();
 });
+it('asks before a charge change and starts with this claim only, without requiring missing identifiers to submit the editor',async()=>{
+ api.get.mockImplementation(async url=>({data:url.endsWith('/draft')?{claim:{id:11,billing_revision:2,claim_lifecycle:'ready',place_of_service:'10',billing_npi:'',rendering_npi:'',taxonomy_code:''},lines:[{id:14,procedure_code:'90791',units:1,charge_cents:13000,modifiers_json:[]}],billingOffices:[],billingOfficeId:null}:{items:[],history:[]}}));
+ api.patch.mockResolvedValue({data:{message:'Saved for review.'}});
+ const w=mount(ClaimMdWorkspace,{props:{...props,section:'detail'}});await flushPromises();await w.vm.editClaim(11);await flushPromises();
+ const form=w.get('[aria-label="Edit existing claim draft"] form');expect(form.findAll('input[required]').filter(input=>input.attributes('pattern'))).toHaveLength(0);
+ await form.get('input[type=number]').setValue('135');await form.get('textarea').setValue('Apply the reviewed 90791 charge');await form.trigger('submit');await flushPromises();
+ expect(api.patch).not.toHaveBeenCalled();const dialog=w.get('[aria-label="Confirm claim charge change"]');expect(dialog.get('input[value=claim]').element.checked).toBe(true);
+ await dialog.findAll('button').find(b=>b.text().includes('Confirm · Save this claim only')).trigger('click');await flushPromises();
+ expect(api.patch).toHaveBeenCalledWith('/medical-billing/claimmd/claims/11',expect.objectContaining({chargeChangeConfirmed:true,renderingNpi:'',lines:[{id:14,chargeCents:13500,modifiers:[]}]}));w.unmount();
+});

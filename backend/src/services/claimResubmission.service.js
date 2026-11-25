@@ -1,3 +1,4 @@
+import {assertNoteBillingAllowed} from './noteBillingDisposition.service.js';
 import crypto from 'node:crypto';
 import clinicalPool from '../config/clinicalDatabase.js';
 import { assertClinicalWorkActive } from './clinicalWorkArchiveRead.service.js';
@@ -17,6 +18,7 @@ export async function createClaimResubmission(input, source = clinicalPool) {
     await db.execute('SELECT id FROM clinical_sessions WHERE id=? AND agency_id=? FOR UPDATE', [reference.clinical_session_id, input.agencyId]);
     const [[original]] = await db.execute('SELECT * FROM clinical_claims WHERE id=? AND agency_id=? AND is_deleted=0 FOR UPDATE', [input.claimId, input.agencyId]);
     if (!original) throw policyError(404, 'Claim not found.');
+    await assertNoteBillingAllowed({agencyId:input.agencyId,noteId:original.clinical_note_id,sessionId:original.clinical_session_id},db);
     validateResubmissionRequest(original, input);
     await assertClinicalWorkActive({ claimId: original.id, clinical_session_id: original.clinical_session_id });
     const family=await loadClaimFamily(input.agencyId,input.claimId,db);

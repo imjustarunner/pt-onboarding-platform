@@ -6,14 +6,15 @@
       <template v-if="column.id === 'organization'">{{ organization(item)?.name || item.organization_name || 'Organization' }}</template>
       <template v-else-if="column.id === 'date_of_service'">{{ billingDate(item.date_of_service) }}<small v-if="item.service_date_mismatch">Date needs review · encounter {{ billingDate(item.encounter_date_of_service) }}</small></template>
       <template v-else-if="column.id === 'claimmd_submitted_at'">{{ item.claimmd_submitted_at ? formatBillingTimestamp(item.claimmd_submitted_at) : 'Not submitted' }}</template>
-      <template v-else-if="column.id === 'client_name'"><a :href="clientLink(item)" class="patient-link">{{ item.client_name || `Client #${item.client_id}` }}</a><button class="record-link" type="button" @click="emit('open', item)">{{ workItemTitle(item) }}</button><small v-if="item.is_demo_client || item.is_demo_source" class="test-record-label">Test record</small></template>
+      <template v-else-if="column.id === 'client_name'"><a :href="clientLink(item)" class="patient-link">{{ item.client_name || `Client #${item.client_id}` }}</a><small v-if="item.is_demo_client || item.is_demo_source" class="test-record-label">Test record</small></template>
+      <template v-else-if="column.id === 'claim_reference'"><button class="record-link" type="button" @click="emit('open', item)">{{ workItemTitle(item) }}</button></template>
       <template v-else-if="['provider_name', 'billing_provider_name', 'supervisor_name'].includes(column.id)"><a v-if="providerId(item, column.id) && organization(item)?.slug" :href="providerLink(item, column.id)">{{ providerName(item, column.id) || `Provider #${providerId(item, column.id)}` }}</a><span v-else>{{ providerName(item, column.id) || '—' }}</span></template>
       <template v-else-if="column.id === 'amount_cents'">{{ item.amount_cents == null ? 'Not set' : money(item.amount_cents, item.currency_code) }}</template>
       <template v-else-if="column.id === 'diagnosis_codes'">{{ diagnosisList(item.diagnosis_codes) || 'Not recorded' }}</template>
       <template v-else-if="column.id === 'stage'"><span class="badge" :class="claimStatusTone(workStage(item))">{{ claimStatusLabel(workStage(item)) }}</span><small v-if="item.billing_issue_open">Billing checks need help</small><small v-if="clearinghouseStatusLabel(item.claimmd_last_status)">{{ clearinghouseStatusLabel(item.claimmd_last_status) }}</small><small v-if="item.service_change_pending">Service correction pending</small></template>
       <template v-else-if="column.id === 'submission_type'">{{ workClaimId(item) ? submissionTypeLabel(item) : 'Not submitted' }}</template>
       <template v-else>{{ item[column.id] ?? '—' }}</template>
-    </td><td><button type="button" class="record-link action" @click="emit('open', item)">{{ workStage(item) === 'ready_to_submit' ? 'Review claim' : ['note_needed','draft','pending_review','revisions_needed'].includes(workStage(item)) ? 'View progress' : 'View claim' }} →</button></td></tr></tbody></table></div>
+    </td><td><button type="button" class="record-link action" @click="emit('open', item)">{{ workClaimId(item) ? `${workItemTitle(item)} · ` : '' }}{{ workStage(item) === 'ready_to_submit' ? 'Review claim' : ['note_needed','draft','pending_review','revisions_needed'].includes(workStage(item)) ? 'View progress' : 'View claim' }} →</button></td></tr></tbody></table></div>
   </div>
 </template>
 <script setup>
@@ -22,8 +23,8 @@ import { billingDate, diagnosisList, claimStatusLabel, claimStatusTone, clearing
 import { formatBillingTimestamp } from '../../utils/billingReviewDisplay.js';
 const props = defineProps({ items: { type: Array, default: () => [] }, organizations: { type: Array, default: () => [] }, multipleOrganizations: Boolean, sortBy: { type: String, default: 'date_of_service' }, direction: { type: String, default: 'desc' }, preferenceKey: { type: String, default: '' } });
 const emit = defineEmits(['open','sort']);
-const columns = [ ['organization','Organization'], ['date_of_service','Date of service'], ['claimmd_submitted_at','Submitted date'], ['client_name','Patient'], ['service_code','Service'], ['provider_name','Provider'], ['billing_provider_name','Billed as provider'], ['supervisor_name','Supervisor / billed as'], ['amount_cents','Charge'], ['place_of_service','Place of service'], ['diagnosis_codes','Diagnoses'], ['units','Units'], ['stage','Stage'], ['payer_name','Payer'], ['submission_type','Submission type'] ].map(([id,label]) => ({ id,label }));
-const defaultColumns = ['organization','date_of_service','client_name','service_code','provider_name','supervisor_name','amount_cents','stage'];
+const columns = [ ['organization','Organization'], ['date_of_service','Date of service'], ['claimmd_submitted_at','Submitted date'], ['claim_reference','Claim'], ['client_name','Patient'], ['service_code','Service'], ['provider_name','Provider'], ['billing_provider_name','Billed as provider'], ['supervisor_name','Supervisor / billed as'], ['amount_cents','Charge'], ['place_of_service','Place of service'], ['diagnosis_codes','Diagnoses'], ['units','Units'], ['stage','Stage'], ['payer_name','Payer'], ['submission_type','Submission type'] ].map(([id,label]) => ({ id,label }));
+const defaultColumns = ['organization','date_of_service','client_name','claim_reference','service_code','provider_name','supervisor_name','amount_cents','stage'];
 const selectedColumns = ref([...defaultColumns]);
 try { const saved = JSON.parse(localStorage.getItem(props.preferenceKey) || 'null'); if (Array.isArray(saved) && saved.some(id => columns.some(column => column.id === id))) selectedColumns.value = saved.filter(id => columns.some(column => column.id === id)); } catch { /* Optional display preference. */ }
 watch(selectedColumns, value => { if (props.preferenceKey) try { localStorage.setItem(props.preferenceKey, JSON.stringify(value)); } catch { /* Optional display preference. */ } }, { deep: true });
@@ -31,7 +32,7 @@ const availableColumns = computed(() => columns.filter(column => column.id !== '
 const visibleColumns = computed(() => availableColumns.value.filter(column => selectedColumns.value.includes(column.id)));
 const organization = item => props.organizations.find(org => Number(org.id) === Number(item.agency_id));
 const prefix = item => organization(item)?.slug ? `/${encodeURIComponent(organization(item).slug)}` : '';
-const clientLink = item => `${prefix(item)}/admin/clients/${Number(item.client_id)}?tab=billing&agencyId=${Number(item.agency_id)}`;
+const clientLink = item => `${prefix(item)}/admin/clients/${Number(item.client_id)}?tab=overview&agencyId=${Number(item.agency_id)}`;
 const providerId = (item, field) => field === 'supervisor_name' ? item.supervisor_user_id || item.billing_provider_user_id || item.provider_user_id : item[field.replace('_name','_user_id')];
 const providerName = (item, field) => field === 'supervisor_name' ? item.supervisor_name || item.billing_provider_name || item.provider_name : item[field];
 const providerLink = (item, field) => `${prefix(item)}/admin/users/${Number(providerId(item,field))}`;

@@ -29,11 +29,9 @@ vi.mock('../../../store/agency', () => ({
   })
 }));
 
+const testAuth=vi.hoisted(()=>({user:{id:501,role:'admin',first_name:'Test',last_name:'User'},isAuthenticated:true}));
 vi.mock('../../../store/auth', () => ({
-  useAuthStore: () => ({
-    user: { id: 501, role: 'admin', first_name: 'Test', last_name: 'User' },
-    isAuthenticated: true
-  })
+  useAuthStore: () => testAuth
 }));
 
 describe('ClinicalNoteGeneratorView smoke', () => {
@@ -41,6 +39,7 @@ describe('ClinicalNoteGeneratorView smoke', () => {
   // Compile this large SFC once before timing individual behavioral assertions.
   beforeAll(async () => { View = (await import('../ClinicalNoteGeneratorView.vue')).default; }, 30000);
   beforeEach(() => {
+    testAuth.user.role='admin';
     vi.stubGlobal('crypto', webcrypto);
     setActivePinia(createPinia());
     vi.mocked(api.post).mockReset().mockResolvedValue({ data: {} });
@@ -1505,4 +1504,20 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     expect(wrapper.exists()).toBe(true);
     expect(wrapper.text()).toMatch(/Note Workspace|Not available|AI Note/i);
   });
+  it('saves superadmin chart-only content unsigned without manufacturing attestations or a claim',async()=>{
+    testAuth.user.role='super_admin';
+    const {wrapper,state}=await workspace('h0004_note');
+    try {
+      state.selectedClientId=22;state.selectedClient={id:22,agency_id:7};await flushPromises();
+      state.sessionClinicalSessionId=9;state.sessionAppointmentId=109;state.dateOfService='2026-11-03';
+      state.outputObj={sections:{Subjective:'Previously documented encounter.',Objective:'Existing documentation.',Interventions:'Documented in external EHR.',Plan:'Retain chart copy only.'},meta:{manualSections:true}};
+      state.attestAccurateAndComplete=false;state.attestMedicallyNecessary=false;await nextTick();
+      api.post.mockImplementation(async url=>({data:url.endsWith('/notes')?{note:{id:77}}:{}}));
+      expect(await state.approveNoteOutput({chartOnly:true})).toBe(77);
+      const create=api.post.mock.calls.find(([url])=>url==='/clinical-data/sessions/9/notes');expect(create).toBeTruthy();
+      expect(create[1].metadata.chartSaveOnly).toBe(true);expect(create[1].metadata).not.toHaveProperty('attestation');expect(create[1].metadata).not.toHaveProperty('approvedAt');
+      expect(api.post.mock.calls.some(([url])=>url.endsWith('/sign')||url==='/medical-billing/claims')).toBe(false);
+    }finally{wrapper.unmount();}
+  });
+
 });

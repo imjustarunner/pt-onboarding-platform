@@ -191,7 +191,7 @@
           >
             {{ deletingCurrentDraft ? 'Deleting…' : 'Delete draft' }}
           </button>
-          <span v-if="approvalMessage" class="hint">{{ approvalMessage }}</span>
+          <span v-if="approvalMessage" class="hint">{{ approvalMessage }}</span><router-link v-if="approvalMessage&&canAccessMedicalBilling(authStore.user,Number(noteAidAgencyId||currentAgencyId))" :to="{name:'BillingWorkspace',query:{agencyId:String(noteAidAgencyId||currentAgencyId),billingSection:'claims',billingStatus:'ready_to_submit'}}">Review and submit eligible claims →</router-link>
           <span v-if="approvalError" class="na-delete-err">{{ approvalError }}</span>
         </div>
 
@@ -1356,6 +1356,7 @@
             >
               Review &amp; save generated treatment plan
             </button>
+            <NoteBillingDisposition :key="`chart-disposition-${noteAidAgencyId||currentAgencyId}-${effectiveClientId||0}-${activeWorkQueueItemId||0}-${sessionClinicalSessionId||0}`" v-if="['super_admin','superadmin'].includes(authStore.user?.role)&&canApproveToClinicalRecord" :agency-id="Number(noteAidAgencyId||currentAgencyId)" :save-draft="()=>approveNoteOutput({chartOnly:true})" @saved="approvalMessage=$event.message" />
             <template v-if="canApproveToClinicalRecord">
               <button
                 type="button"
@@ -1419,7 +1420,7 @@
             </template>
           </div>
           <div class="na-feedback">
-            <span v-if="approvalMessage" class="hint">{{ approvalMessage }}</span>
+            <span v-if="approvalMessage" class="hint">{{ approvalMessage }}</span><router-link v-if="approvalMessage&&canAccessMedicalBilling(authStore.user,Number(noteAidAgencyId||currentAgencyId))" :to="{name:'BillingWorkspace',query:{agencyId:String(noteAidAgencyId||currentAgencyId),billingSection:'claims',billingStatus:'ready_to_submit'}}">Review and submit eligible claims →</router-link>
             <span v-if="approvalError" class="error">{{ approvalError }}</span>
           </div>
           <p class="na-gen-summary">{{ generationLogicSummary }}</p>
@@ -1600,6 +1601,8 @@
 </template>
 
 <script setup>
+import NoteBillingDisposition from '../../components/clinical/NoteBillingDisposition.vue';
+import {canAccessMedicalBilling} from '../../config/medicalBillingAccess.js';
 import NarrivaClinicalAssist from '../../components/clinical/NarrivaClinicalAssist.vue';
 import ExternalClinicalDiagnosis from '../../components/clinical/ExternalClinicalDiagnosis.vue';
 import NarrivaReviewResults from '../../components/clinical/NarrivaReviewResults.vue';
@@ -6922,8 +6925,9 @@ const ensureClinicalSessionForApproval = async () => {
   return sessionId;
 };
 
-const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) => {
-  if (audioOnlyNote.value && !audioOnlyReason.value.trim()) {
+const approveNoteOutput = async ({ silent = false, afterSign = 'queue', chartOnly = false } = {}) => {
+  if(chartOnly&&!['super_admin','superadmin'].includes(authStore.user?.role))return;
+  if (!chartOnly && audioOnlyNote.value && !audioOnlyReason.value.trim()) {
     audioOnlyReasonMissing.value = true;
     showAidPicker.value = false;
     await nextTick();
@@ -6937,17 +6941,17 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
   if (silent) return;
   if (!mergedSectionEntries.value.length) return;
   if (approvingNote.value) return;
-  if (!attestAccurateAndComplete.value || !attestMedicallyNecessary.value) {
+  if (!chartOnly && (!attestAccurateAndComplete.value || !attestMedicallyNecessary.value)) {
     approvalError.value = isReviewOnlyAid.value
       ? 'Check both attestations (accurate & complete, and content review) before saving.'
       : 'Check both attestations (accurate & complete, and medically necessary) before signing.';
     return;
   }
-  if (requiresAiReviewAttestation.value && !attestAiContentReviewed.value) {
+  if (!chartOnly && requiresAiReviewAttestation.value && !attestAiContentReviewed.value) {
     approvalError.value = 'Confirm you have reviewed the AI-generated content before signing.';
     return;
   }
-  if (!canConfirmAndSign.value) {
+  if (!chartOnly && !canConfirmAndSign.value) {
     approvalError.value = sessionParticipantsFlag.value
       ? 'Update Participants — session content suggests others were present.'
       : (!mseRiskComplete.value && !skipMentalStatusExam.value
@@ -6959,7 +6963,7 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
     approvingNote.value = true;
     approvalError.value = '';
     approvalMessage.value = '';
-    const checkedEncounter=narrivaPreGenerationRequired.value && !!outputObj.value?.meta?.generationReceipt;
+    const checkedEncounter=!chartOnly && narrivaPreGenerationRequired.value && !!outputObj.value?.meta?.generationReceipt;
     if (checkedEncounter) {
       if (narrivaReviewBusy.value || preparingNarrivaCheck.value) throw new Error('The current note review is still in progress.');
       if (narrivaReview.value?.phase !== 'output' || !['passed','bypassed','action_required'].includes(narrivaReview.value.status)) {
@@ -6977,7 +6981,7 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
     const clientId = Number(effectiveClientId.value || 0);
     const agencyId = Number(noteAidAgencyId.value || currentAgencyId.value || 0);
     if (
-      showProgressPlanFields.value
+      !chartOnly && showProgressPlanFields.value
       && noteTreatmentRecommendation.value !== 'terminate'
       && planId
       && clientId
@@ -7119,6 +7123,7 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
         }
       }
     };
+    if(chartOnly){delete attachment.metadata.attestation;delete attachment.metadata.approvedAt;attachment.metadata.chartSaveOnly=true;}
     // A transient signing failure must retry the same attached chart record.
     // Exclude only the new click timestamps from this in-memory comparison.
     const attachmentKey = checkedEncounter ? JSON.stringify([authStore.user?.id,sessionId,signingVersion,{
@@ -7129,6 +7134,7 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
     const createdNote = retry?.note || (await api.post(`/clinical-data/sessions/${sessionId}/notes`, attachment)).data?.note;
     const noteId = Number(createdNote?.id || 0);
     if (!noteId) throw new Error('The chart did not confirm the saved note. Your draft is preserved.');
+    if(chartOnly)return noteId;
     if (attachmentKey && !retry) pendingChartSignature={key:attachmentKey,note:createdNote,reviewId:null};
     const reviewStatus = createdNote?.content_review_status || null;
     let reviewPassed = String(reviewStatus || '').toLowerCase() === 'passed';

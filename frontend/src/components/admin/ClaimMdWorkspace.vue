@@ -108,7 +108,7 @@
           <fieldset :disabled="busy"><legend>Explicit billing review for every approved service</legend>
             <article v-for="(line, index) in reconciliationLines" :key="index">
               <strong>{{ line.procedureCode }} · {{ line.units }} unit(s)</strong>
-              <label>Total line charge in dollars<input v-model="line.dollars" :data-testid="`reconcile-charge-${index}`" type="number" min="0.01" max="1000000" step="0.01" required /></label>
+              <label>Total line charge in dollars<input v-model="line.dollars" :data-testid="`reconcile-charge-${index}`" type="number" min="0" max="1000000" step="0.01" required /></label>
               <label>Modifiers (comma separated; leave blank when none apply)<input v-model="line.modifiers" :data-testid="`reconcile-modifiers-${index}`" maxlength="40" /></label>
               <label>Diagnosis pointers (positions in the approved diagnosis list above)<input v-model="line.diagnosisPointers" :data-testid="`reconcile-pointers-${index}`" placeholder="1 or 1,2" required pattern="(?:[1-9]|1[0-2])(?:,(?:[1-9]|1[0-2])){0,3}" /></label>
             </article>
@@ -120,10 +120,10 @@
         </form>
       </section>
       <p v-if="!canEditDraft && !reconciliationBlocked" class="error">This claim cannot be edited in its current clearinghouse state. Use the payer correction and follow-up workflow.</p>
-      <form v-if="!reconciling && canEditDraft" @submit.prevent="saveCorrection">
-      <p>Service codes and units come from the clinical record. Billing edits leave the signed note unchanged.</p>
+      <form v-if="!reconciling && canEditDraft" @submit.prevent="requestCorrection">
+      <p>Save charge edits for review even while provider setup is incomplete. Missing identifiers must be resolved before submission. Service codes and units come from the signed clinical record.</p><p v-for="warning in draft.identityWarnings || []" :key="warning" role="status">{{ warning }}</p>
       <label class="claim-office-label">Billing office / group
-        <select v-model.number="draft.billingOfficeId" data-testid="claim-billing-office" required @change="selectClaimOffice">
+        <select v-model.number="draft.billingOfficeId" data-testid="claim-billing-office" @change="selectClaimOffice">
           <option :value="null">Select a billing office</option>
           <option v-for="office in draft.billingOffices || []" :key="office.id" :value="office.id" :disabled="!!office.configuration_error">{{ office.name }} · {{ office.practice_name || 'Practice' }} · {{ office.configuration_error ? 'Group NPI mapping needs review' : `NPI ${office.practice_npi || 'Not configured'}` }}</option>
         </select>
@@ -131,18 +131,27 @@
       <p v-if="!(draft.billingOffices || []).length" class="error" role="status">No billing office is configured for this practice. Add an agency-owned billing office in Billing settings.</p>
       <p v-else-if="draft.billingOfficeError && !draft.billingOfficeId" class="error" role="status">{{ draft.billingOfficeError }} Select the correct office for this claim.</p>
       <p class="billing-office-help">The selected office supplies the claim's billing identity and address. A school, home, or telehealth site is the place of service only. It is not the billing address. Your correction reason is recorded with this claim.</p>
-      <label>Place of service <input v-model="draft.claim.place_of_service" required pattern="[0-9]{2}" maxlength="2" /></label>
-      <label>Billing NPI <input v-model="draft.claim.billing_npi" required pattern="[0-9]{10}" maxlength="10" /></label>
-      <label>Rendering NPI <input v-model="draft.claim.rendering_npi" required pattern="[0-9]{10}" maxlength="10" /></label>
+      <label>Place of service <input v-model="draft.claim.place_of_service" maxlength="2" /></label>
+      <label>Billing NPI <input v-model="draft.claim.billing_npi" maxlength="10" /></label>
+      <label>Rendering NPI <input v-model="draft.claim.rendering_npi" maxlength="10" /></label>
       <label>Taxonomy <input v-model="draft.claim.taxonomy_code" maxlength="10" /></label>
       <div v-for="line in draft.lines" :key="line.id">
         <strong>{{ line.procedure_code }} · {{ line.units }} units</strong>
-        <label>Total line charge in dollars <input v-model="line.dollars" type="number" min="0.01" max="1000000" step="0.01" required /></label>
+        <label>Total line charge in dollars <input v-model="line.dollars" type="number" min="0" max="1000000" step="0.01" required /></label>
         <label>Modifiers (comma separated) <input v-model="line.modifiers" /></label>
       </div>
       <label>Reason for correction <textarea v-model="correctionReason" required maxlength="1000"></textarea></label>
       <button :disabled="busy">Save for review</button> <button type="button" @click="draft = null">Cancel</button>
       </form>
+      <section v-if="chargeChangePrompt" role="dialog" aria-label="Confirm claim charge change" class="charge-change-prompt">
+       <h4>Where should this charge change apply?</h4><p v-for="line in chargeChanges" :key="line.id">{{ line.procedure_code }}: {{ (line.originalChargeCents/100).toFixed(2) }} → {{ line.dollars }} dollars for this line</p>
+       <label><input v-model="chargeChangeScope" type="radio" value="claim" /> This claim only</label><label><input v-model="chargeChangeScope" type="radio" value="defaults" /> Update matching defaults</label>
+       <p v-if="chargeChangeScope==='defaults'">Choose and save the matching default below. Then save this claim separately; historical claim amounts stay recorded.</p>
+       <ClaimRateDefaults v-if="chargeChangeScope==='defaults'" :agency-id="agencyId" :claim-id="draft.claim.id" :context="draft.editContext" :service-codes="chargeChanges.map(line=>line.procedure_code)" :suggested-charges="suggestedCharges" @saved="matchingDefaultsSaved=[...matchingDefaultsSaved,$event.serviceCode]" />
+       <button type="button" :disabled="busy||(chargeChangeScope==='defaults'&&chargeChanges.some(line=>!matchingDefaultsSaved.includes(line.procedure_code)))" @click="saveCorrection">{{ chargeChangeScope==='claim'?'Confirm · Save this claim only':'Save this claim after reviewing defaults' }}</button><button type="button" @click="chargeChangePrompt=false">Keep editing</button>
+      </section>
+      <button v-if="canEditDraft" type="button" @click="editDefaults=!editDefaults">Edit defaults</button>
+      <ClaimRateDefaults v-if="editDefaults&&draft" :agency-id="agencyId" :claim-id="draft.claim.id" :context="draft.editContext" :service-codes="draft.lines.map(line=>line.procedure_code)" />
       <button v-if="!reconciling && !canEditDraft" type="button" :disabled="busy" @click="draft = null">Close draft</button>
     </section>
 
@@ -211,7 +220,7 @@
       <form v-if="review.lifecycle === 'rejected'" class="clinical-reconciliation" @submit.prevent="savePosOverride">
         <h4>Set a place-of-service override</h4>
         <p>This changes the claim sent to the payer. The note keeps the location the provider recorded.</p>
-        <label>Send this POS instead<input v-model="posOverride.to" required pattern="[0-9]{2}" maxlength="2" /></label>
+        <label>Send this POS instead<input v-model="posOverride.to" required maxlength="2" /></label>
         <label>Plan type<input v-model="posOverride.planType" maxlength="100" placeholder="Any plan" /></label>
         <label>Why<textarea v-model="posOverride.reason" required minlength="10" maxlength="1000" /></label>
         <label>Policy reference<input v-model="posOverride.reference" required minlength="5" maxlength="1000" /></label>
@@ -277,6 +286,7 @@
 </template>
 
 <script setup>
+import ClaimRateDefaults from '../billing/ClaimRateDefaults.vue';
 import ClientInsuranceEditor from '../billing/ClientInsuranceEditor.vue';
 import ClientCoverageVerification from '../billing/ClientCoverageVerification.vue';
 import SupervisedPayerPolicies from './SupervisedPayerPolicies.vue';
@@ -358,6 +368,11 @@ function openPayerEnrollment(payer) {
   else enroll(payer.payerid);
 }
 const draft = ref(null), correctionReason = ref('');
+const matchingDefaultsSaved=ref([]);
+const chargeChangePrompt=ref(false),chargeChangeScope=ref('claim'),editDefaults=ref(false);
+const chargeChanges=computed(()=>draft.value?.lines.filter(line=>Math.round(Number(line.dollars)*100)!==Number(line.originalChargeCents))||[]);
+const suggestedCharges=computed(()=>Object.fromEntries(chargeChanges.value.map(line=>[line.procedure_code,Math.round(Number(line.dollars)*100)/Number(line.units||1)])));
+function requestCorrection(){if(chargeChanges.value.length){chargeChangeScope.value='claim';matchingDefaultsSaved.value=[];chargeChangePrompt.value=true;}else saveCorrection();}
 const reconciling = ref(false), reconciliationPlan = ref(null), reconciliationLines = ref([]), reconciliationReason = ref(''), reconciliationAttested = ref(false), reconciliationStale = ref(false);
 const canEditDraft = computed(() => !!draft.value && ['draft','ready','rejected'].includes(draft.value.claim?.claim_lifecycle) && !draft.value.previouslyTransmitted);
 const reconciliationBlocked = computed(() => draft.value?.previouslyTransmitted ? 'This claim has submission history. Preserve the submitted original and use the payer correction and follow-up workflow.' : draft.value?.approvedClinicalVersion?.pendingClinicalApproval ? 'A clinical amendment is awaiting approval. Complete its required signatures before applying a clinical version to billing.' : draft.value && !['draft','ready','rejected'].includes(draft.value.claim?.claim_lifecycle) ? 'This claim is queued or no longer editable. Reconcile its clearinghouse status through the payer correction and follow-up workflow.' : '');
@@ -466,17 +481,19 @@ const editClaim = claimId => run(async () => {
   review.value = null; approved.value = false; draft.value = null; cancelReconciliation();
   const { data } = await api.get(`/medical-billing/claimmd/claims/${claimId}/draft`, { params: { agencyId: props.agencyId }, skipGlobalLoading: true });
   if (!active) return;
-  draft.value = { ...data, lines: data.lines.map(line => ({ ...line, dollars: (line.charge_cents / 100).toFixed(2), modifiers: (typeof line.modifiers_json === 'string' ? JSON.parse(line.modifiers_json || '[]') : line.modifiers_json || []).join(', ') })) };
-  correctionReason.value = '';
+  draft.value = { ...data, lines: data.lines.map(line => ({ ...line, originalChargeCents:Number(line.charge_cents), dollars: (line.charge_cents / 100).toFixed(2), modifiers: (typeof line.modifiers_json === 'string' ? JSON.parse(line.modifiers_json || '[]') : line.modifiers_json || []).join(', ') })) };
+  correctionReason.value = ''; chargeChangePrompt.value=false;editDefaults.value=false;
 });
 function selectClaimOffice() {
   const office=(draft.value?.billingOffices || []).find(item=>Number(item.id)===Number(draft.value?.billingOfficeId));
   if(office)draft.value.claim.billing_npi=office.practice_npi || '';
 }
 const saveCorrection = () => run(async () => {
+  chargeChangePrompt.value=false;
   const { claim, lines } = draft.value;
   const { data } = await api.patch(`/medical-billing/claimmd/claims/${claim.id}`, {
     agencyId: props.agencyId, revision: claim.billing_revision, reason: correctionReason.value,
+    chargeChangeConfirmed:chargeChanges.value.length>0,
     ...(draft.value.billingOfficeId?{billingOfficeId:Number(draft.value.billingOfficeId)}:{}),
     placeOfService: claim.place_of_service, billingNpi: claim.billing_npi, renderingNpi: claim.rendering_npi, taxonomyCode: claim.taxonomy_code,
     lines: lines.map(line => ({ id: Number(line.id), chargeCents: Math.round(Number(line.dollars) * 100), modifiers: line.modifiers.split(/[,\s]+/).filter(Boolean).map(m => m.toUpperCase()) }))

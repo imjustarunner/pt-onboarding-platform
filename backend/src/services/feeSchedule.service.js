@@ -17,6 +17,11 @@ const key = (ownerKey, mode, scopeKey, serviceCode, recordType = 'rate') => feeL
 export async function assertFeeScheduleAccess(user, agencyId, d = deps) {
   if (!await d.access(user, agencyId)) throw feeError(403, 'Billing access is required for this practice.', 'FEE_SCHEDULE_ACCESS_DENIED');
 }
+async function assertClientScope(scope, db) {
+  if(scope.scope !== 'client')return;
+  const [[client]]=await db.execute('SELECT id FROM clients WHERE id=? AND agency_id=?',[scope.clientId,scope.agencyId]);
+  if(!client)throw feeError(404,'Client not found in this practice.');
+}
 async function ledgerRows(agencyId, db) {
   const [rows] = await db.execute(`SELECT r.* FROM medical_fee_schedule_rates r JOIN (
     SELECT MAX(id) AS id FROM medical_fee_schedule_rates WHERE owner_key IN (?, 'platform')
@@ -134,6 +139,7 @@ function displayRow(code, scope, ctx) {
 export async function getCanonicalFeeSchedule(user, input = {}, d = deps) {
   const scope = normalizeFeeScope(input);
   await assertFeeScheduleAccess(user, scope.agencyId, d);
+  await assertClientScope(scope,d.main);
   if (scope.scope === 'platform' && user.role !== 'super_admin') throw feeError(403, 'Only platform administrators can change platform defaults.');
   const [ctx, [usedCodes]] = await Promise.all([
     context(scope.agencyId, scope.mode, d),
@@ -143,12 +149,12 @@ export async function getCanonicalFeeSchedule(user, input = {}, d = deps) {
       LEFT JOIN clinical_sessions s ON s.id=c.clinical_session_id AND s.agency_id=c.agency_id
       WHERE c.agency_id=? AND COALESCE(c.is_deleted,0)=0`, [scope.agencyId])
   ]);
-  assertSelection(scope, ctx);
+  assertSelection(scope, ctx, {strictProvider:false});
   const revision = Number(ctx.state.find(s => s.owner_key === scope.ownerKey)?.revision || 0);
   const rows = ctx.codes.filter(c => bool(input.includeInactive) || bool(c.is_active)).map(c => displayRow(c, scope, ctx)).filter(r => bool(input.includeHidden) || !r.isHidden);
   const unlinkedCredentialCount = ctx.providers.reduce((sum, provider) => sum + provider.unlinkedCredentialCount, 0);
   const warnings = scope.mode === 'insurance' && !ctx.payers.length ? ['Add and verify payers in the practice payer list to configure insurance-specific rates.'] : [];
-  if (scope.mode === 'insurance' && unlinkedCredentialCount) warnings.push(`${unlinkedCredentialCount} recorded payer credentials need a verified billing-payer link in Credentialing before provider insurance overrides can be configured.`);
+  if (scope.mode === 'insurance' && unlinkedCredentialCount) warnings.push(`${unlinkedCredentialCount} recorded payer credentials need a verified billing-payer link in Credentialing before those credential records can support claim submission.`);
   const catalog = new Map(ctx.codes.map(code => [normalizeFeeCode(code.service_code), code]));
   const used = [...new Set(usedCodes.map(code => normalizeFeeCode(code.service_code)).filter(Boolean))].sort();
   const missingCodes = used.filter(code => !catalog.has(code));
@@ -191,7 +197,8 @@ export async function saveCanonicalFeeSchedule(user, input, d = deps) {
     await db.beginTransaction();
     await lockRevision(db, value.ownerKey, value.revision);
     const ctx = await context(value.agencyId, value.mode, { ...d, main: db });
-    assertSelection(value, ctx);
+    await assertClientScope(value,db);
+    assertSelection(value, ctx, {strictProvider:['set_modifiers','reset_modifiers'].includes(value.action)});
     const code = ctx.codes.find(c => normalizeFeeCode(c.service_code) === value.serviceCode);
     if (!code || !bool(code.is_active)) throw feeError(409, 'Activate this service in the practice service-code settings before changing its rates.');
     const record = value.action === 'update_practice_default' ? { ...value, scope: 'practice', scopeKey: 'practice' } : value;
@@ -240,15 +247,13 @@ export async function resolveCanonicalFeeQuote(input, d = deps) {
       WHERE u.id=? AND COALESCE(ua.is_active,1)=1 AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0`, [agencyId, providerUserId]);
     if (provider) {
       categoryKey = categoryFor(provider);
-      if (mode === 'self_pay') providerRateEligible = true;
-      else if (isFullyLicensedCredentialText(provider.credential)) {
-        const matches = (await d.credentials(providerUserId, agencyId, d.main)).filter(c => String(c.billing_payer_id) === String(input.payerId || ''));
-        providerRateEligible = matches.length > 0 && matches.every(c => isActiveCredentialPayerRow(c, { asOfDate: input.dateOfService }));
-      }
+      // A rate override is pricing configuration, not proof of payer credentialing.
+      // Submission independently enforces supervision, credentials and enrollment.
+      providerRateEligible = true;
     }
   }
   const rate = resolveFeeFromEntries({ agencyId, mode, serviceCode, payerId: input.payerId, providerUserId: providerRateEligible ? providerUserId : null,
-    categoryKey, entries: latestFeeEntries(rateRows), legacy: legacyFeeContext(legacy, { mode, serviceCode, payer: payers.find(p => p.id === input.payerId), providerUserId: providerRateEligible ? providerUserId : null, tenantServiceId: input.tenantServiceId }) });
+    clientId: Number(input.clientId)||null, categoryKey, entries: latestFeeEntries(rateRows), legacy: legacyFeeContext(legacy, { mode, serviceCode, payer: payers.find(p => p.id === input.payerId), providerUserId: providerRateEligible ? providerUserId : null, tenantServiceId: input.tenantServiceId }) });
   return { ...rate, amountCents: calculateFeeCharge(rate, { units: input.units ?? 1, durationMinutes: input.durationMinutes }), serviceCode, serviceCodeAvailable: true,
     payerId: input.payerId || null, providerUserId, providerRateEligible, categoryKey };
 }

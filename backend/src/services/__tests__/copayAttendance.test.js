@@ -27,6 +27,7 @@ beforeEach(()=>{
  m.card.mockResolvedValue({payer:{consent_id:3,recurring_limit_cents:3000},card:{id:8,stripe_setup_intent_id:'seti_test',card_exp_year:2099,card_exp_month:12}});
  m.create.mockResolvedValue({id:90});m.allocations.mockResolvedValue([{id:91,payer_user_id:22,amount_cents:2500,paid_cents:0}]);m.pay.mockResolvedValue({paid:true,paymentId:1});
  m.clinical.mockImplementation(async(sql)=>{
+  if(sql.includes('FROM clinical_note_billing_exclusions'))return [[]];
   if(sql.startsWith('SELECT * FROM clinical_sessions'))return [[{...session}]];
   if(sql.startsWith('SELECT id FROM clinical_notes')&&sql.includes('LIMIT 1')&&sql.includes('provider_signed_at IS NOT NULL'))return [[]];
   if(sql.startsWith('SELECT id FROM clinical_notes')&&sql.includes("note_type='MISSED_APPOINTMENT'"))return [[{id:51}]];
@@ -276,4 +277,11 @@ describe('saved draft attendance and same-day collection',()=>{
   m.decisions.set(30,{attendance:'occurred',decision_source:'saved_draft'});
   await expect(resetPendingAttendance({agencyId:2,sessionId:30,providerUserId:45})).rejects.toThrow(/billing review/);
  });
+});
+
+it('keeps chart-only encounters out of both note-triggered copays and collection of an existing attendance balance',async()=>{
+ const original=m.clinical.getMockImplementation();m.clinical.mockImplementation(async(sql,args)=>sql.includes('FROM clinical_note_billing_exclusions')?[[{id:1,disposition:'therapy_notes'}]]:original(sql,args));
+ expect(await onSignedNoteCopay({agencyId:2,noteId:50,providerUserId:45})).toMatchObject({eligible:false});
+ await expect(assertAttendanceCopay({source_type:'clinical_copay',source_key:'30',agency_id:2,client_id:12})).rejects.toHaveProperty('status',409);
+ expect(m.pay).not.toHaveBeenCalled();expect(m.create).not.toHaveBeenCalled();
 });
