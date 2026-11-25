@@ -39,6 +39,29 @@ describe('candidate process interface', () => {
     expect(transport.post).toHaveBeenCalledTimes(2);
     expect(transport.post.mock.calls[1][1]).toMatchObject({ active: false, sequence: 2 });
   });
+  it('shows the candidate background authorization and agreement in a read-only preview', async () => {
+    const data = state();
+    data.candidate.status = 'PREHIRE_OPEN';
+    data.backgroundCheck = { signed: false };
+    data.backgroundCheckLegal = { paragraphs: ['Preview employer authorization terms.'] };
+    data.journey = {};
+    data.workflow.steps.pre_hire = [
+      { key: 'background', kind: 'background', title: 'Background check authorization' },
+      { key: 'task-agreement', kind: 'task', title: 'Employment agreement', task: { id: 'agreement', taskType: 'document' } }
+    ];
+    wrapper = mount(CandidatePreHirePortal, {
+      props: { previewData: data, previewAgreement: '<p>Elena’s agreement</p>' },
+      global: { stubs: { AdaptiveSignatureCapture: true } }
+    });
+    await flushPromises();
+    await wrapper.find('.hire-nav nav').findAll('button').find(button => button.text() === 'Pre-Hire').trigger('click');
+    expect(wrapper.get('.bg-form').text()).toContain('Preview employer authorization terms.');
+    expect(wrapper.get('fieldset.journey-prehire').attributes('disabled')).toBeDefined();
+    await wrapper.findAll('.step-actions button').at(-1).trigger('click');
+    expect(wrapper.get('iframe[title="Employment agreement"]').attributes('srcdoc')).toContain('Elena’s agreement');
+    expect(http.get).not.toHaveBeenCalled();
+    expect(http.post).not.toHaveBeenCalled();
+  });
   it('renders the job description content and acknowledgement inside the step', async () => {
     const data = state(); data.candidate.status = 'PREHIRE_OPEN'; data.journey = {}; data.jdAcknowledged = false;
     data.jobDescription = { title: 'Counselor', descriptionText: 'Provide compassionate care in schools.' };

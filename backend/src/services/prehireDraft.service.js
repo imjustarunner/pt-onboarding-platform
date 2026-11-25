@@ -1,9 +1,13 @@
 import pool from '../config/database.js';
-const fields = ['contract', 'contractOverrides', 'individualExpectations', 'agreementVariant', 'contractConfigId', 'officeLocationId', 'includeSupervisor', 'signerAssignments', 'adhocSignerUserId', 'prehirePackageId', 'packetTemplateId', 'portalWorkflow', 'jobDocs', 'extraFiles', 'setupStep', 'setupVersion'];
+const fields = ['contract', 'contractOverrides', 'individualExpectations', 'agreementVariant', 'contractConfigId', 'officeLocationId', 'includeSupervisor', 'signerAssignments', 'adhocSignerUserId', 'prehirePackageId', 'packetTemplateId', 'portalWorkflow', 'jobDocs', 'extraFiles', 'inviteMessage', 'setupStep', 'setupVersion'];
 export function sanitizePrehireDraft(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw Object.assign(new Error('A pre-hire draft is required.'), { status: 400 });
   const draft = Object.fromEntries(fields.filter(key => Object.hasOwn(value, key)).map(key => [key, value[key]]));
   // Review approvals, generated HTML, invitation tokens, and browser File objects are never persisted.
+  if (draft.inviteMessage) {
+    const { subject, body, note } = draft.inviteMessage;
+    draft.inviteMessage = { subject: String(subject || '').slice(0, 240), body: String(body || '').slice(0, 12000), note: String(note || '').slice(0, 4000) };
+  }
   if (Array.isArray(draft.extraFiles)) draft.extraFiles = draft.extraFiles.map(({ id, name, title }) => ({ id, name, title }));
   const json = JSON.stringify(draft);
   if (Buffer.byteLength(json) > 200000) throw Object.assign(new Error('This pre-hire draft is too large.'), { status: 400 });

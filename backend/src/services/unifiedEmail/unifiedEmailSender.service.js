@@ -632,6 +632,7 @@ export async function sendNotificationEmail({
   triggerKey,
   to,
   subject,
+  useProvidedSubject = false,
   text = null,
   html = null,
   attachments = null,
@@ -770,7 +771,7 @@ export async function sendNotificationEmail({
     return { skipped: true, reason: optGate.reason };
   }
 
-  const effectiveSubject = (await priorityEventEmailRecipient({agencyId,userId,templateType:templateType || triggerKey,to,subject:delivery.subjectOverride || subject})).subject;
+  const effectiveSubject = (await priorityEventEmailRecipient({agencyId,userId,templateType:templateType || triggerKey,to,subject:useProvidedSubject ? subject : delivery.subjectOverride || subject})).subject;
 
   if (isForbiddenFallbackFrom({ fromEmail: identity.from_email })) {
     const block = await createMissingAliasTaskAndBlock({

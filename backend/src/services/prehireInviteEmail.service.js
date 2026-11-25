@@ -7,6 +7,8 @@ import pool from '../config/database.js';
 import {queueHiringNotification,hiringNotificationSnapshot} from './hiringNotification.service.js';
 import {createHash} from 'node:crypto';
 import User from '../models/User.model.js';
+import { resolveHiringReferenceReplyTo } from './hiringReferenceIdentity.service.js';
+import { referenceEmailFrame } from './hiringReferenceEmail.service.js';
 import { sendNotificationEmail } from './unifiedEmail/unifiedEmailSender.service.js';
 import { HOGWARTS_TEST_INBOX } from '../utils/hogwartsTestEmail.js';
 
@@ -56,6 +58,21 @@ export function formatOfferDate(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
   const date = new Date(`${raw}T12:00:00Z`);
   return Number.isFinite(date.getTime()) ? date.toLocaleDateString('en-US', { timeZone: 'UTC', month: 'long', day: 'numeric', year: 'numeric' }) : raw;
+}
+
+export function prehireInviteDetails(body, documentTitles = []) {
+  const tokens = body?.contractTokens || {};
+  return {
+    startDate: tokens.START_DATE || body.startDate,
+    expirationDate: tokens.EXPIRATION_DATE || tokens.CONTRACT_EXPIRATION,
+    minDays: tokens.MIN_DAYS_PER_WEEK || tokens.MIN_DAYS,
+    minHours: tokens.MIN_HOURS || tokens.MIN_HOURS_PER_WEEK,
+    steps: [...new Set([
+      'Authorization for Background Check', 'Acknowledge job description', 'Review and sign the employment agreement',
+      'Choose a work username', 'Complete pre-employment information and upload a professional headshot', ...documentTitles,
+      'Submit pre-hire for review'
+    ])]
+  };
 }
 
 function buildDefaultInviteContent({ firstName, agencyName, jobTitle, portalLink, inviteDetails }) {
@@ -121,15 +138,14 @@ function buildDefaultInviteContent({ firstName, agencyName, jobTitle, portalLink
  * @param {string|null} [params.customBody]
  * @param {number|null} [params.generatedByUserId]
  */
-export async function sendPrehirePortalInviteEmail({
+async function prepareInvitation({
   agencyId,
   candidateUserId,
   portalLink,
   customSubject = null,
   customBody = null,
-  generatedByUserId = null,
-  inviteDetails = null,
-  source = 'auto'
+  customNote = null,
+  inviteDetails = null
 }) {
   const user = await User.findById(candidateUserId);
   if (!user) return { skipped: true, reason: 'user_not_found' };
@@ -141,7 +157,7 @@ export async function sendPrehirePortalInviteEmail({
   }
 
   const [agencyRows] = await pool.execute(
-    `SELECT prehire_settings, name
+    `SELECT prehire_settings, name, official_name, logo_url, logo_path, color_palette, careers_page_json
      FROM agencies WHERE id = ? LIMIT 1`,
     [agencyId]
   );
@@ -168,28 +184,21 @@ export async function sendPrehirePortalInviteEmail({
       [agencyId, candidateUserId]
     );
     const tokens = parseObject(generations[0]?.token_values_json);
-    inviteDetails = {
-      startDate: tokens.START_DATE,
-      expirationDate: tokens.EXPIRATION_DATE || tokens.CONTRACT_EXPIRATION,
-      minDays: tokens.MIN_DAYS_PER_WEEK || tokens.MIN_DAYS,
-      minHours: tokens.MIN_HOURS || tokens.MIN_HOURS_PER_WEEK,
-      steps: steps.map(step => step.title)
-    };
+    inviteDetails = prehireInviteDetails({ contractTokens: tokens }, steps.map(step => step.title));
   }
 
   let subject;
   let text;
   let html;
-  let templateId = null;
 
-  const customSubjectTrim = String(customSubject || '').trim();
-  const customBodyTrim = String(customBody || '').trim();
+  const customSubjectTrim = String(customSubject ?? settings.invite_email_subject ?? '').replace(/[\r\n]+/g, ' ').trim().slice(0, 240);
+  const customBodyTrim = String(customBody ?? settings.invite_email_body ?? '').trim().slice(0, 12000);
+  const note = String(customNote || '').trim().slice(0, 4000);
 
   if (customSubjectTrim || customBodyTrim) {
     subject = customSubjectTrim
-      || settings.invite_email_subject
       || `Your job offer — Complete your pre-hire forms — ${agencyName}`;
-    const bodySource = customBodyTrim || settings.invite_email_body || '';
+    const bodySource = customBodyTrim;
     text = applyCustomTokens(bodySource, { firstName, portalLink });
     html = textToHtml(text);
   }
@@ -221,12 +230,34 @@ export async function sendPrehirePortalInviteEmail({
     }
   }
 
-  // A customized message must still include the candidate's usable portal link.
-  if (!text.includes(portalLink)) {
-    text += `\n\nYour private pre-hire portal: ${portalLink}`;
-    html += `<p><a href="${escHtml(portalLink)}">Open your private pre-hire portal</a></p>`;
+  if (note) {
+    text += `\n\nA note from People Operations:\n${note}`;
+    html += `<p><strong>A note from People Operations</strong></p>${textToHtml(note)}`;
   }
 
+  // A customized message must still include the candidate's usable portal link.
+  if (!text.includes(portalLink)) text += `\n\nYour private pre-hire portal: ${portalLink}`;
+  if (customBodyTrim) html += `<p><a href="${escHtml(portalLink)}" style="background:#143e33;color:white;padding:12px 24px;border-radius:8px;display:inline-block;text-decoration:none">Open your private pre-hire portal</a></p><p>This private link is valid for 7 days. Contact People Operations if you need a new link.</p>`;
+
+  const peopleOperationsEmail = String(await resolveHiringReferenceReplyTo(agencyId).catch(() => null) || '').trim();
+  return {
+    user, agency: agencyRow, jobTitle, recipientEmail, subject, text,
+    html: referenceEmailFrame({ agency: agencyRow, heading: 'Your pre-hire invitation', body: html, marketing: false }),
+    peopleOperationsEmail: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(peopleOperationsEmail) && peopleOperationsEmail.toLowerCase() !== recipientEmail.toLowerCase() ? peopleOperationsEmail : null
+  };
+}
+
+export async function previewPrehireInviteEmail(input) {
+  const draft = await prepareInvitation({ ...input, portalLink: 'https://preview.invalid/pre-hire' });
+  const { recipientEmail, peopleOperationsEmail, subject, html } = draft;
+  return { recipientEmail, peopleOperationsEmail, subject, html };
+}
+
+export async function sendPrehirePortalInviteEmail({ generatedByUserId = null, source = 'auto', ...input }) {
+  const draft = await prepareInvitation(input);
+  if (draft.skipped) return draft;
+  const { agencyId, candidateUserId, portalLink } = input;
+  const { user, agency, recipientEmail, subject, text, html, jobTitle, peopleOperationsEmail } = draft;
   await queueHiringNotification({userId:candidateUserId,agencyId,type:'prehire_invite',
     key:`prehire_invite:${createHash('sha256').update(portalLink).digest('hex')}`,emailAlreadyHandled:true});
   const notificationSnapshot=await hiringNotificationSnapshot(candidateUserId,agencyId,user.status);
@@ -237,14 +268,33 @@ export async function sendPrehirePortalInviteEmail({
     triggerKey: PREHIRE_PORTAL_ACCESS_TRIGGER,
     to: recipientEmail,
     subject,
+    useProvidedSubject: true,
     text,
     html,
     userId: candidateUserId,
     generatedByUserId,
     templateType: PREHIRE_PORTAL_ACCESS_TRIGGER,
-    templateId,
     source
   });
   // Keep one audited delivery path. A held/blocked send is never a successful send.
-  return prehireInviteDelivery(result, recipientEmail);
+  const delivery = prehireInviteDelivery(result, recipientEmail);
+  if (delivery.status !== 'sent' || result.redirected) return delivery;
+  if (!peopleOperationsEmail) return { ...delivery, peopleOperationsCopy: { status: 'skipped', reason: 'no_people_operations_address' } };
+  // The candidate portal link is a bearer credential. The staff copy is built
+  // independently from candidate-facing subject, body, note and link.
+  const candidateName = [user.first_name, user.last_name].filter(Boolean).join(' ');
+  const receiptText = `${candidateName} (${recipientEmail}) was sent a pre-hire invitation${jobTitle ? ` for ${jobTitle}` : ''}.`;
+  let peopleOperationsCopy;
+  try {
+    const copy = await sendNotificationEmail({
+      agencyId, triggerKey: PREHIRE_PORTAL_ACCESS_TRIGGER, to: peopleOperationsEmail,
+      subject: 'Pre-hire invitation sent', useProvidedSubject: true, text: receiptText,
+      html: referenceEmailFrame({ agency, heading: 'Pre-hire invitation sent', body: textToHtml(receiptText), marketing: false }),
+      userId: candidateUserId, generatedByUserId, templateType: PREHIRE_PORTAL_ACCESS_TRIGGER, source
+    });
+    peopleOperationsCopy = prehireInviteDelivery(copy, peopleOperationsEmail);
+  } catch {
+    peopleOperationsCopy = { status: 'failed', recipientEmail: peopleOperationsEmail };
+  }
+  return { ...delivery, peopleOperationsCopy };
 }

@@ -2147,8 +2147,9 @@ export const emailPrehirePortalLink = async (req, res, next) => {
       agencyId,
       candidateUserId,
       portalLink: tokenLink,
-      customSubject: req.body?.msgSubject || null,
-      customBody: req.body?.msgBody || null,
+      customSubject: req.body?.msgSubject ?? null,
+      customBody: req.body?.msgBody ?? null,
+      customNote: req.body?.msgNote,
       generatedByUserId: req.user?.id || null,
       source: 'manual'
     }).catch((error) => {
@@ -4135,6 +4136,64 @@ export const candidatePrehireDraft = async (req, res, next) => {
   } catch (error) { next(error); }
 };
 
+export const previewCandidatePrehire = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+    const candidateUserId = parseIntParam(req.params.userId);
+    if (!candidateUserId || !(await ensureCandidateInAgency(candidateUserId, agencyId))) return res.status(404).json({ error: { message: 'Candidate not found in this agency' } });
+
+    const body = req.body || {};
+    const packet = body.resend ? null : await prepareHirePacket({ userId: candidateUserId, agencyId, body });
+    res.set('Cache-Control', 'no-store');
+    if (body.kind === 'email') {
+      const { previewPrehireInviteEmail, prehireInviteDetails } = await import('../services/prehireInviteEmail.service.js');
+      return res.json(await previewPrehireInviteEmail({
+        agencyId, candidateUserId, customSubject: body.msgSubject, customBody: body.msgBody, customNote: body.msgNote,
+        inviteDetails: packet ? prehireInviteDetails(body, packet.documents.map(doc => doc.title)) : null
+      }));
+    }
+
+    if (!packet || body.kind !== 'portal') return res.status(400).json({ error: { message: 'Choose an email or portal preview.' } });
+    const [agency, user] = await Promise.all([Agency.findById(agencyId), User.findById(candidateUserId)]);
+    if (!agency || !user) return res.status(404).json({ error: { message: 'Candidate not found in this agency' } });
+    const [{ buildAgencyBranding }, { buildBackgroundCheckLegalCopy }, { buildPortalWorkflow }] = await Promise.all([
+      import('./prehirePortal.controller.js'), import('../utils/backgroundCheckLegalCopy.js'), import('../services/hirePortalWorkflow.service.js')
+    ]);
+    const legalName = [user.first_name, user.last_name].filter(Boolean).join(' ');
+    const backgroundCheck = { signed: false };
+    const previewUser = { first_name: user.first_name, last_name: user.last_name, personal_email: user.personal_email || user.email, status: 'PREHIRE_OPEN', work_location: body.contractTokens?.ASSIGNED_OFFICE_NAME };
+    const templateIds = [...new Set([
+      ...(Array.isArray(body.documentTemplateIds) ? body.documentTemplateIds : []),
+      ...(Array.isArray(body.previewTemplates) ? body.previewTemplates.map(item => item?.templateId) : []),
+      ...packet.workflow.resources.map(resource => resource.templateId),
+      ...packet.documents.map(doc => doc.templateId),
+      ...(packet.workflow.supervisorRole ? [packet.workflow.supervisorTemplateId] : [])
+    ].map(Number).filter(id => Number.isSafeInteger(id) && id > 0))].slice(0, 100);
+    const templates = templateIds.length ? (await pool.execute(
+      `SELECT id, name FROM document_templates WHERE id IN (${templateIds.map(() => '?').join(',')}) AND is_active = 1 AND organization_id IS NULL AND (agency_id = ? OR agency_id IS NULL)`,
+      [...templateIds, agencyId]
+    ))[0] : [];
+    const tasks = [
+      { id: 'agreement', title: 'Employment agreement', taskType: 'document', isRequired: true, metadata: { contractGeneration: true } },
+      ...templateIds.flatMap(id => {
+        const template = templates.find(row => Number(row.id) === id);
+        return template ? [{ id: `template-${id}`, referenceId: id, title: template.name, taskType: 'document', isRequired: true }] : [];
+      })
+    ];
+    const extras = { prehireDocs: packet.documents, jdAcknowledged: false };
+    const { hireAccountModeForUser } = await import('../utils/hireAccountMode.js');
+    const hireAccountMode = hireAccountModeForUser(agency, user);
+    const workflow = await buildPortalWorkflow({ user: previewUser, agencyId, tasks, prehireTasks: [], extras, backgroundCheck, hireAccountMode, journey: {}, previewPacket: packet });
+    return res.json({
+      candidate: { firstName: user.first_name, lastName: user.last_name, appliedRole: packet.jobDescription?.title, status: 'PREHIRE_OPEN' },
+      agency: buildAgencyBranding(req, agency), workflow, tasks, prehireDocs: packet.documents,
+      backgroundCheck, backgroundCheckLegal: buildBackgroundCheckLegalCopy(agency, { legalName }),
+      jobDescription: packet.jobDescription, hireAccountMode, portalPhase: 'pre_hire', progress: workflow.progress.pre_hire
+    });
+  } catch (error) { next(error); }
+};
+
 export const getPrehireReferenceStatus = async (req, res, next) => {
   try {
     const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
@@ -4594,22 +4653,17 @@ export const sendPreHire = async (req, res, next) => {
         : {};
       // Finish the send before returning: request-based runtimes can suspend background work.
       try {
-        const { sendPrehirePortalInviteEmail } = await import('../services/prehireInviteEmail.service.js');
+        const { sendPrehirePortalInviteEmail, prehireInviteDetails } = await import('../services/prehireInviteEmail.service.js');
         emailResult = await sendPrehirePortalInviteEmail({
           agencyId,
           candidateUserId,
           portalLink: tokenLink,
           customSubject: req.body?.msgSubject,
           customBody: req.body?.msgBody,
+          customNote: req.body?.msgNote,
           generatedByUserId: req.user?.id || null,
           source: 'manual',
-          inviteDetails: {
-            startDate: tokens.START_DATE || req.body?.startDate || null,
-            expirationDate: tokens.EXPIRATION_DATE || tokens.CONTRACT_EXPIRATION || null,
-            minDays: tokens.MIN_DAYS_PER_WEEK || tokens.MIN_DAYS || null,
-            minHours: tokens.MIN_HOURS || tokens.MIN_HOURS_PER_WEEK || null,
-            steps: checklistTitles
-          }
+          inviteDetails: prehireInviteDetails({ ...req.body, contractTokens: tokens }, checklistTitles)
         });
       } catch (emailErr) {
         console.error('[sendPreHire] Failed to send invite email:', emailErr?.message);

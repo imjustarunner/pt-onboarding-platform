@@ -56,7 +56,7 @@ function resolveProfilePhotoUrl(req, photoPath) {
   return `${resolveBaseUrl(req)}/uploads/${cleaned}`;
 }
 
-function buildAgencyBranding(req, raw) {
+export function buildAgencyBranding(req, raw) {
   if (!raw) return null;
   const palette = (() => {
     try {

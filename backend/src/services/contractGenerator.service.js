@@ -363,7 +363,7 @@ export async function previewCandidateContract({
   if (Object.hasOwn(tokens, 'UNIVERSITY_NAME')) merged.UNIVERSITY = tokens.UNIVERSITY_NAME;
   // Agency and office records own these fields. Blank or stale client tokens must
   // never replace the place of business or an explicitly selected office.
-  for (const key of ['AGENCY_SLUG', 'COMPANY_ADDRESS', 'ASSIGNED_OFFICE_ID', 'ASSIGNED_OFFICE_NAME', 'ASSIGNED_OFFICE_ADDRESS', 'ASSIGNED_OFFICE_SOURCE']) {
+  for (const key of ['AGENCY_SLUG', 'COMPANY_ADDRESS', 'ASSIGNED_OFFICE_ID', 'ASSIGNED_OFFICE_NAME', 'ASSIGNED_OFFICE_CITY', 'ASSIGNED_OFFICE_ADDRESS', 'ASSIGNED_OFFICE_SOURCE']) {
     merged[key] = autofill[key] || '';
     merged[key.replaceAll('_', '')] = merged[key];
   }

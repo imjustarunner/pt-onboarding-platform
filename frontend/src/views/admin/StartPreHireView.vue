@@ -36,9 +36,6 @@
         </fieldset>
         <p v-if="portalWorkflow.supervisorRole && (!portalWorkflow.supervisorTemplateId || !portalWorkflow.supervisorClause)" role="alert" class="sph-warn">Configure the approved supervisory clause and acknowledgment in hiring settings before sending.</p>
         <label>Who will supervise this hire?<select v-model="portalWorkflow.supervisorUserId"><option :value="null">Not assigned yet</option><option v-for="u in staffUsers.filter(u => Number(u.id) !== Number(userId) && isSupervisor(u))" :key="u.id" :value="u.id">{{ u.first_name }} {{ u.last_name }}</option></select></label>
-        <label v-if="contractTenant === 'itsco'">Spanish-language pay differential
-          <select v-model="portalWorkflow.spanishProvider"><option :value="undefined">Choose when confirmed</option><option :value="true">Yes, approved for Spanish-language services and the differential</option><option :value="false">No Spanish-language differential</option></select>
-        </label>
       </section>
 
       <section v-show="setupStep === 2" id="prehire-workflow" class="sph-card" tabindex="-1">
@@ -99,12 +96,25 @@
           <label>Assigned office<select id="prehire-office" v-model="officeLocationId" @change="applyOffice"><option :value="null">Select an office</option><optgroup v-for="group in officeGroups" :key="group.city" :label="group.city"><option v-for="office in group.offices" :key="office.id" :value="office.id">{{ office.name }} — {{ office.address }}</option></optgroup></select></label>
         </div>
         <p v-if="officeSource" class="muted">{{ officeSource }}</p>
+        <fieldset v-if="contractTenant === 'itsco'" class="sph-differentials">
+          <legend>Pay differentials</legend>
+          <label>Spanish-language pay differential
+            <select v-model="portalWorkflow.spanishProvider"><option :value="undefined">Choose when confirmed</option><option :value="true">Eligible for Spanish-language services and pay</option><option :value="false">Ineligible for the Spanish-language differential</option></select>
+          </label>
+          <p>{{ assignedOffice ? (denverOffice ? 'Denver differential applies to qualifying direct service at this office.' : 'Denver differential does not apply at this office.') : 'Select the assigned office to confirm Denver eligibility.' }}</p>
+          <table v-if="selectedCompensation?.differentials">
+            <caption>Rates as of {{ payScheduleDate }}</caption>
+            <thead><tr><th scope="col">Workload tier</th><th scope="col">Spanish per productive service-hour equivalent</th><th scope="col">Denver per qualifying direct-service hour equivalent</th></tr></thead>
+            <tbody><tr v-for="tier in 3" :key="tier"><th scope="row">Tier {{ tier }}</th><td>{{ money(selectedCompensation.differentials.spanish[tier]) }}</td><td>{{ money(selectedCompensation.differentials.denver[tier]) }}</td></tr></tbody>
+          </table>
+          <p v-else class="muted">Choose a category and level to see the tier rates.</p>
+        </fieldset>
         <ContractProbationChoice id="prehire-probation" tabindex="-1" v-if="probationRequired" v-model="contract.probationChoice" v-model:terms="contract.probationTerms" :individual="contractTenant==='isi'" />
         <template v-if="!usesIndividualAgreement">
           <template v-if="selectedCompensation && categoryServicePay">
             <p>Category {{ contract.compensationCategory }}, Level {{ contract.compensationLevel }} · Compensation follows the service performed and its approved schedule.</p>
             <p v-if="selectedCompensation.paySystem" class="muted">Clinical session base: {{ money(selectedCompensation.paySystem.creditRate) }} · H-code direct-care base: {{ money(selectedCompensation.paySystem.hcodeRate) }} / hour · Indirect: {{ money(selectedCompensation.paySystem.indirectRate) }} / hour.</p>
-            <p v-if="selectedCompensation.paySystem" class="muted">Eligible H-code direct care adds {{ selectedCompensation.paySystem.autoIndirectMinutesPerHour }} indirect minutes per direct-care hour on top of the service pay. Review service eligibility and the applicable base or reduced rate; tutoring, childcare and testing follow their own approved terms below.</p>
+            <p v-if="selectedCompensation.paySystem" class="muted">Eligible H-code direct care adds {{ selectedCompensation.paySystem.autoIndirectMinutesPerHour }} indirect minutes per direct-care hour on top of the service pay. Review service eligibility and the applicable base or reduced rate; any assigned specialty services follow their own approved terms below.</p>
           </template>
           <p v-else-if="selectedCompensation">Category {{ contract.compensationCategory }}, Level {{ contract.compensationLevel }} · Direct: {{ money(selectedCompensation.direct_rate) }} / hour · Indirect: {{ money(selectedCompensation.indirect_rate) }} / hour · FFS base: {{ money(selectedCompensation.ffs_rate) }}</p>
           <p v-else class="sph-warn">Choose a category and level to review compensation. Configure missing rates in contract/pay settings.</p>
@@ -116,8 +126,12 @@
             <tbody><tr v-for="rate in selectedCompensation.serviceRates" :key="rate.code"><td>{{ rate.code }}</td><td>{{ rate.rate }}<template v-if="rate.additionalIndirect"><br />{{ rate.additionalIndirect }}</template></td><td v-if="selectedCompensation.serviceRates.some(rate => rate.reduced)">{{ contract.probationChoice==='no'?rate.rate:rate.reduced || rate.rate }}</td><td>{{ rate.unit }}</td></tr></tbody>
           </table>
         </template>
-        <p v-if="inferredPayLabel" class="muted small">Inferred: {{ inferredPayLabel }}</p>
-        <div v-if="contractTenant==='nlu' && nluProgramRates.length" class="sph-program-rates"><table><caption>Separate program compensation — when assigned and authorized</caption><thead><tr><th>Service</th><th>Regular rate / hour-equivalent</th><th>Rate with selected probation choice</th><th>Automatic indirect time</th></tr></thead><tbody><tr v-for="row in nluProgramRates" :key="row.service"><th>{{row.service==='h2014'?'H2014 — Therapy + Tutoring':'Homework Help'}}</th><td>{{money(row.rate)}}</td><td>{{money(row.selectedRate)}}</td><td>{{row.indirectMinutesPerHour}} minutes per direct hour</td></tr></tbody></table></div>
+        <p v-if="learningAssignment && selectedCompensation?.homeworkHelpRatesError" class="sph-warn">{{ selectedCompensation.homeworkHelpRatesError }}</p>
+        <ul v-else-if="learningAssignment && contractTenant !== 'nlu' && selectedCompensation?.homeworkHelpRates?.length">
+          <li v-for="rate in selectedCompensation.homeworkHelpRates" :key="rate.code">{{ rate.code }} · {{ rate.rate }} {{ rate.unit }}</li>
+        </ul>
+        <p v-if="!usesIndividualAgreement && inferredCategory && compensationCategories[inferredCategory] && String(inferredCategory) !== String(contract.compensationCategory)" class="muted small">Credential-based suggestion: Category {{ inferredCategory }} ({{ compensationCategories[inferredCategory].label }}). The selected category and level determine the agreement pay.</p>
+        <div v-if="contractTenant==='nlu' && visibleNluProgramRates.length" class="sph-program-rates"><table><caption>Separate program compensation — when assigned and authorized</caption><thead><tr><th>Service</th><th>Regular rate / hour-equivalent</th><th>Rate with selected probation choice</th><th>Automatic indirect time</th></tr></thead><tbody><tr v-for="row in visibleNluProgramRates" :key="row.service"><th>{{row.service==='h2014'?'H2014 — Therapy + Tutoring':'Homework Help'}}</th><td>{{money(row.rate)}}</td><td>{{money(row.selectedRate)}}</td><td>{{row.indirectMinutesPerHour}} minutes per direct hour</td></tr></tbody></table></div>
         <ContractExpectationsEditor id="prehire-services" tabindex="-1" v-if="contractTenant" :category-placement="contractTenant==='nlu'" :compensation-level="contract.compensationLevel" :pay-profile="selectedCompensation?.paySystem" :supervisor-options="eligibleSupervisors" v-model:supervisor-user-id="portalWorkflow.supervisorUserId" :show-core-fields="false" :guided-setup="contractTenant === 'itsco'" v-model="individualExpectations" :individual-agreement-mode="contractTenant==='isi'" :service-role-options="contractServiceRoleOptions" :service-role-source="wizardTokens.CONTRACT_SERVICE_ROLE_SOURCE" :compensation-category="contract.compensationCategory" :service-compensation="serviceCompensation" title="Assigned services and compensation" description="Review the job-based role selections and each service’s approved pay and authorization terms before preparing the agreement." />
         <details v-if="contractTenant==='nlu' && (Number(contract.compensationCategory)>=3 || contractOverrides.NLU_CATEGORY_PLACEMENT_EXCEPTION_REFERENCE)"><summary>Existing individual placement notes — optional</summary><label>Existing placement reference<input v-model="contractOverrides.NLU_CATEGORY_PLACEMENT_EXCEPTION_REFERENCE" placeholder="Preserve any recorded individual placement notes" /></label><p class="muted">The selected pay category and level determine compensation. Credential suggestions do not replace that selection or grant clinical authority.</p></details>
         <h3>Contract details</h3>
@@ -216,11 +230,12 @@
       </section>
 
       <section v-show="setupStep === 4" class="sph-card">
-        <h2>Review each candidate step</h2>
-        <p class="muted">Walk through each item, open its document, and review how the candidate completes it. These reviews confirm your setup; the candidate completes and signs their own work after receiving the invitation.</p>
-        <HireStepReview :steps="candidateSteps" :agency-id="agencyId" :job-id="jobId" @reviewed="stepsReviewed = $event" @agreement="openAgreementPreview">
-          <template #job-description><JobDescriptionSections v-if="detail?.jobDescription?.descriptionSections" :sections="detail.jobDescription.descriptionSections" :title="jobTitle" compact /><p v-else class="sph-description">{{ detail?.jobDescription?.description_text || detail?.jobDescription?.descriptionText }}</p></template>
-        </HireStepReview>
+        <h2>Preview the candidate portal</h2>
+        <p class="muted">Walk through the branded portal and open the agreement, background check authorization, and other materials before sending.</p>
+        <button class="btn btn-secondary" type="button" :disabled="portalPreviewLoading || !contractReviewed || !previewMatches || uploadingFiles" @click="openPortalPreview">Preview candidate portal</button>
+        <p v-if="portalPreviewError" class="error" role="alert">{{ portalPreviewError }}</p>
+        <p v-if="stepsReviewed" role="status" class="sph-ok">Candidate portal reviewed.</p>
+        <p v-else-if="!contractReviewed || !previewMatches" class="muted">Review the current agreement in Contract &amp; cosigners first.</p>
       </section>
 
       <section v-show="setupStep === 5" class="sph-card">
@@ -228,7 +243,7 @@
         <p>The invitation goes to <strong>{{ candidateEmail }}</strong>. Their portal includes:</p>
         <ol class="sph-final-sequence"><li v-for="item in candidateSteps" :key="item.key"><strong>{{ item.title }}</strong> · {{ item.action }}<span class="muted small">{{ item.source }}</span></li></ol>
         <p>Workplace handbook: internal reference available during pre-hire; review and signed acknowledgment during onboarding.</p>
-        <p v-if="!stepsReviewed" class="error">Review each candidate step before sending.</p>
+        <p v-if="!stepsReviewed" class="error">Open the candidate portal preview and choose Looks good before sending.</p>
         <p>Agreement: {{ agreementBuilder?.options.find(option => option.value === agreementVariant)?.label || contractConfigs.find(c => c.id === contractConfigId)?.name || 'Choose an agreement' }} · {{ contractReviewed ? 'Preview reviewed' : 'Preview must be reviewed' }}</p>
         <p>Compensation: Category {{ contract.compensationCategory || 'not selected' }}, Level {{ contract.compensationLevel || 'not selected' }}</p>
         <p v-if="!contractReviewed || !previewMatches" class="error">Return to Contract &amp; cosigners, update the preview, and confirm you reviewed it.</p>
@@ -236,8 +251,30 @@
         <p v-if="extraFiles.length">Additional employee files: {{ extraFiles.map(f => f.title || f.name).join(', ') }}</p>
         <p v-if="missingResources.length" class="error">Attach the missing resources in Select materials: {{ missingResources.map(r => r.title || 'Untitled step').join(', ') }}.</p>
         <p v-if="currentPortalLink"><a :href="currentPortalLink" target="_blank" rel="noopener">View the current candidate portal ↗</a></p>
+        <fieldset class="sph-invitation">
+          <legend>Invitation email</legend>
+          <label>Subject <input v-model="inviteMessage.subject" type="text" maxlength="240" placeholder="Use the default subject" /></label>
+          <label>Message <textarea v-model="inviteMessage.body" rows="5" maxlength="12000" placeholder="Use the default invitation message" /></label>
+          <label>Personal note <textarea v-model="inviteMessage.note" rows="3" maxlength="4000" placeholder="Optional" /></label>
+          <p class="muted small">The invitation includes the offer details, checklist, and private portal link. People Operations receives a separate delivery receipt.</p>
+          <button class="btn btn-secondary" type="button" :disabled="emailPreviewLoading" @click="openEmailPreview">Preview HTML email</button>
+          <p v-if="emailPreviewError" class="error" role="alert">{{ emailPreviewError }}</p>
+        </fieldset>
         <p class="muted">The final action prepares their documents and sends their agency portal invitation. Onboarding is prepared separately after pre-hire review.</p>
       </section>
+      <dialog ref="portalPreviewDialog" class="sph-preview-dialog" aria-label="Candidate portal preview" @close="portalPreviewData = null">
+        <header><div><strong>Candidate portal preview</strong><p class="muted small">Read-only preview</p></div>
+          <div class="sph-preview-actions"><button class="btn btn-secondary" type="button" @click="closePortalPreview">Close</button><button class="btn btn-primary" type="button" :disabled="!portalPreviewData || portalPreviewSnapshot !== portalReviewInput" @click="approvePortalPreview">Looks good</button></div>
+        </header>
+        <CandidatePreHirePortalView v-if="portalPreviewData" :preview-data="portalPreviewData" :preview-agreement="contractPreview?.html" />
+      </dialog>
+      <dialog ref="emailPreviewDialog" class="sph-preview-dialog sph-email-dialog" aria-label="Invitation email preview">
+        <header><strong>Invitation email preview</strong><button class="btn btn-secondary" type="button" @click="emailPreviewDialog.close()">Close</button></header>
+        <template v-if="emailPreview">
+          <dl><dt>To</dt><dd>{{ emailPreview.recipientEmail }}</dd><dt>People Operations receipt</dt><dd>{{ emailPreview.peopleOperationsEmail || 'No People Operations email is configured' }}</dd><dt>Subject</dt><dd>{{ emailPreview.subject }}</dd></dl>
+          <iframe title="Branded invitation email" sandbox="" :srcdoc="emailPreview.html" />
+        </template>
+      </dialog>
       <div v-if="sendError" role="alert" class="error">{{ sendError }} <button v-if="contractTenant==='nlu'" type="button" @click="resolveSetupIssue(sendError)">{{ prehireIssueDestination(sendError).label }}</button></div>
       <p v-if="contractWarning" class="sph-warn">{{ contractWarning }}</p>
       <div class="sph-actions">
@@ -247,6 +284,8 @@
           {{ sending ? 'Sending invitation…' : tokenLink ? 'Email portal link again' : 'Prepare and send pre-hire invitation' }}
         </button>
       </div>
+      <p v-if="emailDelivery?.peopleOperationsCopy?.status === 'sent'" role="status">People Operations receipt sent to {{ emailDelivery.peopleOperationsCopy.recipientEmail }}.</p>
+      <p v-else-if="emailDelivery?.peopleOperationsCopy" role="status" class="sph-warn">{{ emailDelivery.peopleOperationsCopy.reason === 'no_people_operations_address' ? 'Set a People Operations email in the agency settings to receive invitation receipts.' : 'People Operations receipt delivery: ' + emailDelivery.peopleOperationsCopy.status + '.' }}</p>
       <p v-if="tokenLink" role="status" :class="emailDelivery?.status === 'sent' ? 'sph-ok' : 'sph-warn'">{{ prehireInviteDeliveryMessage(emailDelivery) }}</p>
       <p v-if="tokenLink" class="sph-ok">
         Portal link created:
@@ -263,7 +302,6 @@ import { prehireIssueDestination } from '../../utils/nluPrehireForm.js';
 import CredentialPicker from '../../components/CredentialPicker.vue';
 import { isSupervisor } from '../../utils/helpers.js';
 import HireSetupDocumentPreview from '../../components/hiring/HireSetupDocumentPreview.vue';
-import HireStepReview from '../../components/hiring/HireStepReview.vue';
 import { availableHiringTemplate, builtInHireDocument, hireResourceHelp, standardPrehireSteps } from '../../navigation/hireDocuments.js';
 import ContractServiceFocusSelect from '../../components/hiring/ContractServiceFocusSelect.vue';
 import ContractProbationChoice from '../../components/hiring/ContractProbationChoice.vue';
@@ -275,7 +313,7 @@ import HireWorkflowEditor from '../../components/admin/HireWorkflowEditor.vue';
 import ContractExpectationsEditor from '../../components/careers/ContractExpectationsEditor.vue';
 import StandardAgreementApproval from '../../components/hiring/StandardAgreementApproval.vue';
 import { CONTRACT_SERVICE_ROLE_FIELD_LABELS } from '../../constants/contractServiceRoles.js';
-import { computed, onMounted, onBeforeUnmount, nextTick, reactive, ref, watch } from 'vue';
+import { computed, defineAsyncComponent, onMounted, onBeforeUnmount, nextTick, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router';
 import apiClient from '../../services/api';
 import PlotlineSignature from '../../components/plotline/PlotlineSignature.vue';
@@ -316,7 +354,6 @@ const extraFiles = ref([]);
 const tokenLink = ref('');
 const emailDelivery = ref(null);
 const jobDocs = ref([]);
-const inferredPayLabel = ref('');
 const inferredCategory = ref(null);
 const compensationLevels = ref([]), offices = ref([]), officeLocationId = ref(null), officeSource = ref('');
 const officeGroups = computed(() => {
@@ -559,6 +596,7 @@ const load = async () => {
     if (wizardTokens.value.START_DATE) contract.startDate = String(wizardTokens.value.START_DATE).slice(0, 10);
     if (wizardTokens.value.MIN_HOURS) contract.minHours = wizardTokens.value.MIN_HOURS;
     if (wizardTokens.value.MIN_DAYS_PER_WEEK) contract.minDays = wizardTokens.value.MIN_DAYS_PER_WEEK;
+    Object.assign(inviteMessage, { subject: settings.value.invite_email_subject || '', body: settings.value.invite_email_body || '' });
     const jd = cand.data?.jobDescription || {};
     const jobConfig = jd.prehireConfig || { documents: [] };
     jobPrehirePackageId = jobConfig.prehirePackageId || null;
@@ -594,9 +632,6 @@ const load = async () => {
           skipGlobalLoading: true
         });
         inferredCategory.value = data.compensationCategory || null;
-        inferredPayLabel.value = data.payCategoryLabel
-          ? `Cat ${data.compensationCategory} — ${data.payCategoryLabel}`
-          : '';
         if (data.compensationCategory) {
           contract.compensationCategory = String(data.compensationCategory);
         }
@@ -658,8 +693,7 @@ const initiate = async () => {
         contractBuilderTemplateId: null,
         libraryContractTemplateId: libraryContractTemplateId.value,
         includeSupervisor: effectiveIncludeSupervisor.value,
-        msgSubject: settings.value.invite_email_subject || null,
-        msgBody: settings.value.invite_email_body || null
+        ...invitationMessage()
       },
       { params: { agencyId: agencyId.value }, skipGlobalLoading: true }
     );
@@ -679,7 +713,7 @@ const resendInvitation = async () => {
   sending.value = true;
   sendError.value = '';
   try {
-    const { data } = await api.post(`/hiring/candidates/${userId.value}/email-prehire-link`, {}, { params: { agencyId: agencyId.value }, skipGlobalLoading: true });
+    const { data } = await api.post(`/hiring/candidates/${userId.value}/email-prehire-link`, invitationMessage(), { params: { agencyId: agencyId.value }, skipGlobalLoading: true });
     emailDelivery.value = data?.email || null;
     tokenLink.value = data?.passwordlessTokenLink || tokenLink.value;
   } catch (e) {
@@ -687,7 +721,7 @@ const resendInvitation = async () => {
   } finally { sending.value = false; }
 };
 
-const setupSteps = ['Person & job', 'Role & supervision', 'Select materials', 'Contract & cosigners', 'Review each step', 'Review & invite'];
+const setupSteps = ['Person & job', 'Role & supervision', 'Select materials', 'Contract & cosigners', 'Preview candidate portal', 'Review & invite'];
 const setupStep = ref(0), currentPortalLink = ref('');
 let explicitSetupFocus = false;
 watch(setupStep, async () => {
@@ -732,7 +766,63 @@ async function loadCollection() {
 }
 watch(prehirePackageId, loadCollection);
 const collectionDocuments = computed(() => (packageDetails.value?.documents || []).filter(d => !builtInHireDocument(d)));
-const stepsReviewed = ref(false);
+const CandidatePreHirePortalView = defineAsyncComponent(() => import('../CandidatePreHirePortalView.vue').then(module => module.default));
+const portalPreviewDialog = ref(null), portalPreviewData = ref(null), portalPreviewSnapshot = ref(''), portalPreviewLoading = ref(false), portalPreviewError = ref('');
+const emailPreviewDialog = ref(null), emailPreview = ref(null), emailPreviewLoading = ref(false), emailPreviewError = ref('');
+const approvedPortalSnapshot = ref('');
+const inviteMessage = reactive({ subject: '', body: '', note: '' });
+const invitationMessage = () => ({ msgSubject: inviteMessage.subject, msgBody: inviteMessage.body, msgNote: inviteMessage.note });
+const packetPreviewPayload = () => ({
+  packetTemplateId: packetTemplateId.value, packageId: prehirePackageId.value,
+  portalWorkflow: portalWorkflow.value, contractConfigId: contractConfigId.value, contractTokens: contractTokens.value,
+  selectedJobDocs: availableJobDocs.value.filter(doc => doc.selected).map(({ id }) => ({ id })),
+  documentTemplateIds: availableJobDocs.value.filter(doc => doc.selected && doc.templateId).map(doc => doc.templateId),
+  previewTemplates: candidateSteps.value.filter(step => step.templateId).map(({ templateId }) => ({ templateId }))
+});
+const portalReviewInput = computed(() => JSON.stringify({
+  packet: packetPreviewPayload(), agreementHash: contractPreview.value?.previewHash, steps: candidateSteps.value,
+  extraFiles: extraFiles.value.map(({ id, name, title }) => ({ id, name, title })),
+  signerAssignments: signerAssignments.value, adhocSignerUserId: adhocSignerUserId.value
+}));
+const stepsReviewed = computed(() => !!approvedPortalSnapshot.value && approvedPortalSnapshot.value === portalReviewInput.value);
+
+async function openPortalPreview() {
+  const snapshot = portalReviewInput.value;
+  portalPreviewLoading.value = true;
+  portalPreviewError.value = '';
+  try {
+    const { data } = await api.post(`/hiring/candidates/${userId.value}/prehire-preview`, { kind: 'portal', ...packetPreviewPayload() }, { params: { agencyId: agencyId.value }, skipGlobalLoading: true });
+    if (snapshot !== portalReviewInput.value) return;
+    portalPreviewSnapshot.value = snapshot;
+    portalPreviewData.value = data;
+    portalPreviewDialog.value?.showModal();
+  } catch (error) {
+    portalPreviewError.value = error.response?.data?.error?.message || 'Could not open the candidate portal preview.';
+  } finally { portalPreviewLoading.value = false; }
+}
+function closePortalPreview() {
+  portalPreviewDialog.value.close();
+  portalPreviewData.value = null;
+}
+function approvePortalPreview() {
+  if (!portalPreviewData.value || portalPreviewSnapshot.value !== portalReviewInput.value) return;
+  approvedPortalSnapshot.value = portalPreviewSnapshot.value;
+  closePortalPreview();
+  setupStep.value = 5;
+}
+async function openEmailPreview() {
+  emailPreviewLoading.value = true;
+  emailPreviewError.value = '';
+  try {
+    const { data } = await api.post(`/hiring/candidates/${userId.value}/prehire-preview`, {
+      kind: 'email', resend: !!tokenLink.value, ...packetPreviewPayload(), ...invitationMessage()
+    }, { params: { agencyId: agencyId.value }, skipGlobalLoading: true });
+    emailPreview.value = data;
+    emailPreviewDialog.value?.showModal();
+  } catch (error) {
+    emailPreviewError.value = error.response?.data?.error?.message || 'Could not render the invitation email.';
+  } finally { emailPreviewLoading.value = false; }
+}
 const candidateSteps = computed(() => {
   const result = standardPrehireSteps.map(item => item.key === 'agreement'
     ? {...item, agreementReady: contractReviewed.value && previewMatches.value}
@@ -803,6 +893,14 @@ const missingResources = computed(() => (portalWorkflow.value.resources || []).f
 const probationRequired = computed(() => !!contractTenant.value && !/amendment|addendum|acknowledg/i.test(contractConfigs.value.find(c=>Number(c.id)===Number(contractConfigId.value))?.slug||''));
 const probationChosen = computed(() => !probationRequired.value || ['yes','no'].includes(contract.probationChoice) && (contractTenant.value!=='isi' || contract.probationChoice!=='yes' || !!contract.probationTerms.trim()));
 const readyToSend = computed(() => probationChosen.value && !requiresActivation.value && !uploadingFiles.value && !draftSaveError.value && !missingResources.value.length && !missingJobDocuments.value.length && (!portalWorkflow.value.supervisorRole || (portalWorkflow.value.supervisorClause && portalWorkflow.value.supervisorTemplateId)) && compensationChosen.value && contractReviewed.value && previewMatches.value && contractPreview.value && !contractPreview.value.unresolvedTokens?.length && stepsReviewed.value && (!prehirePackageId.value || Number(packageDetails.value?.id) === Number(prehirePackageId.value)));
+const assignedOffice = computed(() => offices.value.find(office => Number(office.id) === Number(officeLocationId.value)));
+const denverOffice = computed(() => String(assignedOffice.value?.city || '').trim().toLowerCase() === 'denver');
+const payScheduleDate = new Intl.DateTimeFormat('en-US', { dateStyle: 'long', timeZone: 'America/Denver' }).format(new Date());
+const learningAssignment = computed(() => {
+  const roles = individualExpectations.value.serviceRoles || wizardTokens.value.CONTRACT_SERVICE_ROLES || [];
+  return roles.includes('tutoring');
+});
+const visibleNluProgramRates = computed(() => nluProgramRates.value.filter(row => row.service !== 'homework_help' || learningAssignment.value));
 const chosenSignerNames = computed(() => [...signerAssignments.value.map(s => s.userId), adhocSignerUserId.value].filter(Boolean).map(id => { const u = staffUsers.value.find(u => String(u.id) === String(id)); return u ? `${u.first_name} ${u.last_name}` : ''; }).join(', '));
 async function resolveSetupIssue(message, tokenKey) {
   const destination=prehireIssueDestination(message);
@@ -870,8 +968,8 @@ watch(contractCredential, async credential => {
   if (loading.value || !credential) return;
   try { const { data } = await api.get('/contracts/infer-compensation', { params: { agencyId: agencyId.value, credential, jobTitle: jobTitle.value }, skipGlobalLoading: true });
     if (credential !== contractCredential.value) return;
-    inferredCategory.value = data.compensationCategory; inferredPayLabel.value = data.payCategoryLabel;
-    if(contractTenant.value!=='nlu' || !contract.compensationCategory){contract.compensationCategory = String(data.compensationCategory || ''); if(contractTenant.value!=='nlu')contract.compensationLevel = '';}
+    inferredCategory.value = data.compensationCategory;
+    if (!contract.compensationCategory) contract.compensationCategory = String(data.compensationCategory || '');
   } catch { previewError.value = 'Could not infer compensation. Select the category and level explicitly.'; }
 });
 
@@ -880,7 +978,7 @@ const draftState = computed(() => ({ contract: { ...contract }, contractOverride
   contractConfigId: contractConfigId.value, officeLocationId: officeLocationId.value, includeSupervisor: includeSupervisor.value,
   signerAssignments: signerAssignments.value, adhocSignerUserId: adhocSignerUserId.value,
   prehirePackageId: prehirePackageId.value, packetTemplateId: packetTemplateId.value,
-  portalWorkflow: portalWorkflow.value, jobDocs: jobDocs.value.map(({ id, selected }) => ({ id, selected })), extraFiles: extraFiles.value.map(({ id, name, title }) => ({ id, name, title })), setupVersion: 3, setupStep: setupStep.value }));
+  portalWorkflow: portalWorkflow.value, jobDocs: jobDocs.value.map(({ id, selected }) => ({ id, selected })), extraFiles: extraFiles.value.map(({ id, name, title }) => ({ id, name, title })), inviteMessage: { ...inviteMessage }, setupVersion: 3, setupStep: setupStep.value }));
 const savedDraft = ref('');
 let draftTimer, savingDraft;
 const draftDirty = computed(() => draftReady.value && JSON.stringify(draftState.value) !== savedDraft.value);
@@ -892,6 +990,7 @@ async function restoreDraft() {
   draftRevision.value = Number(data?.revision || 0);
   if (d) {
     if (d.contract) Object.assign(contract, d.contract);
+    if (d.inviteMessage) Object.assign(inviteMessage, d.inviteMessage);
     if (d.contractOverrides) Object.assign(contractOverrides, d.contractOverrides);
     if (d.individualExpectations) individualExpectations.value = d.individualExpectations;
     for (const [key, target] of Object.entries({ agreementVariant, contractConfigId, officeLocationId, includeSupervisor, signerAssignments, adhocSignerUserId, prehirePackageId, packetTemplateId, portalWorkflow, extraFiles, setupStep })) {
@@ -940,6 +1039,19 @@ onMounted(load);
 </script>
 
 <style scoped>
+.sph-differentials,.sph-invitation { display: grid; gap: 12px; min-width: 0; border: 1px solid #cfddd6; border-radius: 10px; padding: 16px; margin: 16px 0; }
+.sph-differentials caption { text-align: left; padding-bottom: 8px; }
+.sph-preview-dialog { width: min(95vw, 1440px); max-height: 94dvh; padding: 0; border: 1px solid #cfddd6; border-radius: 12px; background: #fff; color: #243b53; }
+.sph-preview-dialog::backdrop { background: rgb(15 32 29 / .65); }
+.sph-preview-dialog > header { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 20px; border-bottom: 1px solid #cfddd6; background: white; }
+.sph-preview-dialog header p { margin: 0; }
+.sph-preview-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.sph-email-dialog { width: min(95vw, 820px); }
+.sph-email-dialog dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 18px; padding: 0 20px; overflow-wrap: anywhere; }
+.sph-email-dialog dt { font-weight: 650; }
+.sph-email-dialog dd { margin: 0; }
+.sph-email-dialog iframe { width: 100%; min-height: 60dvh; border: 0; }
+
 .sph-program-rates{max-width:100%;overflow-x:auto;margin:16px 0}.sph-program-rates table{width:100%;min-width:500px;border-collapse:collapse}.sph-program-rates th,.sph-program-rates td{text-align:left;padding:9px;border-bottom:1px solid #d9e4de}.sph-program-rates caption{text-align:left;font-weight:700;padding:9px 0}
 
 .sph { width:100%; max-width:none; margin:0; padding:20px clamp(16px,3vw,48px) 48px; box-sizing:border-box; color:#243b53; font-family:'Plotline Inter',Inter,system-ui,sans-serif; background:#f7f8fa; min-height:100vh; }

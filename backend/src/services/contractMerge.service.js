@@ -566,6 +566,7 @@ export async function autofillTokensForCandidate({
     ASSIGNED_OFFICE_SOURCE: officeSource,
     ASSIGNED_OFFICE_ID: assignedOffice?.id ? String(assignedOffice.id) : '',
     ASSIGNED_OFFICE_NAME: assignedOffice?.name || '',
+    ASSIGNED_OFFICE_CITY: assignedOffice?.city || '',
     ASSIGNED_OFFICE_ADDRESS: assignedOffice?.address || '',
     JOB_DESCRIPTION_ID: jobDescriptionRow?.job_description_id ? String(jobDescriptionRow.job_description_id) : '',
     ROLE_TYPE: roleType,

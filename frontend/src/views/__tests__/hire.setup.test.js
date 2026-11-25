@@ -3,6 +3,7 @@ import { mount, flushPromises } from '@vue/test-utils';
 const http = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), put: vi.fn(), patch: vi.fn() }));
 vi.mock('../../services/api', () => ({ default: http }));
 vi.mock('../../store/agency', () => ({ useAgencyStore: () => ({ currentAgency: { id: 1 } }) }));
+vi.mock('../CandidatePreHirePortalView.vue', () => ({ default: { template: '<div>Candidate portal</div>' } }));
 vi.mock('vue-router', () => ({ useRoute: () => ({ params: { userId: 2, organizationSlug: 'itsco' }, query: {} }), useRouter: () => ({ push: vi.fn() }), onBeforeRouteLeave: vi.fn() }));
 import { onBeforeRouteLeave } from 'vue-router';
 import StartPreHire from '../admin/StartPreHireView.vue';
@@ -13,7 +14,10 @@ const officeDefaults = {
   offices: [{ id: 1, name: 'Windchime', city: 'Colorado Springs', state: 'CO', address: '437 Windchime Place, Colorado Springs, CO' }]
 };
 beforeEach(() => {
-  vi.clearAllMocks(); http.patch.mockResolvedValue({ data: {} });
+  vi.clearAllMocks();
+  HTMLDialogElement.prototype.showModal = function () { this.open = true; };
+  HTMLDialogElement.prototype.close = function () { this.open = false; this.dispatchEvent(new Event('close')); };
+  http.patch.mockResolvedValue({ data: {} });
   http.get.mockImplementation(async url => ({ data:
     url === '/hiring/candidates/2' ? { user: { first_name: 'Elena', last_name: 'Cruz', email: 'elena@example.org' }, profile: {}, jobDescription: { title: 'Counselor', descriptionText: 'School counseling' } }
     : url === '/hiring/settings' ? { handbook_full_url: 'https://docs.google.com/document/d/handbook/edit', portal_workflow: { resources: [{ id: 'video', title: 'Welcome video', phase: 'pre_hire', kind: 'video', url: 'https://example.org/welcome' }, { id: 'w4', title: 'W4', phase: 'onboarding', kind: 'document' }] } }
@@ -28,9 +32,12 @@ beforeEach(() => {
 afterEach(() => wrapper?.unmount());
 const button = text => wrapper.findAll('button').find(b => b.text().includes(text));
 const reviewCandidateSteps = async () => {
-  await wrapper.findAll('.sph-steps button').find(button => button.text().includes('Review each step')).trigger('click');
-  const review = wrapper.getComponent({ name: 'HireStepReview' });
-  for (let i = 0; i < review.props('steps').length; i++) await review.get('.review-actions .primary').trigger('click');
+  await wrapper.findAll('.sph-steps button')[4].trigger('click');
+  const preview = wrapper.findAll('.sph-card button').find(button => button.text() === 'Preview candidate portal');
+  if (preview.attributes('disabled') !== undefined) return;
+  await preview.trigger('click');
+  await flushPromises();
+  await button('Looks good').trigger('click');
 };
 describe('hire setup wizards', () => {
   it('keeps setup-error links connected to the correct stages after adding the guided review', async () => {
@@ -135,7 +142,7 @@ describe('hire setup wizards', () => {
     expect(card.findComponent({ name: 'HireSetupDocumentPreview' }).props()).toMatchObject({ documentId: 'identogo', jobId: 7 });
     expect(wrapper.find('input[type=url][placeholder*="docs.google"]').exists()).toBe(false);
     expect(wrapper.text()).not.toContain('stored document library');
-    expect(wrapper.getComponent({ name: 'HireStepReview' }).props('steps').map(s => s.title)).not.toContain('Workplace handbook');
+    expect(wrapper.findAll('.sph-final-sequence li strong').map(step => step.text())).not.toContain('Workplace handbook');
   });
   it('does not invoke the fullscreen loader when navigating setup tabs or saving their draft', async () => {
     wrapper = mount(StartPreHire, { global: { stubs: { RouterLink: true } } }); await flushPromises();
@@ -155,7 +162,7 @@ describe('hire setup wizards', () => {
     await wrapper.findAll('input[name=supervisory-role]')[1].setValue(true);
     await wrapper.findAll('label').find(l => l.text().startsWith('Saved pre-hire setup')).get('select').setValue('standard'); await flushPromises();
     expect(wrapper.findAll('input[name=supervisory-role]')[1].element.checked).toBe(true);
-    const steps = wrapper.getComponent({ name: 'HireStepReview' }).props('steps');
+    const steps = wrapper.findAll('.sph-final-sequence li strong').map(step => ({ title: step.text() }));
     expect(steps.filter(s => /background check authorization/i.test(s.title))).toHaveLength(1);
     expect(steps.map(s => s.title)).not.toContain('Hiring: Authorization for Background Check');
     expect(steps.map(s => s.title)).not.toContain('Workplace handbook');
@@ -313,7 +320,7 @@ describe('hire setup wizards', () => {
     await reviewCandidateSteps();
     await wrapper.findAll('.sph-steps button')[5].trigger('click');
     expect(button('Prepare and send').attributes('disabled')).toBeDefined();
-    expect(http.post).toHaveBeenCalledTimes(1); // navigating never sends an invitation
+    expect(http.post.mock.calls.map(([url]) => url)).toEqual(['/contracts/candidates/2/preview', '/hiring/candidates/2/prehire-preview']);
   });
   it('shows failed delivery and retries just the email without recreating the prehire packet', async () => {
     wrapper = mount(StartPreHire, { global: { stubs: { RouterLink: true } } }); await flushPromises();
@@ -335,6 +342,18 @@ describe('hire setup wizards', () => {
     expect(wrapper.findAll('[role="status"]').map(node => node.text()).join(" ")).toContain('Invitation emailed to testing@itsco.health');
     expect(wrapper.findAll('[role="status"]').map(node => node.text()).join(" ")).toContain('Test address redirected');
   });
+  it('previews the edited HTML email without sending a candidate invitation', async () => {
+    wrapper = mount(StartPreHire, { global: { stubs: { RouterLink: true } } }); await flushPromises();
+    await wrapper.findAll('.sph-steps button')[5].trigger('click');
+    await wrapper.get('.sph-invitation input').setValue('Welcome to the team');
+    await wrapper.get('.sph-invitation textarea[rows="3"]').setValue('See you Monday');
+    http.post.mockResolvedValueOnce({ data: { html: '<p>Plotline invitation</p>', recipientEmail: 'elena@example.org', peopleOperationsEmail: 'people@itsco.health', subject: 'Welcome to the team' } });
+    await button('Preview HTML email').trigger('click'); await flushPromises();
+    expect(wrapper.get('dialog[open] iframe').attributes('srcdoc')).toContain('Plotline invitation');
+    expect(http.post.mock.calls.map(([url]) => url)).toEqual(['/hiring/candidates/2/prehire-preview']);
+    expect(http.post.mock.calls[0][1]).toMatchObject({ kind: 'email', msgSubject: 'Welcome to the team', msgNote: 'See you Monday' });
+    expect(button('Prepare and send').attributes('disabled')).toBeDefined();
+  });
   it('onboarding offers only onboarding collections and requires review before promotion', async () => {
     wrapper = mount(PromoteToOnboarding, { props: { candidate: { id: 2, first_name: 'Elena', work_email: 'elena@agency.org' }, agencyId: 1 }, global: { stubs: { teleport: true } } }); await flushPromises();
     const options = wrapper.findAll('.pto-select option').map(o => o.text());
@@ -349,7 +368,13 @@ describe('hire setup wizards', () => {
   it('creates and selects an agency onboarding collection without defaulting to another role', async () => {
     wrapper = mount(PromoteToOnboarding, { props: { candidate: { id: 2, first_name: 'Elena', applied_role: 'Provider' }, agencyId: 1 }, global: { stubs: { teleport: true } } }); await flushPromises();
     expect(wrapper.get('.pto-select').element.value).toBe('');
-    http.post.mockResolvedValueOnce({ data: { id: 10, name: 'Provider onboarding', agency_id: 1, package_type: 'onboarding', is_active: true } });
+    const created = { id: 10, name: 'Provider onboarding', agency_id: 1, package_type: 'onboarding', is_active: true };
+    const get = http.get.getMockImplementation();
+    http.get.mockImplementation(async url => {
+      const response = await get(url);
+      return url === '/onboarding-packages' ? { data: [...response.data, created] } : response;
+    });
+    http.post.mockResolvedValueOnce({ data: created });
     await button('Create collection').trigger('click');
     await wrapper.get('.pto-new-collection input').setValue('Provider onboarding');
     await wrapper.get('.pto-new-collection').trigger('submit'); await flushPromises();

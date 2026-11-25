@@ -40,3 +40,10 @@ it.each([true,false])('uses explicit Spanish eligibility from the effective ITSC
  m.agreement.mockResolvedValue({data:{schedule:{...rates,spanishDifferentialEligible}}});
  expect((await futureHirePayContext({...context,agencyId:2},m)).assignment.spanish_bonus_eligible).toBe(spanishDifferentialEligible ? 1 : 0);
 });
+
+it('uses signed Denver eligibility for automatic ITSCO hires',async()=>{
+  agencies=[{id:2,slug:'itsco'}];
+  m.agreement.mockResolvedValue({data:{schedule:{...rates,denverDifferentialEligible:true,spanishDifferentialEligible:false}}});
+  const {assignment}=await futureHirePayContext({...context,agencyId:2},m);
+  expect(assignment).toMatchObject({location_bonus_eligible:1,spanish_bonus_eligible:0});
+});

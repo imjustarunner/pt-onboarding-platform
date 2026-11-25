@@ -7,17 +7,24 @@
       <p>{{ errorCode === 'STATUS_ADVANCED' ? 'Sign in to your employee account to access your retained hire packages in your library.' : 'Try opening your link again, or contact People Operations for help.' }}</p>
       <button v-if="errorCode !== 'STATUS_ADVANCED'" class="btn-primary" @click="loadPortal">Try again</button>
     </div>
-    <div v-else-if="portalIdle.locked.value" class="portal-splash" role="dialog" aria-modal="true" aria-label="Portal paused"><h2>Your portal is paused</h2><p>We hid your information after 15 minutes without activity. Saved work is retained; unsaved entries may need to be entered again.</p><button class="btn-primary" @click="resumePortal">Continue securely</button></div>
+    <div v-else-if="!previewData && portalIdle.locked.value" class="portal-splash" role="dialog" aria-modal="true" aria-label="Portal paused"><h2>Your portal is paused</h2><p>We hid your information after 15 minutes without activity. Saved work is retained; unsaved entries may need to be entered again.</p><button class="btn-primary" @click="resumePortal">Continue securely</button></div>
     <template v-else-if="portalData">
       <p v-if="submissionError && !showSubmitConfirm" class="panel-error" role="alert">{{ submissionError }}</p>
       <section v-if="portalData.referenceStatus?.length" class="portal-link-card" aria-label="Reference progress">
         <h2>Your references</h2><p>See who has completed a reference. Answers and staff contact notes remain confidential.</p>
         <ul><li v-for="reference in portalData.referenceStatus" :key="reference.referenceIndex"><strong>{{ reference.referenceName }}</strong> — {{ reference.status === 'completed' ? (reference.completionMethod === 'phone' ? 'Completed by phone with People Operations' : 'Completed online questionnaire') : reference.status === 'requested' ? 'Requested · awaiting response' : 'Pending follow-up' }}<span v-if="reference.completedAt"> · {{ new Date(reference.completedAt).toLocaleDateString() }}</span></li></ul>
       </section>
-      <HirePortalWorkspace :data="portalData" :token="String(token)" :http="portalApi"
+      <HirePortalWorkspace :data="portalData" :token="String(token)" :http="portalApi" :preview="!!previewData"
         @phase="selectedProcess = $event" @section="onWorkspaceSection" @reload="reloadPortal"
         @document="selectTask" @complete-task="markIntakeFormDone" @submit="confirmSubmit" @media="embeddedVideoPlaying = $event">
-        <template #background="{ closed }"><fieldset :disabled="closed" class="journey-prehire">            <section
+        <template v-if="previewData" #preview-document="{ step }">
+          <iframe v-if="step.task?.id === 'agreement' && previewAgreement" class="portal-agreement-preview" sandbox="" title="Employment agreement" :srcdoc="previewAgreement" />
+          <HireSetupDocumentPreview v-else-if="step.task?.referenceId || step.doc?.bodyHtml || step.doc?.filePath"
+            :key="step.key" :title="step.title" :agency-id="agency?.id" :job-id="jobDescription?.id" :template-id="step.task?.referenceId" :document-id="step.doc?.id" />
+          <a v-else-if="step.doc?.url" :href="step.doc.url" target="_blank" rel="noopener">Open document</a>
+          <p v-else>The agreement preview is available after preparing it in Contract &amp; cosigners.</p>
+        </template>
+        <template #background="{ closed }"><fieldset :disabled="closed || !!previewData" class="journey-prehire">            <section
               class="portal-link-card portal-bg-card"
               aria-label="Authorization for background check"
             >
@@ -45,7 +52,7 @@
                 <div class="bg-form-grid">
                   <label>Legal name <input v-model="bgForm.legalName" type="text" required autocomplete="name" /></label>
                   <label>Date of birth <input v-model="bgForm.dateOfBirth" type="date" required /></label>
-                  <label class="bg-span">Current address <input v-address-autocomplete="{ format: 'full', locale: 'en', model: bgForm, publicContext: { kind: 'prehire', token }, scopeKey: token }" v-model="bgForm.currentAddress" type="text" required autocomplete="street-address" /></label>
+                  <label class="bg-span">Current address <input v-address-autocomplete="previewData ? null : { format: 'full', locale: 'en', model: bgForm, publicContext: { kind: 'prehire', token }, scopeKey: token }" v-model="bgForm.currentAddress" type="text" required autocomplete="street-address" /></label>
                   <label class="bg-span">Previous addresses (optional) <textarea v-model="bgForm.previousAddresses" rows="2" /></label>
                   <label class="bg-span">Other names / aliases (optional) <input v-model="bgForm.aliases" type="text" /></label>
                   <label>Social Security number
@@ -380,7 +387,7 @@
             </section>
 
 </template>
-        <template #messages><PreHirePortalChat ref="chatRef" :token="token" :portal-api="portalApi" :support-team="supportTeam" :agency-name="agency?.name || ''" /></template>
+        <template #messages><p v-if="previewData">The candidate can message People Operations here after receiving their invitation.</p><PreHirePortalChat v-else ref="chatRef" :token="token" :portal-api="portalApi" :support-team="supportTeam" :agency-name="agency?.name || ''" /></template>
         <template #time><strong>{{ processClosed ? 'Time recorded for payroll review' : embeddedTraining ? 'Time tracking is handled in this training step' : activity.tracking.value ? 'Recording active time' : 'Time tracking paused' }}</strong><p>{{ Math.floor((portalData?.journey?.time?.seconds || 0) / 60) }} minutes saved</p><p v-if="activity.error.value" role="alert">{{ activity.error.value }}</p><p v-else>Active portal work is recorded for payroll review. Tell People Operations about time spent outside this portal or any missing time.</p></template>
       </HirePortalWorkspace>
       <!-- Task signing panel (modal-style overlay) -->
@@ -575,6 +582,7 @@ import HireAccountAccess from '../components/prehire/HireAccountAccess.vue';
 import HireWorkEmailPicker from '../components/prehire/HireWorkEmailPicker.vue';
 import HireDocumentPreview from '../components/prehire/HireDocumentPreview.vue';
 import { useOnboardingActivity } from '../composables/useOnboardingActivity.js';
+import HireSetupDocumentPreview from '../components/hiring/HireSetupDocumentPreview.vue';
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch, reactive } from 'vue';
 import ContractHandbookModal from '../components/documents/ContractHandbookModal.vue';
 import { contractHandbookSrcdoc, referenceFromContractMessage } from '../utils/contractHandbookReferences.js';
@@ -595,12 +603,14 @@ import '../styles/digital-form.css';
 
 const route = useRoute();
 const router = useRouter();
-const token = computed(() => route.params.token);
+const props = defineProps({ previewData: Object, previewAgreement: String });
+const token = computed(() => props.previewData ? '' : route.params.token);
 
 // Use a base axios instance (no auth cookies needed — token is in URL)
 const portalApi = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '/api',
-  withCredentials: false
+  withCredentials: false,
+  ...(props.previewData ? { adapter: async () => { throw new Error('Candidate preview is read-only.'); } } : {})
 });
 
 // ─── State ────────────────────────────────────────────────────────────────────
@@ -653,7 +663,7 @@ const embeddedVideoPlaying = ref(false);
 function onWorkspaceSection(section, step) {
   activeSection.value = ({ home: 'dashboard', steps: 'tasks', documents: 'submissions', messages: 'messages', help: 'help' })[section] || section;
   embeddedTraining.value = section === 'steps' && (step?.task?.taskType === 'training' || step?.kind === 'guide-training');
-  if (section === 'documents') openSubmissions();
+  if (section === 'documents' && !props.previewData) openSubmissions();
 }
 const viewingPrehire = computed(() => selectedProcess.value === 'pre_hire' || candidate.value.status !== 'ONBOARDING');
 const processClosed = computed(() => viewingPrehire.value ? ['PREHIRE_REVIEW', 'ONBOARDING'].includes(candidate.value.status) : !!portalData.value?.journey?.onboardingCompletedAt);
@@ -1564,7 +1574,7 @@ const loadPortal = async () => {
   loading.value = true;
   errorCode.value = '';
   try {
-    const res = await portalApi.get(`/prehire-portal/${token.value}`);
+    const res = props.previewData ? { data: props.previewData } : await portalApi.get(`/prehire-portal/${token.value}`);
     portalData.value = res.data;
     if (!selectedProcess.value) selectedProcess.value = res.data?.candidate?.status === 'ONBOARDING' ? 'onboarding' : 'pre_hire';
     const profile = res.data?.workflow?.profile || {};
@@ -1574,7 +1584,7 @@ const loadPortal = async () => {
     if (!bgForm.value.legalName) {
       bgForm.value.legalName = `${res.data?.candidate?.firstName || ''} ${res.data?.candidate?.lastName || ''}`.trim();
     }
-    if (!res.data?.candidate?.workEmail || res.data?.hireAccountMode === 'group_password') {
+    if (!props.previewData && (!res.data?.candidate?.workEmail || res.data?.hireAccountMode === 'group_password')) {
       await loadAccountSuggestions();
     }
   } catch (e) {
@@ -1590,6 +1600,7 @@ const loadPortal = async () => {
 };
 
 const reloadPortal = async () => {
+  if (props.previewData) return;
   try {
     const res = await portalApi.get(`/prehire-portal/${token.value}`);
     portalData.value = res.data;
@@ -1602,6 +1613,7 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.portal-agreement-preview { width: 100%; min-height: 65vh; border: 1px solid #dbe5e1; background: white; }
 .journey-switch { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 20px 0; }
 .journey-switch button, .journey-switch > div { text-align: left; border: 1px solid #dbe5e1; border-radius: 12px; padding: 16px; background: white; color: #203d35; }
 .journey-switch span { display: block; font-size: 12px; margin-top: 7px; }
