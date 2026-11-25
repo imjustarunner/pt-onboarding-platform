@@ -76,6 +76,12 @@ it('holds new ITSCO pre-hire until the current reference was contacted successfu
  await expect(prehireReferenceStatus(input)).resolves.toMatchObject({ready:false,sendable:1});
  m.rows.mockResolvedValue([row()]);
  await expect(prehireReferenceStatus(input)).resolves.toMatchObject({ready:true});
+ for (const previous of [{...row(),status:'expired'},{...row(),status:'cancelled',declined:true}]) {
+  m.rows.mockResolvedValue([previous]);
+  await expect(prehireReferenceStatus(input)).resolves.toMatchObject({ready:true});
+  await createAndSendReferenceRequests({ ...input, candidateUserId:input.user.id, onlyIfNotSent:true });
+ }
+ expect(m.send).not.toHaveBeenCalled();
  expect(m.rows).toHaveBeenCalledWith(253,2);
  await expect(prehireReferenceStatus({...input,agency:{slug:'nlu'}})).resolves.toMatchObject({required:false,ready:true});
 });

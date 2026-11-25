@@ -57,6 +57,10 @@ export async function sendHiringReferenceOutboundEmail({ identity, to, subject, 
   }
 }
 
+function wasReferenceInvited(row) {
+  return ['sent', 'completed', 'expired'].includes(row.status) || row.declined === true;
+}
+
 export async function prehireReferenceStatus({ agencyId, user, profile, agency }) {
   const required = agency?.slug === 'itsco' && ['PROSPECTIVE', 'PENDING_SETUP'].includes(user?.status);
   if (!required) return { required: false, ready: true };
@@ -73,7 +77,7 @@ export async function prehireReferenceStatus({ agencyId, user, profile, agency }
     !completedByPhone.some(row => Number(row.reference_index) === ref.index) &&
     !requests.some(row => Number(row.reference_index) === ref.index &&
       String(row.reference_email || '').toLowerCase() === ref.email &&
-      (row.status === 'completed' || (row.status === 'sent' && Number(new Date(row.token_expires_at)) > Date.now())))
+      wasReferenceInvited(row))
   );
   if (!pending.length) return { required, ready: true, sendable: 0 };
   const withEmail = pending.filter(ref => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ref.email));
@@ -275,9 +279,13 @@ export async function createAndSendReferenceRequests({
     if (completedContacts.length) { skipped.push({ referenceIndex: i, email, reason: 'completed_by_phone' }); continue; }
     const existing = (await HiringReferenceRequest.listByProfileAndAgency(pid, aid))
       .filter(row => Number(row.reference_index) === i && String(row.reference_email || '').toLowerCase() === email);
-    if (existing.some(row => row.status === 'completed')) { skipped.push({ referenceIndex: i, email, reason: 'completed' }); continue; }
+    const priorResponse = existing.find(row => row.status === 'completed' || row.declined === true);
+    if (priorResponse) {
+      skipped.push({ referenceIndex: i, email, reason: priorResponse.declined ? 'declined' : 'completed' });
+      continue;
+    }
     const active = existing.reverse().find(row => row.status === 'sent' && new Date(row.token_expires_at) > new Date());
-    if (onlyIfNotSent && active) {
+    if (onlyIfNotSent && existing.some(wasReferenceInvited)) {
       skipped.push({ referenceIndex: i, email, reason: 'already_sent' });
       logHiringReferenceEvent({
         candidateUserId: uid,
