@@ -2748,6 +2748,27 @@ if (shouldStartServerBackgroundJobs()) {
   schedulePresenceExpiryTick();
   setInterval(schedulePresenceExpiryTick, 5 * 60 * 1000);
 
+  // Explicitly enabled ITSCO data hygiene; counts are logged without client PII.
+  if(process.env.CLIENT_TOTALS_HYGIENE_ENABLED==='true') {
+    let totalsHygieneBusy=false;
+    const reconcileTotals=async()=>{
+      if(totalsHygieneBusy)return;
+      totalsHygieneBusy=true;
+      try {
+        const {canRunSchedulingMaintenance}=await import('./services/schedulingWorkerGate.js');
+        if(!(await canRunSchedulingMaintenance()))return;
+        const {reconcileClientTotals,CLIENT_TOTALS_AUTOMATION}=await import('./services/clientTotalsHygiene.service.js');
+        const {default:db}=await import('./config/database.js');
+        const {default:clinicalDb}=await import('./config/clinicalDatabase.js');
+        const result=await reconcileClientTotals({db,clinicalDb,identity:CLIENT_TOTALS_AUTOMATION,agencyId:2});
+        console.log('[Client totals hygiene]',JSON.stringify(result));
+      }catch(error){console.warn('[Client totals hygiene]',error.code||'evidence_unavailable');}
+      finally{totalsHygieneBusy=false;}
+    };
+    void reconcileTotals();
+    setInterval(reconcileTotals,60*60*1000).unref();
+  }
+
   // Keep chart attribution recoverable even if an inbound request's filing hook failed.
   let clientFilingBusy = false;
   const reconcileClientFiling = async () => {

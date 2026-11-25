@@ -101,7 +101,11 @@ class IntakeSubmissionClient {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [intakeSubmissionId, clientId, fullNameCol, initials, contactPhoneCol, piiEnc, piiIv, piiTag, piiKey]
     );
-    if(clientId){const {reactivateSubmittedIntakeClients}=await import('../services/clientReactivation.service.js');await reactivateSubmittedIntakeClients(intakeSubmissionId);}
+    if(clientId){
+      const {markIntakeRegistrationDemos}=await import('../services/clientTotalsHygiene.service.js');
+      await markIntakeRegistrationDemos(intakeSubmissionId,{db:pool});
+      const {reactivateSubmittedIntakeClients}=await import('../services/clientReactivation.service.js');await reactivateSubmittedIntakeClients(intakeSubmissionId);
+    }
     return this.findById(result.insertId);
   }
 
@@ -170,7 +174,11 @@ class IntakeSubmissionClient {
     if (!fields.length) return this.findById(id);
     values.push(id);
     await pool.execute(`UPDATE intake_submission_clients SET ${fields.join(', ')} WHERE id = ?`, values);
-    if(updates.client_id){const saved=await this.findByIdRaw(id);if(saved){const {reactivateSubmittedIntakeClients}=await import('../services/clientReactivation.service.js');await reactivateSubmittedIntakeClients(saved.intake_submission_id);}}
+    if(updates.client_id){const saved=await this.findByIdRaw(id);if(saved){
+      const {markIntakeRegistrationDemos}=await import('../services/clientTotalsHygiene.service.js');
+      await markIntakeRegistrationDemos(saved.intake_submission_id,{db:pool});
+      const {reactivateSubmittedIntakeClients}=await import('../services/clientReactivation.service.js');await reactivateSubmittedIntakeClients(saved.intake_submission_id);
+    }}
     return this.findById(id);
   }
 }

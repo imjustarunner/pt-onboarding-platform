@@ -362,6 +362,7 @@ jobs:
           test -n "$SCHEDULING_SERVICE_URL"
           ENV_VARS="${ENV_VARS}|SCHEDULING_WORKER_AUTHORITY_URL=${SCHEDULING_SERVICE_URL}/api/app-version"
           ENV_VARS="${ENV_VARS}|SCHOOL_CLOSURE_NOTICES_ENABLED=true"
+          ENV_VARS="${ENV_VARS}|CLIENT_TOTALS_HYGIENE_ENABLED=true"
           ENV_VARS="${ENV_VARS}|NODE_OPTIONS=--max-old-space-size=1536"
           ENV_VARS="${ENV_VARS}|CORS_ORIGIN=https://fundthred.com,https://www.fundthred.com,https://plotlinepo.com,https://www.plotlinepo.com,https://schoolcarebridge.org,https://www.schoolcarebridge.org,https://app.schoolcarebridge.org,https://qv.app.schoolcarebridge.org,https://michaelvmendez.com,https://familycommandcenterhub.com,https://kiosk.auricwell.com,https://auricwell.com,https://mh4kidz.org,https://www.mh4kidz.org,https://plottwisthq.com,https://www.plottwisthq.com,https://onboarding-frontend-378990906760.us-west3.run.app,https://app.itsco.health,https://app.nextleveluplcc.com,https://app.mh4kidz.com,https://app.plottwistco.com,https://app.mentalrange.org,https://app.rockymountainmentors.org,https://app.risereviveco.com,https://app.rmmentors.com,https://app.theinnerstrengthinstitute.com"
           ENV_VARS="${ENV_VARS}|FRONTEND_URL=https://plottwisthq.com"

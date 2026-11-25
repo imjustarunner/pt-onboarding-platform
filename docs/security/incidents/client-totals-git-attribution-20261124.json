@@ -1,0 +1,9 @@
+{
+  "annotationType": "append_only_automation_attribution_correction",
+  "originalCommit": "8541e878a",
+  "actualActor": "Codex Automation",
+  "issue": "The initial local preparation commit inherited the human author and committer configuration. The work was performed by automation.",
+  "correction": "This annotation identifies the actual automation actor. The original commit and its metadata remain retained; subsequent commits explicitly use Codex Automation.",
+  "applicationAuditImpact": "No application audit event was attributed to a human. The production cleanup uses the scoped totals_hygiene_20261124 identity and null human actor IDs.",
+  "recordedAt": "2026-11-25T04:57:24.167711+00:00"
+}

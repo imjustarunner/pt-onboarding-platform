@@ -123,6 +123,10 @@ class IntakeSubmission {
         coGuardianInviteId
       ]
     );
+    if (clientId) {
+      const { markIntakeRegistrationDemos } = await import('../services/clientTotalsHygiene.service.js');
+      await markIntakeRegistrationDemos(result.insertId, { db: pool });
+    }
     return this.findById(result.insertId);
   }
 
@@ -254,6 +258,10 @@ class IntakeSubmission {
     if (!fields.length) return this.findById(id);
     values.push(id);
     await pool.execute(`UPDATE intake_submissions SET ${fields.join(', ')} WHERE id = ?`, values);
+    if (hasAnySensitive(updates) || updates.client_id || updates.status === 'submitted') {
+      const { markIntakeRegistrationDemos } = await import('../services/clientTotalsHygiene.service.js');
+      await markIntakeRegistrationDemos(id, { db: pool });
+    }
     if(updates.status==='submitted'||updates.client_id){
       const {reactivateSubmittedIntakeClients}=await import('../services/clientReactivation.service.js');
       await reactivateSubmittedIntakeClients(id);
