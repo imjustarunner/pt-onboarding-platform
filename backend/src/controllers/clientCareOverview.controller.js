@@ -91,8 +91,8 @@ export async function clientOverviewEssentials(req, res, next) {
       timeZone, policies, billing,
       disclosure: acknowledgement?.signed_at ? {
         signedAt: acknowledgement.signed_at,
-        includesViewer: Array.isArray(acknowledgement.providers) && acknowledgement.providers.length
-          ? acknowledgement.providers.some(provider => Number(provider.id || provider.userId) === Number(req.user.id)) : null
+        providerIds: [...new Set((Array.isArray(acknowledgement.providers) ? acknowledgement.providers : [])
+          .map(provider => Number(provider?.id || provider?.userId)).filter(id => Number.isSafeInteger(id) && id > 0))]
       } : null,
       intakeAt: intake.value?.[0]?.[0]?.submitted_at ?? null,
       intakeUnavailable: intake.status === 'rejected',

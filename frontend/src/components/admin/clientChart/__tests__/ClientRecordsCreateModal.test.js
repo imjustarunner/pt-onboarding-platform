@@ -129,3 +129,34 @@ it('hands fresh pastes to a confirmed existing school chart without creating a n
  expect(w.text()).toContain('Updating existing chart #31');
  w.unmount();confirm.mockRestore();
 });
+
+it('labels a coverage hold as Billing follow-up and jumps to insurance on the saved chart',async()=>{
+ const originalGet=m.get.getMockImplementation();
+ m.get.mockImplementation(async url=>{
+  if(url==='/clients/creation-draft')return {data:{revision:1,value:{
+   form:{fullName:'Synthetic Client',providerId:9},created:{id:12,agency_id:2},completed:false
+  }}};
+  if(url.endsWith('/chart-import/drafts'))return {data:{drafts:{}}};
+  return originalGet(url);
+ });
+ const originalPost=m.post.getMockImplementation();
+ m.post.mockImplementation(async(url,...args)=>{
+  if(url.endsWith('/service-enrollments'))throw {response:{status:409,data:{
+   error:{code:'INSURANCE_VERIFICATION_REQUIRED',message:'Billing must verify coverage.'}
+  }}};
+  return originalPost(url,...args);
+ });
+ const view=mountModal(true);
+ try{
+  await flushPromises();
+  await view.findAll('button').find(button=>button.text()==='Retry provider assignment').trigger('click');
+  await flushPromises();
+  expect(view.get('[aria-label="Provider assignment needs attention"] [role="status"]').text())
+   .toContain('Provider assignment pending Billing review');
+  const insurance=view.get('select[aria-label="Payment basis"]').element;
+  const focus=vi.spyOn(insurance,'focus');
+  await view.findAll('button').find(button=>button.text()==='Go to insurance and Billing handoff').trigger('click');
+  expect(focus).toHaveBeenCalledOnce();
+  expect(view.findAll('button').find(button=>button.text()==='Finish client import').element.disabled).toBe(false);
+ }finally{view.unmount();}
+});

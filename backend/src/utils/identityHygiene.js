@@ -100,7 +100,7 @@ export function pickMergeField({ keepValue, otherValue, keepRecency, otherRecenc
   return { value: keepValue, source: 'keep', reason: 'Keep is newer or equal' };
 }
 
-export function groupByConnectedPairs(rows, { minScore = 48, idKey = 'id' } = {}) {
+export function groupByConnectedPairs(rows, { minScore = 48, idKey = 'id', scorePair = scorePersonPair } = {}) {
   const n = rows.length;
   const parent = rows.map((_, i) => i);
   const find = (i) => (parent[i] === i ? i : (parent[i] = find(parent[i])));
@@ -112,7 +112,7 @@ export function groupByConnectedPairs(rows, { minScore = 48, idKey = 'id' } = {}
   const pairScores = new Map();
   for (let i = 0; i < n; i += 1) {
     for (let j = i + 1; j < n; j += 1) {
-      const score = scorePersonPair(rows[i], rows[j]);
+      const score = scorePair(rows[i], rows[j]);
       if (score >= minScore) {
         union(i, j);
         pairScores.set(`${i}:${j}`, score);

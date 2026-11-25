@@ -2,6 +2,7 @@
 export function clientSummaryTone(client) {
   const workflow=String(client?.status || '').toUpperCase();
   const statusKey=String(client?.client_status_key || '').toLowerCase();
+  if (['inactive', 'terminated'].includes(statusKey)) return 'neutral';
   const paperworkKey=String(client?.paperwork_status_key || '').toLowerCase();
   const rawNeeded=client?.paperwork_needed_count;
   const needed=rawNeeded == null || rawNeeded === '' ? NaN : Number(rawNeeded);

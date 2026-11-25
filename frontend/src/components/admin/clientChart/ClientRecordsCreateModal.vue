@@ -52,7 +52,16 @@
      </template>
      <template v-else-if="!completed">
       <p class="cr-saved">{{ created.merged ? `Updating existing chart #${created.id}.` : `Chart #${created.id} is saved.` }} Review the imported sections, complete assignments and payer links, then preview the portal invitation below.</p>
-      <section v-if="assignmentError" class="cr-assignment-retry" aria-label="Provider assignment needs attention"><p class="cr-error" role="alert">{{ assignmentError }} Your chart and pasted records are saved; the other sections can still import.</p><label>Provider<select v-model="form.providerId" :disabled="busy || !isBackoffice"><option :value="null">Save unassigned</option><option v-for="provider in eligibleProviders" :key="provider.id" :value="provider.id">{{ provider.first_name }} {{ provider.last_name }}</option></select></label><button type="button" class="cr-button" :disabled="busy" @click="retryProvider">{{ form.providerId ? 'Retry provider assignment' : 'Continue unassigned' }}</button></section>
+      <section v-if="assignmentError" class="cr-assignment-retry" aria-label="Provider assignment needs attention">
+        <div v-if="coverageVerificationPending" role="status">
+          <strong>Provider assignment pending Billing review</strong>
+          <p>{{ assignmentError }} You can finish importing the records while Billing reviews coverage.</p>
+          <button type="button" class="cr-button" :disabled="busy" @click="panel?.reviewInsurance()">Go to insurance and Billing handoff</button>
+        </div>
+        <p v-else class="cr-error" role="alert">{{ assignmentError }} Your chart and pasted records are saved.</p>
+        <label>Provider<select v-model="form.providerId" :disabled="busy || !isBackoffice"><option :value="null">Save unassigned</option><option v-for="provider in eligibleProviders" :key="provider.id" :value="provider.id">{{ provider.first_name }} {{ provider.last_name }}</option></select></label>
+        <button type="button" class="cr-button" :disabled="busy" @click="retryProvider">{{ form.providerId ? 'Retry provider assignment' : 'Continue unassigned' }}</button>
+      </section>
       <p v-if="!startImport && !initializing">The saved pastes have not been imported automatically. Continue this same chart below.</p><button v-if="!startImport && !initializing" type="button" class="cr-button cr-primary" :disabled="busy" @click="resumeImport">Resume saved import</button>
       <p v-if="initializing" role="status">Preparing the shared records workflow…</p>
       <ClientEhrBringUpToDatePanel v-if="!initializing" :key="created.id" ref="panel" embedded open creation-flow require-verified-payers :auto-import="startImport" :merge-existing="created.merged === true" :prefer-incoming-pastes="created.merged === true && !chartDraftsSaved" :pending-provider-assignment="!!assignmentError" :client-id="created.id" :agency-id="agencyId" :client-label="form.fullName" :initial-texts="recordPastes" :initial-contact-owner="form.contactOwner || suggestedOwnership.owner" :initial-contact-owner-confirmed="form.contactOwnerConfirmed" :initial-patient-info="form.parsedDemographics" :initial-client-classification="form.clientClassification || suggestedOwnership.clientClassification" :initial-intake-service-code="form.intakeServiceCode" :initial-coverage-drafts="form.coverageDrafts" :initial-coverage-mode="form.coverageMode" :initial-self-pay="form.selfPay" :initial-assignment="{school:form.kind==='school',providerId:form.providerId,serviceKind:form.kind==='learning'?'tutoring':form.kind==='basic_nonclinical'?'coaching':'counseling',organizationId:Number(form.organizationId)===Number(agencyId)?0:Number(form.organizationId)}" @sections-imported="applyInitialAssignment" @busy="panelBusy=$event" @drafts-saved="recordDraftHandoff" @imported="finish" />
@@ -227,7 +236,24 @@ async function create(candidate = null){
 async function assignSelectedProvider(){return finishClientCreation({api,clientId:created.value.id,agencyId:Number(agencyId.value),organizationId:Number(form.organizationId),serviceKind:form.kind==='learning'?'tutoring':!isBackoffice.value?null:form.kind==='basic_nonclinical'?'coaching':'counseling',outcome:'assign',providerId:form.providerId,isSchool:form.kind==='school',recordsImport:true});}
 let initialAssignmentAttempted=false;
 async function applyInitialAssignment(){if(initialAssignmentAttempted||!form.providerId)return;initialAssignmentAttempted=true;await retryProvider();}
-async function retryProvider(){working.value=true;try{if(form.providerId)await assignSelectedProvider();assignmentError.value='';await panel.value?.reloadAssignments?.();emit('created',created.value);}catch(e){assignmentError.value=e.response?.data?.error?.message||e.message||'Provider assignment failed. Retry or continue unassigned.';}finally{working.value=false;}}
+const coverageVerificationPending=ref(false);
+watch(assignmentError, error => { if (!error) coverageVerificationPending.value=false; });
+async function retryProvider() {
+  working.value=true;
+  coverageVerificationPending.value=false;
+  try {
+    if (form.providerId) await assignSelectedProvider();
+    assignmentError.value='';
+    await panel.value?.reloadAssignments?.();
+    emit('created',created.value);
+  } catch (error) {
+    const problem=error.response?.data?.error;
+    coverageVerificationPending.value=problem?.code==='INSURANCE_VERIFICATION_REQUIRED';
+    assignmentError.value=problem?.message || error.message || 'Provider assignment failed. Retry or continue unassigned.';
+  } finally {
+    working.value=false;
+  }
+}
 async function resumeImport(){startImport.value=true;await panel.value?.importAll?.();}
 async function finish(result){
  if(result?.client)created.value={...created.value,...result.client};

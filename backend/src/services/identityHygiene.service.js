@@ -1,3 +1,4 @@
+import { hasMatchingClientIdentity, requireMatchingClientIdentities } from '../utils/clientNameDuplicate.js';
 import { listMergeAffiliations, preserveMergedAffiliations } from './clientAffiliationMerge.service.js';
 import pool from '../config/database.js';
 import { changeAccountLifecycle } from './accountLifecycle.service.js';
@@ -8,6 +9,7 @@ import {
   USER_MERGE_FIELDS,
   buildMergePreview,
   groupByConnectedPairs,
+  scorePersonPair,
   heuristicTestReasons
 } from '../utils/identityHygiene.js';
 
@@ -173,7 +175,7 @@ async function loadClients({ agencyId = null, includeArchived = false } = {}) {
 
 export async function findClientDuplicateGroups(opts = {}) {
   const rows = await loadClients(opts);
-  const groups = groupByConnectedPairs(rows, { minScore: 48 });
+  const groups = groupByConnectedPairs(rows, { scorePair: (a, b) => hasMatchingClientIdentity(a, b) ? scorePersonPair(a, b) : 0 });
   return {
     groups: groups.map((g) => ({
       ...g,
@@ -258,6 +260,7 @@ export async function previewClientMerge({ keepId, sourceIds, fieldChoices = {} 
     if (row) others.push(row);
   }
   if (!keep || !others.length) throw Object.assign(new Error('Keep and source records are required'), { status: 400 });
+  requireMatchingClientIdentities([keep, ...others]);
   const [guardianRows]=await pool.execute(`SELECT g.client_id,g.guardian_user_id,g.access_enabled,g.permissions_json,g.relationship_type,u.first_name,u.last_name
     FROM client_guardians g JOIN users u ON u.id=g.guardian_user_id WHERE g.client_id IN (${[keep.id,...others.map(row=>row.id)].map(()=>'?').join(',')})`,[keep.id,...others.map(row=>row.id)]);
   const guardianAccessDifferences=guardianRows.filter(row=>Number(row.client_id)!==Number(keep.id)).flatMap(row=>{
@@ -363,10 +366,11 @@ export async function mergeClients({ keepId, sourceIds, fieldChoices = {}, compl
     await conn.beginTransaction();
     if (clinicalConn) await clinicalConn.beginTransaction();
     const ids = [Number(keepId), ...preview.others.map(row => Number(row.id))];
-    const [locked] = await conn.execute(`SELECT id, agency_id, status FROM clients WHERE id IN (${ids.map(() => '?').join(',')}) FOR UPDATE`, ids);
+    const [locked] = await conn.execute(`SELECT id, agency_id, status, full_name, date_of_birth FROM clients WHERE id IN (${ids.map(() => '?').join(',')}) FOR UPDATE`, ids);
     if (locked.length !== ids.length || locked.some(row => Number(row.agency_id) !== Number(preview.keep.agency_id) || row.status === 'ARCHIVED')) {
       throw Object.assign(new Error('Client records changed or belong to different agencies. Refresh the merge review.'), { status: 409 });
     }
+    requireMatchingClientIdentities(locked);
     if (reviewedClientCharts) {
       const sourceChartIds = ids.filter(id => id !== Number(keepId));
       const [sourceLinks] = await conn.execute(`SELECT client_id FROM client_chart_identity_members

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { requireMatchingClientIdentities } from '../utils/clientNameDuplicate.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import { resolveClientRecordAccess } from './clientRecordAccess.service.js';
@@ -20,7 +21,7 @@ export async function clientDuplicateReviewAgencies(user) {
 }
 
 async function loadReviewRecords(db, ids, lock = false) {
-  const [rows] = await db.execute(`SELECT c.id, c.status, c.agency_id, a.name AS agency_name, i.identity_id
+  const [rows] = await db.execute(`SELECT c.id, c.status, c.agency_id, c.full_name, c.date_of_birth, a.name AS agency_name, i.identity_id
     FROM clients c JOIN agencies a ON a.id=c.agency_id
     LEFT JOIN client_chart_identity_members i ON i.client_id=c.id
     WHERE c.id IN (${ids.map(() => '?').join(',')}) ORDER BY c.id${lock ? ' FOR UPDATE' : ''}`, ids);
@@ -64,6 +65,7 @@ export async function reviewClientChartIdentity(user, keepId, sourceIds) {
   const allowed = new Set((await clientDuplicateReviewAgencies(user)).map(a => a.id));
   const records = await loadReviewRecords(pool, ids);
   assertReviewableRecords(records, allowed, ids.length);
+  requireMatchingClientIdentities(records);
   const crossAgency = new Set(records.map(record => Number(record.agency_id))).size > 1;
   if (crossAgency) await identitySets(pool, records, allowed);
   return { ids, records, allowed, crossAgency };
@@ -79,6 +81,7 @@ export async function linkClientChartIdentity({ review, actorUserId }) {
     if (records.some(row => Number(row.agency_id) !== Number(review.records.find(prior => Number(prior.id) === Number(row.id))?.agency_id))) {
       throw fail(409, 'An agency assignment changed. Reopen the duplicate review.');
     }
+    requireMatchingClientIdentities(records);
     const groups = await identitySets(db, records, review.allowed, true);
     const identityId = groups[0] || randomUUID();
     for (const chart of records.filter(row => row.identity_id !== identityId)) {

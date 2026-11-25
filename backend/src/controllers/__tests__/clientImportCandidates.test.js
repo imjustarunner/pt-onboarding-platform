@@ -50,7 +50,7 @@ it('begins import on the existing chart and keeps its school affiliation',async(
 });
 it.each([
  [{records_import_status:'complete'},{}], [{compliance_archived_at:'2026-11-24 00:00:00'},{}], [{status:'ARCHIVED'},{}],
- [{},{expectedName:'Wrong chart'}], [{},{dateOfBirth:'2015-01-02'}],
+ [{},{expectedName:'Wrong chart'}], [{},{dateOfBirth:'2015-01-02'}], [{},{dateOfBirth:''}],
  [{},{fullName:'Sibling Example',dateOfBirth:'2013-01-01'}]
 ])('rejects a completed, archived, stale, or different chart',async (stored,incoming)=>{
  const db=mockChart(stored),next=vi.fn();
@@ -67,6 +67,9 @@ it('does not offer a merge when two clients share a birth date and surname but h
  await getClientImportCandidates(request(),res,next);
  expect(next).not.toHaveBeenCalled();
  expect(res.json).toHaveBeenCalledWith({candidates:[expect.objectContaining({id:2,canMerge:false})]});
+ const [sql]=m.execute.mock.calls[0];
+ expect(sql).toContain('c.date_of_birth=? AND LOWER(TRIM(c.full_name)) LIKE LOWER(?)');
+ expect(sql).not.toContain('OR c.date_of_birth=?');
  const db=mockChart({full_name:'Another Child'});
  await mergeClientRecordsImport(proposedMerge({expectedName:'Another Child'}),response(),next);
  expect(next).toHaveBeenCalledWith(expect.objectContaining({status:409}));

@@ -148,6 +148,7 @@ const props = defineProps({
   statusLabel: { type: String, default: '' },
   programLabel: { type: String, default: '' },
   careTeamLabel: { type: String, default: '' },
+  careTeamProviderId: { type: [Number, String], default: null },
   careTeamMeta: { type: String, default: '' },
   sessionCountLabel: { type: String, default: '—' },
   lastSessionLabel: { type: String, default: '—' },
@@ -204,6 +205,14 @@ const essentialItems = computed(() => {
   const displayDate = value => value && Number.isFinite(Date.parse(value)) ? localDate.format(new Date(value)) : '';
   const ageLabel = days => days === 0 ? 'Today' : Number.isFinite(days) && days > 0 ? `${days} day${days === 1 ? '' : 's'} ago` : '';
   const signedDisclosure = artifacts.value.find(row => row.kind === 'disclosure' && row.hasSignature && row.signedAt);
+  const disclosureDate = displayDate(disclosure?.signedAt || signedDisclosure?.signedAt);
+  const assignmentLabel = props.careTeamProviderId && props.careTeamLabel ? props.careTeamLabel : '';
+  const listedProviders = disclosure?.providerIds;
+  let disclosureStatus = disclosureDate ? 'Signed agreement on file' : 'No signed agreement on file';
+  if (assignmentLabel && listedProviders?.length) {
+    disclosureStatus = listedProviders.includes(Number(props.careTeamProviderId))
+      ? `${assignmentLabel} is listed` : `${assignmentLabel} is assigned · disclosure needs review`;
+  }
   const packet = artifacts.value.find(row => row.kind === 'packet' && row.hasSignature && row.signedAt);
   const intakeDate = [intakeAt, packet?.signedAt].filter(value => value && Number.isFinite(Date.parse(value))).sort((a, b) => Date.parse(b) - Date.parse(a))[0];
   const intakeAge = intakeDate ? Math.round((Date.parse(today) - Date.parse(dateKey(intakeDate))) / 86400000) : null;
@@ -214,7 +223,8 @@ const essentialItems = computed(() => {
       { label: 'Insurance verification', value: billing.verificationUnavailable ? 'Unavailable' : !policies?.length ? 'No policy on file' : billing.verification?.current ? 'Verified' : billing.verification?.verifiedAt ? 'Verification needs renewal' : 'Unverified', detail: displayDate(billing.verification?.verifiedAt) },
       { label: 'Payment setup', value: !billing.payment ? 'Unavailable' : billing.payment.cardOnFile ? 'Card on file' : billing.payment.medicaid ? 'Card generally not needed' : 'No card on file' }
     ] : [],
-    { label: 'Disclosure agreement', value: disclosure?.includesViewer === true ? 'You are listed' : disclosure?.includesViewer === false ? 'Your name is not listed' : disclosure || signedDisclosure ? 'Review signed agreement' : 'No signed agreement on file', detail: displayDate(disclosure?.signedAt || signedDisclosure?.signedAt) },
+    { label: 'Disclosure agreement', value: disclosureStatus,
+      detail: [disclosureDate, assignmentLabel && !listedProviders?.length ? `Assigned clinician · ${assignmentLabel}` : ''].filter(Boolean).join(' · ') },
     { label: 'Intake', value: displayDate(intakeDate) || (intakeUnavailable ? 'Unavailable' : 'No completed intake on file'), detail: ageLabel(intakeAge) },
     { label: 'Treatment plan', value: planDate || (treatmentPlan ? 'No signed plan on file' : 'Unavailable'), detail: planDate ? [ageLabel(treatmentPlan.ageDays), treatmentPlan.current ? 'Current' : 'Review due'].filter(Boolean).join(' · ') : '' },
     { label: 'Last session', value: displayDate(sessions?.lastAt) || (!sessions || sessions.unavailable ? 'Unavailable' : 'None on record') },

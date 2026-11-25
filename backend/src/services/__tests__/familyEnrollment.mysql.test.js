@@ -127,7 +127,8 @@ describe.skipIf(!process.env.EVIDENCE_TEST_SOCKET && !process.env.EVIDENCE_TEST_
  it('requires all existing linked charts before combining identity sets', async () => {
   await state.pool.query(`
     UPDATE clients SET agency_id = 2 WHERE id = 2;
-    INSERT INTO clients (id, agency_id, status) VALUES (3,450,'PACKET'),(4,2,'PACKET');
+    INSERT INTO clients (id, agency_id, full_name, date_of_birth, status) VALUES
+      (3,450,'Synthetic Child','2015-01-01','PACKET'),(4,2,'Synthetic Child','2015-01-01','PACKET');
   `);
   const actor = { id: 40, role: 'super_admin' };
   for (const [first, second] of [[1, 2], [3, 4]]) {
@@ -192,6 +193,19 @@ describe.skipIf(!process.env.EVIDENCE_TEST_SOCKET && !process.env.EVIDENCE_TEST_
   const deps = { db: state.pool, users: { findById: async () => ({ id: 8, role: 'client_guardian', email: 'parent@example.test' }) } };
   const result = await enrollmentOptions({ id: 8, role: 'client_guardian' }, deps);
   expect(result.options.map(o => o.id)).toEqual([10,11]);
+ });
+ it('blocks merging or linking charts with conflicting birth dates even when their names match', async () => {
+  await state.pool.query("UPDATE clients SET date_of_birth='2015-01-02' WHERE id=2");
+  await expect(mergeClients({ keepId: 1, sourceIds: [2], actorUserId: 40 })).rejects.toThrow('same legal name and birth date');
+  const [[document]] = await state.pool.query('SELECT client_id FROM intake_submission_documents WHERE id=1');
+  expect(document.client_id).toBe(2);
+  await state.pool.query("UPDATE clients SET agency_id=2, date_of_birth='2015-01-01' WHERE id=2");
+  const actor = { id: 40, role: 'super_admin' };
+  const review = await reviewClientChartIdentity(actor, 1, [2]);
+  await state.pool.query("UPDATE clients SET date_of_birth='2015-01-02' WHERE id=2");
+  await expect(linkClientChartIdentity({ review, actorUserId: 40 })).rejects.toHaveProperty('status', 409);
+  const [[history]] = await state.pool.query("SELECT COUNT(*) AS n FROM client_status_history");
+  expect(history.n).toBe(0);
  });
  it('merges a repeated enrollment and preserves both parents, every signed copy, pending invites, and audit', async () => {
   await mergeClients({ keepId: 1, sourceIds: [2], actorUserId: 40 });

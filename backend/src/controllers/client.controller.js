@@ -1,3 +1,4 @@
+import { isRealInactiveClient } from '../utils/clientInactivePolicy.js';
 import {withClientSchedulingLock} from '../services/clientSchedulingGuard.service.js';
 import { canMarkClientInactive, isClosureStatus, clientClosureReview, validateClientClosureReview, queueClientClosureNote } from '../services/clientClosureReview.service.js';
 import { attachCaseloadIdentities } from '../services/clientChartIdentity.service.js';
@@ -528,6 +529,9 @@ export const getClients = async (req, res, next) => {
       String(req.query.skillBuildersOnly || req.query.skill_builders_only || '') === '1';
     const includeArchived =
       String(req.query.includeArchived || '').toLowerCase() === 'true' || String(req.query.includeArchived || '') === '1';
+    const includeInactive = !req.clientDirectoryMode && isBackofficeRole(req.user.role)
+      && ['1', 'true'].includes(String(req.query.includeInactive || '').toLowerCase());
+    const hideInactive = !req.clientDirectoryMode && String(req.query.includeInactive || '').toLowerCase() === 'false';
     const includeComplianceArchived =
       String(req.query.includeComplianceArchived || req.query.include_compliance_archived || '').toLowerCase() === 'true'
       || String(req.query.includeComplianceArchived || req.query.include_compliance_archived || '') === '1';
@@ -585,6 +589,8 @@ export const getClients = async (req, res, next) => {
     const options = {
       includeSensitive: true, // Agency view includes all fields
       clientDirectoryMode:req.clientDirectoryMode,
+      includeInactive,
+      hideInactive,
       previousProviderId:req.clientDirectoryMode==='inactive'?Number(req.query.previous_provider_id)||null:null,
       directoryAssignments: !ownCaseload,
       directoryProviderAgencyId: agencyIds.length === 1 ? agencyIds[0] : null,
@@ -776,7 +782,11 @@ export const getClients = async (req, res, next) => {
     const filtered =
       includeArchived || statusNorm === 'ARCHIVED'
         ? providerScopedClients
-        : providerScopedClients.filter((c) => String(c?.status || '').toUpperCase() !== 'ARCHIVED');
+        : providerScopedClients.filter(c => {
+          const inactive = isRealInactiveClient(c);
+          return (includeInactive && inactive && !c.compliance_archived_at)
+            || (String(c?.status || '').toUpperCase() !== 'ARCHIVED' && (!hideInactive || !inactive));
+        });
     // PII gating: strip full/first/last names for school_staff regardless of agency scope.
     let out = redactClientNamesForRole(filtered, userRole);
 

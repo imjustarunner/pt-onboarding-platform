@@ -158,3 +158,25 @@ it('keeps row actions in one readable menu and removes completed records setup',
 it('keeps a pending records import available inside the row menu',async()=>{
  const wrapper=await assignmentDirectory({recordsImport:{status:'pending'}});try{expect(wrapper.get('details.cm-row-actions').text()).toContain('Bring up to date');expect(wrapper.find('.actions-cell > button').exists()).toBe(false);}finally{wrapper.unmount();}
 });
+
+it('includes inactive charts by default, labels them, and removes them when unchecked',async()=>{
+ localStorage.clear();sessionStorage.clear();clearClientManagementWorkspaces();authMock.user.role='support';
+ const active={id:71,agency_id:2,initials:'ACT',status:'ACTIVE',client_status_key:'current'};
+ const inactive={id:72,agency_id:2,initials:'OLD',status:'ARCHIVED',client_status_key:'terminated',client_status_label:'Terminated'};
+ apiMock.get.mockImplementation(async url=>({data:String(url).startsWith('/clients?')
+  ? (url.includes('includeInactive=true') ? {items:[active,inactive],total:2} : {items:[active],total:1}) : []}));
+ const pinia=createPinia();setActivePinia(pinia);const agency=useAgencyStore(pinia);
+ agency.userAgencies=[{id:2,name:'Synthetic agency',portal_url:'synthetic',organization_type:'agency'}];
+ agency.agencies=agency.userAgencies;agency.currentAgency=agency.userAgencies[0];
+ const view=shallowMount(ClientManagement,{global:{plugins:[pinia],stubs:{RouterLink:true}}});
+ try{
+  await flushPromises();
+  const checkbox=view.findAll('label').find(label=>label.text()==='Include Inactive').get('input');
+  expect(checkbox.element.checked).toBe(true);
+  expect(view.get('.cm-client-row--inactive').text()).toContain('Inactive');
+  expect(view.get('.cm-client-row--inactive').find('input[type="checkbox"]').exists()).toBe(false);
+  await checkbox.setValue(false);await flushPromises();
+  expect(apiMock.get.mock.calls.some(([url])=>url.includes('/clients?')&&url.includes('includeInactive=false'))).toBe(true);
+  expect(view.find('.cm-client-row--inactive').exists()).toBe(false);
+ }finally{view.unmount();clearClientManagementWorkspaces();}
+});
