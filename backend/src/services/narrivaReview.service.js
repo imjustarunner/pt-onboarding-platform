@@ -1,3 +1,4 @@
+import { clinicalServiceRequirements } from '../../../frontend/src/utils/clinicalEncounterRequirements.js';
 import { narrivaQualityCriteria } from './narrivaReviewPolicy.service.js';
 import { parseNoteSections } from './clinicalNoteSections.service.js';
 import { buildClinicalIntakeSourceContext } from './noteAidIntakeSources.service.js';
@@ -340,13 +341,26 @@ export async function assertNarrivaPreGeneration(req,{agencyId,clientId,draftId,
  const review=await evaluateStoredReview(req.user,{...latest},source,currentGuidance);
  if(review.phase!=='pre_generation' || Number(review.actorUserId)!==Number(req.user.id) || Number(review.draftId)!==Number(draftId) || !['passed','bypassed'].includes(review.status))throw narrivaError(409,'Resolve the current narrative checks before generating.','NARRIVA_PREFLIGHT_REQUIRED');
  if(Number(source.client.id)!==Number(clientId) || Number(source.source.clinical_session_id)!==Number(clinicalSessionId) || String(inputText || '').trim()!==String(source.inputText || '').trim())throw narrivaError(409,'The narrative or session changed. Submit the current content for compliance check.','NARRIVA_PREFLIGHT_STALE');
+ const approval=parse(req.body?.draftApproval);
+ const sectionTitles=Object.keys(review.draftPreviewSections || {});
+ const approvedSections=Array.isArray(approval.sections)?new Set(approval.sections):new Set();
+ if(!review.draftApprovalToken || approval.token!==review.draftApprovalToken || !sectionTitles.length
+    || approvedSections.size!==sectionTitles.length || !sectionTitles.every(title=>approvedSections.has(title))){
+  throw narrivaError(422,'Review and approve every section of the current draft before finalizing.','NARRIVA_DRAFT_APPROVAL_REQUIRED');
+ }
+ const authorApproval={
+  userId:Number(req.user.id),
+  approvedAt:new Date().toISOString(),
+  draftToken:review.draftApprovalToken,
+  sections:sectionTitles
+ };
  const consentStatement=encounterConsentStatement(source.encounter) || null;
  const chart=parse(source.meta.structuredChart),context=parse(source.meta.narrivaContext);
  const rawDiagnoses=chart.diagnoses || chart.intakeDiagnoses || source.meta.diagnoses || [];
  const confirmed=parse(source.confirmedClinicalContext);
  const clinicalContext={presentingProblem:context.presentingProblem || source.meta.presentingProblem || chart.presentingProblem || confirmed.presentingProblem || '',diagnosticJustification:chart.diagnosticJustification || source.meta.diagnosticJustification || confirmed.diagnosticJustification || '',diagnoses:Array.isArray(confirmed.diagnoses)?confirmed.diagnoses:(Array.isArray(rawDiagnoses)?rawDiagnoses:[]).map(diagnosis=>typeof diagnosis==='string'?{code:diagnosis}:{code:diagnosis.icd10_code || diagnosis.code || '',description:diagnosis.description || diagnosis.diagnosis || '',justification:diagnosis.justification || ''}),...(confirmed.diagnosesReferenceOnly?{diagnosesReferenceOnly:true}:{})};
  requireNarrivaIdentifierCorrection(JSON.stringify(clinicalContext),source.identifiers);
- return {reviewedWriter:(latest.reviewedWriter || (latest.manualEdited || keptFindings(review).length ? latest.writerCandidate:null)) ? {...(latest.reviewedWriter || latest.writerCandidate),guidanceHash:latest.guidanceHash} : null,workingDraft:latest.workingDraft,objectives:source.planReview?.objectives,intakeSourceHash:latest.intakeSourceHash || null,reviewId:review.id,sourceHash:review.sourceHash,inputHash:review.inputHash,keptAsIs:latest.manualEdited===true || keptFindings(review).length>0,manualEdited:latest.manualEdited===true,decisions:keptFindings(review),consentStatement,clinicalContext};
+ return {authorApproval,reviewedWriter:(latest.reviewedWriter || (latest.manualEdited || keptFindings(review).length ? latest.writerCandidate:null)) ? {...(latest.reviewedWriter || latest.writerCandidate),guidanceHash:latest.guidanceHash} : null,workingDraft:latest.workingDraft,objectives:source.planReview?.objectives,intakeSourceHash:latest.intakeSourceHash || null,reviewId:review.id,sourceHash:review.sourceHash,inputHash:review.inputHash,keptAsIs:latest.manualEdited===true || keptFindings(review).length>0,manualEdited:latest.manualEdited===true,decisions:keptFindings(review),consentStatement,clinicalContext};
 }
 
 async function inheritPreGenerationDecisions(review,source) {
@@ -427,7 +441,11 @@ export async function readNarrivaReview(user,id,agencyId,{clinicalDb,poll=false}
 }
 async function evaluateStoredReview(user,review,source,writerGuidance){
  if(source.sourceHash!==review.sourceHash || review.rulesVersion!==NARRIVA_RULES_VERSION)review.status='stale';
- if(source.clinical.riskRequiredFromPriorReview===true && review.riskAssessmentRequired!==true && review.status==='passed')review.status='stale';
+ const {directAssessment}=clinicalServiceRequirements({clientPresent:source.encounter.clientPresent});
+ if(directAssessment && source.clinical.riskRequiredFromPriorReview===true && review.riskAssessmentRequired!==true && review.status==='passed'){
+  review.status='stale';
+  review.message='A risk assessment requirement was added. Recheck the draft to review it.';
+ }
  if(['passed','bypassed','action_required'].includes(review.status)) {
   try { const currentGuidance=writerGuidance?.guidanceHash===review.guidanceHash && writerGuidance?.serviceReferenceHash===review.serviceReferenceHash && writerGuidance?.supportCoverageComplete ? writerGuidance : await loadNarrivaGuidance(source); if(currentGuidance.guidanceHash!==review.guidanceHash || currentGuidance.serviceReferenceHash!==review.serviceReferenceHash)review.status='stale'; }
   catch {review.status='unavailable';review.message='The configured review guidance is unavailable. Your note is preserved.';}
@@ -446,6 +464,10 @@ async function evaluateStoredReview(user,review,source,writerGuidance){
  if(review.phase==='pre_generation' && Number(review.actorUserId)===Number(user.id) && ['running','action_required','passed','bypassed','stale'].includes(review.status) && review.workingDraft){
    review.draftPreview=review.workingDraft;
    review.draftPreviewSections=parseNoteSections(review.workingDraft,{intake:['90791','H0031'].includes(source.service.documentationCode || source.service.code) && source.service.assessmentKind!=='additional',skipMse:source.encounter.clientPresent===false || /^H/.test(source.service.documentationCode || source.service.code || '')});
+   if(!Object.keys(review.draftPreviewSections).length)review.draftPreviewSections={'Draft note':review.workingDraft};
+   if(['passed','bypassed'].includes(review.status)){
+    review.draftApprovalToken=narrivaSourceHash({id:review.id,sourceHash:review.sourceHash,draft:review.workingDraft,sections:review.draftPreviewSections});
+   }
  }
  if(review.phase!=='pre_generation' || Number(review.actorUserId)!==Number(user.id) || review.sourceHash!==source.sourceHash){delete review.enrollmentPreview;delete review.enrollmentAssessments;}
  delete review.workingDraft;
@@ -475,7 +497,7 @@ export async function resolveNarrivaFinding(req) {
  const riskFindings=review.checks.find(c=>c.id==='risk_safety')?.findings || [];
  if(!review.riskAssessmentIncluded && riskFindings.length && riskFindings.every(f=>f.bypassed))review.riskAssessmentRequired=false;
  const {workingDraft,outputEvidence}=await readStoredReview(review.id);
- delete review.draftPreview;delete review.draftPreviewSections;
+ delete review.draftPreview;delete review.draftPreviewSections;delete review.draftApprovalToken;
  await persist({...review,...(workingDraft?{workingDraft}:{}),...(outputEvidence?{outputEvidence}:{})});
  await logNoteAidChartEvent(req,{agencyId:review.agencyId,action:'narriva_finding_bypassed',metadata:{reviewId:review.id,findingId:req.body.findingId}});return readNarrivaReview(req.user,review.id,req.body.agencyId);
 }

@@ -22,6 +22,7 @@ import {narrivaSourceHash,NARRIVA_QUALITY_CRITERIA,NARRIVA_RULES_VERSION} from '
 let rows,source,facts,features,riskRequired,referenceVersion,requiredReferenceComplete,supportCoverageComplete;
 const clinician={id:7,role:'provider'},supervisor={id:9,role:'supervisor'};
 const req=(user=supervisor,extra={})=>({user,body:{agencyId:2,noteId:25,...extra},params:{}});
+const approvalFor=review=>({token:review.draftApprovalToken,sections:Object.keys(review.draftPreviewSections || {})});
 const drain=()=>new Promise(resolve=>setImmediate(resolve));
 async function completedReview(extra={}){const review=await createNarrivaReview(req(supervisor,extra));for(let i=0;i<3;i++)await drain();return readNarrivaReview(supervisor,review.id,2);}
 beforeEach(()=>{
@@ -184,7 +185,7 @@ describe('Narriva pre-generation review', () => {
     expect(review).toMatchObject({phase:'pre_generation',status:'passed',quickSignEligible:false,scoring:{score:0}});
     expect(m.model.mock.calls[0][0]).toMatchObject({model:'gemini-4-hydrogen',thinkingLevel:'LOW',vertexLocation:'us',allowModelFallback:false});
     expect(m.model.mock.calls.at(-1)[0].prompt).toContain('pre-generation check');
-    await expect(assertNarrivaPreGeneration({user:clinician,body:{preflightReviewId:review.id}},{agencyId:2,clientId:10,draftId:42,clinicalSessionId:20,inputText:source.inputText})).resolves.toMatchObject({reviewId:review.id,keptAsIs:false});
+    await expect(assertNarrivaPreGeneration({user:clinician,body:{preflightReviewId:review.id,draftApproval:approvalFor(review)}},{agencyId:2,clientId:10,draftId:42,clinicalSessionId:20,inputText:source.inputText})).resolves.toMatchObject({reviewId:review.id,keptAsIs:false});
   });
   it('shows the checked draft to its author alongside current ratings',async()=>{
     const workingDraft='Private provisional wording for a synthetic session.';
@@ -202,7 +203,7 @@ describe('Narriva pre-generation review', () => {
     expect(checking).toContain('Unsupported assertions in the draft do not count');
     expect(review.draftPreview).toBe(workingDraft);
     expect(review.workingDraft).toBeUndefined();
-    const verified=await assertNarrivaPreGeneration({user:clinician,body:{preflightReviewId:review.id}},{agencyId:2,clientId:10,draftId:42,clinicalSessionId:20,inputText:source.inputText});
+    const verified=await assertNarrivaPreGeneration({user:clinician,body:{preflightReviewId:review.id,draftApproval:approvalFor(review)}},{agencyId:2,clientId:10,draftId:42,clinicalSessionId:20,inputText:source.inputText});
     expect(verified.workingDraft).toBe(workingDraft);
     expect(verified.reviewedWriter).toMatchObject({model:'reviewed-writer',guidanceHash:expect.any(String)});
   });
@@ -235,7 +236,38 @@ describe('Narriva pre-generation review', () => {
     source.inputText+=' New information from the caregiver.';source.narrative=source.inputText;
     const changed=await readNarrivaReview(clinician,review.id,2);
     expect(changed.status).toBe('stale');expect(changed.draftPreview).toBe(review.draftPreview);
-    await expect(assertNarrivaPreGeneration({user:clinician,body:{preflightReviewId:review.id}},{agencyId:2,clientId:10,draftId:42,clinicalSessionId:20,inputText:source.inputText})).rejects.toMatchObject({status:409});
+    await expect(assertNarrivaPreGeneration({user:clinician,body:{preflightReviewId:review.id,draftApproval:approvalFor(review)}},{agencyId:2,clientId:10,draftId:42,clinicalSessionId:20,inputText:source.inputText})).rejects.toMatchObject({status:409});
+  });
+  it('finalizes a collateral intake with a historical direct-risk flag after all sections are approved',async()=>{
+    source.service.code='90791';
+    source.encounter.clientPresent=false;
+    source.clinical.riskRequiredFromPriorReview=true;
+    facts.clientPresent=false;
+    facts.riskUncertain=true;
+    m.model.mockResolvedValueOnce({
+      text:'Presenting Problem: A caregiver reported a functional concern.\nPlan: Follow up with the caregiver on the documented concern.',
+      modelName:'writer',finishReason:'STOP'
+    });
+    const review=await preflight();
+    expect(review).toMatchObject({status:'passed',riskAssessmentRequired:false});
+    expect(review.checks[0].advisories).toContainEqual(expect.objectContaining({id:'risk_safety:collateral_concern'}));
+    const input={agencyId:2,clientId:10,draftId:42,clinicalSessionId:20,inputText:source.inputText};
+    const request={user:clinician,body:{preflightReviewId:review.id}};
+    await expect(assertNarrivaPreGeneration(request,input)).rejects.toMatchObject({code:'NARRIVA_DRAFT_APPROVAL_REQUIRED'});
+    const approval=approvalFor(review);
+    request.body.draftApproval={...approval,sections:approval.sections.slice(0,-1)};
+    await expect(assertNarrivaPreGeneration(request,input)).rejects.toMatchObject({code:'NARRIVA_DRAFT_APPROVAL_REQUIRED'});
+    request.body.draftApproval=JSON.stringify(approval);
+    await expect(assertNarrivaPreGeneration(request,input)).resolves.toMatchObject({
+      authorApproval:{userId:clinician.id,sections:approval.sections,draftToken:approval.token},
+      workingDraft:review.draftPreview
+    });
+  });
+  it('requires a recheck when a direct-risk requirement appears after a review of a client-present visit',async()=>{
+    const review=await preflight();
+    expect(review.status).toBe('passed');
+    source.clinical.riskRequiredFromPriorReview=true;
+    expect(await readNarrivaReview(clinician,review.id,2)).toMatchObject({status:'stale',message:expect.stringContaining('risk assessment requirement')});
   });
   it('publishes actual review stages while the draft is available only through an authorized read',async()=>{
     let finish;
@@ -277,7 +309,7 @@ describe('Narriva pre-generation review', () => {
   });
   it('rejects generation after the narrative changes, or when a review belongs to another draft',async()=>{
     const review=await preflight();
-    const req={user:clinician,body:{preflightReviewId:review.id}};
+    const req={user:clinician,body:{preflightReviewId:review.id,draftApproval:approvalFor(review)}};
     const input={agencyId:2,clientId:10,draftId:42,clinicalSessionId:20,inputText:source.inputText+' changed'};
     await expect(assertNarrivaPreGeneration(req,input)).rejects.toMatchObject({status:409});
     await expect(assertNarrivaPreGeneration(req,{...input,draftId:43,inputText:source.inputText})).rejects.toMatchObject({status:409});
@@ -286,20 +318,20 @@ describe('Narriva pre-generation review', () => {
     source.meta.structuredChart={diagnoses:[{id:999,icd10_code:'F41.1',description:'Generalized anxiety disorder',justification:'Persistent worry affects school attendance.'}],diagnosticJustification:'Persistent worry affects school attendance.',privateOtherField:'Do not send'};
     source.meta.narrivaContext={presentingProblem:'Recent anxiety interferes with school attendance.'};
     const review=await preflight();
-    const result=await assertNarrivaPreGeneration({user:clinician,body:{preflightReviewId:review.id}},{agencyId:2,clientId:10,draftId:42,clinicalSessionId:20,inputText:source.inputText});
+    const result=await assertNarrivaPreGeneration({user:clinician,body:{preflightReviewId:review.id,draftApproval:approvalFor(review)}},{agencyId:2,clientId:10,draftId:42,clinicalSessionId:20,inputText:source.inputText});
     expect(result.clinicalContext).toEqual({presentingProblem:'Recent anxiety interferes with school attendance.',diagnosticJustification:'Persistent worry affects school attendance.',diagnoses:[{code:'F41.1',description:'Generalized anxiety disorder',justification:'Persistent worry affects school attendance.'}]});
     expect(JSON.stringify(result.clinicalContext)).not.toContain('999');
   });
   it('blocks identifying text in a newly confirmed clinical-context field before writer dispatch',async()=>{
     source.meta.narrivaContext={presentingProblem:'Private Client reports anxiety.'};
     const review=await preflight();
-    await expect(assertNarrivaPreGeneration({user:clinician,body:{preflightReviewId:review.id}},{agencyId:2,clientId:10,draftId:42,clinicalSessionId:20,inputText:source.inputText})).rejects.toMatchObject({code:'PHI_INPUT_REQUIRES_CORRECTION'});
+    await expect(assertNarrivaPreGeneration({user:clinician,body:{preflightReviewId:review.id,draftApproval:approvalFor(review)}},{agencyId:2,clientId:10,draftId:42,clinicalSessionId:20,inputText:source.inputText})).rejects.toMatchObject({code:'PHI_INPUT_REQUIRES_CORRECTION'});
   });
   it('hands server-authorized existing chart diagnosis references to the writer for an aid with no authored diagnoses',async()=>{
     source.meta.structuredChart={diagnoses:[]};
     source.confirmedClinicalContext={diagnoses:[{code:'F41.1',description:'Generalized anxiety disorder',justification:'Existing documented clinical need.'}],diagnosticJustification:'F41.1: Existing documented clinical need.',presentingProblem:'Current worry interferes with attendance.',diagnosesReferenceOnly:true};
     const review=await preflight();
-    const result=await assertNarrivaPreGeneration({user:clinician,body:{preflightReviewId:review.id}},{agencyId:2,clientId:10,draftId:42,clinicalSessionId:20,inputText:source.inputText});
+    const result=await assertNarrivaPreGeneration({user:clinician,body:{preflightReviewId:review.id,draftApproval:approvalFor(review)}},{agencyId:2,clientId:10,draftId:42,clinicalSessionId:20,inputText:source.inputText});
     expect(result.clinicalContext).toEqual(source.confirmedClinicalContext);
   });
   it('offers include-risk or an audited keep-as-is choice before formatting; inclusion creates a post-generation to-do',async()=>{
@@ -322,7 +354,7 @@ describe('Narriva pre-generation review', () => {
     const older=await preflight(),latest=await preflight();
     const input={agencyId:2,clientId:10,draftId:42,clinicalSessionId:20,inputText:source.inputText};
     await expect(assertNarrivaPreGeneration({user:clinician,body:{preflightReviewId:older.id}},input)).rejects.toMatchObject({code:'NARRIVA_PREFLIGHT_STALE'});
-    await expect(assertNarrivaPreGeneration({user:clinician,body:{preflightReviewId:latest.id}},input)).resolves.toMatchObject({reviewId:latest.id});
+    await expect(assertNarrivaPreGeneration({user:clinician,body:{preflightReviewId:latest.id,draftApproval:approvalFor(latest)}},input)).resolves.toMatchObject({reviewId:latest.id});
   });
   it('does not fall back to an older authorization when newer review evidence is unreadable',async()=>{
     const older=await preflight(),latest=await preflight();rows.get(latest.id).result_encrypted='sealed:unreadable evidence';
@@ -461,7 +493,7 @@ describe('editable and finalized server-reviewed drafts',()=>{
   expect(result.status).toBe('running');for(let i=0;i<5;i++)await drain();
   const reviewed=await readNarrivaReview(clinician,original.id,2);
   expect(reviewed).toMatchObject({manualEdited:true,status:'bypassed',quickSignEligible:false});expect(reviewed.draftPreview).toContain(edited);expect(m.model.mock.calls.length-before).toBe(1);
-  const proof=await assertNarrivaPreGeneration({user:clinician,body:{preflightReviewId:original.id}},{agencyId:2,clientId:10,draftId:42,clinicalSessionId:20,inputText:source.inputText});expect(proof.keptAsIs).toBe(true);expect(proof.decisions.some(item=>item.checkId==='manual_edit')).toBe(true);
+  const proof=await assertNarrivaPreGeneration({user:clinician,body:{preflightReviewId:reviewed.id,draftApproval:approvalFor(reviewed)}},{agencyId:2,clientId:10,draftId:42,clinicalSessionId:20,inputText:source.inputText});expect(proof.keptAsIs).toBe(true);expect(proof.decisions.some(item=>item.checkId==='manual_edit')).toBe(true);
  });
  it('does not let a supervisor overwrite the author’s preview through the edit endpoint',async()=>{
   const original=await checked();await expect(resolveNarrivaFinding({user:supervisor,params:{reviewId:original.id},body:{agencyId:2,action:'edit_draft',sections:{Subjective:'A synthetic edit by another reviewer.'}}})).rejects.toMatchObject({status:403});

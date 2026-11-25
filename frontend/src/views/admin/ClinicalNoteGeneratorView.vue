@@ -994,7 +994,7 @@
             >
               +{{ addon.code }}{{ addon.units > 1 ? ` ×${addon.units}` : '' }}{{ addon.pending ? ' (auto)' : '' }}
             </span>
-            <button class="na-generate" type="button" :disabled="narrivaPreGenerationRequired && !narrivaPreflightReady ? narrivaCheckDisabled : generateDisabled" @click="narrivaPreGenerationRequired && !narrivaPreflightReady ? runNarrivaChecks({ phase: 'pre_generation' }) : generateNote()">
+            <button class="na-generate" type="button" :disabled="narrivaPreGenerationRequired && !narrivaPreflightReady ? narrivaCheckDisabled : generateDisabled || (narrivaPreGenerationRequired && !narrivaDraftApproved)" @click="narrivaPreGenerationRequired && !narrivaPreflightReady ? runNarrivaChecks({ phase: 'pre_generation' }) : generateNote()">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
                 <path d="M12 2l1.2 6.3L19 12l-5.8 3.7L12 22l-1.2-6.3L5 12l5.8-3.7L12 2z"/>
               </svg>
@@ -1038,7 +1038,7 @@
 
         <p v-if="!needsActualProgressSession && !signedNoteViewerId && !isClientChartAid && !narrivaComplianceRequired && (inputText || displayPanels.length)" class="na-field-hint" role="status">Unlinked writing aid. You can generate, edit, save and copy this note. Narriva Compliance does not run on unlinked notes.</p>
         <NarrivaReviewResults v-if="!showAidPicker && !workspaceHydrateDepth" :own="!['admin','agency_admin','super_admin'].includes(authStore.user?.role) && ![true,1,'1'].includes(authStore.user?.has_supervisor_privileges)" :agency-id="noteAidAgencyId || currentAgencyId" />
-        <NarrivaReviewWorkspace @edit="resolveNarrivaFinding({action:'edit_draft',sections:$event})" v-if="noteWriterMode === 'narriva' && narrivaComplianceRequired && !signedNoteViewerId && !isClientChartAid && (narrivaChecksSubmitted || narrivaReview?.id)" :review="narrivaReview" :busy="preparingNarrivaCheck || narrivaReviewBusy" :pre-generation="narrivaReviewPhase === 'pre_generation'">
+        <NarrivaReviewWorkspace @approval="narrivaDraftApproval = $event" @edit="resolveNarrivaFinding({action:'edit_draft',sections:$event})" v-if="noteWriterMode === 'narriva' && narrivaComplianceRequired && !signedNoteViewerId && !isClientChartAid && (narrivaChecksSubmitted || narrivaReview?.id)" :review="narrivaReview" :busy="preparingNarrivaCheck || narrivaReviewBusy" :pre-generation="narrivaReviewPhase === 'pre_generation'">
         <NarrivaCompliancePanel v-if="!preparingNarrivaCheck && !narrivaReviewBusy && noteWriterMode === 'narriva' && narrivaComplianceRequired && !signedNoteViewerId && !isClientChartAid && (narrivaChecksSubmitted || narrivaReview?.id)" :review="narrivaReview" :pre-generation="narrivaReviewPhase === 'pre_generation'" :risk-assessment-required="narrivaRiskRequired" :busy="narrivaReviewBusy" :error="narrivaReviewError" @retry="runNarrivaChecks" @resolve="resolveNarrivaFinding" @action="onNarrivaFindingAction">
           <template #finding="{ checkId, finding }">
             <NarrivaAssessmentEvidence v-if="!finding.bypassed && finding.action === 'assessment'" v-model="narrivaAssessmentEvidence" :agency-id="noteAidAgencyId || currentAgencyId" :client-id="effectiveClientId" :clinical-session-id="sessionClinicalSessionId" :draft-id="draftId" :api-client="api" />
@@ -1052,7 +1052,8 @@
           </template>
           <template v-if="narrivaPreGenerationRequired && narrivaReviewPhase === 'pre_generation'" #generate>
             <p v-if="generateError" role="alert">{{ generateError }}</p>
-            <button class="na-generate" type="button" :disabled="!narrivaPreflightReady || generateDisabled" @click="generateNote">{{ generating ? 'Finalizing…' : narrivaReview?.status === 'bypassed' ? 'Continue' : 'Finalize note' }}</button>
+            <button class="na-generate" type="button" :disabled="!narrivaPreflightReady || !narrivaDraftApproved || generateDisabled" @click="generateNote">{{ generating ? 'Finalizing…' : 'Finalize note' }}</button>
+            <p v-if="generateError" role="alert">{{ generateError }}</p>
           </template>
         </NarrivaCompliancePanel>
         </NarrivaReviewWorkspace>
@@ -3365,6 +3366,8 @@ const mappedNarrivaTool = computed(() => resolveNarrivaToolForService({ serviceC
 let narrivaEditVersion=0;
 let pendingChartSignature=null;
 const narrivaReviewPhase = ref('pre_generation');
+const narrivaDraftApproval = ref(null);
+const narrivaDraftApproved = computed(() => !!narrivaDraftApproval.value?.token && narrivaDraftApproval.value.token === narrivaReview.value?.draftApprovalToken);
 const narrivaPreGenerationRequired = computed(() => noteWriterMode.value === 'narriva' && !isClientChartAid.value && !isReviewOnlyAid.value && aidKind(selectedAid.value) !== 'plan' && narrivaComplianceRequired.value && !!sessionClinicalSessionId.value);
 const preparingNarrivaCheck = ref(false);
 const narrivaChecksSubmitted = ref(false);
@@ -6455,6 +6458,7 @@ const stopTranscription = () => {
 
 const generateNote = async () => {
   const preflightReviewId = narrivaPreGenerationRequired.value ? narrivaReview.value?.id : null;
+  if (preflightReviewId && !narrivaDraftApproved.value) { generateError.value = 'Review and approve each draft section before finalizing.'; return; }
   if (narrivaPreGenerationRequired.value && !narrivaPreflightReady.value) { generateError.value = 'Submit the current session narrative for compliance check, resolve the prompts here, then generate the note.'; return; }
   if (needsActualProgressSession.value) { generateError.value = 'Choose an actual session from the client’s to-do list before generating a progress note.'; return; }
   if(narrivaServicePending.value){generateError.value='Confirm the actual encounter service-code change before generating.';return;}
@@ -6536,7 +6540,10 @@ const generateNote = async () => {
     const generationQueueSeq = workQueueActivateSeq;
 
     const fd = new FormData();
-    if (preflightReviewId) fd.append('preflightReviewId', String(preflightReviewId));
+    if (preflightReviewId) {
+      fd.append('preflightReviewId', String(preflightReviewId));
+      fd.append('draftApproval', JSON.stringify(narrivaDraftApproval.value));
+    }
     fd.append('agencyId', String(noteAidAgencyId.value || currentAgencyId.value));
     if (preferLearningSponsorForAid.value) fd.append('preferLearningSponsor', '1');
     fd.append('recordingPurpose', String(recordingPurpose.value || 'dictation'));

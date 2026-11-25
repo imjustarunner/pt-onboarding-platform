@@ -1111,6 +1111,7 @@ export const listRecentClinicalNoteDrafts = async (req, res, next) => {
       const [riskRows]=await pool.execute(`SELECT agency_id,draft_id,clinical_session_id FROM narriva_reviews WHERE risk_assessment_required=1 AND (${pairs.map(()=>'(agency_id=? AND (draft_id=? OR clinical_session_id=?))').join(' OR ')})`,pairs.flat());
       for(const draft of sanitized)if(riskRows.some(r=>Number(r.agency_id)===Number(draft.agency_id) && (Number(r.draft_id)===Number(draft.id) || r.clinical_session_id && Number(r.clinical_session_id)===Number(draft.clinical_session_id)))) {
         let output={};try{output=typeof draft.output_json==='string'?JSON.parse(draft.output_json || '{}'):draft.output_json || {};}catch{/* Preserve the narrative even if old metadata is malformed. */}
+        if(clinicalClientPresent(output.meta)===false)continue;
         output.meta={...output.meta,narrivaContext:{...output.meta?.narrivaContext,riskAssessmentRequired:true}};
         draft.output_json=JSON.stringify(output);
       }
@@ -1874,7 +1875,14 @@ export const generateClinicalNote = async (req, res, next) => {
       clientId,
       agencyId,
       action: 'note_aid_note_generated',
-      metadata: { draftId: draft?.id || draftId, serviceCode, dateOfService, toolId }
+      metadata: {
+        draftId: draft?.id || draftId, serviceCode, dateOfService, toolId,
+        ...(narrivaPreflight?.authorApproval ? {
+          reviewId: narrivaPreflight.reviewId,
+          approvedSectionCount: narrivaPreflight.authorApproval.sections.length,
+          approvedDraftToken: narrivaPreflight.authorApproval.draftToken
+        } : {})
+      }
     });
   } catch (e) {
     if (e?.status) {

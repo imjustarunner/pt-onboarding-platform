@@ -3,10 +3,23 @@ import { computed,ref,watch,nextTick } from 'vue';
 import {NARRIVA_CHECKS} from '../../config/narrivaBrand.js';
 import NarrivaReviewProgress from './NarrivaReviewProgress.vue';
 const props=defineProps({review:Object,busy:Boolean,preGeneration:Boolean});
-const emit=defineEmits(['edit']);
+const emit=defineEmits(['edit','approval']);
 const editing=ref(false),edited=ref({});
-watch(()=>props.review?.id,()=>{editing.value=false;});
-function startEdit(){edited.value={...sections.value};editing.value=true;nextTick(()=>document.querySelectorAll('.narriva-draft-editor').forEach(grow));}
+const approvedSections=ref([]);
+const approvalToken=computed(()=>props.preGeneration && ['passed','bypassed'].includes(props.review?.status) ? props.review?.draftApprovalToken : null);
+function clearApproval(){
+  approvedSections.value=[];
+  emit('approval',null);
+}
+watch([()=>props.review?.id,approvalToken],()=>{
+  editing.value=false;
+  clearApproval();
+});
+watch(approvedSections,titles=>{
+  const allApproved=Object.keys(sections.value).every(title=>titles.includes(title));
+  emit('approval',approvalToken.value && titles.length && allApproved ? {token:approvalToken.value,sections:[...titles]} : null);
+});
+function startEdit(){clearApproval();edited.value={...sections.value};editing.value=true;nextTick(()=>document.querySelectorAll('.narriva-draft-editor').forEach(grow));}
 function grow(event){const el=event.target || event;el.style.height='auto';el.style.height=el.scrollHeight+'px';}
 function saveEdit(){emit('edit',{...edited.value});editing.value=false;}
 const preview=computed(()=>props.preGeneration && props.review?.draftPreview);
@@ -34,7 +47,18 @@ const instrumentLabel=value=>({phq9:'PHQ-9',phqa:'PHQ-A',gad7:'GAD-7',psc17:'PSC
         <p v-if="review?.manualEdited" class="narriva-edit-notice">Manually edited · retained for compliance review</p>
         <button v-if="!editing" type="button" :disabled="busy || review?.status === 'stale'" @click="startEdit">Edit draft</button>
         <p v-if="editing" class="narriva-edit-notice">Saving your changes rechecks this draft and records manual editing for compliance review.</p>
-        <section v-for="(text,title) in sections" :key="title"><h3>{{ title }}</h3><textarea v-if="editing" class="narriva-draft-editor" v-model="edited[title]" :aria-label="title" @input="grow" /><p v-else>{{ text }}</p></section>
+        <p v-if="approvalToken && !editing" class="narriva-approval-hint">Review and approve each section to enable Finalize note.</p>
+        <section v-for="(text,title) in sections" :key="title">
+          <h3>{{ title }}</h3>
+          <textarea v-if="editing" class="narriva-draft-editor" v-model="edited[title]" :aria-label="title" @input="grow" />
+          <template v-else>
+            <p>{{ text }}</p>
+            <label v-if="approvalToken" class="narriva-section-approval">
+              <input v-model="approvedSections" type="checkbox" :value="title" :disabled="busy" />
+              I reviewed and approve {{ title }}
+            </label>
+          </template>
+        </section>
         <div v-if="editing"><button type="button" @click="saveEdit">Save edits and recheck</button><button type="button" @click="editing=false">Cancel</button></div>
       </article>
       <div class="narriva-review-findings"><div v-if="busy && preview" class="narriva-pending-checks"><h2>Checking the draft</h2><ul><li v-for="check in NARRIVA_CHECKS" :key="check.id">{{ ['90791','H0031'].includes(review?.documentationCode) && check.id === 'participation_plan' ? 'Assessment Recommendations' : review?.clientPresent === false && check.id === 'participation_plan' ? 'Progress & Plan' : check.label }}<span>Reviewing</span></li></ul></div><slot /></div>
@@ -53,4 +77,6 @@ const instrumentLabel=value=>({phq9:'PHQ-9',phqa:'PHQ-A',gad7:'GAD-7',psc17:'PSC
 .narriva-review-findings{min-width:0}.narriva-review-findings :deep(.narriva-compliance){margin:0}.narriva-pending-checks{padding:20px;background:#f6faff;border:1px solid #d4e3ed;border-radius:12px}.narriva-pending-checks h2{font-size:16px;margin:0 0 10px}.narriva-pending-checks ul{list-style:none;margin:0;padding:0}.narriva-pending-checks li{display:flex;justify-content:space-between;gap:10px;padding:12px 0;border-bottom:1px solid #dde7ef;font-size:13px}.narriva-pending-checks span{color:#647b8d}
 @container(min-width:850px){.narriva-review-columns.has-preview{grid-template-columns:minmax(0,1fr) minmax(380px,1fr)}}
 @media(max-width:600px){.narriva-draft-preview{padding:14px}}
+.narriva-approval-hint{font-size:13px;color:#47647b;margin:12px 0 0}
+.narriva-section-approval{display:flex;align-items:center;gap:8px;margin-top:10px;color:#205779;font-size:13px;min-height:32px;cursor:pointer}
 </style>

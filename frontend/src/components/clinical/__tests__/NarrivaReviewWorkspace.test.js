@@ -37,3 +37,18 @@ it('requires a fresh review before editing an old preview while retaining its wo
  const w=mount(Workspace,{props:{preGeneration:true,review:{id:51,status:'stale',draftPreview:'Previous wording',draftPreviewSections:{Subjective:'Previous wording'}}}});
  expect(w.get('button').attributes()).toHaveProperty('disabled');expect(w.text()).toContain('Previous wording');w.unmount();
 });
+
+it('requires approval of each displayed section and resets it for a new draft',async()=>{
+ const review={id:51,status:'passed',draftApprovalToken:'revision-1',draftPreview:'Synthetic draft',draftPreviewSections:{Subjective:'Caregiver reported a concern.',Plan:'Continue the documented assessment.'}};
+ const w=mount(Workspace,{props:{preGeneration:true,review}});
+ const boxes=w.findAll('.narriva-section-approval input');
+ expect(boxes).toHaveLength(2);
+ await boxes[0].setValue(true);
+ expect(w.emitted('approval').at(-1)).toEqual([null]);
+ await boxes[1].setValue(true);
+ expect(w.emitted('approval').at(-1)).toEqual([{token:'revision-1',sections:['Subjective','Plan']}]);
+ await w.setProps({review:{...review,draftApprovalToken:'revision-2'}});
+ expect(w.findAll('.narriva-section-approval input').every(box=>!box.element.checked)).toBe(true);
+ expect(w.emitted('approval').at(-1)).toEqual([null]);
+ w.unmount();
+});
