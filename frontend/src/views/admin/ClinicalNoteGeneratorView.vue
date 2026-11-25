@@ -1339,12 +1339,13 @@
               <input v-model="participantsPresenceDismissed" type="checkbox" />
               Confirm client only — family or others discussed but not present in this session.
             </label>
-            <p v-if="!canConfirmAndSign && !sessionParticipantsFlag" class="error">
+            <p v-if="!approvingNote && !canConfirmAndSign && !sessionParticipantsFlag" class="error">
               {{ !narrivaConsentConfirmed && narrivaComplianceRequired ? 'Confirm consent in Session details.' : (narrivaRiskIncluded || narrivaRiskRequired) && (!narrivaRiskCompleted || !isRiskAssessmentComplete(chartRiskAssessment)) ? 'Complete and confirm the risk assessment above.' : !mseRiskComplete ? 'Complete the mental status exam above.' : 'Complete the required note fields before signing.' }}
             </p>
           </div>
 
-          <div class="na-output-actions">
+          <p v-if="approvingNote" class="na-sign-progress" role="status">{{ isReviewOnlyAid ? 'Saving your clinical review…' : 'Signing and saving to the chart…' }}</p>
+          <div class="na-output-actions" :aria-busy="approvingNote">
             <ClinicalNoteChartPreview v-if="canApproveToClinicalRecord && !chartNoteReadOnly && !signedNoteViewerId && displayPanels.length"
               :sections="chartRecordSections" :encounter="{ 'Date of service': dateOfService, Service: actualServiceCode, Participants: [sessionParticipants, sessionParticipantsDetail].filter(Boolean).join(' · '), Location: sessionLocationLabel, Clinician: authStore.user?.displayName || [authStore.user?.firstName, authStore.user?.lastName].filter(Boolean).join(' ') }" />
             <button
@@ -1365,9 +1366,7 @@
                   afterSign: 'close'
                 })"
               >
-                {{ approvingNote
-                  ? (isReviewOnlyAid || isTreatmentSummaryAid ? 'Saving…' : 'Signing…')
-                  : (isReviewOnlyAid
+                {{ (isReviewOnlyAid
                     ? (isTerminationAid ? 'Complete termination review' : 'Complete review')
                     : (isTreatmentSummaryAid ? 'Save document' : 'Sign')) }}
               </button>
@@ -1378,9 +1377,7 @@
                 :disabled="!displayPanels.length || approvingNote || !canConfirmAndSign || !bothAttestationsChecked"
                 @click="approveNoteOutput({ afterSign: 'queue' })"
               >
-                {{ approvingNote
-                  ? (isReviewOnlyAid || isTreatmentSummaryAid ? 'Saving…' : 'Signing…')
-                  : (isReviewOnlyAid
+                {{ (isReviewOnlyAid
                     ? 'Complete review & open next in queue'
                     : (isTreatmentSummaryAid
                       ? 'Save & open next in queue'
@@ -1393,9 +1390,7 @@
                 :disabled="!displayPanels.length || approvingNote || !canConfirmAndSign || !bothAttestationsChecked"
                 @click="approveNoteOutput({ afterSign: 'progress' })"
               >
-                {{ approvingNote
-                  ? (isReviewOnlyAid || isTreatmentSummaryAid ? 'Saving…' : 'Signing…')
-                  : (isReviewOnlyAid
+                {{ (isReviewOnlyAid
                     ? 'Complete review & open next in progress'
                     : (isTreatmentSummaryAid
                       ? 'Save & open next in progress'
@@ -1408,9 +1403,7 @@
                 :disabled="!displayPanels.length || approvingNote || !canConfirmAndSign || !bothAttestationsChecked"
                 @click="approveNoteOutput({ afterSign: 'same_client' })"
               >
-                {{ approvingNote
-                  ? (isReviewOnlyAid || isTreatmentSummaryAid ? 'Saving…' : 'Signing…')
-                  : (isReviewOnlyAid
+                {{ (isReviewOnlyAid
                     ? 'Complete review & open next for this client'
                     : (isTreatmentSummaryAid
                       ? 'Save & open next for this client'
@@ -2630,13 +2623,17 @@ function synchronizeIntakeFields() {
   intakeAssessmentSnapshot.value = next;
 }
 
+function recordDiagnosticJustification() {
+  return (isIntakeOutput.value ? primaryChartDiagnosis.value?.justification : '') || chartDiagnosticJustification.value || null;
+}
+
 function draftStructuredChart() {
   return {
     clientId: effectiveClientId.value,
     mentalStatusExam: skipMentalStatusExam.value ? null : chartMentalStatus.value,
     riskAssessment: chartRiskAssessment.value,
     medications: chartMedications.value,
-    diagnosticJustification: chartDiagnosticJustification.value,
+    diagnosticJustification: recordDiagnosticJustification(),
     diagnoses: structuredChartDiagnoses.value,
     intakeDiagnoses: intakeDiagnosisRecommendations.value,
     intakeDiagnosisAppliedFingerprint: intakeDiagnosisAppliedFingerprint.value,
@@ -3457,7 +3454,8 @@ function narrivaContext() {
   return context;
 }
 
-async function runNarrivaChecks({ phase = narrivaReviewPhase.value } = {}) {
+async function runNarrivaChecks({ phase = narrivaReviewPhase.value, forSigning = false } = {}) {
+  if (approvingNote.value && !forSigning) return;
   if (finalizedNarriva.value) phase = 'output';
   if(actualServiceCode.value==='H0031' && assessmentKind.value!==(assessmentContext.value?.automaticKind || 'initial') && !assessmentKindConfirmed.value){generateError.value='Confirm the selected assessment type before submitting.';return;}
   if (!narrivaComplianceRequired.value || preparingNarrivaCheck.value || narrivaReviewBusy.value || signedNoteViewerId.value) return;
@@ -3485,7 +3483,7 @@ async function runNarrivaChecks({ phase = narrivaReviewPhase.value } = {}) {
     const deadline = Date.now() + 10000;
     while (autosaveBusy && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 50));
     if (autosaveBusy) { narrivaReviewError.value = 'Your draft is still saving. Try the checks again when it finishes.'; return; }
-    await autosave();
+    await autosave({ forApproval: forSigning });
     if (!draftId.value || !lastSavedAt.value || sourceClient !== effectiveClientId.value || sourceDraft && String(sourceDraft) !== String(draftId.value)) { narrivaReviewError.value = approvalError.value || 'Save the current draft before running Narriva checks.'; return; }
     if (phase==='pre_generation' && showObjectiveRatings.value) {
       const version=narrivaEditVersion, id=draftId.value;
@@ -3696,7 +3694,7 @@ function endWorkspaceHydration() {
 }
 
 function scheduleAutosave(delayMs = 600) {
-  if (!canUseTool.value || isWorkspaceHydrating()) return;
+  if (!canUseTool.value || isWorkspaceHydrating() || approvingNote.value || treatmentSummaryProviderSignedAt.value) return;
   if (autosaveDebounceTimer) clearTimeout(autosaveDebounceTimer);
   if(!autosaveQueuedAt)autosaveQueuedAt=Date.now();
   const waitMs=Date.now()-autosaveQueuedAt>=3000?0:delayMs;
@@ -5665,7 +5663,7 @@ function draftSavePayload() {
         interactiveComplexityPending: interactiveComplexityPromptOpen.value,
         interactiveComplexityReason: interactiveComplexityReason.value
       },
-      sections: isIntakeOutput.value ? currentRecordSections() : Object.fromEntries(mergedSectionEntries.value || [])
+      sections: finalizedNarriva.value ? chartRecordSections.value : isIntakeOutput.value ? currentRecordSections() : Object.fromEntries(mergedSectionEntries.value || [])
     };
   } else if (sessionLocationLabel.value || sessionDurationMinutes.value != null) {
     payload.outputJson = {
@@ -5703,7 +5701,8 @@ function draftPayloadFingerprint(payload) {
   return JSON.stringify(content);
 }
 
-const autosave = async () => {
+const autosave = async ({ forApproval = false } = {}) => {
+  if ((approvingNote.value && !forApproval) || treatmentSummaryProviderSignedAt.value) return;
   if (needsActualProgressSession.value) return;
   if(narrivaServicePending.value){approvalError.value='Confirm the encounter service-code change before saving.';return;}
   // The public demo never persists authored content, including interval autosaves.
@@ -6957,13 +6956,18 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
   }
   try {
     approvingNote.value = true;
+    cancelPendingAutosave();
+    autosaveRequested = false;
+    const deadline = Date.now() + 10000;
+    while (autosaveBusy && Date.now() < deadline) await new Promise(resolve=>setTimeout(resolve,50));
+    if (autosaveBusy) throw new Error('The draft is still saving. Try signing after it finishes.');
     approvalError.value = '';
     approvalMessage.value = '';
     const checkedEncounter=narrivaPreGenerationRequired.value && !!outputObj.value?.meta?.generationReceipt;
     if (checkedEncounter) {
       if (narrivaReviewBusy.value || preparingNarrivaCheck.value) throw new Error('The current note review is still in progress.');
       if (narrivaReview.value?.phase !== 'output' || !['passed','bypassed','action_required'].includes(narrivaReview.value.status)) {
-        await runNarrivaChecks({ phase:'output' });
+        await runNarrivaChecks({ phase:'output', forSigning:true });
       }
       if (narrivaReview.value?.phase !== 'output' || !['passed','bypassed'].includes(narrivaReview.value.status)) {
         throw new Error(narrivaReviewError.value || 'Review the outstanding findings before signing.');
@@ -7017,14 +7021,10 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
       : (isTreatmentSummaryAid.value
         ? `Treatment Summary ${dos}`.trim()
         : `${String(noteType).replace(/_/g, ' ')} ${serviceCodeForMetadata ? `(${serviceCodeForMetadata}) ` : ''}${dos}`.trim());
-    const approvedDiagnosticJustification = (isIntakeOutput.value ? primaryChartDiagnosis.value?.justification : '') || chartDiagnosticJustification.value;
+    const approvedDiagnosticJustification = recordDiagnosticJustification();
     const structuredChart = {
-      diagnoses: structuredChartDiagnoses.value,
+      ...draftStructuredChart(),
       intakeDiagnoses: isIntakeOutput.value ? intakeDiagnosisRecommendations.value : undefined,
-      diagnosticJustification: approvedDiagnosticJustification || null,
-      mentalStatusExam: skipMentalStatusExam.value ? null : chartMentalStatus.value,
-      riskAssessment: chartRiskAssessment.value,
-      medications: chartMedications.value,
       participants: sessionParticipantsDetail.value
         ? `${sessionParticipants.value} (${sessionParticipantsDetail.value})`
         : sessionParticipants.value,
@@ -7149,7 +7149,10 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
     let terminationTodo = null;
     let providerSignatureAt = null;
     const openTerminationAfterSign = ['now', 'after_progress'].includes(terminationNextStep.value);
-    if (shouldAutosign) {
+    if (shouldAutosign && createdNote?.provider_signed_at) {
+      providerSignatureAt = createdNote.provider_signed_at;
+      pendingChartSignature = null;
+    } else if (shouldAutosign) {
       const noteReview = noteWriterMode.value === 'manual' ? null : retry?.reviewId && retry.reviewId === narrivaReview.value?.id
         ? narrivaReview.value : await startNarrivaReview({noteId});
       if(checkedEncounter
@@ -7219,6 +7222,11 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
     const nextSameClientProgress = nextSameClientInProgressRow.value;
     const nextSameClientQueue = nextSameClientInQueueItem.value;
     markActiveWorkQueueItemSigned(providerSignatureAt);
+    // Refreshing the library can retire the signed draft. Drop its handle before
+    // any close/next-note path runs and keep autosave suspended through navigation.
+    cancelPendingAutosave();
+    draftId.value = null;
+    invalidateNarrivaReview();
     await loadRecent();
 
     const mode = afterSign === 'progress'

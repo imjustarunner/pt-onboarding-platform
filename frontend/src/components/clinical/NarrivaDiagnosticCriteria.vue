@@ -1,5 +1,6 @@
 <script setup>
 import {computed,ref,watch} from 'vue';
+import DiagnosticCriteriaComparison from './DiagnosticCriteriaComparison.vue';
 import {diagnosticCriteriaStatus} from '../../utils/diagnosticCriteriaReview.js';
 const props=defineProps({diagnosis:Object,agencyId:[Number,String],draftId:[Number,String],transport:Object,saved:Object,ensureSaved:Function});
 async function client(){return props.transport || (await import('../../services/api.js')).default;}
@@ -9,10 +10,37 @@ const code=computed(()=>props.diagnosis?.icd10_code || props.diagnosis?.code || 
 const summary=computed(()=>diagnosticCriteriaStatus(result.value?.criteria));
 watch(()=>props.saved,value=>{if(value)result.value=value;});
 async function check(){busy.value=true;error.value='';try{if(props.ensureSaved)await props.ensureSaved();if(!props.draftId)throw new Error('Save the current draft before checking this optional aid.');const {data}=await (await client()).post(props.transport?'/diagnosis-criteria':'/narriva/diagnosis-criteria',{agencyId:props.agencyId,draftId:props.draftId,icd10Code:code.value},{skipGlobalLoading:true});result.value=data;emit('update',data);open.value=true;}catch(e){error.value=e.response?.data?.error?.message || e.message || 'The optional criteria review is unavailable.';}finally{busy.value=false;}}
-function changed(){dirty.value=true;}
+function changeCriterion({ id, field, value }) {
+ const criterion=result.value?.criteria.find(item=>item.id===id);
+ if(criterion){criterion[field]=value;dirty.value=true;}
+}
 async function toggle(){open.value=!open.value;if(!open.value || result.value || !props.draftId)return;try{const {data}=await (await client()).post(props.transport?'/diagnosis-criteria':'/narriva/diagnosis-criteria',{action:'read',agencyId:props.agencyId,draftId:props.draftId,icd10Code:code.value},{skipGlobalLoading:true});result.value=data.review || null;}catch(e){error.value=e.response?.data?.error?.message || 'The optional review could not be loaded.';}}
 async function save(){if(!result.value?.id)return;busy.value=true;error.value='';try{const {data}=await (await client()).post(props.transport?'/diagnosis-criteria':'/narriva/diagnosis-criteria',{action:'save',agencyId:props.agencyId,draftId:props.draftId,icd10Code:code.value,reviewId:result.value.id,selections:result.value.criteria.map(item=>({id:item.id,status:item.status,frequency:item.frequency,duration:item.duration}))},{skipGlobalLoading:true});result.value=data;dirty.value=false;}catch(e){error.value=e.response?.data?.error?.message || 'The internal review could not be saved.';}finally{busy.value=false;}}
 
 </script>
-<template><aside v-if="/^F\d/.test(code)" class="dx-criteria"><button type="button" @click="toggle">DSM criteria review · optional</button><div v-if="open"><p>Review your diagnostic guidance alongside symptom support, frequency, duration, functional impact and exclusions. This optional review does not block signing or change the diagnosis.</p><button type="button" :disabled="busy" @click="check">{{busy?'Checking criteria support…':result?'Recheck criteria support':'Check supporting criteria'}}</button><p v-if="error" role="alert">{{error}}</p><p v-if="result" class="dx-criteria-status" :class="summary.status">{{summary.message}}</p><p v-if="result?.message">{{result.message}}</p><section v-for="item in result?.criteria || []" :key="item.id" class="dx-criterion" :class="{unconfirmed:item.status!=='present'}"><strong>{{item.label}}</strong><label>Evidence status<select v-model="item.status" @change="changed"><option value="unconfirmed">Unconfirmed</option><option value="present">Present / requirement supported</option><option value="absent">Assessed and absent / requirement not met</option></select></label><label v-if="item.kind==='frequency'">Reported frequency<input v-model="item.frequency" placeholder="For example, more days than not, if assessed" @change="changed" /></label><label v-if="item.kind==='duration'">Assessed duration<input v-model="item.duration" @change="changed" /></label><p v-if="item.evidence">{{item.evidence}}</p></section><button v-if="dirty" type="button" :disabled="busy" @click="save">Save internal review</button><p v-if="result">Internal clinical review only. This checklist is excluded from downloaded notes and medical-record exports.</p></div></aside></template>
-<style scoped>.dx-criteria{font-size:12px;color:#435b6f;display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:4px 0 10px}.dx-criteria>div{width:100%}.dx-criteria button{font:inherit;color:#255d85;border:1px solid #c3d6e4;border-radius:6px;padding:6px 9px;background:#f5f9fc}.dx-criteria-status{border-radius:5px;padding:5px 8px;background:#fff2cb;color:#775311}.dx-criteria-status.supported{background:#ecf8ef;color:#1e683a}.dx-criteria p{font-size:12px;line-height:1.6}.dx-criterion{border:1px solid #d7e2ea;border-radius:7px;padding:10px;margin:9px 0}.dx-criterion.unconfirmed{border-color:#e3c67f;background:#fffaf0}.dx-criterion label{display:block;font-size:12px;margin-top:8px}.dx-criterion select,.dx-criterion input{display:block;width:100%;box-sizing:border-box;font:inherit;padding:7px;margin-top:4px;border:1px solid #c1d3df;border-radius:6px}</style>
+<template>
+  <aside v-if="/^F\d/.test(code)" class="dx-criteria" data-internal-review-only>
+    <button type="button" :aria-expanded="open" @click="toggle">Compare with DSM criteria · optional</button>
+    <div v-if="open" class="dx-comparison">
+      <header><strong>{{ code }} {{ diagnosis.description }}</strong><span>Optional · Internal clinical review</span></header>
+      <p>Compare each criterion and required parameter with the evidence recorded for this diagnosis.</p>
+      <button type="button" :disabled="busy || dirty" @click="check">{{ busy ? 'Checking criteria support…' : result ? 'Recheck criteria support' : 'Compare criteria' }}</button>
+      <p v-if="error" role="alert">{{ error }}</p>
+      <p v-if="result?.criteria?.length" class="dx-criteria-status" :class="summary.status">{{ summary.message }}</p>
+      <p v-if="result && !result.criteria?.length">{{ result.message }}</p>
+      <DiagnosticCriteriaComparison v-if="result?.criteria?.length" :criteria="result.criteria" editable :disabled="busy" @change="changeCriterion" />
+      <button v-if="dirty" type="button" :disabled="busy" @click="save">Save internal review</button>
+    </div>
+  </aside>
+</template>
+
+<style scoped>
+.dx-criteria{margin:8px 0 14px;color:#435b6f;font-size:14px}
+.dx-comparison{border:1px solid #d4e0eb;background:#f8fbfd;border-radius:9px;padding:14px;margin-top:9px}
+.dx-comparison header{display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.dx-comparison header span{font-size:12px}
+.dx-criteria button{font:inherit;color:#245b7f;border:1px solid #bfd3e4;border-radius:6px;padding:7px 10px;background:#f5f9fc}
+.dx-criteria-status{border-radius:6px;padding:8px 10px;background:#fff2cb;color:#775311;font-weight:650}
+.dx-criteria-status.supported{background:#ecf8ef;color:#1e683a}
+@media print{.dx-criteria{display:none!important}}
+</style>

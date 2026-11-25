@@ -2,21 +2,24 @@
   <section class="diagnosis-review" aria-label="Diagnosis documentation and review">
     <div v-for="alert in alerts" :key="`${alert.code}:${alert.diagnosisId}`" class="diagnosis-alert" role="status">{{ alert.message }}</div>
     <details open>
-      <summary>Diagnosis evidence and review</summary>
+      <summary>Chart diagnoses and supporting records</summary>
       <p v-if="loading">Loading diagnosis documentation…</p><p v-if="error" role="alert" class="error">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p>
-      <p>Each diagnosis retains its own justification. Supporting records or your documented qualified clinician evaluation may establish evidence. This review does not rewrite a signed note.</p>
+      <p>Each diagnosis includes its clinical justification. Open supporting records to document the evidence for that diagnosis.</p>
       <article v-for="diagnosis in diagnoses" :key="diagnosis.id">
         <strong>{{ diagnosis.icd10_code }} {{ diagnosis.description }} <span v-if="diagnosis.is_primary">· Primary</span></strong>
         <p>{{ diagnosis.justification || 'Clinical justification is missing.' }}</p>
-        <form v-if="!readOnly" @submit.prevent="save(diagnosis)">
+        <details v-if="!readOnly" class="diagnosis-support">
+          <summary>Supporting records and clinician evaluation</summary>
+          <form @submit.prevent="save(diagnosis)">
           <label v-if="/^F43\.2/.test(diagnosis.icd10_code)">Precipitating event month<input v-model="drafts[diagnosis.id].stressorEventMonth" type="month" required /></label>
           <label>Supporting medical records<select v-model="drafts[diagnosis.id].evidenceDocumentIds" multiple><option v-for="document in documents" :key="document.id" :value="document.id">{{ document.original_name || `Document ${document.id}` }}</option></select></label>
           <p v-if="!documents.length">Upload outside medical records to the client's supporting documents, then refresh this review.</p>
           <details v-if="diagnosis.review?.evaluation_note"><summary>Recorded clinician evaluation</summary><p>{{ diagnosis.review.evaluation_note }}</p><small>Clinician #{{ diagnosis.review.qualified_evaluator_user_id }} · {{ new Date(diagnosis.review.evaluation_authored_at || diagnosis.review.reviewed_at).toLocaleDateString() }}</small></details>
           <label>New qualified clinician evaluation<textarea v-model="drafts[diagnosis.id].evaluationNote" rows="3" placeholder="Licensed clinicians may document their own evaluation and the findings supporting this diagnosis." /></label>
           <label>Review reason<textarea v-model="drafts[diagnosis.id].reason" rows="2" required /></label>
-          <button type="submit" :disabled="busy">Save diagnosis review</button>
-        </form>
+          <button type="submit" :disabled="busy">Save supporting evidence</button>
+          </form>
+        </details>
         <details v-if="diagnosis.reviewHistory?.length > 1"><summary>Diagnosis review history ({{ diagnosis.reviewHistory.length }})</summary><p v-for="review in diagnosis.reviewHistory" :key="review.id">{{ new Date(review.reviewed_at).toLocaleString() }} · Reviewer #{{ review.reviewed_by_user_id }} · {{ review.review_reason }}</p></details>
         <p v-if="diagnosis.review?.reviewed_at">Last reviewed: {{ new Date(diagnosis.review.reviewed_at).toLocaleDateString() }}</p>
       </article>
@@ -66,5 +69,5 @@ watch(()=>[props.agencyId,props.providerUserId,props.readOnly],loadPermission,{i
 watch(()=>[props.agencyId,props.clientId],()=>{generation++;diagnoses.value=[];alerts.value=[];drafts.value={};load();},{immediate:true});
 </script>
 <style scoped>
-.diagnosis-review{margin:12px 0}.diagnosis-review details{padding:12px;border:1px solid #cbd5e1;border-radius:9px}.diagnosis-review summary{cursor:pointer;font-weight:650}.diagnosis-alert{padding:12px;margin:7px 0;background:#fff4df;border-left:4px solid #b9771b}.diagnosis-review article,.supervisor-policy{padding:12px 0;border-top:1px solid #d9e2e8;margin-top:12px}.diagnosis-review label{display:grid;gap:4px;margin:8px 0}.diagnosis-review input,.diagnosis-review textarea,.diagnosis-review select{font:inherit;padding:8px;border:1px solid #b8cad5;border-radius:6px;max-width:100%;box-sizing:border-box}.diagnosis-review button{padding:8px 12px;background:white;border:1px solid #8aa8bc;border-radius:6px;color:#20536b}.error{color:#a3261b}
+.diagnosis-review{margin:12px 0}.diagnosis-review details{padding:12px;border:1px solid #cbd5e1;border-radius:9px}.diagnosis-review summary{cursor:pointer;font-weight:650}.diagnosis-review .diagnosis-support{padding:8px 10px;margin-top:8px}.diagnosis-support form{margin-top:10px}.diagnosis-alert{padding:12px;margin:7px 0;background:#fff4df;border-left:4px solid #b9771b}.diagnosis-review article,.supervisor-policy{padding:12px 0;border-top:1px solid #d9e2e8;margin-top:12px}.diagnosis-review label{display:grid;gap:4px;margin:8px 0}.diagnosis-review input,.diagnosis-review textarea,.diagnosis-review select{font:inherit;padding:8px;border:1px solid #b8cad5;border-radius:6px;max-width:100%;box-sizing:border-box}.diagnosis-review button{padding:8px 12px;background:white;border:1px solid #8aa8bc;border-radius:6px;color:#20536b}.error{color:#a3261b}
 </style>

@@ -1293,17 +1293,25 @@ describe('ClinicalNoteGeneratorView smoke', () => {
       state.dateOfService='2026-11-03';state.noteWriterMode='narriva';
       state.chartTreatmentPlans=[{id:91,agency_id:7,client_id:22,status:'active',effective_date:'2026-10-20',goals:[]}];
       state.latestTreatmentPlan=state.chartTreatmentPlans[0];
+      state.inputText='Synthetic source entered before signing.';
       state.outputObj={sections:{Narrative:'Synthetic encounter.'},meta:{generationReceipt:'test'}};
       state.narrivaConsentConfirmed=true;
       await flushPromises();
       state.attestAccurateAndComplete=true;state.attestMedicallyNecessary=true;state.attestAiContentReviewed=true;
       state.narrivaReview={id:30,phase:'output',status:'passed'};
       let attempts=0;
+      let signed=false;
+      let retiredDraftWrites=0;
+      vi.mocked(api.patch).mockImplementation(async url=>{
+        if(signed && url==='/clinical-notes/drafts/42')retiredDraftWrites++;
+        return {data:{}};
+      });
       vi.mocked(api.post).mockImplementation(async url=>{
         if(url.endsWith('/notes'))return {data:{note:{id:77,signingToken:'synthetic'}}};
         if(url.endsWith('/reviews'))return {data:{review:{id:31,phase:'output',status:'passed'}}};
         if(url.endsWith('/sign')){
           if(++attempts===1)throw Error('Temporary signature failure.');
+          signed=true;
           return {data:{signedAt:'2026-11-03T17:12:34Z'}};
         }
         return {data:{}};
@@ -1313,8 +1321,12 @@ describe('ClinicalNoteGeneratorView smoke', () => {
       await state.approveNoteOutput({afterSign:'close'});
       expect(state.approvalError).toBe('');
       expect(attempts).toBe(2);
+      expect(state.approvalMessage).toContain('saved to clinical records');
+      expect(state.draftId).toBeNull();
+      await flushPromises();
+      expect(retiredDraftWrites).toBe(0);
       for (const suffix of ['/sessions/9/notes','/reviews']) expect(vi.mocked(api.post).mock.calls.filter(([url])=>url.endsWith(suffix))).toHaveLength(1);
-    } finally {wrapper.unmount();}
+    } finally {vi.mocked(api.patch).mockReset().mockResolvedValue({data:{}});wrapper.unmount();}
   });
 
   it('uses the saved snapshot token and server signature time for a treatment summary', async () => {

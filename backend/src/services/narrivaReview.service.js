@@ -288,7 +288,7 @@ async function executeReview(id,user,input,req,source) {
     await persist(review);
   }});
   if(requestHash)review.outputEvidence={requestHash,facts};
-  if(review.draftId && review.phase==='output')review.authorOutputHash=authorOutputHash(source);
+  if(review.phase==='output')review.authorOutputHash=authorOutputHash(source);
   if(workingDraft)review.workingDraft=workingDraft;
   review.reviewedWriter=reviewedWriter;
   if(writerCandidate)review.writerCandidate=writerCandidate;
@@ -423,6 +423,7 @@ export async function createNarrivaReview(req) {
    qualityBypass:prior.qualityBypass,priorDecisions:prior.priorDecisions || [],longitudinal:prior.longitudinal,
    model:prior.model,guidanceHash:prior.guidanceHash,serviceReferenceHash:prior.serviceReferenceHash,
    riskAssessmentRequired:prior.riskAssessmentRequired,status:prior.status,completedAt:new Date().toISOString(),originatingOutputReviewId:prior.id});
+  review.authorOutputHash=authorOutputHash(source);
   review.scoring=reviewedScoring(review,source);
   review.status=reviewedStatus(review);
   review.scoring=reviewedScoring(review,source);
@@ -453,7 +454,17 @@ export async function readNarrivaReview(user,id,agencyId,{clinicalDb,poll=false}
  return evaluateStoredReview(user,review,source);
 }
 async function evaluateStoredReview(user,review,source,writerGuidance){
- if(source.sourceHash!==review.sourceHash || review.rulesVersion!==NARRIVA_RULES_VERSION)review.status='stale';
+ // Applying the original signature adds a revision and signature metadata.
+ // Reuse the author's completed review only while that original clinical evidence
+ // is identical. An addendum, changed encounter facts or newer risk still requires review.
+ const signedOriginalMatches = !!source.noteId && !!source.source.provider_signed_at
+  && Number(source.source.clinical_version_number)===1 && !source.source.clinical_version_pending_id
+  && !Number(source.source.addendum_count) && review.phase==='output' && !!review.authorOutputHash
+  && Number(review.noteId)===Number(source.noteId)
+  && Number(review.actorUserId)===Number(source.source.provider_signed_by_user_id)
+  && Number(review.actorUserId)===Number(source.source.created_by_user_id)
+  && review.authorOutputHash===authorOutputHash(source);
+ if((source.sourceHash!==review.sourceHash && !signedOriginalMatches) || review.rulesVersion!==NARRIVA_RULES_VERSION)review.status='stale';
  const {directAssessment}=clinicalServiceRequirements({clientPresent:source.encounter.clientPresent});
  if(directAssessment && source.clinical.riskRequiredFromPriorReview===true && review.riskAssessmentRequired!==true && review.status==='passed'){
   review.status='stale';
