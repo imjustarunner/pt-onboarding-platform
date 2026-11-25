@@ -3,7 +3,7 @@
     <ContractHandbookModal v-if="handbookReference" :open="true" v-bind="handbookReference" @close="handbookReference=null" />
     <header class="sph-head">
       <div class="sph-brandbar"><button type="button" class="sph-back" @click="goBack">← Applicants</button><PlotlineSignature context="Hiring workspace" product="PO" /></div>
-      <div class="sph-heading-row"><div><p class="sph-eyebrow">{{ agencyStore.currentAgency?.name || 'People operations' }} / Hiring</p><h1>Start pre-hire</h1><p class="muted">Prepare {{ candidateName === 'Candidate' ? 'their' : candidateName + '’s' }} next chapter, one step at a time.</p></div><div class="sph-save-state"><span class="sph-save-dot" :class="{ pending: draftDirty || draftSaving, failed: draftSaveError }" /><p role="status">{{ draftMessage }}</p><button v-if="draftSaveError" type="button" @click="flushDraft">Retry saving</button></div></div>
+      <div class="sph-heading-row"><div><p class="sph-eyebrow">{{ agencyStore.currentAgency?.name || 'People operations' }} / Hiring</p><h1>Start pre-hire</h1><p class="muted">Prepare {{ candidateName === 'Candidate' ? 'their' : candidateName + '’s' }} next chapter, one step at a time.</p></div><div class="sph-save-state"><span class="sph-save-dot" :class="{ pending: draftDirty || draftSaving, failed: draftSaveError }" /><p role="status">{{ draftMessage }}</p><button v-if="draftSaveError" type="button" @click="flushDraft">Retry saving progress</button></div></div>
     </header>
 
     <div v-if="loading" class="sph-initial-loading" role="status"><div class="sph-skeleton" /><p>Opening candidate and job details…</p></div>
@@ -677,9 +677,11 @@ const resendInvitation = async () => {
 
 const setupSteps = ['Person & job', 'Role & supervision', 'Select materials', 'Review each step', 'Contract & cosigners', 'Review & invite'];
 const setupStep = ref(0), currentPortalLink = ref('');
+let explicitSetupFocus = false;
 watch(setupStep, async () => {
-  if (loading.value) return;
+  if (loading.value || explicitSetupFocus) return;
   await nextTick();
+  if (explicitSetupFocus) return;
   const section = [...(workspaceRoot.value?.querySelectorAll('.sph-card') || [])].find(card => card.style.display !== 'none');
   const heading = section?.querySelector('h2');
   if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll: true }); heading.scrollIntoView?.({ block: 'start', behavior: 'instant' }); }
@@ -797,13 +799,18 @@ async function resolveSetupIssue(message, tokenKey) {
     window.open(path, '_blank', 'noopener');
     return;
   }
-  const legacySetupStep = destination.step ?? 2;
-  setupStep.value = [0, 2, 4, 5][legacySetupStep] ?? 4;
-  await nextTick();
-  const element=(tokenKey && document.getElementById(`prehire-field-${tokenKey}`)) || document.getElementById(destination.id);
-  if (!element) return;
-  element.scrollIntoView?.({block:'center',behavior:'smooth'});
-  (element.matches('input,select,textarea,button') ? element : element.querySelector('input,select,textarea,button') || element).focus({preventScroll:true});
+  // A field-specific error takes focus after switching stages. The general
+  // stage heading must not take that focus back on the next render.
+  explicitSetupFocus = true;
+  try {
+    const legacySetupStep = destination.step ?? 2;
+    setupStep.value = [0, 2, 4, 5][legacySetupStep] ?? 4;
+    await nextTick();
+    const element=(tokenKey && document.getElementById(`prehire-field-${tokenKey}`)) || document.getElementById(destination.id);
+    if (!element) return;
+    element.scrollIntoView?.({block:'center',behavior:'smooth'});
+    (element.matches('input,select,textarea,button') ? element : element.querySelector('input,select,textarea,button') || element).focus({preventScroll:true});
+  } finally { explicitSetupFocus = false; }
 }
 function reportPreviewError(message) {
   previewError.value=message;
