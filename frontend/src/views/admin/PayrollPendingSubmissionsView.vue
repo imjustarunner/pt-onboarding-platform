@@ -171,12 +171,12 @@
                       :disabled="busyId === `pto-${r.id}` || !isValidOpenPeriod(ptoTargetById[r.id])"
                       @click="approvePto(r)"
                     >
-                      {{ busyId === `pto-${r.id}` ? '…' : 'Approve' }}
+                      {{ busyId === `pto-${r.id}` ? '…' : Number(ptoApprovalHoursById[r.id] ?? r.total_hours) < Number(r.total_hours) ? `Approve ${ptoApprovalHoursById[r.id]}h now` : 'Approve' }}
                     </button>
                     <button type="button" class="btn btn-secondary btn-sm" :disabled="busyId === `pto-${r.id}`" @click="returnPto(r)">Send back…</button>
                     <button type="button" class="btn btn-danger btn-sm" :disabled="busyId === `pto-${r.id}`" @click="rejectPto(r)">Reject</button>
                   </div>
-                  <span v-else class="muted" style="font-size:12px;">{{ statusDoneLabel(r) }}</span>
+                  <div v-else><span class="muted" style="font-size:12px;">{{ statusDoneLabel(r) }}</span><button v-if="r.status === 'approved' && ['draft','raw_imported','staged','ran'].includes(r.approved_period_status)" type="button" class="btn btn-secondary btn-sm" :disabled="busyId === `pto-${r.id}`" @click="returnApprovedPto(r)">Return to pending</button></div>
                 </td>
               </tr>
             </tbody>
@@ -1968,6 +1968,11 @@ const withBusy = async (id, fn, reloadFn) => {
   } finally {
     busyId.value = null;
   }
+};
+
+const returnApprovedPto = r => {
+  if(!window.confirm(`Return this ${Number(r.total_hours)}-hour approval to pending? Its PTO pay will be removed from the open payroll and its balance restored. Other requests stay approved.`))return;
+  return withBusy(`pto-${r.id}`,()=>api.patch(`/payroll/pto-requests/${r.id}`,{action:'return_to_pending',expectedHours:Number(r.total_hours),confirmed:true}),async()=>{ptoTargetById[r.id]=null;useDefaultForAll.value=false;delete ptoBalancesByUserId.value[Number(r.user_id)];await loadPto();actionSuccess.value='PTO returned to pending. Choose the later payroll before approving it again, then rerun the current payroll.';});
 };
 
 const approvePto = (r) => {

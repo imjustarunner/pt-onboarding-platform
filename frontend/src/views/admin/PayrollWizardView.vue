@@ -1,6 +1,7 @@
 <template>
   <div class="pw-page ft-payroll">
     <FundThredPayrollBrand />
+    <PayrollProviderConnection :period-id="Number(selectedPeriodId) || null" :locked="isPeriodPosted" @connected="onProviderConnected" />
     <div class="pw-header">
       <div class="pw-header-left">
         <button type="button" class="pw-back" @click="goBackToPayroll">
@@ -578,6 +579,7 @@
 </template>
 
 <script setup>
+import PayrollProviderConnection from '../../components/payroll/PayrollProviderConnection.vue';
 import FundThredPayrollBrand from '../../components/payroll/FundThredPayrollBrand.vue';
 import { useFundThredBranding } from '../../composables/useFundThredBranding';
 import { payrollPeriodChoices } from '../../utils/payrollPeriodChoices';
@@ -665,6 +667,7 @@ const rawPanelCatchUp = ref(null);
 const showClaimsPanel = ref(false);
 const showStagePanel = ref(false);
 const supervisionReadiness=ref(null);
+const onProviderConnected=async()=>{invalidateFromStep('batch_catchup');await loadPeriodDetails();await loadExistingImports();await saveProgress();};
 const onSupervisionChanged=async()=>{invalidateFromStep('run');await loadPeriodDetails();await saveProgress();};
 const showTodosPanel = ref(false);
 const showProcessPanel = ref(false);

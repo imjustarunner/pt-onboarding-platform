@@ -1,6 +1,7 @@
 <template>
   <div class="container pr-page ft-payroll">
     <FundThredPayrollBrand />
+    <PayrollProviderConnection :period-id="Number(selectedPeriodId) || null" :locked="isPeriodPosted" @connected="onProviderConnected" />
     <div v-if="wizardReturnPath" class="pr-wizard-return">
       <span>You opened a payroll tool from the Wizard.</span>
       <button type="button" class="btn btn-primary btn-sm" @click="returnToWizard">Return to Wizard</button>
@@ -3254,6 +3255,7 @@
                             Reject
                           </button>
                         </div>
+                        <button v-else-if="r.status === 'approved' && ['draft','raw_imported','staged','ran'].includes(r.approved_period_status)" type="button" class="btn btn-secondary btn-sm" :disabled="approvingPtoRequestId === r.id" @click="returnApprovedPto(r)">Return to pending</button>
                         <span v-else class="muted" style="font-size: 12px;">
                           {{ r.status === 'approved' ? `Approved ${String(r.approved_at || '').slice(0,10)}` : r.status === 'rejected' ? `Denied ${String(r.rejected_at || '').slice(0,10)}` : r.status === 'deferred' ? 'Sent back' : '' }}
                         </span>
@@ -6553,6 +6555,7 @@
 
 <script setup>
 import PtoApprovalHours from '../../components/payroll/PtoApprovalHours.vue';
+import PayrollProviderConnection from '../../components/payroll/PayrollProviderConnection.vue';
 import FundThredPayrollBrand from '../../components/payroll/FundThredPayrollBrand.vue';
 import { useFundThredBranding } from '../../composables/useFundThredBranding';
 import { payrollPeriodChoices } from '../../utils/payrollPeriodChoices';
@@ -9665,6 +9668,14 @@ const ptoBalancePreviewForRequest = (r) => {
   const requested = Number.isFinite(hours) ? hours : 0;
   const next = start - requested;
   return { bucket, start, requested, next };
+};
+
+const returnApprovedPto = async r => {
+  if(!window.confirm(`Return this ${Number(r.total_hours)}-hour approval to pending? Its PTO pay will be removed from the open payroll and its balance restored. Other requests stay approved.`))return;
+  approvingPtoRequestId.value=r.id;pendingPtoError.value='';
+  try{await api.patch(`/payroll/pto-requests/${r.id}`,{action:'return_to_pending',expectedHours:Number(r.total_hours),confirmed:true});delete ptoTargetPeriodByRequestId.value[r.id];delete ptoBalancesByUserId.value[Number(r.user_id)];await reloadPendingPtoRequests();await loadPeriodDetails();}
+  catch(e){pendingPtoError.value=e?.response?.data?.error?.message||e.message;}
+  finally{approvingPtoRequestId.value=null;}
 };
 
 const approvePtoRequest = async (r) => {
@@ -12873,6 +12884,8 @@ const runsSideBySideSortIndicator = (col) => {
   if (runsSideBySideSortColumn.value !== col) return '';
   return runsSideBySideSortDirection.value === 'asc' ? ' ↑' : ' ↓';
 };
+
+const onProviderConnected=async()=>{await loadPeriodDetails();if(showStageModal.value)await loadStaging();};
 
 const loadPeriodDetails = async () => {
   if (!selectedPeriodId.value) return;

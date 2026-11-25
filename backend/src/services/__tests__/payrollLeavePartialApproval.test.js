@@ -65,3 +65,29 @@ it('invalidates calculated payroll totals after a partial approval so they must 
  db.exec("UPDATE payroll_periods SET status='ran',ran_at='2026-11-25',ran_by_user_id=9 WHERE id=10; INSERT INTO payroll_summaries VALUES(10,2,100)");
  await approve({approvalHours:8});expect(db.prepare('SELECT status,ran_at FROM payroll_periods WHERE id=10').get()).toMatchObject({status:'staged',ran_at:null});expect(db.prepare('SELECT COUNT(*) n FROM payroll_summaries').get().n).toBe(0);
 });
+
+it('returns only a selected approval to pending, preserves other PTO and appends ledger reversals',async()=>{
+ const {returnApprovedLeaveToPending}=await import('../payrollLeaveReturn.service.js');
+ db.exec('INSERT INTO payroll_adjustments VALUES(10,2,7,9,2.5,0,2.5,28)');
+ const first=await approve({approvalHours:10});await approve({requestId:first.remainderRequestId,approvalHours:5});
+ const before=db.prepare('SELECT sick_balance_hours FROM payroll_pto_accounts').get().sick_balance_hours;
+ const result=await returnApprovedLeaveToPending({agencyId:2,requestId:1,actorUserId:9,expectedHours:10,confirmed:true},async()=>m.connection);
+ expect(result).toMatchObject({returned:true,returnedHours:10,removedPay:420,requiresRerun:true});expect(requests()[0]).toMatchObject({status:'submitted',total_hours:10,approved_payroll_period_id:null});expect(requests()[1]).toMatchObject({status:'approved',total_hours:5});
+ const adjustment=db.prepare('SELECT sick_pto_hours,pto_hours,pto_rate FROM payroll_adjustments').get();expect(adjustment.pto_hours).toBe(7.5);expect(adjustment.sick_pto_hours).toBe(7.5);expect(adjustment.pto_rate*7.5).toBeCloseTo(280);
+ expect(db.prepare('SELECT sick_balance_hours FROM payroll_pto_accounts').get().sick_balance_hours).toBeCloseTo(before+10);
+ const ledger=db.prepare('SELECT * FROM payroll_pto_ledger WHERE request_id=1').all();expect(ledger.filter(l=>l.entry_type==='usage')).toHaveLength(2);expect(ledger.filter(l=>l.entry_type==='manual_adjustment')).toHaveLength(2);expect(ledger.reduce((sum,l)=>sum+l.hours_delta,0)).toBe(0);expect(JSON.parse(ledger.find(l=>l.entry_type==='manual_adjustment').note)).toMatchObject({op:'return_pto_to_pending',originalApprover:9});
+ await expect(returnApprovedLeaveToPending({agencyId:2,requestId:1,actorUserId:9,expectedHours:10,confirmed:true},async()=>m.connection)).rejects.toMatchObject({status:409});
+ await approve({approvalHours:10,targetPayrollPeriodId:11});expect(db.prepare('SELECT sick_balance_hours FROM payroll_pto_accounts').get().sick_balance_hours).toBeCloseTo(before);
+});
+it('does not return a posted approval, stale hours or missing payment evidence',async()=>{
+ const {returnApprovedLeaveToPending}=await import('../payrollLeaveReturn.service.js');await approve();
+ const args={agencyId:2,requestId:1,actorUserId:9,expectedHours:15,confirmed:true};
+ await expect(returnApprovedLeaveToPending({...args,expectedHours:10},async()=>m.connection)).rejects.toMatchObject({status:409});
+ db.exec("UPDATE payroll_periods SET status='posted' WHERE id=10");await expect(returnApprovedLeaveToPending(args,async()=>m.connection)).rejects.toThrow('posted payroll');
+ db.exec("UPDATE payroll_periods SET status='staged' WHERE id=10; UPDATE payroll_pto_requests SET approved_rates_json=NULL WHERE id=1");await expect(returnApprovedLeaveToPending(args,async()=>m.connection)).rejects.toThrow('saved payment details');expect(requests()[0].status).toBe('approved');
+});
+it('rolls back the returned pay and balance if saving pending status fails',async()=>{
+ const {returnApprovedLeaveToPending}=await import('../payrollLeaveReturn.service.js');await approve();const before=db.prepare('SELECT sick_balance_hours FROM payroll_pto_accounts').get().sick_balance_hours;
+ const execute=m.connection.execute;m.connection.execute=async(sql,params)=>{if(sql.startsWith("UPDATE payroll_pto_requests SET status='submitted'"))throw Error('Pending update failed');return execute(sql,params);};
+ await expect(returnApprovedLeaveToPending({agencyId:2,requestId:1,actorUserId:9,expectedHours:15,confirmed:true},async()=>m.connection)).rejects.toThrow('Pending update failed');expect(requests()[0].status).toBe('approved');expect(db.prepare('SELECT sick_balance_hours FROM payroll_pto_accounts').get().sick_balance_hours).toBe(before);expect(db.prepare("SELECT COUNT(*) n FROM payroll_pto_ledger WHERE entry_type='manual_adjustment'").get().n).toBe(0);expect(db.prepare('SELECT sick_pto_hours FROM payroll_adjustments').get().sick_pto_hours).toBe(15);
+});

@@ -1,3 +1,5 @@
+import {returnApprovedLeaveToPending} from '../services/payrollLeaveReturn.service.js';
+import {previewPayrollProviderConnection,connectPayrollProvider} from '../services/payrollProviderConnection.service.js';
 import { saveSupervisionResolution } from '../services/payrollSupervisionResolution.service.js';
 import { savePayrollDraftBatch } from '../services/payrollDraftBatch.service.js';
 import { savePayrollImportProcessing } from '../services/payrollImportRowEdit.service.js';
@@ -21917,6 +21919,11 @@ export const patchPtoRequest = async (req, res, next) => {
     const action = String(req.body?.action || '').trim().toLowerCase();
     if (!action) return res.status(400).json({ error: { message: 'action is required' } });
 
+    if (action === 'return_to_pending') {
+      res.json(await returnApprovedLeaveToPending({agencyId:Number(reqRow.agency_id),requestId:id,actorUserId:Number(req.user.id),expectedHours:req.body?.expectedHours,confirmed:req.body?.confirmed}));
+      return;
+    }
+
     if (action === 'approve') {
       // Admin approval only blocks when the target period is already posted/finalized.
       // The old 60-day submission window is not enforced at approval time.
@@ -23831,4 +23838,21 @@ export const listPayrollCorrectionResolutions = async(req,res,next)=>{
     const [rows]=await pool.execute(`SELECT r.id,r.source_payroll_period_id,r.baseline_row_id,r.compare_row_id,r.resolution,r.reason,r.created_at,r.reviewed_by_user_id,u.first_name,u.last_name FROM payroll_correction_resolutions r LEFT JOIN users u ON u.id=r.reviewed_by_user_id WHERE r.agency_id=? AND r.payroll_period_id=?`,[Number(period.agency_id),Number(period.id)]);
     res.set('Cache-Control','no-store').json({resolutions:rows});
   }catch(error){next(error);}
+};
+
+export const getPayrollProviderConnection = async(req,res,next)=>{
+ try {
+  const period=await PayrollPeriod.findById(Number(req.params.id));
+  if(!period)return res.status(404).json({error:{message:'Pay period not found.'}});
+  if(!(await requirePayrollAccess(req,res,period.agency_id)))return;
+  res.set('Cache-Control','no-store').json(await previewPayrollProviderConnection({agencyId:Number(period.agency_id),periodId:Number(period.id),providerName:req.query?.providerName,targetUserId:req.query?.targetUserId}));
+ }catch(error){next(error);}
+};
+export const savePayrollProviderConnection = async(req,res,next)=>{
+ try {
+  const period=await PayrollPeriod.findById(Number(req.params.id));
+  if(!period)return res.status(404).json({error:{message:'Pay period not found.'}});
+  if(!(await requirePayrollAccess(req,res,period.agency_id)))return;
+  res.json(await connectPayrollProvider({agencyId:Number(period.agency_id),periodId:Number(period.id),providerName:req.body?.providerName,targetUserId:req.body?.targetUserId,reviewToken:req.body?.reviewToken,confirmedSamePerson:req.body?.confirmedSamePerson,actorUserId:Number(req.user.id)}));
+ }catch(error){next(error);}
 };

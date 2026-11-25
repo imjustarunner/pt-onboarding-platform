@@ -36,7 +36,8 @@ class PayrollPtoRequest {
               sb.last_name AS submitted_by_last_name,
               sb.email AS submitted_by_email,
               pp.period_start AS approved_period_start,
-              pp.period_end AS approved_period_end
+              pp.period_end AS approved_period_end,
+              pp.status AS approved_period_status
        FROM payroll_pto_requests r
        LEFT JOIN users sb ON sb.id = r.submitted_by_user_id
        LEFT JOIN payroll_periods pp ON pp.id = r.approved_payroll_period_id

@@ -1,9 +1,10 @@
 import {beforeEach,it,expect,vi} from 'vitest';
-const m=vi.hoisted(()=>({execute:vi.fn(),request:vi.fn(),items:vi.fn(),approve:vi.fn(),period:vi.fn()}));
+const m=vi.hoisted(()=>({execute:vi.fn(),request:vi.fn(),items:vi.fn(),approve:vi.fn(),returnPto:vi.fn(),period:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute},onTableWrite:vi.fn()}));
 vi.mock('../../models/PayrollPtoRequest.model.js',()=>({default:{findById:m.request,listItemsForRequest:m.items}}));
 vi.mock('../../models/PayrollPeriod.model.js',()=>({default:{findById:m.period}}));
 vi.mock('../../services/payrollPto.service.js',async importOriginal=>({...await importOriginal(),approvePtoRequestAndPostToPayroll:m.approve}));
+vi.mock('../../services/payrollLeaveReturn.service.js',()=>({returnApprovedLeaveToPending:m.returnPto}));
 import {patchPtoRequest} from '../payroll.controller.js';
 const response=()=>({status:vi.fn().mockReturnThis(),json:vi.fn()});
 const request=()=>({params:{id:'89'},user:{id:9,role:'admin'},body:{action:'approve',targetPayrollPeriodId:149,approvalHours:8,approvedByUserId:999,agencyId:6}});
@@ -13,4 +14,8 @@ it('uses the request agency and authenticated reviewer, forwards only the select
 });
 it('requires payroll access before approving any portion',async()=>{
  m.execute.mockImplementation(async sql=>sql.includes('SELECT id, organization_type')?[[{id:2,organization_type:'agency'}]]:[[]]);const res=response();await patchPtoRequest(request(),res,vi.fn());expect(res.status).toHaveBeenCalledWith(403);expect(m.approve).not.toHaveBeenCalled();
+});
+
+it('returns only the selected approved request with payroll access and authenticated attribution',async()=>{
+ const req=request();req.body={action:'return_to_pending',expectedHours:10,confirmed:true,actorUserId:999};const next=vi.fn();await patchPtoRequest(req,response(),next);expect(next).not.toHaveBeenCalled();expect(m.returnPto).toHaveBeenCalledWith({agencyId:2,requestId:89,actorUserId:9,expectedHours:10,confirmed:true});
 });

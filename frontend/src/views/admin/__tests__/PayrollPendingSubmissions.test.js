@@ -243,10 +243,17 @@ it('approves only selected PTO hours and leaves the dated remainder pending',asy
  ptoRows=[{id:89,user_id:7,status:'submitted',request_type:'sick',total_hours:15,items:[{request_date:'2026-10-20',hours:5},{request_date:'2026-10-21',hours:5},{request_date:'2026-10-22',hours:5}]}];
  mock.patch.mockImplementationOnce(async(url,body)=>{ptoRows=[{...ptoRows[0],status:'approved',total_hours:body.approvalHours},{...ptoRows[0],id:90,total_hours:15-body.approvalHours,items:[{request_date:'2026-10-21',hours:2},{request_date:'2026-10-22',hours:5}]}];return{data:{approval:{approvedHours:8,remainingHours:7,remainderRequestId:90}}};});
  const w=await page('pto');const input=w.get('input[aria-label="Hours to approve now for Test Provider"]');await input.setValue('8');expect(w.text()).toContain('7 hours stay pending');
- await button(w,'Approve').trigger('click');await flushPromises();expect(mock.patch).toHaveBeenCalledWith('/payroll/pto-requests/89',expect.objectContaining({action:'approve',approvalHours:8,targetPayrollPeriodId:8}));
+ await button(w,'Approve 8h now').trigger('click');await flushPromises();expect(mock.patch).toHaveBeenCalledWith('/payroll/pto-requests/89',expect.objectContaining({action:'approve',approvalHours:8,targetPayrollPeriodId:8}));
  expect(ptoRows.find(r=>r.id===90)).toMatchObject({status:'submitted',total_hours:7});expect(w.text()).toContain('PTO rate settings');
 });
 it('does not approve an invalid PTO portion',async()=>{
  ptoRows=[{id:89,user_id:7,status:'submitted',request_type:'sick',total_hours:15,items:[{request_date:'2026-10-20',hours:15}]}];
  const w=await page('pto');await w.get('input[aria-label="Hours to approve now for Test Provider"]').setValue('16');await button(w,'Approve').trigger('click');await flushPromises();expect(mock.patch).not.toHaveBeenCalled();expect(w.text()).toContain('no more than the requested hours');
+});
+
+it('can return the ten-hour approval to pending while leaving the fifteen-hour approval intact',async()=>{
+ ptoRows=[{id:94,user_id:7,status:'approved',request_type:'sick',total_hours:10,approved_period_status:'ran',approved_payroll_period_id:8,items:[{request_date:'2026-10-20',hours:10}]},{id:95,user_id:7,status:'approved',request_type:'sick',total_hours:15,approved_period_status:'ran',approved_payroll_period_id:8,items:[{request_date:'2026-10-21',hours:15}]}];
+ const confirm=vi.spyOn(window,'confirm').mockReturnValue(true);mock.patch.mockImplementationOnce(async()=>{ptoRows[0]={...ptoRows[0],status:'submitted',approved_period_status:null,approved_payroll_period_id:null};return {data:{returned:true,returnedHours:10,removedPay:280,requiresRerun:true}};});
+ const w=await page('pto');await w.findAll('button').find(b=>b.text().replace(/\s/g,'')==='Approved2').trigger('click');await flushPromises();await button(w,'Return to pending').trigger('click');await flushPromises();
+ expect(mock.patch).toHaveBeenCalledWith('/payroll/pto-requests/94',{action:'return_to_pending',expectedHours:10,confirmed:true});expect(ptoRows[1].status).toBe('approved');expect(ptoRows[0]).toMatchObject({status:'submitted',total_hours:10});expect(w.text()).toContain('rerun the current payroll');confirm.mockRestore();
 });

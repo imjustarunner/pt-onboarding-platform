@@ -1,3 +1,4 @@
+import {getPayrollProviderConnection,savePayrollProviderConnection} from '../controllers/payroll.controller.js';
 import { savePayrollDraftDecisions } from '../controllers/payroll.controller.js';
 import { getPayrollCorrectionReview, postPayrollCorrectionReview, postPayrollCorrectionAddition, savePayrollCorrectionResolution, listPayrollCorrectionResolutions } from '../controllers/payroll.controller.js';
 import { getPayrollEventTravelReport, reviewPayrollEventTravelReport } from '../controllers/payroll.controller.js';
@@ -280,6 +281,8 @@ router.get('/periods/:id', getPayrollPeriod);
 router.get('/periods/:id/school-support-review', getSchoolSupportAccrualReview);
 router.get('/periods/:id/actual-hours/:userId', getPayrollActualHoursReview);
 router.put('/periods/:id/actual-hours/:userId', savePayrollActualHoursReview);
+router.get('/periods/:id/provider-connection',getPayrollProviderConnection);
+router.post('/periods/:id/provider-connection',savePayrollProviderConnection);
 router.get('/periods/:id/raw-audit', getPayrollPeriodRawAudit);
 router.get('/periods/:id/runs-side-by-side', getPayrollPeriodRunsSideBySide);
 router.get('/periods/:id/imports', listPayrollPeriodImports);
