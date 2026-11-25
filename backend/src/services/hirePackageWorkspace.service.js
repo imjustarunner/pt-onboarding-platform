@@ -1,9 +1,11 @@
 import { getAppliedJobHireDefaults, resolveOnboardingDefaults } from './hireJobDefaults.service.js';
 import { createHash } from 'node:crypto';
 import pool from '../config/database.js';
-import { portalPacket } from './hirePortalWorkflow.service.js';
+import { agreementCredentialForHire, portalPacket } from './hirePortalWorkflow.service.js';
+import { decryptGuardianIntake } from './guardianIntakeEncryption.service.js';
 import { composeWorkflow, sanitizeWorkflow, jsonObject } from '../utils/hirePortalWorkflow.js';
-import { taskPhase } from './hireJourney.service.js';
+import { taskPhase, listPrehireReceiptFiles } from './hireJourney.service.js';
+import { isEmploymentContract } from '../utils/contractSignatureFields.js';
 import { assignPackageToUser } from './packageAssignment.service.js';
 import { assertHireFormReady } from '../utils/hireDocumentFields.js';
 
@@ -39,12 +41,25 @@ async function context(userId, agencyId, db, lock = false) {
 }
 export async function getHirePackageWorkspace(userId, agencyId, db = pool) {
   const ctx = await context(userId, agencyId, db);
-  const [tasks] = await db.execute(`SELECT id, title, task_type, document_action_type, reference_id, metadata, status FROM tasks
+  const [tasks] = await db.execute(`SELECT id, title, task_type, document_action_type, reference_id, metadata, status,
+    EXISTS(SELECT 1 FROM signed_documents s WHERE s.task_id = tasks.id AND s.user_id = tasks.assigned_to_user_id AND s.signed_pdf_path IS NOT NULL) AS signed
+    FROM tasks
     WHERE assigned_to_user_id = ? AND assigned_to_agency_id = ? AND task_type IN ('document','training','intake_form','custom')
     AND (task_type <> 'custom' OR JSON_EXTRACT(metadata, '$.checklistItemId') IS NOT NULL)
     AND (document_action_type IS NULL OR document_action_type <> 'countersignature')
     AND status NOT IN ('deleted','archived','overridden') ORDER BY created_at, id`, [userId, agencyId]);
   const [submissions] = await db.execute('SELECT phase, step_key FROM hire_portal_submissions WHERE user_id = ? AND completed_at IS NOT NULL', [userId]);
+  const prehireFiles = await listPrehireReceiptFiles(userId, agencyId, db);
+  let credentialReview = null;
+  if (submissions.some(item => item.phase === 'pre_hire' && item.step_key === 'profile')) {
+    const [[submitted]] = await db.execute(`SELECT encrypted_value FROM hire_portal_submissions
+      WHERE user_id = ? AND phase = 'pre_hire' AND step_key = 'profile' AND completed_at IS NOT NULL`, [userId]);
+    if (submitted?.encrypted_value) {
+      const profile = jsonObject(decryptGuardianIntake(jsonObject(submitted.encrypted_value)));
+      const agreement = await agreementCredentialForHire(userId, agencyId, '', db);
+      if (Object.hasOwn(profile, 'provider_credential')) credentialReview = { agreement, confirmed: profile.provider_credential };
+    }
+  }
   return { candidate: ctx.user, revision: revisionOf(ctx.packet), phases: Object.fromEntries(['pre_hire','onboarding'].map(phase => [phase, {
     closed: packageClosed(phase, ctx.user, ctx.journey), preparing: phase === 'onboarding' && ctx.preparing,
     training: phase === 'onboarding' ? ctx.training : null,
@@ -52,7 +67,12 @@ export async function getHirePackageWorkspace(userId, agencyId, db = pool) {
     suggestedPackageId: phase === 'onboarding' ? ctx.suggestedOnboardingPackageId : null,
     workflow: { resources: ctx.workflow.resources.filter(r => r.phase === phase), excludedResourceIds: ctx.workflow.excludedResourceIds || [] },
     completedResourceIds: submissions.filter(s => s.phase === phase).map(s => s.step_key),
-    tasks: tasks.filter(t => taskPhase(t, ctx.user.status) === phase).map(t => ({ id: t.id, title: t.title, status: t.status, type: t.task_type }))
+    credentialReview: phase === 'pre_hire' ? credentialReview : null,
+    files: phase === 'pre_hire' ? prehireFiles : [],
+    tasks: tasks.filter(t => taskPhase(t, ctx.user.status) === phase).map(t => ({
+      id: t.id, title: t.title, status: t.status, type: t.task_type,
+      signed: !!Number(t.signed), employmentAgreement: isEmploymentContract(t.metadata)
+    }))
   }])) };
 }
 export async function saveHirePackageWorkspace({ userId, agencyId, actorId, phase, input }) {

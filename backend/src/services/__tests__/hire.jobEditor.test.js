@@ -35,6 +35,8 @@ describe('job editor content',()=>{
   it('keeps receipt-only uploads separate from signature templates',()=>{
     expect(sanitizePrehireConfig({documents:[{id:'notice',kind:'receipt',title:'Notice',filePath:'notice.pdf',templateId:3}]}).documents[0]).toMatchObject({kind:'receipt',filePath:'notice.pdf',templateId:null});
     expect(isEmployeeVisibleAdminDocType('prehire_document_receipt')).toBe(true);
+    expect(isCandidateSubmissionAdminDoc({ doc_type: 'hiring_reference_response', storage_path: 'private/reference.pdf', created_by_user_id: 4 }, 4)).toBe(false);
+    expect(isCandidateSubmissionAdminDoc({ storage_path: 'private/reference.pdf', created_by_user_id: 99 }, 4)).toBe(false);
     expect(isCandidateSubmissionAdminDoc({doc_type:'prehire_document_receipt'},4)).toBe(true);
   });
 });

@@ -29,7 +29,11 @@ beforeEach(() => {
       // The submission table is scoped by user and phase, not an agency_id column.
       expect(sql).not.toContain('agency_id'); return [completed];
     }
-    if (sql.includes('FROM tasks')) return [[{ id: 3, title: 'Signed agreement', status: 'completed', task_type: 'document', metadata: { portalPhase: 'pre_hire' } }]];
+    if (sql.includes('FROM hiring_prehire_checklist_items')) return [[
+      { id: 5, title: 'Background check authorization', doc_type: 'background_check_authorization', storage_path: 'private/receipt.pdf' },
+      { id: 6, title: 'Internal references', doc_type: 'hiring_reference_response', storage_path: 'private/reference.pdf' }
+    ]];
+    if (sql.includes('FROM tasks')) return [[{ id: 3, title: 'Signed agreement', status: 'completed', task_type: 'document', signed: 1, metadata: { portalPhase: 'pre_hire', contractGeneration: true } }]];
     return [[]];
   });
 });
@@ -42,7 +46,8 @@ describe('staff workspace for a person’s hire packages', () => {
   it('keeps the same person with scoped assignments in each phase and no writes when browsing', async () => {
     const result = await getHirePackageWorkspace(8, 2);
     expect(result.candidate.id).toBe(8);
-    expect(result.phases.pre_hire.tasks).toEqual([{ id: 3, title: 'Signed agreement', status: 'completed', type: 'document' }]);
+    expect(result.phases.pre_hire.files).toEqual([{ id: 5, title: 'Background check authorization', category: 'background_check_authorization' }]);
+    expect(result.phases.pre_hire.tasks).toEqual([{ id: 3, title: 'Signed agreement', status: 'completed', type: 'document', signed: true, employmentAgreement: true }]);
     expect(result.phases.onboarding).toMatchObject({ preparing: true, closed: false, tasks: [], workflow: { resources: [expect.objectContaining({ id: 'welcome' })] } });
     expect(m.execute.mock.calls.some(([sql]) => /INSERT|UPDATE|DELETE/.test(sql))).toBe(false);
   });

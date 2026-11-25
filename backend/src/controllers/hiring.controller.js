@@ -4161,7 +4161,7 @@ export const previewCandidatePrehire = async (req, res, next) => {
     ]);
     const legalName = [user.first_name, user.last_name].filter(Boolean).join(' ');
     const backgroundCheck = { signed: false };
-    const previewUser = { first_name: user.first_name, last_name: user.last_name, personal_email: user.personal_email || user.email, status: 'PREHIRE_OPEN', work_location: body.contractTokens?.ASSIGNED_OFFICE_NAME };
+    const previewUser = { credential: body.contractTokens?.CREDENTIAL, first_name: user.first_name, last_name: user.last_name, personal_email: user.personal_email || user.email, status: 'PREHIRE_OPEN', work_location: body.contractTokens?.ASSIGNED_OFFICE_NAME };
     const templateIds = [...new Set([
       ...(Array.isArray(body.documentTemplateIds) ? body.documentTemplateIds : []),
       ...(Array.isArray(body.previewTemplates) ? body.previewTemplates.map(item => item?.templateId) : []),

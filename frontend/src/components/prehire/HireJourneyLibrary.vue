@@ -1,8 +1,12 @@
 <template>
-  <section v-if="record?.journey || error" class="hire-library">
+  <section v-if="record?.journey || record?.employmentAgreement || record?.prehireFiles?.length || error" class="hire-library">
     <h2>My hire & onboarding package</h2>
     <p>Your completed pre-hire documents, onboarding questionnaires, training record, and recorded time stay here.</p>
     <p v-if="error" role="alert">{{ error }}</p>
+    <section v-if="record?.employmentAgreement">
+      <h3>Employment agreement</h3>
+      <button type="button" @click="openFile(record.employmentAgreement.signedFileUrl)">Open signed agreement PDF</button>
+    </section>
     <template v-if="record?.journey">
       <details v-for="phase in ['prehire', 'onboarding']" :key="phase">
         <summary>{{ phase === 'prehire' ? 'Pre-hire' : 'Onboarding' }} · {{ record.journey[phase === 'prehire' ? 'prehireCompletedAt' : 'onboardingCompletedAt'] ? 'Completed' : 'In progress' }}</summary>
@@ -11,6 +15,9 @@
             <button v-if="task.taskType === 'document' && task.status === 'completed'" type="button" @click="openTask(task)">{{ task.title }}</button>
             <span v-else>{{ task.title }}</span> · {{ task.status }}
           </li>
+        </ul>
+        <ul v-if="phase === 'prehire' && record.prehireFiles?.length">
+          <li v-for="file in record.prehireFiles" :key="file.id"><button type="button" @click="openFile(file.fileUrl)">{{ file.title }}</button></li>
         </ul>
         <details v-for="form in record.journey[phase]?.questionnaires || []" :key="form.moduleId">
           <summary>{{ form.title }} · submitted answers</summary>

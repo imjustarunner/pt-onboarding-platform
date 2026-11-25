@@ -53,7 +53,34 @@
             <div v-if="step.staffOverride" class="card notice"><h3>Staff exception recorded</h3><p>{{ step.staffOverride.reason }}</p><p>{{ step.staffOverride.actorName }} recorded this exception on {{ new Date(step.staffOverride.at).toLocaleString() }}. You can continue with your remaining steps. Your original document and signature status are retained.</p></div>
             <div v-else-if="step.kind === 'profile'" class="card">
               <p>This information is collected for individuals under consideration with {{ agency.name }}. People Operations will review your submission. Submitting does not guarantee employment or finalize an offer.</p>
-              <form @submit.prevent="saveProfile(true)"><fieldset :disabled="closed || busy || preview"><div class="profile-grid"><div class="profile-field" v-for="field in workflow.profileFields" :key="field.key" :class="{ wide: field.type === 'textarea' }"><label :for="`profile-${field.key}`">{{ field.label }}<span v-if="field.required"> *</span></label><CredentialPicker v-if="field.key === 'provider_credential'" v-model="profile[field.key]" :disabled="closed || busy || preview" /><textarea :id="`profile-${field.key}`" v-else-if="field.type === 'textarea'" v-model="profile[field.key]" rows="3" /><input :id="`profile-${field.key}`" v-else v-model="profile[field.key]" :type="field.type === 'phone' ? 'tel' : field.type" :required="field.required" /></div></div></fieldset><div v-if="!closed" class="form-actions"><button type="button" :disabled="busy" @click="saveProfile(false)">Save for later</button><button class="primary" :disabled="busy">{{ busy ? 'Saving…' : 'Save information' }}</button></div></form>
+              <form @submit.prevent="saveProfile(true)">
+                <fieldset :disabled="closed || busy || preview">
+                  <div class="profile-grid">
+                    <div v-for="field in workflow.profileFields" :key="field.key" class="profile-field" :class="{ wide: field.type === 'textarea' || field.type === 'credentials' }">
+                      <template v-if="field.key === 'provider_credential'">
+                        <h3>{{ field.label }}</h3>
+                        <template v-if="workflow.agreementCredential">
+                          <p>From your employment agreement <strong>{{ workflow.agreementCredential }}</strong></p>
+                          <fieldset class="credential-confirmation">
+                            <legend>Confirm these credentials</legend>
+                            <label><input type="radio" v-model="credentialAction" value="confirm" @change="profile.provider_credential = workflow.agreementCredential" /> These are current</label>
+                            <label><input type="radio" v-model="credentialAction" value="update" /> I need to update them</label>
+                          </fieldset>
+                        </template>
+                        <CredentialPicker v-if="!workflow.agreementCredential || credentialAction === 'update'" v-model="profile[field.key]" :disabled="closed || busy || preview" />
+                        <p v-if="workflow.agreementCredential && credentialAction === 'update'" class="field-hint">People Operations will review changes against your agreement.</p>
+                      </template>
+                      <template v-else>
+                        <label :for="`profile-${field.key}`">{{ field.label }}<span v-if="field.required"> *</span></label>
+                        <textarea v-if="field.type === 'textarea'" :id="`profile-${field.key}`" v-model="profile[field.key]" rows="3" />
+                        <input v-else :id="`profile-${field.key}`" v-model="profile[field.key]" :type="field.type === 'phone' ? 'tel' : field.type" :required="field.required" />
+                        <small v-if="field.key === 'preferred_signature_name'">This prefills the typed signature box. You’ll still confirm each signature.</small>
+                      </template>
+                    </div>
+                  </div>
+                  <div v-if="!closed" class="form-actions"><button type="button" @click="saveProfile(false)">Save for later</button><button class="primary">{{ busy ? 'Saving…' : 'Save information' }}</button></div>
+                </fieldset>
+              </form>
               <div v-if="workflow.resume" class="upload-card"><h3>Your application resume</h3><p>Your resume is already saved with your application.</p><a :href="workflow.resume.documentId ? `${http.defaults.baseURL}/prehire-portal/${token}/submissions/files/${workflow.resume.documentId}` : fileUrl('pre_hire','resume')" target="_blank" rel="noopener">{{ workflow.resume.name || 'View uploaded resume' }}</a></div>
             </div>
             <div v-else-if="step.kind === 'headshot'" class="card"><h3>A face to go with your name</h3><p>Add a professional headshot for your profile and your organization’s team materials. Choose one JPEG, PNG or WebP image, up to 10 MB.</p><img v-if="workflow.headshot" class="headshot-preview" :src="fileUrl('pre_hire','headshot')" alt="Your professional headshot" /><label v-if="!closed" class="upload-card"><Icon name="camera" /><span>{{ workflow.headshot ? 'Replace your headshot' : 'Upload your professional headshot' }}</span><input type="file" accept="image/jpeg,image/png,image/webp" :disabled="busy" @change="upload('headshot', $event)" /></label></div>
@@ -160,6 +187,10 @@ const heroStyle = computed(() => ({ backgroundImage: `linear-gradient(105deg, #1
 const portalLink = computed(() => props.data.portalLink || `${window.location.origin}/pre-hire/${props.token}`);
 const copied = ref(false), busy = ref(false), error = ref(''), savedMessage = ref(''), acknowledged = ref(false), signature = ref(''), scheduledAt = ref(''), certified = ref(false);
 const profile = ref({ ...workflow.value.profile });
+const credentialAction = ref('');
+watch(() => ({ value: workflow.value.profile?.provider_credential, agreement: workflow.value.agreementCredential, complete: workflow.value.steps?.pre_hire?.find(step => step.key === 'profile')?.complete }), ({ value, agreement, complete }) => {
+  credentialAction.value = !agreement ? '' : complete ? (value === agreement ? 'confirm' : 'update') : value && value !== agreement ? 'update' : '';
+}, { immediate: true });
 const preferredEmail = ref(workflow.value.preferredWorkEmail || '');
 const emailChoices = ref([]), emailDomain = ref('');
 watch(() => step.value?.kind, async kind => {
@@ -192,7 +223,13 @@ function embedUrl(raw) {
 }
 async function copyLink() { try { await navigator.clipboard.writeText(portalLink.value); copied.value = true; } catch { error.value = 'Select and copy your personal link from the field.'; } }
 async function save(key, body) { if (props.preview) return; busy.value = true; error.value = ''; savedMessage.value = ''; try { await props.http.post(`/prehire-portal/${props.token}/workflow/${key}`, body); savedMessage.value = body.complete === false ? 'Draft saved. Complete this step when you are ready.' : 'Saved to your hire record.'; emit('reload'); } catch (e) { error.value = e.response?.data?.error?.message || 'Unable to save. Please try again.'; } finally { busy.value = false; } }
-const saveProfile = (complete) => save('profile', { values: profile.value, complete });
+function saveProfile(complete) {
+  if (complete && workflow.value.agreementCredential && !credentialAction.value) {
+    error.value = 'Confirm the credentials from your employment agreement or choose to update them.';
+    return;
+  }
+  return save('profile', { values: profile.value, complete, credentialReviewed: !!credentialAction.value });
+}
 async function upload(key, event) { if (props.preview) return; const file = event.target.files?.[0]; if (!file) return; if (file.size > 10 * 1024 * 1024) { error.value = 'Choose a file up to 10 MB.'; return; } busy.value = true; error.value = ''; try { const body = new FormData(); body.append('file', file); await props.http.post(`/prehire-portal/${props.token}/workflow/${key}/upload`, body); savedMessage.value = 'Your file has been saved.'; emit('reload'); } catch (e) { error.value = e.response?.data?.error?.message || 'Upload failed. Please try again.'; } finally { busy.value = false; event.target.value = ''; } }
 function registerMediaFrame(event) {
   if (step.value?.kind !== 'video') return;
@@ -222,6 +259,7 @@ onBeforeUnmount(() => { window.removeEventListener('message', moduleMessage); wi
 </script>
 
 <style scoped>
+.credential-confirmation{display:grid;gap:8px;border:1px solid var(--hire-border);border-radius:8px;padding:12px}.credential-confirmation label{display:flex;align-items:center;gap:8px}.credential-confirmation input[type=radio]{width:auto}
 .profile-field{display:grid;gap:8px}
 
 .handbook-acknowledgement{padding:20px;margin-bottom:24px;border:1px solid var(--hire-border,#dfe5ed);border-radius:12px;background:#f8fafc}.handbook-acknowledgement h3{margin-top:0}.current-heading{scroll-margin-top:20px}.handbook-reference{max-width:none}.hire-workspace :deep(input[type=checkbox]){width:24px;height:24px;min-width:24px;flex:0 0 24px;accent-color:var(--hire-brand);cursor:pointer}.check-label{min-height:48px;align-items:center!important;padding:10px;cursor:pointer}

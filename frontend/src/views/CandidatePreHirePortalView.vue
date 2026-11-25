@@ -10,15 +10,16 @@
     <div v-else-if="!previewData && portalIdle.locked.value" class="portal-splash" role="dialog" aria-modal="true" aria-label="Portal paused"><h2>Your portal is paused</h2><p>We hid your information after 15 minutes without activity. Saved work is retained; unsaved entries may need to be entered again.</p><button class="btn-primary" @click="resumePortal">Continue securely</button></div>
     <template v-else-if="portalData">
       <p v-if="submissionError && !showSubmitConfirm" class="panel-error" role="alert">{{ submissionError }}</p>
-      <section v-if="portalData.referenceStatus?.length" class="portal-link-card" aria-label="Reference progress">
-        <h2>Your references</h2><p>See who has completed a reference. Answers and staff contact notes remain confidential.</p>
-        <ul><li v-for="reference in portalData.referenceStatus" :key="reference.referenceIndex"><strong>{{ reference.referenceName }}</strong> — {{ reference.status === 'completed' ? (reference.completionMethod === 'phone' ? 'Completed by phone with People Operations' : 'Completed online questionnaire') : reference.status === 'requested' ? 'Requested · awaiting response' : 'Pending follow-up' }}<span v-if="reference.completedAt"> · {{ new Date(reference.completedAt).toLocaleDateString() }}</span></li></ul>
-      </section>
       <HirePortalWorkspace :data="portalData" :token="String(token)" :http="portalApi" :preview="!!previewData"
         @phase="selectedProcess = $event" @section="onWorkspaceSection" @reload="reloadPortal"
         @document="selectTask" @complete-task="markIntakeFormDone" @submit="confirmSubmit" @media="embeddedVideoPlaying = $event">
         <template v-if="previewData" #preview-document="{ step }">
-          <iframe v-if="step.task?.id === 'agreement' && previewAgreement" ref="contractFrame" class="portal-agreement-preview" sandbox="allow-scripts" title="Employment agreement" :srcdoc="contractHandbookSrcdoc(previewAgreement)" />
+          <template v-if="step.task?.id === 'agreement' && previewAgreement">
+          <iframe ref="contractFrame" class="portal-agreement-preview" sandbox="allow-scripts" title="Employment agreement" :srcdoc="contractHandbookSrcdoc(previewAgreement)" />
+            <fieldset disabled class="journey-prehire">
+              <AdaptiveSignatureCapture title="Employee signature" placeholder="Type your signature as you want it to appear" />
+            </fieldset>
+          </template>
           <HireSetupDocumentPreview v-else-if="step.task?.referenceId || step.doc?.bodyHtml || step.doc?.filePath"
             :key="step.key" :title="step.title" :agency-id="agency?.id" :job-id="jobDescription?.id" :template-id="step.task?.referenceId" :document-id="step.doc?.id" />
           <a v-else-if="step.doc?.url" :href="step.doc.url" target="_blank" rel="noopener">Open document</a>
@@ -52,9 +53,15 @@
                 <div class="bg-form-grid">
                   <label>Legal name <input v-model="bgForm.legalName" type="text" required autocomplete="name" /></label>
                   <label>Date of birth <input v-model="bgForm.dateOfBirth" type="date" required /></label>
-                  <label class="bg-span">Current address <input v-address-autocomplete="previewData ? null : { format: 'full', locale: 'en', model: bgForm, publicContext: { kind: 'prehire', token }, scopeKey: token }" v-model="bgForm.currentAddress" type="text" required autocomplete="street-address" /></label>
-                  <label class="bg-span">Previous addresses (optional) <textarea v-model="bgForm.previousAddresses" rows="2" /></label>
-                  <label class="bg-span">Other names / aliases (optional) <input v-model="bgForm.aliases" type="text" /></label>
+                  <label class="bg-span" for="prehire-home-street">Current home address
+                    <input id="prehire-home-street" v-address-autocomplete="backgroundAddressLookup" v-model="bgForm.currentAddress" type="text" required autocomplete="address-line1" placeholder="Start typing your street address" />
+                  </label>
+                  <label for="prehire-home-unit">Apartment or unit (optional)<input id="prehire-home-unit" v-model="bgForm.addressLine2" type="text" autocomplete="address-line2" /></label>
+                  <label for="prehire-home-city">City<input id="prehire-home-city" v-model="bgForm.addressCity" type="text" required autocomplete="address-level2" /></label>
+                  <label for="prehire-home-state">State<input id="prehire-home-state" v-model="bgForm.addressState" type="text" maxlength="2" required autocomplete="address-level1" /></label>
+                  <label for="prehire-home-zip">ZIP code<input id="prehire-home-zip" v-model="bgForm.addressZip" type="text" autocomplete="postal-code" required /></label>
+                  <label class="bg-span" for="prehire-previous-addresses">Previous addresses (optional)<textarea id="prehire-previous-addresses" v-model="bgForm.previousAddresses" rows="2" /></label>
+                  <label class="bg-span" for="prehire-prior-names">Prior names or aliases (optional)<input id="prehire-prior-names" v-model="bgForm.aliases" type="text" /></label>
                   <label>Social Security number
                     <input v-model="bgForm.ssn" type="password" inputmode="numeric" autocomplete="off" required placeholder="###-##-####" />
                   </label>
@@ -74,7 +81,8 @@
                 <AdaptiveSignatureCapture
                   v-model="bgForm.signatureData"
                   title="Sign authorization"
-                  :signer-name="bgForm.legalName"
+                  :signer-name="preferredSigningName"
+                  placeholder="Type your signature as you want it to appear"
                 />
                 <p v-if="bgError" class="cred-warn">{{ bgError }}</p>
                 <button type="submit" class="btn-primary" :disabled="bgSaving">
@@ -119,7 +127,8 @@
                   ref="jdSignatureCapture"
                   v-model="jdSignature"
                   title="Acknowledge job description"
-                  :signer-name="candidateDisplayName"
+                  :signer-name="preferredSigningName"
+                  placeholder="Type your signature as you want it to appear"
                 />
                 <p v-if="jdError" class="cred-warn">{{ jdError }}</p>
                 <button type="button" class="btn-primary" :disabled="jdSaving" @click="acknowledgeJobDescription">
@@ -199,7 +208,8 @@
                       <AdaptiveSignatureCapture
                         v-model="companyDocSignatures[doc.id]"
                         title="Sign this document"
-                        :signer-name="candidateDisplayName"
+                        :signer-name="preferredSigningName"
+                  placeholder="Type your signature as you want it to appear"
                       />
                       <p v-if="companyDocError[doc.id]" class="cred-warn">{{ companyDocError[doc.id] }}</p>
                       <button
@@ -330,11 +340,20 @@
                   <h3>{{ phase === 'prehire' ? 'Pre-hire package' : 'Onboarding package' }}</h3>
                   <p>{{ submissions?.journey?.[phase === 'prehire' ? 'prehireCompletedAt' : 'onboardingCompletedAt'] ? 'Completed and retained' : 'In progress or awaiting People Operations' }}</p>
                   <ul class="portal-simple-list">
-                    <li v-for="item in submissions?.journey?.[phase]?.tasks || []" :key="item.id">
+                    <li v-for="item in retainedPackageTasks(phase)" :key="item.id">
                       <button v-if="item.taskType === 'document' && item.status === 'completed'" class="portal-doc-title-link portal-doc-title-btn" @click="viewCompletedDocument(item)">{{ item.title }}</button>
                       <span v-else>{{ item.title }}</span> · {{ item.status }}
                     </li>
+                    <template v-if="phase === 'prehire'">
+                      <li v-for="doc in submissions?.prehireFiles || []" :key="`file-${doc.id}`">
+                        <a class="portal-doc-title-link" :href="submissionFileHref(doc)" target="_blank" rel="noopener">{{ doc.title }}</a>
+                      </li>
+                    </template>
                   </ul>
+                </div>
+                <div v-if="submissions?.employmentAgreement" class="cred-card">
+                  <h3>Employment agreement</h3>
+                  <a class="portal-doc-title-link" :href="submissionFileHref({ fileUrl: submissions.employmentAgreement.signedFileUrl })" target="_blank" rel="noopener">Open signed agreement PDF</a>
                 </div>
                 <div v-if="Object.keys(submissions?.inlineSubmissions || {}).length" class="cred-card">
                   <h3>Saved information and portal steps</h3>
@@ -526,19 +545,14 @@
                 <div v-if="panelStep === 'sign' && activeTask.status !== 'completed'" class="sign-block">
                   <h3 v-if="isContractTask">Employee signature — {{ candidate.firstName }} {{ candidate.lastName }}</h3>
                   <p v-if="isContractTask">Your signature will appear in the employee field at the end of the agreement. The agency signs its separate field.</p>
-                  <div class="sign-instructions">
-                    Draw your signature below using your mouse or finger.
-                  </div>
-                  <canvas
-                    ref="sigCanvas"
-                    class="sig-canvas"
-                    @mousedown="startDraw" @mousemove="draw" @mouseup="stopDraw" @mouseleave="stopDraw"
-                    @touchstart.prevent="touchStart" @touchmove.prevent="touchMove" @touchend="stopDraw"
-                  ></canvas>
+                  <AdaptiveSignatureCapture
+                    :key="activeTask.id" v-model="taskSignature"
+                    title="Sign this document" :signer-name="preferredSigningName"
+                    placeholder="Type your signature as you want it to appear"
+                  />
                   <div class="sign-actions">
-                    <button class="btn-secondary-sm" @click="clearCanvas">Clear</button>
                     <button class="btn-back" @click="panelStep = 'review'">← Back</button>
-                    <button class="btn-primary" :disabled="!hasSig || panelLoading" @click="submitSign">
+                    <button class="btn-primary" :disabled="!taskSignature || panelLoading" @click="submitSign">
                       {{ panelLoading ? 'Signing…' : 'Submit signature' }}
                     </button>
                   </div>
@@ -701,6 +715,14 @@ const finalizeSuccess = ref('');
 const accountError = ref('');
 const submissions = ref(null);
 const submissionsLoading = ref(false);
+function retainedPackageTasks(phase) {
+  const snapshot = submissions.value?.journey?.[phase]?.tasks;
+  if (snapshot?.length) return snapshot;
+  const taskPhase = phase === 'prehire' ? 'pre_hire' : 'onboarding';
+  return (submissions.value?.completedDocuments || []).filter(doc => doc.phase === taskPhase)
+    .map(doc => ({ ...doc, taskType: 'document', status: 'completed' }));
+}
+
 const handbook = ref(null);
 const handbookLoading = ref(false);
 const bgSaving = ref(false);
@@ -708,7 +730,7 @@ const bgError = ref('');
 const bgForm = ref({
   legalName: '',
   dateOfBirth: '',
-  currentAddress: '',
+  currentAddress: '', addressLine2: '', addressCity: '', addressState: '', addressZip: '',
   previousAddresses: '',
   aliases: '',
   ssn: '',
@@ -719,6 +741,11 @@ const jdSignature = ref('');
 const jdSignatureCapture = ref(null);
 const jdSaving = ref(false);
 const jdError = ref('');
+const backgroundAddressLookup = computed(() => props.previewData ? null : {
+  format: 'street', model: bgForm.value, publicContext: { kind: 'prehire', token: token.value }, scopeKey: token.value,
+  fields: { street: 'currentAddress', city: 'addressCity', state: 'addressState', postalCode: 'addressZip' }
+});
+const preferredSigningName = computed(() => portalData.value?.workflow?.profile?.preferred_signature_name || '');
 const jdAcknowledgedLocal = ref(false);
 const uploadBusy = ref({});
 const uploadDone = ref({});
@@ -919,7 +946,10 @@ const submitBackgroundCheck = async () => {
     const { data } = await portalApi.post(`/prehire-portal/${token.value}/background-check`, {
       legalName: bgForm.value.legalName,
       dateOfBirth: bgForm.value.dateOfBirth,
-      currentAddress: bgForm.value.currentAddress,
+      homeAddress: {
+        street: bgForm.value.currentAddress, line2: bgForm.value.addressLine2, city: bgForm.value.addressCity,
+        state: bgForm.value.addressState, postalCode: bgForm.value.addressZip
+      },
       previousAddresses: bgForm.value.previousAddresses,
       aliases: bgForm.value.aliases,
       ssn: bgForm.value.ssn,
@@ -1404,6 +1434,7 @@ const pillLabel = (t) => {
 const selectTask = async (task) => {
   previewReady.value = false;
   documentAnnotations.value = [];
+  taskSignature.value = '';
   activeTaskId.value = task.id;
   panelStep.value = task.status === 'completed' ? 'review' : 'consent';
   panelError.value = '';
@@ -1423,7 +1454,7 @@ const selectTask = async (task) => {
 
 const closePanel = () => {
   activeTaskId.value = null; selectedDocument.value = null;
-  clearCanvas();
+  taskSignature.value = '';
 };
 
 // ─── Consent ──────────────────────────────────────────────────────────────────
@@ -1467,74 +1498,19 @@ const submitAcknowledge = async () => {
   }
 };
 
-// ─── Signature canvas ─────────────────────────────────────────────────────────
-const sigCanvas = ref(null);
-const hasSig = ref(false);
-let isDrawing = false;
-let ctx = null;
-
-const initCanvas = async () => {
-  await nextTick();
-  if (!sigCanvas.value) return;
-  const canvas = sigCanvas.value;
-  canvas.width = canvas.offsetWidth * window.devicePixelRatio;
-  canvas.height = canvas.offsetHeight * window.devicePixelRatio;
-  ctx = canvas.getContext('2d');
-  ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
-  ctx.strokeStyle = '#111827';
-  ctx.lineWidth = 2;
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-};
-
-const startDraw = (e) => {
-  isDrawing = true;
-  ctx?.beginPath();
-  const { x, y } = relPos(e);
-  ctx?.moveTo(x, y);
-};
-const draw = (e) => {
-  if (!isDrawing || !ctx) return;
-  const { x, y } = relPos(e);
-  ctx.lineTo(x, y);
-  ctx.stroke();
-  hasSig.value = true;
-};
-const stopDraw = () => { isDrawing = false; };
-
-const touchStart = (e) => {
-  const t = e.touches[0];
-  startDraw({ clientX: t.clientX, clientY: t.clientY });
-};
-const touchMove = (e) => {
-  const t = e.touches[0];
-  draw({ clientX: t.clientX, clientY: t.clientY });
-};
-
-const relPos = (e) => {
-  const rect = sigCanvas.value.getBoundingClientRect();
-  return { x: e.clientX - rect.left, y: e.clientY - rect.top };
-};
-
-const clearCanvas = () => {
-  if (!ctx || !sigCanvas.value) return;
-  ctx.clearRect(0, 0, sigCanvas.value.width, sigCanvas.value.height);
-  hasSig.value = false;
-};
-
+const taskSignature = ref('');
 const submitSign = async () => {
-  if (!sigCanvas.value) return;
+  if (!taskSignature.value || panelLoading.value) return;
   if (!canProceedToSign.value) {
     fieldValidationError.value = 'Please complete all required fields before signing.';
     panelStep.value = 'review';
     return;
   }
-  const dataUrl = sigCanvas.value.toDataURL('image/png');
   panelLoading.value = true;
   panelError.value = '';
   try {
     await portalApi.post(`/prehire-portal/${token.value}/tasks/${activeTask.value.id}/sign`, {
-      signatureData: dataUrl,
+      signatureData: taskSignature.value,
       fieldValues: fieldValues.value,
       documentAnnotations: isContractTask.value ? [] : documentAnnotations.value
     });
@@ -1547,8 +1523,7 @@ const submitSign = async () => {
   }
 };
 
-// Watch panelStep to init canvas when sign step activates
-watch(() => panelStep.value, (step) => { if (step === 'sign') initCanvas(); });
+watch(panelStep, () => { taskSignature.value = ''; });
 
 // ─── Submit portal (all done) ─────────────────────────────────────────────────
 const submitting = ref(false);
@@ -1586,7 +1561,11 @@ const loadPortal = async () => {
     portalData.value = res.data;
     if (!selectedProcess.value) selectedProcess.value = res.data?.candidate?.status === 'ONBOARDING' ? 'onboarding' : 'pre_hire';
     const profile = res.data?.workflow?.profile || {};
-    for (const [target, source] of Object.entries({ dateOfBirth: 'date_of_birth', currentAddress: 'mailing_address', previousAddresses: 'previous_addresses', otherNames: 'prior_names' })) {
+    const home = res.data?.workflow?.homeAddress || {};
+    for (const [target, source] of Object.entries({ currentAddress: 'street', addressLine2: 'line2', addressCity: 'city', addressState: 'state', addressZip: 'postalCode' })) {
+      if (!bgForm.value[target] && home[source]) bgForm.value[target] = home[source];
+    }
+    for (const [target, source] of Object.entries({ dateOfBirth: 'date_of_birth', previousAddresses: 'previous_addresses', aliases: 'prior_names' })) {
       if (!bgForm.value[target] && profile[source]) bgForm.value[target] = profile[source];
     }
     if (!bgForm.value.legalName) {
@@ -2566,11 +2545,6 @@ onMounted(async () => {
 .review-actions { padding-top: 8px; }
 
 .sign-block { display: flex; flex-direction: column; gap: 14px; }
-.sign-instructions { font-size: 13px; color: #475569; }
-.sig-canvas {
-  width: 100%; height: 160px; border: 2px solid #e2e8f0; border-radius: 10px;
-  background: #fafafa; cursor: crosshair; touch-action: none; display: block;
-}
 .sign-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .panel-error { font-size: 13px; color: #dc2626; background: #fef2f2; border-radius: 8px; padding: 8px 12px; }
 

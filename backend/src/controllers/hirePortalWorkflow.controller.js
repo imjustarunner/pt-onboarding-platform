@@ -25,7 +25,10 @@ export async function saveWorkflowStep(req, res, next) {
     const ctx = await context(req);
     let value, file;
     if (ctx.phase === 'pre_hire' && ctx.key === 'profile') {
-      value = validatePreemployment(req.body?.values, req.body?.complete !== false);
+      value = validatePreemployment(req.body?.values, req.body?.complete !== false, ctx.state.workflow.agreementCredential);
+      if (req.body?.complete !== false && ctx.state.workflow.agreementCredential && req.body?.credentialReviewed !== true) {
+        fail('Confirm the credentials from your employment agreement or enter your updated credentials.');
+      }
     } else if (ctx.phase === 'onboarding' && ctx.step?.kind === 'school-availability') {
       value = validateSchoolServiceAvailability(req.body?.values);
     } else if (ctx.phase === 'onboarding' && ctx.step?.kind === 'user-setup') {

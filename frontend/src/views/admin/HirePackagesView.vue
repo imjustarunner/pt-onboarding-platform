@@ -18,6 +18,23 @@
         <div v-if="!current.closed" class="save-row"><button type="submit" class="primary" :disabled="saving || !isDirty(phase)">{{ saving ? 'Saving…' : `Save ${phaseLabel.toLowerCase()} package` }}</button><span>Saving keeps their current hiring status.</span></div>
       </form>
       <section class="card"><h3>Assigned documents and training</h3><p v-if="!current.tasks.length">{{ current.preparing ? 'Assignments will appear when onboarding starts.' : 'No document or training assignments in this phase yet.' }}</p><ul v-else class="assignments"><li v-for="task in current.tasks" :key="task.id"><span>{{ task.title }}</span><span class="task-status">{{ task.status.replaceAll('_', ' ') }}</span></li></ul><RouterLink :to="profileUrl">Review files and manage assignments in the employee profile →</RouterLink></section>
+      <section v-if="current.credentialReview" class="card">
+        <h3>Credentials reported by the candidate</h3>
+        <p>Employment agreement · {{ current.credentialReview.agreement || 'No credentials listed' }}</p>
+        <p>Candidate response · {{ current.credentialReview.confirmed || 'No credentials listed' }}</p>
+        <p v-if="current.credentialReview.agreement !== current.credentialReview.confirmed">Review the updated credentials before confirming the person’s credential record.</p>
+      </section>
+      <section v-if="phase === 'pre_hire' && (current.files?.length || signedPrehireTasks.length)" class="card">
+        <h3>Retained pre-hire documents</h3>
+        <ul class="assignments">
+          <li v-for="file in current.files || []" :key="`file-${file.id}`"><span>{{ file.title }}</span><button type="button" @click="downloadHireFile(`/users/${userId}/admin-docs/${file.id}/view`, file.title)">Download</button></li>
+          <li v-for="task in signedPrehireTasks" :key="`task-${task.id}`"><span>{{ task.title }}</span><button type="button" @click="downloadHireFile(`/document-signing/${task.id}/view`, `${task.title}.pdf`)">Download signed PDF</button></li>
+        </ul>
+      </section>
+      <section v-if="phase === 'pre_hire' && employmentAgreement" class="card">
+        <h3>Employment agreement</h3>
+        <button type="button" @click="downloadHireFile(`/document-signing/${employmentAgreement.id}/view`, 'Employment agreement.pdf')">Download signed agreement PDF</button>
+      </section>
       <section v-if="phase === 'onboarding' && current.preparing" class="card start-onboarding"><h3>Start onboarding</h3><p v-if="state.candidate.status !== 'PREHIRE_REVIEW'">Available after the employee submits pre-hire for review.</p><p v-else>Review the saved package and access details before starting onboarding.</p><button class="primary" :disabled="state.candidate.status !== 'PREHIRE_REVIEW' || anyDirty || saving" @click="showPromote = true">Review &amp; move to onboarding</button><p v-if="anyDirty">Save your package changes before continuing.</p></section>
     </template>
     <PromoteToOnboardingModal v-if="showPromote" :candidate="state.candidate" :agency-id="agencyId" @close="showPromote = false" @promoted="promoted" />
@@ -45,6 +62,20 @@ const phaseLabel = computed(() => phases.find(p => p.key === phase.value).label)
 const state = ref(null), drafts = ref({}), originals = ref({}), packages = ref([]), templates = ref([]);
 const loading = ref(false), saving = ref(false), error = ref(''), saved = ref(''), showPromote = ref(false);
 const current = computed(() => state.value?.phases[phase.value]);
+const signedPrehireTasks = computed(() => (current.value?.tasks || []).filter(task => task.status === 'completed' && task.signed));
+const employmentAgreement = computed(() => signedPrehireTasks.value.find(task => task.employmentAgreement));
+async function downloadHireFile(path, title) {
+  error.value = '';
+  try {
+    const { data, headers } = await api.get(path, { params: { agencyId: agencyId.value }, responseType: 'blob' });
+    const url = URL.createObjectURL(data);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = headers?.['content-disposition']?.match(/filename="?([^";]+)"?/i)?.[1] || title;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  } catch { error.value = 'Could not download the retained document. Please try again.'; }
+}
 const draft = computed(() => drafts.value[phase.value]);
 const personName = computed(() => state.value ? `${state.value.candidate.first_name || ''} ${state.value.candidate.last_name || ''}`.trim() : '');
 const phasePackages = computed(() => packages.value.filter(p => p.package_type === phase.value && (!p.agency_id || Number(p.agency_id) === agencyId.value)));

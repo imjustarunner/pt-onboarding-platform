@@ -29,9 +29,9 @@
     </div>
 
     <div v-if="mode === 'type'">
-      <label class="sr-only" for="ai-typed-sig">Typed signature</label>
+      <label class="sr-only" :for="typedSignatureId">Typed signature</label>
       <input
-        id="ai-typed-sig"
+        :id="typedSignatureId"
         v-model="typedName"
         class="ai-signature-type-input"
         type="text"
@@ -66,7 +66,7 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue';
+import { ref, useId, watch } from 'vue';
 import SignaturePad from '../SignaturePad.vue';
 
 const props = defineProps({
@@ -84,6 +84,7 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue', 'signed']);
 
+const typedSignatureId = useId();
 const mode = ref('type');
 const typedName = ref(props.signerName || '');
 const captured = ref(!!props.modelValue);
