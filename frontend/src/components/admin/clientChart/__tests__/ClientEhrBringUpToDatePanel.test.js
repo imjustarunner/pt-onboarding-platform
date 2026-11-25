@@ -225,3 +225,22 @@ it('accepts a later secondary paste while primary coverage stays imported and im
  expect(mocks.post.mock.calls.filter(([url])=>url.endsWith('/sections/insurance')).map(([,body])=>[body.position,body.text])).toEqual([['secondary','New secondary policy']]);
  expect(wrapper.get('textarea[data-section=insurance]').element.value).toBe('Saved primary');wrapper.unmount();
 });
+
+it('uses fresh merge pastes and preserves saved drafts and insurance slots left blank',async()=>{
+ mocks.get.mockResolvedValue({data:{drafts:{
+  comments:{revision:3,value:{text:'Previous chart comment',imported:true}},
+  contacts:{revision:2,value:{text:'Parent already saved',imported:true}},
+  insurance:{revision:4,value:{text:'Previous primary',imported:true,coverageDrafts:{primary:{text:'Previous primary',imported:true},secondary:{text:'Saved secondary',imported:true}}}}
+ }}});
+ const wrapper=mount(Panel,{props:{open:true,clientId:12,agencyId:2,mergeExisting:true,preferIncomingPastes:true,
+  initialTexts:{comments:'Fresh chart comment',insurance:'Updated primary'},initialCoverageDrafts:{primary:{text:'Updated primary'},secondary:{text:''}}},global:{stubs}});
+ await flushPromises();
+ expect(wrapper.get('textarea[data-section=comments]').element.value).toBe('Fresh chart comment');
+ expect(wrapper.get('textarea[data-section=contacts]').element.value).toBe('Parent already saved');
+ expect(wrapper.get('textarea[data-section=secondaryInsurance]').element.value).toBe('Saved secondary');
+ await wrapper.vm.prepareLeave({confirmPending:false});
+ expect(mocks.put).toHaveBeenCalledWith('/clients/12/chart-import/drafts/insurance',expect.objectContaining({
+  revision:4,metadata:expect.objectContaining({coverageDrafts:{primary:{text:'Updated primary',imported:false},secondary:{text:'Saved secondary',imported:true}}})
+ }),expect.anything());
+ wrapper.unmount();
+});

@@ -13,7 +13,7 @@ beforeEach(()=>{vi.clearAllMocks();m.user={role:'support',billingAgencyIds:[2,3]
  m.get.mockImplementation(async url=>{
   if(/^\/clients\/\d+$/.test(url))return {data:clients[Number(url.split('/')[2])]};
   if(url.endsWith('/agency-affiliations'))return {data:[member]};
-  if(url.endsWith('/affiliations'))return {data:[{organization_id:8,organization_name:'Grant',organization_type:'school',is_primary:1}]};
+  if(url.endsWith('/affiliations'))return {data:[{organization_id:8,organization_name:'Grant',organization_type:'school',is_primary:0}]};
   if(url.endsWith('/affiliated-organizations'))return {data:[{id:8,name:'Grant',organization_type:'school'},{id:10,name:'New school',organization_type:'school'}]};
   if(url==='/offices')return {data:offices};
   if(url.includes('/service-locations'))return {data:{items:locations}};
@@ -61,4 +61,17 @@ it('automatically creates the clinical service for a legacy assigned chart when 
  const wrapper=mount(Assignments,{props:{clientId:7,agencyId:2},global:{stubs:{ClientServiceEnrollments:EmptyServices}}});await flushPromises();
  expect(m.post).not.toHaveBeenCalled();await expect(wrapper.vm.savePendingAssignments()).resolves.toBe(true);await expect(wrapper.vm.savePendingAssignments()).resolves.toBe(true);
  expect(m.post).toHaveBeenCalledTimes(1);expect(m.post).toHaveBeenCalledWith('/clients/7/service-enrollments',expect.objectContaining({serviceKind:'counseling',providerUserId:20,organizationId:0}),expect.objectContaining({headers:{'X-Agency-Id':'2'}}));wrapper.unmount();
+});
+
+it('uses the primary school billing site for a school import even with stale office defaults',async()=>{
+ clients[7]={...clients[7],client_type:'school',organization_id:8};
+ member={...member,default_office_location_id:21,default_place_of_service:'11',default_service_location_id:41};
+ m.post.mockResolvedValue({data:{schoolSetup:{schoolOrganizationId:8,providerId:20,placeOfService:'03',serviceLocation:{id:61,name:'Grant'}}}});
+ const w=await render();
+ expect(w.get('[aria-label="Default place of service"]').element.value).toBe('03');
+ const location=w.get('[aria-label="Default billing location"]');
+ expect(location.element.value).toBe('61');
+ expect(location.text()).toContain('Grant (POS 03)');
+ expect(m.get.mock.calls.some(([url])=>url.includes('/office-assignments'))).toBe(false);
+ w.unmount();
 });

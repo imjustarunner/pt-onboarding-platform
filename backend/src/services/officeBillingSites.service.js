@@ -18,14 +18,14 @@ export const OFFICE_POS_TEMPLATES = [
   { name: "Patient's Residence", placeOfService: '12', modifiers: null }
 ];
 
-export async function resolveBillingOfficeForSchool({ agencyId, schoolOrganizationId } = {}) {
+export async function resolveBillingOfficeForSchool({ agencyId, schoolOrganizationId, db = pool } = {}) {
   const aid = Number(agencyId || 0);
   const sid = Number(schoolOrganizationId || 0);
   if (!aid || !sid) return null;
 
   let district = null;
   try {
-    const [rows] = await pool.execute(
+    const [rows] = await db.execute(
       `SELECT district_name FROM school_profiles WHERE school_organization_id = ? LIMIT 1`,
       [sid]
     );
@@ -34,7 +34,7 @@ export async function resolveBillingOfficeForSchool({ agencyId, schoolOrganizati
     district = null;
   }
 
-  const offices = await OfficeLocation.findBillingByAgency(aid);
+  const offices = await OfficeLocation.findBillingByAgency(aid, db);
   const list = (offices || []).filter(office => Number(office.agency_id) === aid);
   const wind = list.find((o) => /windchime/i.test(`${o.name || ''} ${o.street_address || ''}`));
   const denver = list.find((o) => /denver/i.test(`${o.name || ''}`) || String(o.city || '').toLowerCase() === 'denver');
@@ -148,24 +148,24 @@ export async function listUserSchoolIds(userId) {
   }
 }
 
-export async function ensureSchoolServiceLocation({ agencyId, schoolOrganizationId, actorUserId = null, billingOfficeLocationId = null } = {}) {
+export async function ensureSchoolServiceLocation({ agencyId, schoolOrganizationId, actorUserId = null, billingOfficeLocationId = null, db = pool } = {}) {
   const aid = Number(agencyId || 0);
   const sid = Number(schoolOrganizationId || 0);
   if (!aid || !sid) return null;
-  const [[school]] = await pool.execute(
+  const [[school]] = await db.execute(
     `SELECT id, name, street_address, city, state, postal_code FROM agencies
-     WHERE id = ? AND LOWER(COALESCE(organization_type, '')) = 'school' LIMIT 1`,
+     WHERE id = ? AND LOWER(COALESCE(organization_type, '')) = 'school' LIMIT 1${db !== pool ? ' FOR UPDATE' : ''}`,
     [sid]
   );
   if (!school) return null;
-  const existing = await AgencyServiceLocation.findByAgencyAndSchool(aid, sid);
+  const existing = await AgencyServiceLocation.findByAgencyAndSchool(aid, sid, db);
   let officeId = Number(billingOfficeLocationId || existing?.billing_office_location_id || 0) || null;
   if (officeId) {
-    const office = await OfficeLocation.findById(officeId);
+    const office = await OfficeLocation.findById(officeId, db);
     if (!office || Number(office.agency_id) !== aid || !Number(office.is_active)) officeId = null;
   }
   if (!officeId) {
-    const office = await resolveBillingOfficeForSchool({ agencyId: aid, schoolOrganizationId: sid });
+    const office = await resolveBillingOfficeForSchool({ agencyId: aid, schoolOrganizationId: sid, db });
     officeId = Number(office?.id || 0) || null;
   }
 
@@ -182,7 +182,7 @@ export async function ensureSchoolServiceLocation({ agencyId, schoolOrganization
       placeOfService: '03',
       locationKind: 'school',
       ...(officeId ? { billingOfficeLocationId: officeId } : {})
-    });
+    }, db);
     return item;
   }
   return AgencyServiceLocation.create({
@@ -197,7 +197,7 @@ export async function ensureSchoolServiceLocation({ agencyId, schoolOrganization
     createdByUserId: actorUserId,
     locationKind: 'school',
     isProviderVisible: true
-  });
+  }, db);
 }
 
 export async function setClientDefaultFromSchool({ agencyId, clientId, schoolOrganizationId, actorUserId = null } = {}) {

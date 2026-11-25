@@ -176,3 +176,18 @@ it('matches only unique exact payer names or configured aliases, retaining leadi
  expect(exactCatalogPayer({insurerName:'Kaiser Colorado',sourcePayerId:'99'},[own,{...shared,names:['Other carrier']}])).toBeNull();
  expect(exactCatalogPayer({insurerName:'Kaiser Colorado'},[own,{...own,id:2}])).toEqual(expect.objectContaining({payerId:'00050'}));
 });
+
+it('links CCHA secondary coverage with the verified COCHA ID despite a missing space in the carrier name',async()=>{
+ const original=m.execute.getMockImplementation();
+ m.execute.mockImplementation(async(sql,args)=>sql.includes('FROM medical_payer_setup_requests r')
+  ? [[{id:31,payer_name:'Colorado Community Health Alliance',claimmd_payer_id:'COCHA',directory_status:'id_match'}]] : original(sql,args));
+ const primary={insurerName:'Other Primary Carrier',memberId:'PRIMARY'};
+ m.readInsurance.mockResolvedValue({primary});
+ await importSupplementaryChartSection(scope,'insurance','COLORADO COMMUNITYHEALTH ALLIANCE (COCHA): Secondary\nMember ID\nA123456',10,{position:'secondary'});
+ const saved=m.writeInsurance.mock.calls[0][0];
+ expect(saved).toMatchObject({primary,secondary:{payerId:'COCHA',isMedicaid:true,eligibilityPayerId:'SKCO0'},verifiedForClaims:false,queueEligibility:true});
+ expect((await readChartRecord(scope,'payerLinks',0,db)).value.secondary.payerId).toBe('COCHA');
+ m.readInsurance.mockResolvedValue({...saved,secondary:{...saved.secondary,payerId:'',payerCatalogId:''}});
+ expect(await automaticallyLinkChartPayers(scope,10)).toMatchObject({linked:['secondary'],unresolved:['primary']});
+ expect(exactCatalogPayer({insurerName:'COLORADO COMMUNITYHEALTH ALLIANCE'},[{name:'Colorado Community Health Alliance',payerId:'COCHA'}])).toBeNull();
+});

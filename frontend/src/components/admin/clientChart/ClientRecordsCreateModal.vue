@@ -2,7 +2,7 @@
  <Teleport to="body">
   <div class="create-records-backdrop auricwell-client-workspace" @click.self="leave">
    <section ref="dialog" class="create-records-modal" role="dialog" aria-modal="true" aria-labelledby="create-records-title" tabindex="-1">
-    <header><div><h2 id="create-records-title">{{ created ? `Import records · ${form.fullName}` : 'Add client from TherapyNotes' }}</h2><p>Paste the same sections used in Bring up to date. Create the chart, review imports and assignments, then preview the portal invitation.</p></div><button type="button" class="cr-button" :disabled="busy" @click="leave">Save draft &amp; close</button></header>
+    <header><div><h2 id="create-records-title">{{ created ? `Import records · ${form.fullName}` : 'Add client from TherapyNotes' }}</h2><p>Paste the same sections used in Bring up to date. Create or update the chart, review imports and assignments, then preview the portal invitation.</p></div><button type="button" class="cr-button" :disabled="busy" @click="leave">Save draft &amp; close</button></header>
     <div class="cr-body">
      <p v-if="error || drafts.state.error" class="cr-error" role="alert">{{ error || drafts.state.error }} <button v-if="drafts.state.error" type="button" class="cr-button" @click="retryDraft">Retry draft save</button></p>
      <p class="cr-draft" role="status">{{ drafts.state.loading ? 'Loading private draft…' : drafts.state.message }} <button v-if="!created && !drafts.state.loading" type="button" class="cr-button" :disabled="busy" @click="discardDraft">Discard this draft</button></p>
@@ -10,7 +10,7 @@
       <label>Agency<select :value="agencyId" :disabled="busy || !!created || drafts.state.loading" @change="changeAgency($event.target.value)"><option value="">Choose agency…</option><option v-for="agency in agencies" :key="agency.id" :value="agency.id">{{ agency.name }}</option></select></label>
       <label>Service<select v-model="form.kind" :disabled="busy || !!created || drafts.state.loading"><option value="clinical">Office / clinical</option><option v-if="organizations.some(org=>org.organization_type==='school') || (created && form.kind==='school')" value="school">School</option><option value="learning">Learning</option><option value="basic_nonclinical">Coaching / consulting</option></select></label>
       <label>{{ form.kind === 'school' ? 'School' : 'Program (optional)' }}<select v-model="form.organizationId" :disabled="busy || !!created || drafts.state.loading"><option :value="form.kind==='school'?'':Number(agencyId)">{{ form.kind==='school'?'Choose school…':'No program — agency office client' }}</option><option v-for="org in filteredOrganizations" :key="org.id" :value="org.id">{{ org.name }}</option></select></label>
-      <label v-if="!created">Provider<select v-model="form.providerId" :disabled="busy || !!created || drafts.state.loading || !isBackoffice"><option :value="null">Save unassigned</option><option v-for="provider in eligibleProviders" :key="provider.id" :value="provider.id">{{ provider.first_name }} {{ provider.last_name }}</option></select></label>
+      <label v-if="!created">Provider<select v-model="form.providerId" @change="form.providerSelectionConfirmed=true" :disabled="busy || !!created || drafts.state.loading || !isBackoffice"><option :value="null">Save unassigned</option><option v-for="provider in eligibleProviders" :key="provider.id" :value="provider.id">{{ provider.first_name }} {{ provider.last_name }}</option></select></label>
       <template v-if="form.kind === 'school'"><label>School year (optional)<input v-model="form.schoolYear" :disabled="!!created" placeholder="YYYY-YYYY" /></label><label>Grade (optional)<select v-model="form.grade" :disabled="!!created"><option value="">Not recorded</option><option v-for="grade in grades" :key="grade.value" :value="grade.value">{{ grade.label }}</option></select></label></template>
      </div>
      <p v-if="!drafts.state.loading && agencyId && form.kind==='school' && !filteredOrganizations.length" class="cr-error">This agency has no active affiliation for this service. Select another service or configure the office affiliation.</p>
@@ -38,7 +38,7 @@
          </select>
        </label>
        <dl v-if="demographicPreview.length" class="cr-identity" aria-label="Patient info preview"><template v-for="field in demographicPreview" :key="field.key"><dt>{{ field.label }}</dt><dd>{{ field.value }}</dd></template></dl>
-       <section v-if="candidates.length" class="cr-matches" aria-label="Existing clients and possible siblings"><h3>Review existing clients and household matches</h3><p>Shared contact details can indicate siblings. Each child keeps a separate chart; an existing guardian login is reused by email and its access is reviewed for each child.</p><ul><li v-for="candidate in candidates" :key="candidate.id"><strong>{{candidate.full_name}}</strong> · {{candidate.date_of_birth || 'Birth date not recorded'}} · #{{candidate.id}} · {{candidate.reason}} <button type="button" class="cr-button" @click="openExisting(candidate)">Open existing client</button></li></ul><label v-if="candidates.some(row=>row.kind==='possible_duplicate')"><input v-model="duplicatesReviewed" type="checkbox" /> I reviewed these possible duplicates and this is a different client.</label></section>
+       <section v-if="candidates.length" class="cr-matches" aria-label="Existing clients and possible siblings"><h3>Review existing clients and household matches</h3><p>Choose the matching client to apply your new entries to their chart. Shared contact details can also indicate siblings.</p><ul><li v-for="candidate in candidates" :key="candidate.id"><strong>{{candidate.full_name}}</strong> · {{candidate.date_of_birth || 'Birth date not recorded'}} · #{{candidate.id}} · {{candidate.reason}} <button v-if="candidate.canMerge" type="button" class="cr-button cr-primary" :disabled="parsing" @click="create(candidate)">Merge into this chart</button> <button type="button" class="cr-button" @click="openExisting(candidate)">Open existing client</button></li></ul><label v-if="candidates.some(row=>row.kind==='possible_duplicate')"><input v-model="duplicatesReviewed" type="checkbox" /> I reviewed these possible duplicates and this is a different client.</label></section>
        <section v-for="section in otherSections" :key="section.key" class="cr-record-section">
         <template v-if="section.key==='insurance'"><label>Payment basis<select aria-label="Payment basis" v-model="form.coverageMode"><option value="insurance">Insurance</option><option v-if="!delegatedImport" value="self_pay">Self-pay — agreed client rate</option><option value="no_policy">No policy to import</option></select></label><ClientImportSelfPayFields v-if="form.coverageMode==='self_pay'" v-model="form.selfPay" :agency-id="agencyId" /></template>
         <template v-if="section.key==='insurance' && form.coverageMode==='insurance'">
@@ -47,15 +47,15 @@
         </template>
         <label v-else-if="section.key!=='insurance'">{{ section.label }} paste<textarea v-model="form.records[section.key]" :data-section="section.key" :rows="section.rows || 5" :placeholder="section.placeholder" /></label><label v-if="section.key==='intake'">Intake type<select v-model="form.intakeServiceCode" data-intake-service><option value="">Choose H0031 or 90791</option><option value="H0031">H0031</option><option value="90791">90791</option></select></label><p v-if="section.hint && (section.key!=='insurance'||form.coverageMode==='insurance')" class="cr-private">{{ section.hint }}</p></section>
        <p class="cr-private">Pasted records stay in your encrypted agency draft. They are imported into the client chart only when you choose an import action.</p>
-       <button type="button" class="cr-button cr-primary" :disabled="!canCreate || parsing" @click="create">{{ working ? 'Creating chart…' : 'Create chart and import sections →' }}</button>
+       <button type="button" class="cr-button cr-primary" :disabled="!canCreate || parsing" @click="create()">{{ working ? 'Creating chart…' : 'Create chart and import sections →' }}</button>
       </fieldset>
      </template>
      <template v-else-if="!completed">
-      <p class="cr-saved">Chart #{{ created.id }} is saved. Review the imported sections, complete assignments and payer links, then preview the portal invitation below.</p>
+      <p class="cr-saved">{{ created.merged ? `Updating existing chart #${created.id}.` : `Chart #${created.id} is saved.` }} Review the imported sections, complete assignments and payer links, then preview the portal invitation below.</p>
       <section v-if="assignmentError" class="cr-assignment-retry" aria-label="Provider assignment needs attention"><p class="cr-error" role="alert">{{ assignmentError }} Your chart and pasted records are saved; the other sections can still import.</p><label>Provider<select v-model="form.providerId" :disabled="busy || !isBackoffice"><option :value="null">Save unassigned</option><option v-for="provider in eligibleProviders" :key="provider.id" :value="provider.id">{{ provider.first_name }} {{ provider.last_name }}</option></select></label><button type="button" class="cr-button" :disabled="busy" @click="retryProvider">{{ form.providerId ? 'Retry provider assignment' : 'Continue unassigned' }}</button></section>
       <p v-if="!startImport && !initializing">The saved pastes have not been imported automatically. Continue this same chart below.</p><button v-if="!startImport && !initializing" type="button" class="cr-button cr-primary" :disabled="busy" @click="resumeImport">Resume saved import</button>
       <p v-if="initializing" role="status">Preparing the shared records workflow…</p>
-      <ClientEhrBringUpToDatePanel v-if="!initializing" :key="created.id" ref="panel" embedded open creation-flow require-verified-payers :auto-import="startImport" :pending-provider-assignment="!!assignmentError" :client-id="created.id" :agency-id="agencyId" :client-label="form.fullName" :initial-texts="recordPastes" :initial-contact-owner="form.contactOwner || suggestedOwnership.owner" :initial-contact-owner-confirmed="form.contactOwnerConfirmed" :initial-patient-info="form.parsedDemographics" :initial-client-classification="form.clientClassification || suggestedOwnership.clientClassification" :initial-intake-service-code="form.intakeServiceCode" :initial-coverage-drafts="form.coverageDrafts" :initial-coverage-mode="form.coverageMode" :initial-self-pay="form.selfPay" :initial-assignment="{providerId:form.providerId,serviceKind:form.kind==='learning'?'tutoring':form.kind==='basic_nonclinical'?'coaching':'counseling',organizationId:Number(form.organizationId)===Number(agencyId)?0:Number(form.organizationId)}" @sections-imported="applyInitialAssignment" @busy="panelBusy=$event" @drafts-saved="chartDraftsSaved=true" @imported="finish" />
+      <ClientEhrBringUpToDatePanel v-if="!initializing" :key="created.id" ref="panel" embedded open creation-flow require-verified-payers :auto-import="startImport" :merge-existing="created.merged === true" :prefer-incoming-pastes="created.merged === true && !chartDraftsSaved" :pending-provider-assignment="!!assignmentError" :client-id="created.id" :agency-id="agencyId" :client-label="form.fullName" :initial-texts="recordPastes" :initial-contact-owner="form.contactOwner || suggestedOwnership.owner" :initial-contact-owner-confirmed="form.contactOwnerConfirmed" :initial-patient-info="form.parsedDemographics" :initial-client-classification="form.clientClassification || suggestedOwnership.clientClassification" :initial-intake-service-code="form.intakeServiceCode" :initial-coverage-drafts="form.coverageDrafts" :initial-coverage-mode="form.coverageMode" :initial-self-pay="form.selfPay" :initial-assignment="{school:form.kind==='school',providerId:form.providerId,serviceKind:form.kind==='learning'?'tutoring':form.kind==='basic_nonclinical'?'coaching':'counseling',organizationId:Number(form.organizationId)===Number(agencyId)?0:Number(form.organizationId)}" @sections-imported="applyInitialAssignment" @busy="panelBusy=$event" @drafts-saved="recordDraftHandoff" @imported="finish" />
       <button type="button" class="cr-button" :disabled="busy" @click="leaveImportForNextClient">Save this import and add a different client</button>
      </template>
      <section v-else class="cr-complete"><h3>Client saved{{ form.providerId ? ' and assigned' : '' }}</h3><p>{{ form.fullName }} · {{ providerName || 'Unassigned' }} · Chart #{{ created.id }}</p><button type="button" class="cr-button cr-primary" :disabled="busy" @click="nextClient">Add next client{{ providerName ? ` for ${providerName}` : '' }}</button><button type="button" class="cr-button" @click="leave">Close</button></section>
@@ -95,7 +95,7 @@ const initializing=ref(false),startImport=ref(false);
 const assignmentError=ref('');
 const chartDraftsSaved=ref(false);
 const candidates=ref([]),duplicatesReviewed=ref(false);let candidateFingerprint='';
-const defaults=()=>({coverageMode:'insurance',coveragePosition:'primary',coverageDrafts:{primary:{text:'',imported:false},secondary:{text:'',imported:false}},selfPay:{code:'',amount:'',basis:'visit',reason:'',imported:false},intakeServiceCode:'',records:Object.fromEntries(CLIENT_RECORD_SECTIONS.map(section=>[section.key,''])),parsedDemographics:null,contactOwner:'',contactOwnerConfirmed:false,clientClassification:'',kind:'clinical',organizationId:'',providerId:isBackoffice.value?null:auth.user?.id,schoolYear:'',grade:'',manual:false,demographics:'',fullName:'',dateOfBirth:''});
+const defaults=()=>({coverageMode:'insurance',coveragePosition:'primary',coverageDrafts:{primary:{text:'',imported:false},secondary:{text:'',imported:false}},selfPay:{code:'',amount:'',basis:'visit',reason:'',imported:false},intakeServiceCode:'',records:Object.fromEntries(CLIENT_RECORD_SECTIONS.map(section=>[section.key,''])),parsedDemographics:null,contactOwner:'',contactOwnerConfirmed:false,clientClassification:'',kind:'clinical',organizationId:'',providerId:isBackoffice.value?null:auth.user?.id,providerSelectionConfirmed:false,schoolYear:'',grade:'',manual:false,demographics:'',fullName:'',dateOfBirth:''});
 const form=reactive(defaults()),drafts=useClientCreationDrafts(),grades=STANDARD_GRADE_SELECT_OPTIONS.filter(g=>g.value);
 let generation=0,hydrating=false,parseTimer,parseVersion=0;
 const busy=computed(()=>working.value||panelBusy.value||drafts.state.loading);
@@ -131,7 +131,11 @@ watch(() => [form.demographics, form.records.contacts], () => {
   form.clientClassification = '';
 }, { flush: 'sync' });
 const canCreate=computed(()=>!!agencyId.value&&!!form.organizationId&&!!form.fullName.trim()&&!!initials.value&&!drafts.state.error&&!busy.value);
-function snapshot(){return{form:{...form,...(created.value&&chartDraftsSaved.value?{records:defaults().records,demographics:''}:{})},created:created.value?{id:created.value.id,agency_id:Number(agencyId.value)}:null,completed:completed.value};}
+function snapshot(){return{form:{...form,...(created.value&&chartDraftsSaved.value?{records:defaults().records,demographics:''}:{})},created:created.value?{id:created.value.id,agency_id:Number(agencyId.value),merged:created.value.merged===true,incomingDraftsSaved:chartDraftsSaved.value}:null,completed:completed.value};}
+function recordDraftHandoff(){
+ if(chartDraftsSaved.value)return;
+ chartDraftsSaved.value=true;save();
+}
 function save(){if(!hydrating&&agencyId.value)drafts.schedule(snapshot());}
 watch(form,save,{deep:true});watch([created,completed],save);
 watch(()=>form.kind,()=>{if(hydrating)return;if(!eligibleProviders.value.some(row=>Number(row.id)===Number(form.providerId)))form.providerId=null;form.organizationId=form.kind==='school'?(filteredOrganizations.value.length===1?filteredOrganizations.value[0].id:''):Number(agencyId.value);if(form.kind!=='school'){form.schoolYear='';form.grade='';}},{flush:'sync'});
@@ -161,7 +165,7 @@ async function changeAgency(value){
   organizations.value=(Array.isArray(orgs.data)?orgs.data:[]).filter(row=>row.is_active!==false&&row.is_active!==0);
   const agency=props.agencies.find(row=>Number(row.id)===Number(agencyId.value));if(agency&&!organizations.value.some(row=>Number(row.id)===Number(agency.id)))organizations.value.push({...agency,organization_type:agency.organization_type||'agency'});
   providers.value=(Array.isArray(providerResponse.data)?providerResponse.data:providerResponse.data?.providers||[]).filter(row=>!row.agencyIds || row.agencyIds.map(Number).includes(Number(agencyId.value))).map(row=>({...row,first_name:row.first_name||row.firstName,last_name:row.last_name||row.lastName}));
-  if(saved?.form){for(const key of Object.keys(form))if(Object.hasOwn(saved.form,key))form[key]=saved.form[key];form.records={...defaults().records,...(saved.form.records||{})};if(!saved.form.coverageDrafts)form.coverageDrafts.primary.text=form.records.insurance||'';created.value=saved.created||null;completed.value=saved.completed===true;}
+  if(saved?.form){for(const key of Object.keys(form))if(Object.hasOwn(saved.form,key))form[key]=saved.form[key];form.records={...defaults().records,...(saved.form.records||{})};if(!saved.form.coverageDrafts)form.coverageDrafts.primary.text=form.records.insurance||'';created.value=saved.created||null;chartDraftsSaved.value=saved.created?.incomingDraftsSaved===true;completed.value=saved.completed===true;}
   else {try{const previous=JSON.parse(localStorage.getItem(`client-entry-context:${auth.user.id}:${agencyId.value}`)||'{}');if(providers.value.some(row=>Number(row.id)===Number(previous.providerId)))form.providerId=previous.providerId;}catch{}}
   if (saved?.form && !Object.hasOwn(saved.form, 'contactOwnerConfirmed')) form.contactOwner = '';
   assignmentError.value='';startImport.value=false;
@@ -174,27 +178,48 @@ async function changeAgency(value){
   if(created.value){
    const[record,enrollments]=await Promise.all([api.get(`/clients/${created.value.id}`,{skipGlobalLoading:true,headers:{'X-Agency-Id':String(agencyId.value)}}),api.get(`/clients/${created.value.id}/service-enrollments`,{params:{agencyId:Number(agencyId.value)},skipGlobalLoading:true})]);if(version!==generation)return;
    const actualProvider=primaryAssignmentProvider(record.data?.client||record.data,enrollments.data?.services||[], form.kind === 'learning' ? 'tutoring' : null);
-   if(actualProvider){form.providerId=actualProvider;assignmentError.value='';}
-   else if(form.providerId&&!completed.value)assignmentError.value='The saved provider selection has not been applied to this chart. Retry the assignment or continue unassigned.';
+   if(form.providerId && form.providerId!==actualProvider && !completed.value){
+    assignmentError.value='The saved provider selection has not been applied to this chart. Retry the assignment or continue unassigned.';
+   } else if(actualProvider){
+    form.providerId=actualProvider;assignmentError.value='';
+   }
   }
  }catch(e){if(version===generation)error.value=e.response?.data?.error?.message||'Agency setup or the saved chart could not be loaded.';}
  finally{if(version===generation)hydrating=false;}
 }
 async function retryDraft(){if(!drafts.state.loaded){const currentAgency=agencyId.value;agencyId.value='';await changeAgency(currentAgency);}else await drafts.flush();}
-async function create(){
- if(!canCreate.value)return;working.value=true;initializing.value=true;error.value='';
+async function create(candidate = null){
+ if(candidate ? !agencyId.value || busy.value || parsing.value || drafts.state.error || !candidate.canMerge : !canCreate.value)return;working.value=true;initializing.value=true;error.value='';
  try{
   if(!form.manual){const read=form.parsedDemographics?.fullName?await checkCandidates().then(()=>true):await readDemographics();if(!read||!form.fullName)throw Error('Read and review the patient info before creating a chart.');}
   else await checkCandidates();
-  if(candidates.value.some(row=>row.kind==='possible_duplicate')&&!duplicatesReviewed.value)throw Error('Review the possible duplicate clients above before creating another chart.');
-  if (!form.manual && suggestedOwnership.value.hasContact && !form.contactOwnerConfirmed) throw Error('Confirm who owns the phone and email in Patient info before creating the chart.');
+  if(!candidate&&candidates.value.some(row=>row.kind==='possible_duplicate')&&!duplicatesReviewed.value)throw Error('Review the possible duplicate clients above before creating another chart.');
+  if (!form.manual && suggestedOwnership.value.hasContact && !form.contactOwnerConfirmed) throw Error('Confirm who owns the phone and email in Patient info before saving the chart.');
+  if(candidate && !candidates.value.some(row=>row.id===candidate.id && row.canMerge))throw Error('Review the refreshed matches before merging this chart.');
+  if(candidate && !window.confirm(`Import your filled sections into ${candidate.full_name} (chart #${candidate.id})? The pasted information will update this existing chart.`))return;
   save();if(!(await drafts.flush()))return;
   const payload={recordsImport:true,recordsContactClassification:form.clientClassification||suggestedOwnership.value.clientClassification,agency_id:Number(agencyId.value),organization_id:Number(form.organizationId),client_type:form.kind,full_name:form.fullName,date_of_birth:form.dateOfBirth||null,gender:form.parsedDemographics?.administrativeSex||null,provider_id:isBackoffice.value?null:Number(auth.user.id),submission_date:todayCalendarDate(),referral_date:todayCalendarDate(),school_year:form.kind==='school'?form.schoolYear||null:null,grade:form.kind==='school'?form.grade||null:null,source:'ADMIN_CREATED'};
-  const{data}=await api.post('/clients',payload,{skipGlobalLoading:true,headers:{'X-Agency-Id':String(agencyId.value)}});if(!data?.id)throw Error('The client could not be saved.');created.value=data;form.organizationId=data.organization_id||form.organizationId;save();await drafts.flush();emit('created',data);
+  const request={skipGlobalLoading:true,headers:{'X-Agency-Id':String(agencyId.value)}};
+  const {data}=candidate
+   ? await api.post(`/clients/${candidate.id}/chart-import/merge`, {
+       confirmed:true,fullName:form.fullName,dateOfBirth:form.dateOfBirth,
+       expectedName:candidate.full_name,expectedDateOfBirth:candidate.date_of_birth,
+       schoolOrganizationId:form.kind==='school'?form.organizationId||null:null,
+       manualIdentity:form.manual
+     },request)
+   : await api.post('/clients',payload,request);
+  if(!data?.id)throw Error('The client could not be saved.');
+  if(candidate && data.client_type){
+   const selectedProvider=form.providerSelectionConfirmed ? form.providerId : null;
+   form.kind=data.client_type;
+   form.providerId=null;
+   if(eligibleProviders.value.some(row=>Number(row.id)===Number(selectedProvider)))form.providerId=selectedProvider;
+  }
+  created.value={...data,merged:!!candidate};form.organizationId=data.organization_id||form.organizationId;save();await drafts.flush();emit('created',data);
   startImport.value=true;
  }catch(e){error.value=e.response?.data?.error?.message||e.message||'The client could not be created.';}finally{working.value=false;initializing.value=false;}
 }
-async function assignSelectedProvider(){return finishClientCreation({api,clientId:created.value.id,agencyId:Number(agencyId.value),organizationId:Number(form.organizationId),serviceKind:form.kind==='learning'?'tutoring':!isBackoffice.value?null:form.kind==='basic_nonclinical'?'coaching':'counseling',outcome:'assign',providerId:form.providerId,isSchool:form.kind==='school'});}
+async function assignSelectedProvider(){return finishClientCreation({api,clientId:created.value.id,agencyId:Number(agencyId.value),organizationId:Number(form.organizationId),serviceKind:form.kind==='learning'?'tutoring':!isBackoffice.value?null:form.kind==='basic_nonclinical'?'coaching':'counseling',outcome:'assign',providerId:form.providerId,isSchool:form.kind==='school',recordsImport:true});}
 let initialAssignmentAttempted=false;
 async function applyInitialAssignment(){if(initialAssignmentAttempted||!form.providerId)return;initialAssignmentAttempted=true;await retryProvider();}
 async function retryProvider(){working.value=true;try{if(form.providerId)await assignSelectedProvider();assignmentError.value='';await panel.value?.reloadAssignments?.();emit('created',created.value);}catch(e){assignmentError.value=e.response?.data?.error?.message||e.message||'Provider assignment failed. Retry or continue unassigned.';}finally{working.value=false;}}

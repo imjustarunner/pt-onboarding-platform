@@ -172,6 +172,8 @@ const props = defineProps({
   clientId: { type: [Number, String], required: true },
   agencyId: { type: [Number, String], required: true },
   clientLabel: { type: String, default: '' },
+  mergeExisting: Boolean,
+  preferIncomingPastes: Boolean,
   initialTexts: { type: Object, default: () => ({}) },
   initialCoverageDrafts: { type: Object, default: () => ({}) },
   initialAssignment: { type: Object, default: () => ({}) },
@@ -286,7 +288,7 @@ async function beginImportProgress(){
  if(props.historicalImport)return;
  const sections=filledSections(),key=JSON.stringify(sections);if(key===progressSectionsKey)return;
  const own=scopeGeneration;progressBusy.value=true;
- try{await api.post(`/clients/${props.clientId}/chart-import/start`,{sections},{skipGlobalLoading:true,headers:agencyHeaders()});if(own===scopeGeneration)progressSectionsKey=key;}finally{if(own===scopeGeneration)progressBusy.value=false;}
+ try{await api.post(`/clients/${props.clientId}/chart-import/start`,{sections,...(props.mergeExisting ? {onlyIncomplete:true} : {})},{skipGlobalLoading:true,headers:agencyHeaders()});if(own===scopeGeneration)progressSectionsKey=key;}finally{if(own===scopeGeneration)progressBusy.value=false;}
 }
 
 function agencyHeaders() {
@@ -335,15 +337,24 @@ function draftValue(key) {
     ...(key === 'demographics' ? { contactOwner: contactOwner.value, contactOwnerConfirmed: contactOwnerConfirmed.value, clientClassification:clientClassification.value } : {}),
     ...(key === 'payer' ? { position: payerPosition.value } : {}), ...(key === 'intake' ? { sourceDate: intakeSourceDate.value, sourceAuthor: intakeSourceAuthor.value, serviceCode: intakeServiceCode.value } : key === 'plan' ? { sourceDate: planSourceDate.value, sourceAuthor: planSourceAuthor.value } : {}) } };
 }
+function hasIncomingPaste(key) {
+  return props.preferIncomingPastes && !!props.initialTexts[key]?.trim();
+}
 function restoreCoverage(saved, preserve = false) {
   const insurance = saved?.insurance?.value, legacyPayer = saved?.payer?.value;
-  coverageMode.value=insurance?.coverageMode||props.initialCoverageMode;
-  selfPay.value={code:'',amount:'',basis:'visit',reason:'',imported:false,...props.initialSelfPay,...insurance?.selfPay};
+  const newPolicy = props.preferIncomingPastes && Object.values(props.initialCoverageDrafts).some(slot => slot.text?.trim());
+  const newRate = props.preferIncomingPastes && props.initialCoverageMode === 'self_pay';
+  coverageMode.value = newPolicy ? 'insurance' : newRate ? 'self_pay' : insurance?.coverageMode || props.initialCoverageMode;
+  selfPay.value = { code:'', amount:'', basis:'visit', reason:'', imported:false, ...props.initialSelfPay,
+    ...(!newRate ? insurance?.selfPay : {}) };
   const supplied = insurance || legacyPayer ? '' : [props.initialTexts.insurance, props.initialTexts.payer].filter(Boolean).join('\n');
   const active = supplied ? 'primary' : insurance?.position || legacyPayer?.position || 'primary';
   for (const position of ['primary', 'secondary']) {
     if (preserve && coverageDrafts[position].text) continue;
-    const stored = insurance?.coverageDrafts?.[position] || props.initialCoverageDrafts[position];
+    const incoming = props.initialCoverageDrafts[position];
+    const previous = insurance?.coverageDrafts?.[position];
+    const stored = newPolicy && incoming?.text?.trim() && incoming.text !== previous?.text
+      ? { text:incoming.text, imported:false } : previous || incoming;
     const legacyInsurance = (insurance?.position || 'primary') === position ? insuranceText.value : '';
     const payer = (legacyPayer?.position || 'primary') === position ? payerText.value : '';
     const text = stored?.text ?? (position === 'primary' && supplied ? supplied : [legacyInsurance, payer].filter(Boolean).join('\n'));
@@ -390,18 +401,24 @@ watch(
     if (generation !== scopeGeneration) return;
     for (const section of sections) {
       const stored = saved?.[section.key]?.value;
-      if (typeof stored?.text === 'string') sectionTexts[section.key] = stored.text;
+      if (hasIncomingPaste(section.key)) {
+        if (sectionTexts[section.key] !== stored?.text) status[section.key] = 'missing';
+      } else if (typeof stored?.text === 'string') sectionTexts[section.key] = stored.text;
     }
     for (const section of sections) if (saved?.[section.key]?.value?.imported && saved[section.key].value.text === sectionTexts[section.key]) status[section.key] = 'imported';
     for (const key of ['intake','plan']) reviewPending[key] = props.historicalImport && status[key] === 'imported' && saved?.[key]?.value?.needsReview === true;
     restoreCoverage(saved);
-    const savedPatientInfo = saved?.demographics?.value;
+    const savedPatientInfo = hasIncomingPaste('demographics') ? null : saved?.demographics?.value;
     contactOwner.value = (savedPatientInfo?.imported || savedPatientInfo?.contactOwnerConfirmed !== undefined) ? (savedPatientInfo.contactOwner || '') : props.initialContactOwner;
     contactOwnerConfirmed.value = savedPatientInfo?.contactOwnerConfirmed ?? props.initialContactOwnerConfirmed;
-    clientClassification.value = saved?.demographics?.value?.clientClassification ?? props.initialClientClassification;
+    clientClassification.value = savedPatientInfo?.clientClassification ?? props.initialClientClassification;
+    if (hasIncomingPaste('demographics') && (saved?.demographics?.value?.contactOwner !== contactOwner.value
+        || saved?.demographics?.value?.clientClassification !== clientClassification.value)) status.demographics = 'missing';
     if (sectionTexts.demographics !== props.initialTexts.demographics) parsedPatientInfo.value = null;
     if (!parsedPatientInfo.value) void previewPatientInfo(sectionTexts.demographics, generation);
-    intakeServiceCode.value = saved?.intake?.value?.serviceCode || props.initialIntakeServiceCode;
+    const savedIntake = hasIncomingPaste('intake') ? null : saved?.intake?.value;
+    intakeServiceCode.value = savedIntake?.serviceCode || props.initialIntakeServiceCode;
+    if (hasIncomingPaste('intake') && saved?.intake?.value?.serviceCode !== intakeServiceCode.value) status.intake = 'missing';
     intakeSourceDate.value = saved?.intake?.value?.sourceDate || ''; intakeSourceAuthor.value = saved?.intake?.value?.sourceAuthor || '';
     planSourceDate.value = saved?.plan?.value?.sourceDate || ''; planSourceAuthor.value = saved?.plan?.value?.sourceAuthor || '';
     hydratingDrafts = false;
@@ -515,6 +532,7 @@ async function importDemographics() {
     `/clients/${props.clientId}/demographics/import`,
     {
       contactOwner: effectiveContactOwner.value,
+      ...(props.mergeExisting ? { mergeExisting:true } : {}),
       ...(!props.historicalImport ? {
         contactOwnerConfirmed:contactOwnerConfirmed.value,
         recordsContactClassification:clientClassification.value || suggestedOwnership.value.clientClassification
@@ -529,7 +547,7 @@ async function importDemographics() {
         addressZip: p.addressZip || '',
         timezone: p.timezone || '',
         contactPhone: p.contactPhone || '',
-        textMessagesOk: p.textMessagesOk === true,
+        textMessagesOk: props.mergeExisting ? p.textMessagesOk : p.textMessagesOk === true,
         email: p.email || '',
         appointmentReminderType: p.appointmentReminderType || '',
         administrativeSex: p.administrativeSex || '',
@@ -728,9 +746,14 @@ async function importAll(onlySection = null) {
     (sectionTexts[key].trim() || (key === 'insurance' && (coverageMode.value!=='insurance' || importingAllCoverage && Object.values(coverageDrafts).some(draft => draft.text.trim())))));
   importing.value = true; error.value = ''; successMessage.value = ''; stepLog.value = [];
   try {
+    if (drafts.state.loadError) throw Error('Load the saved chart drafts before importing your pasted changes.');
+    if (props.mergeExisting) await beginImportProgress();
+    assertScope();
     await drafts.flush();
     assertScope();
-    await beginImportProgress();
+    if (Object.values(drafts.state.sections).some(section => section.error)) throw Error('Save the drafts before importing. Retry any draft errors above.');
+    if (props.mergeExisting) emit('drafts-saved');
+    else await beginImportProgress();
     assertScope();
     if (props.historicalImport) {
       if (pipelineSections.includes('intake')) historicalSource(intakeSourceDate.value, intakeSourceAuthor.value, intakeText.value);

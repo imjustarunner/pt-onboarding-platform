@@ -149,7 +149,7 @@ export async function importSupplementaryChartSection(scope, section, text, acto
       if ((preparePrimaryGuardian && contact === primaryContact) || requestedAccounts.has(nameKey(contact.fullName))) {
         const names = contact.fullName.split(/\s+/);
         const portalAccount = await prepareGuardianAccount({ client, profile: { ...contact, firstName: contact.firstName || names.shift(), lastName: contact.lastName || names.join(' '),
-          phone: contact.mobilePhone || contact.phone || contact.homePhone || contact.workPhone, relationship: contact.relationshipType }, actorUserId: actorId });
+          phone: contact.mobilePhone || contact.phone || contact.homePhone || contact.workPhone, relationship: contact.relationshipType }, actorUserId: actorId, reviewLinkedGuardians:true });
         imported[id].portalAccount = portalAccount;
       }
       if (contact === primaryContact && inheritedChannels) {

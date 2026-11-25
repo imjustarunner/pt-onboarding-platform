@@ -17,6 +17,7 @@ export async function clientInsurancePayers(agencyId, db) {
     // Match the printed carrier to an already verified agency route. Never add
     // a route or make a directory request from an OCR guess.
     if(row.claimmd_payer_id==='84146' && names.some(name=>/\bchampva\b/i.test(name)))names.push('CHAMPVA');
+    if(row.claimmd_payer_id==='COCHA')names.push('Colorado Community Health Alliance','CCHA');
     if(['COCHA','SKCO0'].includes(row.claimmd_payer_id))names.push('Colorado Medicaid','Health First Colorado');
     // A shared route can carry Commercial and Medicaid plans. Its aliases are
     // search hints, not evidence that this client's coverage is Medicaid.

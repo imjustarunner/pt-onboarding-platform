@@ -13,7 +13,7 @@ import {
 import { getClientChartSetup } from '../controllers/chartSetup.controller.js';
 import { getChartImportDraft, getChartImportDrafts, saveChartImportDraft, importChartSection, getChartSupplementaryRecords,startChartRecordsImport,finishChartRecordsImport,prepareChartContactGuardian,reviewImportedBillingContact } from '../controllers/clientChartImport.controller.js';
 import { getClientPayerReadiness, searchClientPayers, linkClientPayer, automateClientPayers } from '../controllers/clientChartPayer.controller.js';
-import {getClientImportCandidates} from '../controllers/clientImportCandidates.controller.js';
+import {getClientImportCandidates,mergeClientRecordsImport,setupClientImportSchool} from '../controllers/clientImportCandidates.controller.js';
 import {getStaffReminderConsent,saveStaffReminderConsent} from '../controllers/staffVerbalReminderConsent.controller.js';
 import { listSchoolAbsenceHistory } from '../controllers/schoolAbsenceHistory.controller.js';
 import * as clientPortalInvites from '../controllers/clientPortalInvites.controller.js';
@@ -343,6 +343,8 @@ router.get('/:id/chart-import/medical-history/:documentId/view',requireActiveSta
 router.post('/:id/chart-import/medical-history/:documentId/check',requireActiveStatus,requireClinicalStaffSecurity,chartHistoryAccess,checkClientChartHistory);
 router.get('/:id/chart-import/drafts/:section', requireActiveStatus, getChartImportDraft);
 router.get('/:id/chart-import/drafts', requireActiveStatus, getChartImportDrafts);
+router.post('/:id/chart-import/merge',requireActiveStatus,mergeClientRecordsImport);
+router.post('/:id/chart-import/school-setup',requireActiveStatus,setupClientImportSchool);
 router.post('/:id/chart-import/start', requireActiveStatus, startChartRecordsImport);
 router.post('/:id/chart-import/complete', requireActiveStatus, finishChartRecordsImport);
 router.put('/:id/chart-import/drafts/:section', requireActiveStatus, saveChartImportDraft);

@@ -30,7 +30,11 @@ export async function startChartRecordsImport(req,res,next){try{
  if(Array.isArray(sections))for(const section of sections)requireSectionAccess(req,section);
  const selectedSections=req.body?.selectedSections??null;
  if(Array.isArray(selectedSections))for(const section of selectedSections)requireSectionAccess(req,section);
- const progress=await (selectedSections===null?beginClientChartImport(scope,sections,Number(req.user.id)):beginClientChartImport(scope,sections,Number(req.user.id),{selectedSections}));
+ const onlyIncomplete=req.body?.onlyIncomplete===true;
+ const actor=Number(req.user.id);
+ const progress=await (selectedSections!==null||onlyIncomplete
+  ? beginClientChartImport(scope,sections,actor,{selectedSections,...(onlyIncomplete ? {onlyIncomplete} : {})})
+  : beginClientChartImport(scope,sections,actor));
  await logAuditEvent(req,{actionType:'client_records_import_started',agencyId:scope.agencyId,targetType:'client',targetId:scope.clientId});
  res.set('Cache-Control','no-store').json({progress});
 }catch(error){next(error);}}

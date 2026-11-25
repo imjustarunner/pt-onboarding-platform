@@ -1,5 +1,5 @@
 /** Finish only an existing, imported client. Retrying must never create another chart. */
-export async function finishClientCreation({ api, clientId, agencyId, organizationId, outcome, providerId, serviceKind, serviceDay, isSchool, schedule, matchingPreferences, clientAlert }) {
+export async function finishClientCreation({ api, clientId, agencyId, organizationId, outcome, providerId, serviceKind, serviceDay, isSchool, schedule, matchingPreferences, clientAlert, recordsImport = false }) {
   if (!clientId) throw new Error('Save the client before completing setup');
   if (schedule && (schedule.days?.length || schedule.periods?.length || schedule.windows?.length || schedule.notes)) {
     await api.put(`/client-exchange/clients/${clientId}/schedule`, { agencyId: Number(agencyId), schedule });
@@ -27,6 +27,23 @@ export async function finishClientCreation({ api, clientId, agencyId, organizati
       });
       if (!response.data?.services?.some(row => row.service_kind === serviceKind && Number(row.is_active) === 1 && (serviceKind === 'counseling' || Number(row.organization_id || 0) === selectedOrg) && hasProvider(row))) {
         throw new Error(`The ${label} assignment could not be confirmed. Reopen Assignments to review the saved client.`);
+      }
+      return null;
+    }
+    if (isSchool && recordsImport) {
+      const config = { headers: { 'X-Agency-Id': String(agencyId) }, skipGlobalLoading:true };
+      const rosterUrl = `/clients/${clientId}/provider-assignments`;
+      const { data:roster } = await api.get(rosterUrl, { ...config, params: { organizationId } });
+      const assigned = roster.filter(row => Number(row.organization_id) === Number(organizationId)
+        && Number(row.provider_user_id) === Number(providerId));
+      if (!assigned.some(row => Number(row.is_primary)===1)) await api.post(rosterUrl, {
+        organization_id:Number(organizationId), provider_user_id:Number(providerId), service_day:serviceDay || assigned[0]?.service_day || 'Unknown',
+        is_primary:true, ...(String(clientAlert || '').trim() ? { client_alert:String(clientAlert).trim() } : {})
+      },config);
+      const { data } = await api.post(`/clients/${clientId}/chart-import/school-setup`, {}, config);
+      if (Number(data?.schoolSetup?.schoolOrganizationId) !== Number(organizationId)
+          || !data.schoolSetup.providerIds.includes(Number(providerId))) {
+        throw new Error('The school assignment could not be confirmed. Review this client’s school and provider.');
       }
       return null;
     }

@@ -6,13 +6,25 @@ import pool from '../config/database.js';
 import {resolveClientRecordAccess} from './clientRecordAccess.service.js';
 const error=(message,status=409)=>Object.assign(new Error(message),{status});
 const emailOf=profile=>String(profile?.email||'').trim().toLowerCase();
+const nameOf=profile=>String(profile.fullName || [profile.firstName ?? profile.first_name,profile.lastName ?? profile.last_name].filter(Boolean).join(' '))
+  .normalize('NFKC').trim().toLowerCase().replace(/[^\p{L}\p{N}]/gu,'');
+const phoneOf=profile=>String(profile.phone||'').replace(/\D/g,'').slice(-10);
 
 /** Account preparation sends nothing and grants no new chart access from a contact alone. */
-export async function prepareGuardianAccount({client,profile,actorUserId=null}, deps={User,ClientGuardian}) {
+export async function prepareGuardianAccount({client,profile,actorUserId=null,reviewLinkedGuardians=false}, deps={User,ClientGuardian}) {
   const email=emailOf(profile);
   if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return {prepared:false,reason:'A valid guardian email is required.'};
   let user=await deps.User.findByEmail(email),created=false;
   if(user&&!['client_guardian','guardian','client'].includes(String(user.role).toLowerCase()))return {prepared:false,reason:'This email belongs to a staff account; identity review is required.'};
+  if(reviewLinkedGuardians){
+    const links = (await deps.ClientGuardian.listForClient(client.id)).filter(link => link.relationship_type !== 'self');
+    const name = nameOf(profile), phone = phoneOf(profile);
+    if(!links.some(link => emailOf(link) === email) &&
+        links.some(link => (name && nameOf(link) === name)
+          || ((!name || !nameOf(link)) && phone.length===10 && phoneOf(link) === phone))) {
+      return {prepared:false,reason:'This contact may already have a linked portal account. Review the existing account before changing its login email.'};
+    }
+  }
   if(!user){
     try {user=await deps.User.create({email,personalEmail:email,firstName:profile.firstName||profile.fullName||'Guardian',lastName:profile.lastName||'',phoneNumber:profile.phone||null,passwordHash:null,role:'client_guardian',status:'PENDING_SETUP'});created=true;}
     catch(e){if(e.code!=='ER_DUP_ENTRY')throw e;user=await deps.User.findByEmail(email);if(!user||!['client_guardian','guardian','client'].includes(user.role))throw error('Account identity changed; review before linking.');}

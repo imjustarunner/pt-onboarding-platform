@@ -13,9 +13,10 @@ async function write(scope,state,db,expectedRevision){
  if(Number(result.affectedRows)!==1)throw fail(409,'This records import changed in another window. Reload its saved progress before finishing.');
  return state;
 }
-export async function beginClientChartImport(scope,sections,actorId,{db=pool,selectedSections=null}={}){
+export async function beginClientChartImport(scope,sections,actorId,{db=pool,selectedSections=null,onlyIncomplete=false}={}){
  if(!Array.isArray(sections)||sections.length>chartSections.length||sections.some(key=>!chartSections.includes(key)))throw fail(400,'Choose valid record sections to import.');
  const previous=await current(scope,db);
+ if(onlyIncomplete&&previous.status==='complete')throw fail(409,'Records import was completed in another window. Open the chart to review it.');
  if(selectedSections!==null&&(!Array.isArray(selectedSections)||!selectedSections.length||selectedSections.some(key=>!chartSections.includes(key))))throw fail(400,'Select valid record sections to update.');
  const selection=selectedSections===null?(previous.status==='pending'?previous.selectedSections:null):[...new Set(selectedSections)];
  const revision=Number(previous.revision||0);

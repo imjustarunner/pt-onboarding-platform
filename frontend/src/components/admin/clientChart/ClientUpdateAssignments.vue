@@ -4,16 +4,16 @@
     <p v-if="loading" role="status">Loading assignments…</p>
     <p v-if="workingDraftNotice" role="status">{{ workingDraftNotice }}</p><p v-if="assignmentDrafts.state.loadError || assignmentDrafts.state.sections.assignments?.error" role="alert">{{ assignmentDrafts.state.loadError || assignmentDrafts.state.sections.assignments?.error }} <button type="button" :disabled="busy" @click="retryWorkingDraft">Retry saving these choices</button></p>
     <p v-if="error" role="alert">{{ error }} <button v-if="!loaded" type="button" @click="load">Retry</button></p>
-    <fieldset class="assignment-services" :disabled="loading || saving || suggesting"><ClientServiceEnrollments ref="servicesPanel" auto-save-provider :key="`${agencyId}:${clientId}`" :client-id="clientId" :agency-id="agencyId" :organizations="scopedAffiliations" :initial-assignment="initialAssignment" :start-assigning="!!initialAssignment.providerId" @loaded="onServicesLoaded" @updated="onServicesUpdated" @busy="servicesBusy=$event" @draft-change="scheduleWorkingDraft" /></fieldset>
+    <fieldset class="assignment-services" :disabled="loading || saving || suggesting"><ClientServiceEnrollments ref="servicesPanel" auto-save-provider :key="`${agencyId}:${clientId}`" :client-id="clientId" :agency-id="agencyId" :organizations="scopedAffiliations" :initial-assignment="schoolSetupApplies ? {} : initialAssignment" :start-assigning="!!initialAssignment.providerId && !schoolSetupApplies" @loaded="onServicesLoaded" @updated="onServicesUpdated" @busy="servicesBusy=$event" @draft-change="scheduleWorkingDraft" /></fieldset>
     <template v-if="loaded">
       <h4>Agency memberships · {{ agencyName }}</h4>
       <form class="assignment-defaults" @submit.prevent="saveDefaults">
-        <h5>Default office &amp; place of service</h5>
-        <p>Office chooses the physical appointment site. Place of service is the claim’s visit category (office, telehealth or home). Billing location supplies the claim’s service address and billing identity.</p>
+        <h5>Scheduling &amp; billing defaults</h5>
+        <p>Place of service is the claim’s visit category. Billing location supplies the claim’s service address. The default office applies to visits scheduled at an office.</p>
         <div class="assignment-fields">
           <label>Default office<select v-model="draft.officeId" aria-label="Default office" :disabled="busy" @change="changeOffice"><option value="">Not set</option><option v-for="office in offices" :key="office.id" :value="String(office.id)">{{ office.name || office.label }}{{ office.street_address ? ` — ${office.street_address}` : '' }}</option></select></label>
           <label>Default place of service<select v-model="draft.pos" aria-label="Default place of service" :disabled="busy" @change="changePlaceOfService"><option value="">Not set</option><option value="11">11 — Office</option><option value="03">03 — School</option><option value="02">02 — Telehealth outside the home</option><option value="10">10 — Telehealth in the home</option><option value="12">12 — Patient’s residence</option><option value="49">49 — Independent clinic</option><option value="99">99 — Other place of service</option><option v-if="draft.pos && !['11','03','02','10','12','49','99'].includes(draft.pos)" :value="draft.pos">{{ draft.pos }}</option></select></label>
-          <label>Default billing location<select v-model="draft.serviceLocationId" aria-label="Default billing location" :disabled="busy || !canReadBilling" @change="touched"><option value="">Not set</option><option v-if="draft.serviceLocationId && !locations.some(row=>String(row.id)===draft.serviceLocationId)" :value="draft.serviceLocationId">Saved billing location #{{ draft.serviceLocationId }}</option><option v-for="location in locationOptions" :key="location.id" :value="String(location.id)">{{ location.displayLabel }}</option></select></label>
+          <label>Default billing location<select v-model="draft.serviceLocationId" aria-label="Default billing location" :disabled="busy || !canReadBilling" @change="touched"><option value="">Not set</option><option v-if="draft.serviceLocationId && !locations.some(row=>String(row.id)===draft.serviceLocationId)" :value="draft.serviceLocationId">{{ schoolLocationLabel || `Saved billing location #${draft.serviceLocationId}` }}</option><option v-for="location in locationOptions" :key="location.id" :value="String(location.id)">{{ location.displayLabel }}</option></select></label>
         </div>
         <p v-if="hint" role="status">{{ hint }}</p>
         <div class="assignment-actions"><button v-if="!isSchool" type="button" :disabled="busy || !providerId" @click="suggestProvider(true)">Use provider office</button><button type="submit" :disabled="busy || !dirty">{{ saving ? 'Saving…' : 'Save defaults' }}</button><button v-if="dirty" type="button" :disabled="busy" @click="resetDefaults">Reset changes</button></div>
@@ -50,12 +50,12 @@ let hydratingWorkingDraft=true,pendingServiceDraft=null,servicesLoaded=false;
 const blank=()=>({officeId:'',pos:'',serviceLocationId:''});const draft=reactive(blank());const saved=ref(blank());const additions=reactive({school:'',program:'',learning:''}),makePrimary=reactive({school:false,program:false,learning:false});
 const buckets=computed(()=>[{type:'school',label:'Schools',singular:'school'},{type:'program',label:'Programs',singular:'program'},{type:'learning',label:'Learning',singular:'learning organization'}].filter(bucket=>catalog.value.some(row=>row.organization_type===bucket.type)||scopedAffiliations.value.some(row=>row.organization_type===bucket.type)));
 const canReadBilling=computed(()=>canAccessMedicalBilling(auth.user,props.agencyId));
-const isSchool=computed(()=>{
-  const type=client.value?.organization_type;
-  if (type) return type === 'school';
-  if (['clinical','learning','basic_nonclinical'].includes(client.value?.client_type)) return false;
-  return rowsFor('school').length > 0 || (!scopedAffiliations.value.length && client.value?.client_type === 'school');
-});
+const isSchool=computed(()=>client.value?.organization_type==='school'
+  || client.value?.client_type==='school'
+  || rowsFor('school').some(row=>Number(row.is_primary)===1));
+const schoolSetupApplies=computed(()=>isSchool.value || props.initialAssignment.school===true);
+const schoolLocationLabel=ref('');
+const canSyncSchool=computed(()=>['super_admin','admin','support'].includes(auth.user?.role)||delegatedImport.value);
 const providerId=computed(()=>primaryAssignmentProvider(client.value,services.value)||Number(props.initialAssignment.providerId||0));
 const agencyName=computed(()=>memberships.value.find(row=>Number(row.agency_id)===Number(props.agencyId))?.agency_name || client.value?.agency_name || `Agency #${props.agencyId}`);
 const scopedAffiliations=computed(()=>affiliations.value.filter(row=>catalog.value.some(org=>Number(org.id)===Number(row.organization_id))));
@@ -68,6 +68,7 @@ const rows=response=>Array.isArray(response?.data)?response.data:[];
 const request=()=>({skipGlobalLoading:true,headers:{'X-Agency-Id':String(props.agencyId)}});
 let generation=0,providerRequest=0,manualDefaults=false,autoSuggested=false,attemptedProviderId=0;
 let providerSuggestion;
+let savedSchoolDefaultsManually=false;
 function rowsFor(type){return scopedAffiliations.value.filter(row=>row.organization_type===type&&(type!=='program'||meaningfulProgram(row.organization_name||row.name,type)));}
 function availableFor(type){return catalog.value.filter(row=>row.organization_type===type&&!affiliations.value.some(current=>Number(current.organization_id)===Number(row.id))&&(type!=='program'||meaningfulProgram(row.name,type)));}
 function touched(){manualDefaults=true;autoSuggested=false;providerRequest++;error.value='';hint.value='';}
@@ -76,7 +77,7 @@ function changeOffice(){touched();const office=offices.value.find(row=>String(ro
 function changePlaceOfService(){touched();if(canReadBilling.value)matchLocation();}
 function resetDefaults(){providerRequest++;Object.assign(draft,saved.value);manualDefaults=false;autoSuggested=false;error.value='';hint.value='Changes reset.';}
 async function load(){
- providerSuggestion=undefined;
+ providerSuggestion=undefined;schoolLocationLabel.value='';savedSchoolDefaultsManually=false;
  const own=++generation;providerRequest++;client.value=null;loaded.value=false;loading.value=true;saving.value=false;suggesting.value=false;servicesError.value='';workingDraftNotice.value='';hydratingWorkingDraft=true;pendingServiceDraft=null;servicesLoaded=false;attemptedProviderId=0;error.value='';hint.value='';services.value=[];manualDefaults=false;autoSuggested=false;Object.assign(draft,blank());saved.value=blank();for(const key of Object.keys(additions)){additions[key]='';makePrimary[key]=false;}
  try{
   const [c,m,a,o,f,l,working]=await Promise.all([api.get(`/clients/${props.clientId}`,request()),api.get(`/clients/${props.clientId}/agency-affiliations`,request()),api.get(`/clients/${props.clientId}/affiliations`,request()),api.get(`/agencies/${props.agencyId}/affiliated-organizations`,request()),api.get('/offices',request()),canReadBilling.value?api.get('/medical-billing/service-locations',{...request(),params:{agencyId:Number(props.agencyId)}}):Promise.resolve({data:[]}),assignmentDrafts.load(props.clientId,props.agencyId)]);
@@ -88,6 +89,7 @@ async function load(){
   const source=working?.assignments?.value?.text;
   if(source){const pending=JSON.parse(source);if(pending.defaults){Object.assign(draft,pending.defaults);manualDefaults=true;}pendingServiceDraft=pending.services||null;if(servicesLoaded&&pendingServiceDraft){servicesPanel.value?.restoreWorkingDraft?.(pendingServiceDraft);pendingServiceDraft=null;}workingDraftNotice.value='Saved assignment draft restored. These choices remain pending until you save the assignments.';}
 
+  if(isSchool.value && canSyncSchool.value && !manualDefaults) await syncSchoolDefaults(own);
   if(!isSchool.value&&!draft.officeId&&providerId.value)await suggestProvider(false);
  }catch(e){if(own===generation)error.value=e.response?.data?.error?.message||e.message||'Assignments could not be loaded.';}finally{if(own===generation){loading.value=false;hydratingWorkingDraft=false;if(loaded.value&&!isSchool.value&&!draft.officeId&&providerId.value&&providerId.value!==attemptedProviderId)void suggestProvider(false);}}
 }
@@ -107,7 +109,7 @@ function onServicesUpdated(data){services.value=data.services||[];emit('updated'
 watch(providerId,()=>{if(!loaded.value||loading.value||isSchool.value||manualDefaults)return;if(autoSuggested&&!saved.value.officeId)Object.assign(draft,saved.value);if(!draft.officeId)void suggestProvider(false);});
 async function saveDefaults(){if(busy.value)return false;const own=generation,cid=props.clientId,aid=props.agencyId;saving.value=true;error.value='';try{
  await api.post(`/clients/${cid}/agency-affiliations`,{agency_id:Number(aid),default_office_location_id:Number(draft.officeId)||null,default_place_of_service:draft.pos||null,...(canReadBilling.value?{default_service_location_id:Number(draft.serviceLocationId)||null}:{})},request());
- if(own!==generation)return false;saved.value={...draft};manualDefaults=false;autoSuggested=false;hint.value='Defaults saved.';emit('updated');return true;
+ if(own!==generation)return false;saved.value={...draft};savedSchoolDefaultsManually=isSchool.value;manualDefaults=false;autoSuggested=false;hint.value='Defaults saved.';emit('updated');return true;
  }catch(e){if(own===generation)error.value=e.response?.data?.error?.message||'Scheduling defaults could not be saved.';return false;}finally{if(own===generation)saving.value=false;}}
 async function addAffiliation(type){if(busy.value||!additions[type])return;const own=generation,cid=props.clientId,aid=props.agencyId;saving.value=true;error.value='';try{
  await api.post(`/clients/${cid}/affiliations`,{agency_id:Number(aid),organization_id:Number(additions[type]),is_primary:makePrimary[type]},request());if(own!==generation)return;const response=await api.get(`/clients/${cid}/affiliations`,request());if(own!==generation)return;affiliations.value=rows(response);additions[type]='';makePrimary[type]=false;emit('updated');
@@ -129,10 +131,27 @@ async function saveWorkingDraft(){
  return true;
 }
 function prepareLeave(){if(busy.value||!loaded.value||error.value||servicesError.value)return false;if(servicesPanel.value?.prepareLeave?.()===false)return false;if(dirty.value){error.value='Save or reset scheduling defaults before moving to another client.';section.value?.scrollIntoView?.({block:'center'});return false;}return true;}
+async function syncSchoolDefaults(own){
+ const {data}=await api.post(`/clients/${props.clientId}/chart-import/school-setup`,
+  {preserveDefaults:savedSchoolDefaultsManually},request());
+ if(own!==generation || !data?.schoolSetup)return;
+ const setup=data.schoolSetup;
+ schoolLocationLabel.value=setup.serviceLocation?.name ? `${setup.serviceLocation.name} (POS 03)` : '';
+ if(!savedSchoolDefaultsManually){
+  saved.value={...saved.value,pos:setup.placeOfService,serviceLocationId:String(setup.serviceLocation.id)};
+  if(!manualDefaults)Object.assign(draft,saved.value);
+ }
+ await servicesPanel.value?.refresh?.();
+ emit('updated');
+}
 async function savePendingAssignments(){
  const own=generation;
  if(busy.value)return false;
  if(await servicesPanel.value?.savePendingAssignments?.()===false){error.value='The provider assignment could not be saved. Review Services & providers above and retry.';section.value?.scrollIntoView?.({block:'center'});return false;}
+ if(isSchool.value && canSyncSchool.value){
+  try { await syncSchoolDefaults(own); }
+  catch(e) { error.value=e.response?.data?.error?.message||e.message||'The school assignment could not be saved.';return false; }
+ }
  // Legacy chart assignments also need a service enrollment. Staff should not
  // have to find Add service after choosing the client's clinical provider.
  if(!isSchool.value && client.value?.client_type==='clinical' && providerId.value
