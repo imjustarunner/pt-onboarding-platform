@@ -6,6 +6,8 @@ export function mobileClinicalClient(apiBase, sessionToken) {
   return {
     get:(path,options) => axios.get(`${apiBase}/clinical${path}`,config(options)),
     post:(path,body,options) => axios.post(`${apiBase}/clinical${path}`,body,config(options)),
+    put:(path,body,options) => axios.put(`${apiBase}/clinical${path}`,body,config(options)),
+    delete:(path,options) => axios.delete(`${apiBase}/clinical${path}`,config(options)),
     patch:(path,body,options) => axios.patch(`${apiBase}/clinical${path}`,body,config(options))
   };
 }

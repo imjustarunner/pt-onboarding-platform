@@ -1,3 +1,6 @@
+import { maskMobileClientName } from '../services/narrivaAccess.service.js';
+import { enrollmentSections, listEntries, readEntry, createEntry } from '../controllers/confidentialClinicalEntries.controller.js';
+import sessionSupportingMaterials from './sessionSupportingMaterials.routes.js';
 import express from 'express';
 import {getClinicalMseHistory} from '../controllers/clinicalMseHistory.controller.js';
 import {excludeSupportClinicalContent} from '../middleware/supportContentAccess.middleware.js';
@@ -6,7 +9,7 @@ import {requireClinicalChart,requireClinicalNoteSigning} from '../middleware/med
 import {requireMobileClinicalSession,scopedMobileClinicalHandler as scoped,getMobileClinicalContext,getMobileClientSummary,resolveMobileClientContact,sendMobileClientContact,getMobileNotesToSign,bootstrapMobileClinicalSession} from '../controllers/mobileClinical.controller.js';
 import {createClinicalNoteDraft,patchClinicalNoteDraft,generateClinicalNote} from '../controllers/clinicalNoteGenerator.controller.js';
 import {createSessionNote} from '../controllers/clinicalData.controller.js';
-import {getClinicalNoteById,signClinicalNote,cosignClinicalNote,createObjectiveRating} from '../controllers/medicalBilling.controller.js';
+import {getClinicalNoteById,signClinicalNote,cosignClinicalNote,createObjectiveRating,upsertDiagnosis} from '../controllers/medicalBilling.controller.js';
 import * as narriva from '../controllers/narriva.controller.js';
 import * as recording from '../controllers/clinicalSessionRecording.controller.js';
 import * as assessments from '../controllers/narrivaAssessmentEvidence.controller.js';
@@ -20,6 +23,12 @@ const router=express.Router();
 router.use(requireMobileClinicalSession,apiLimiter);
 router.get('/context',requireClinicalChart,getMobileClinicalContext);
 router.post('/diagnosis-search',requireClinicalChart,scoped(searchDiagnosisCatalog));
+const clinicalClientAccess = [excludeSupportClinicalContent,requireClinicalChart];
+const clientScope = {clientParam:'clientId',requireClient:true};
+router.get('/clients/:clientId/enrollment-sections',...clinicalClientAccess,scoped(enrollmentSections,clientScope));
+router.get('/clients/:clientId/confidential-entries',...clinicalClientAccess,scoped(listEntries,clientScope));
+router.get('/clients/:clientId/confidential-entries/:entryId',...clinicalClientAccess,scoped(readEntry,clientScope));
+router.post('/clients/:clientId/confidential-entries',...clinicalClientAccess,scoped(createEntry,clientScope));
 router.get('/clients/:clientId/mse-history',excludeSupportClinicalContent,requireClinicalChart,scoped(getClinicalMseHistory,{clientParam:'clientId',requireClient:true}));
 router.get('/clients/:clientId/summary',requireClinicalChart,getMobileClientSummary);
 router.post('/clients/:clientId/contact',requireClinicalChart,resolveMobileClientContact);
@@ -41,6 +50,26 @@ router.post('/drafts',scoped(createClinicalNoteDraft,{requireClient:true}));
 router.patch('/drafts/:draftId',scoped(patchClinicalNoteDraft,{draftParam:'draftId',requireClient:true}));
 router.post('/generate',scoped(generateClinicalNote,{requireClient:true}));
 router.post('/sessions/bootstrap',requireClinicalChart,scoped(bootstrapMobileClinicalSession,{requireClient:true}));
+router.post('/sessions/:sessionId/diagnoses',excludeSupportClinicalContent,requireClinicalChart,scoped((req,res,next)=>{
+  req.body.clinicalSessionId=req.mobileClinical.session.id;
+  return upsertDiagnosis(req,res,next);
+},{sessionParam:'sessionId',requireClient:true}));
+function maskMaterialRecipients(req,res,next) {
+  const send = res.json.bind(res);
+  const maskedPerson = person => ({...person,name:maskMobileClientName({full_name:person.name})});
+  const maskedMaterial = material => {
+    const result = {...material};
+    for (const field of ['sharedWith','sharingRecipients']) {
+      if (Array.isArray(result[field])) result[field] = result[field].map(maskedPerson);
+    }
+    return result;
+  };
+  res.json = data => send(Array.isArray(data)
+    ? data.map(req.path === '/recipients' ? maskedPerson : maskedMaterial)
+    : maskedMaterial(data));
+  next();
+}
+router.use('/sessions/:sessionId/materials',...clinicalClientAccess,scoped((req,res,next)=>next(),{sessionParam:'sessionId',requireClient:true}),maskMaterialRecipients,sessionSupportingMaterials);
 router.get('/sessions/:sessionId/service',requireClinicalChart,scoped(getClinicalSessionServiceCode,{sessionParam:'sessionId',requireClient:true}));
 router.post('/sessions/:sessionId/service',requireClinicalChart,scoped(changeClinicalSessionServiceCode,{sessionParam:'sessionId',requireClient:true}));
 router.post('/sessions/:sessionId/notes',requireClinicalChart,scoped(createSessionNote,{sessionParam:'sessionId',requireClient:true,requireGeneratedNote:true}));

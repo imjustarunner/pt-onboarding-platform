@@ -27,6 +27,7 @@
         </div>
       </div>
     </header>
+    <ConfidentialClinicalEntries v-if="!workspace && !isLearning && agencyId && clientId" :key="clientId" :agency-id="agencyId" :client-id="clientId" />
 
     <div v-if="workspace" class="ccnf-workspace">
       <header class="ccnf-workspace-bar">
@@ -175,6 +176,7 @@
 </template>
 
 <script setup>
+import ConfidentialClinicalEntries from '../../clinical/ConfidentialClinicalEntries.vue';
 import ClientIntakeNotePanel from './ClientIntakeNotePanel.vue';
 import { computed, defineAsyncComponent, onMounted, ref, watch } from 'vue';
 import api from '../../../services/api.js';

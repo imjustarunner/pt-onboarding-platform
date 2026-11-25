@@ -1,9 +1,11 @@
+import { requireClinicalChart } from '../middleware/medicalBilling.middleware.js';
+import * as confidential from '../controllers/confidentialClinicalEntries.controller.js';
 import { getClinicalAppointmentAlerts, acknowledgeClinicalAppointmentAlert } from '../controllers/clinicalAppointmentAlerts.controller.js';
 import { downloadClinicalDraftPdf } from '../controllers/clinicalRecordExport.controller.js';
 import * as contactDocumentation from '../controllers/contactDocumentation.controller.js';
 import {searchDiagnosisCatalog} from '../controllers/clinicalDiagnosisSearch.controller.js';
 import express from 'express';
-import { excludeSupportClinicalContent } from '../middleware/supportContentAccess.middleware.js';
+import { excludeFamilyClinicalWorkspace, excludeSupportClinicalContent } from '../middleware/supportContentAccess.middleware.js';
 import multer from 'multer';
 import { body, param, query } from 'express-validator';
 
@@ -75,6 +77,10 @@ router.post('/quick-copy/transcribe', apiLimiter, transcribeUpload.single('audio
 
 // Operational contact notes stay available above this clinical-content boundary.
 router.use(excludeSupportClinicalContent);
+router.get('/clients/:clientId/confidential-entries', apiLimiter, excludeFamilyClinicalWorkspace, requireClinicalChart, confidential.listEntries);
+router.get('/clients/:clientId/confidential-entries/:entryId', apiLimiter, excludeFamilyClinicalWorkspace, requireClinicalChart, confidential.readEntry);
+router.post('/clients/:clientId/confidential-entries', apiLimiter, excludeFamilyClinicalWorkspace, requireClinicalChart, confidential.createEntry);
+router.get('/clients/:clientId/enrollment-sections', apiLimiter, excludeFamilyClinicalWorkspace, requireClinicalChart, confidential.enrollmentSections);
 // POST keeps the clinical search text out of URL/access-log query strings.
 router.post('/diagnosis-search',apiLimiter,searchDiagnosisCatalog);
 router.get('/appointment-alerts',apiLimiter,getClinicalAppointmentAlerts);

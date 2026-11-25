@@ -1,3 +1,5 @@
+import { buildClinicalIntakeSourceContext } from './noteAidIntakeSources.service.js';
+import { encounterConsentStatement } from '../../../frontend/src/utils/narrivaProgressContext.js';
 import {buildAllNormalMse,MSE_DOMAINS,RISK_DOMAIN_KEYS,domainSelectionLabel} from '../../../frontend/src/utils/noteAidMseCatalog.js';
 import { objectiveReviewMessage } from '../../../frontend/src/utils/narrivaObjectiveReview.js';
 import { buildPromptForTool, clinicalWriterOptions } from './clinicalNoteWriter.service.js';
@@ -151,6 +153,10 @@ export async function inspectNarrivaFacts(source,{model=callPrivateSessionText,k
  const privacyContext=createSessionPrivacyContext({identifiers:source.identifiers,clientNames:[source.client.first_name,source.client.last_name,source.client.full_name,source.client.initials],providerNames:[source.provider?.first_name,source.provider?.last_name]});
  const preflight = source.phase === 'pre_generation';
  const evidencePayload=narrivaModelPayload(source);
+ if (preflight && ['clinical_90791_intake_plan','clinical_90791_note_aid','clinical_h0031_intake'].includes(mappedGeneratorId)) {
+   const intake = await buildClinicalIntakeSourceContext({agencyId:source.agencyId,clientId:source.client.id});
+   evidencePayload.enrollmentClinicalHistory = intake.contextText;
+ }
  if(preflight && evidencePayload.note===evidencePayload.sessionNarrative)delete evidencePayload.note;
  let workingDraft=null,writer=null;
  if(preflight) {
@@ -276,10 +282,7 @@ export async function assertNarrivaPreGeneration(req,{agencyId,clientId,draftId,
  const review=await evaluateStoredReview(req.user,{...latest},source,currentGuidance);
  if(review.phase!=='pre_generation' || Number(review.actorUserId)!==Number(req.user.id) || Number(review.draftId)!==Number(draftId) || !['passed','bypassed'].includes(review.status))throw narrivaError(409,'Resolve the current narrative checks before generating.','NARRIVA_PREFLIGHT_REQUIRED');
  if(Number(source.client.id)!==Number(clientId) || Number(source.source.clinical_session_id)!==Number(clinicalSessionId) || String(inputText || '').trim()!==String(source.inputText || '').trim())throw narrivaError(409,'The narrative or session changed. Submit the current content for compliance check.','NARRIVA_PREFLIGHT_STALE');
- const remote=['video','phone','telehealth','virtual'].includes(String(source.encounter.modality).toLowerCase());
- const location=String(source.meta.narrivaContext?.clientLocationDescription || source.encounter.location || '').trim();
- const consentParty=source.encounter.clientPresent===false?'The attending participant(s)':'Client';
- const consentStatement=source.encounter.consentConfirmed===true?`${consentParty} consented to services and participation in the ${remote?'virtual '+source.encounter.modality:'in-person'} session in a private setting${location?' at '+location:''}.`:null;
+ const consentStatement=encounterConsentStatement(source.encounter) || null;
  const chart=parse(source.meta.structuredChart),context=parse(source.meta.narrivaContext);
  const rawDiagnoses=chart.diagnoses || chart.intakeDiagnoses || source.meta.diagnoses || [];
  const confirmed=parse(source.confirmedClinicalContext);

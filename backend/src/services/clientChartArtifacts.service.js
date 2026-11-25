@@ -171,7 +171,7 @@ function packetSignalsFromIntakeData(intakeData) {
   };
 }
 
-export async function loadIntakeSubmissionsForClient(clientId, { agencyId = null } = {}) {
+export async function loadIntakeSubmissionsForClient(clientId, { agencyId = null, completedOnly = false } = {}) {
   const cid = Number(clientId || 0);
   if (!cid) return [];
   const [rows] = await pool.execute(
@@ -200,6 +200,7 @@ export async function loadIntakeSubmissionsForClient(clientId, { agencyId = null
      LEFT JOIN intake_links l ON l.id = s.intake_link_id
      LEFT JOIN intake_submission_clients isc ON isc.intake_submission_id = s.id
      WHERE (s.client_id = ? OR isc.client_id = ?) ${agencyId ? 'AND l.organization_id = ?' : ''}
+     ${completedOnly ? "AND s.status IN ('submitted','completed','finalized','signed')" : ''}
      GROUP BY
        s.id, s.intake_link_id, s.client_id, s.status, s.signer_name, s.signer_email,
        s.submitted_at, s.created_at, s.updated_at, s.intake_data,
@@ -207,7 +208,7 @@ export async function loadIntakeSubmissionsForClient(clientId, { agencyId = null
        l.title, l.form_type, l.scope_type, l.language_code,
        l.organization_id, l.public_key
      ORDER BY COALESCE(s.submitted_at, s.updated_at, s.created_at) DESC
-     LIMIT 40`,
+     ${completedOnly ? '' : 'LIMIT 40'}`,
     [cid, cid, ...(agencyId ? [Number(agencyId)] : [])]
   );
   decryptIntakeSubmissionRows(rows || []);

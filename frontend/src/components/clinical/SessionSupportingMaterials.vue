@@ -1,8 +1,7 @@
 <template>
   <component :is="flat ? 'section' : 'details'" v-if="Number(clinicalSessionId)" class="session-materials" @toggle="onToggle">
-    <summary v-if="!flat">Supporting materials</summary><header v-else><h3>Supporting materials</h3><p>Upload photos or documents for this session.</p></header>
+    <summary v-if="!flat">Supporting Material Addendums</summary><header v-else><h3>Supporting Material Addendums</h3><p>Upload photos or documents for this session.</p></header>
     <div v-if="opened" class="materials-body">
-      <p>Worksheets and other files for this session stay together here. Sharing to a client’s Documents is optional.</p>
       <p v-if="loading" role="status">Loading supporting materials…</p>
       <ul v-else-if="materials.length">
         <li v-for="material in materials" :key="material.id">
@@ -54,10 +53,9 @@
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
-import api from '../../services/api.js';
-const props = defineProps({ flat: Boolean, clinicalSessionId: { type: [Number, String], required: true }, transport: { type: Object, default: null } });
+const props = defineProps({ flat: Boolean, clinicalSessionId: { type: [Number, String], required: true }, transport: { type: Object, default: null }, basePath: {type:String,default:'/clinical-data'} });
 // A public fixture can supply local transport; production retains the authenticated API.
-const client = props.transport || api;
+const client = () => props.transport || import('../../services/api.js').then(module => module.default);
 const opened = ref(props.flat), loaded = ref(false), loading = ref(false), busy = ref(false), materials = ref([]);
 const title = ref(''), file = ref(null), inputKey = ref(0), includeInDocuments = ref(false);
 const recipients = ref([]), recipientsLoading = ref(false), recipientIds = ref([]), reviewed = ref(false);
@@ -65,7 +63,7 @@ const error = ref(''), notice = ref('');
 const sharingMaterial = ref(null);
 let generation = 0;
 onMounted(() => { if (props.flat) load(); });
-const base = () => `/clinical-data/sessions/${Number(props.clinicalSessionId)}/materials`;
+const base = () => `${props.basePath}/sessions/${Number(props.clinicalSessionId)}/materials`;
 const guardians = computed(() => recipients.value.filter(person => person.kind === 'guardian'));
 const allGuardiansSelected = computed(() => guardians.value.length > 0 && guardians.value.every(person => recipientIds.value.includes(person.id)));
 const message = (e, fallback) => e.response?.data?.error?.message || e.message || fallback;
@@ -84,7 +82,7 @@ watch(includeInDocuments, async enabled => {
 async function loadRecipients() {
   const token = generation; recipientsLoading.value = true; error.value = '';
   try {
-    const response = await client.get(`${base()}/recipients`);
+    const response = await (await client()).get(`${base()}/recipients`);
     if (token === generation && includeInDocuments.value) recipients.value = response.data || [];
   } catch (e) { if (token === generation) { recipients.value = []; error.value = message(e, 'Could not check document permissions.'); } }
   finally { if (token === generation) recipientsLoading.value = false; }
@@ -103,7 +101,7 @@ async function onToggle(event) {
 }
 async function load() {
   const token = generation; loading.value = true;
-  try { const response = await client.get(base()); if (token === generation) { materials.value = response.data || []; loaded.value = true; } }
+  try { const response = await (await client()).get(base()); if (token === generation) { materials.value = response.data || []; loaded.value = true; } }
   catch (e) { if (token === generation) error.value = message(e, 'Could not load supporting materials.'); }
   finally { if (token === generation) loading.value = false; }
 }
@@ -115,14 +113,14 @@ async function upload() {
   let saved = false;
   try {
     const data = new FormData(); data.append('file', file.value); data.append('title', title.value.trim());
-    const response = await client.post(path, data);
+    const response = await (await client()).post(path, data);
     saved = true;
     if (token !== generation) return;
     const material = response.data;
     materials.value.unshift(material);
     if (!material.available) notice.value = 'Saved encrypted and pending a private security scan. This file has not been shared and cannot be opened yet.';
     else if (share) {
-      const sharing = await client.put(`${path}/${material.id}/sharing`, { recipientIds: selected, reviewed: true });
+      const sharing = await (await client()).put(`${path}/${material.id}/sharing`, { recipientIds: selected, reviewed: true });
       if (token !== generation) return;
       material.sharedWith = sharing.data.sharedWith;
       material.sharingRecipients = sharing.data.sharedWith;
@@ -137,7 +135,7 @@ async function shareExisting() {
   if (busy.value || !recipientIds.value.length || !reviewed.value || recipientsLoading.value) return;
   const token = generation, material = sharingMaterial.value; busy.value = true; error.value = ''; notice.value = '';
   try {
-    const response = await client.put(`${base()}/${material.id}/sharing`, { recipientIds: [...recipientIds.value], reviewed: true });
+    const response = await (await client()).put(`${base()}/${material.id}/sharing`, { recipientIds: [...recipientIds.value], reviewed: true });
     if (token !== generation) return;
     material.sharedWith = response.data.sharedWith;
     material.sharingRecipients = response.data.sharedWith;
@@ -149,7 +147,7 @@ async function shareExisting() {
 async function retryScan(material) {
   const token = generation; busy.value = true; error.value = ''; notice.value = '';
   try {
-    const response = await client.post(`${base()}/${material.id}/scan`);
+    const response = await (await client()).post(`${base()}/${material.id}/scan`);
     if (token !== generation) return;
     Object.assign(material, response.data);
     notice.value = material.available ? 'Security scan passed. You may now open or explicitly share this file.' : 'This file remains unavailable until its private security scan passes.';
@@ -160,7 +158,7 @@ async function removeAccess(material, person) {
   if (busy.value) return;
   const token = generation; busy.value = true; error.value = ''; notice.value = '';
   try {
-    await client.delete(`${base()}/${material.id}/sharing/${person.id}`);
+    await (await client()).delete(`${base()}/${material.id}/sharing/${person.id}`);
     if (token !== generation) return;
     const grants = material.sharingRecipients || material.sharedWith || [];
     material.sharedWith = (material.sharedWith || []).filter(recipient => Number(recipient.id) !== Number(person.id));
@@ -172,7 +170,7 @@ async function removeAccess(material, person) {
 async function download(material) {
   const token = generation; error.value = '';
   try {
-    const response = await client.get(`${base()}/${material.id}/download`, { responseType: 'blob' });
+    const response = await (await client()).get(`${base()}/${material.id}/download`, { responseType: 'blob' });
     if (token !== generation) return;
     const url = URL.createObjectURL(new Blob([response.data], { type: material.mimeType }));
     const extension = { 'application/pdf': '.pdf', 'image/jpeg': '.jpg', 'image/png': '.png' }[material.mimeType] || '';
@@ -185,4 +183,12 @@ async function download(material) {
 <style scoped>
 .session-materials{margin:14px 0;border:1px solid var(--border,#dce4ed);border-radius:10px;background:var(--bg-surface,#fff)}
 summary{padding:14px;cursor:pointer;font-weight:700}.materials-body{padding:0 14px 14px}.materials-body p{line-height:1.5}.materials-body small{display:block;color:var(--text-muted,#53657a);line-height:1.5}.materials-body ul{padding-left:22px}.materials-body li{margin:12px 0}.materials-body form{border-top:1px solid var(--border,#dce4ed);padding-top:12px}.materials-body label{display:block;margin:10px 0}.materials-body input:not([type=checkbox]){display:block;box-sizing:border-box;width:100%;padding:9px;margin-top:5px}.materials-body fieldset{margin:12px 0;border:1px solid var(--border,#dce4ed)}.materials-body button{padding:9px 12px;cursor:pointer}.materials-body [role=alert]{color:var(--danger,#a02727)}
+.session-materials {box-sizing:border-box;min-width:0;margin:0;padding:1rem;border:1px solid #d6e1eb;border-radius:.75rem;background:white;color:#193650}
+.session-materials h3,.session-materials summary {margin:0;font-size:1rem;font-weight:700}
+.session-materials p,.session-materials small {color:#53697e;font-size:.84rem;line-height:1.5}
+.materials-body form {display:grid;gap:.65rem}
+.materials-body form input:not([type=checkbox]) {box-sizing:border-box;width:100%;margin-top:.25rem;padding:.5rem;border:1px solid #bfcedb;border-radius:.45rem;font:inherit}
+.materials-body form input[type=file] {border-style:dashed;background:#f5f9fc}
+.materials-body button,.materials-body input::file-selector-button {justify-self:start;padding:.4rem .75rem;border:1px solid #c1d2e0;border-radius:.45rem;color:#164c73;background:#eff6fb;font-weight:600}
+.materials-body button:disabled {opacity:.6}
 </style>

@@ -18,7 +18,7 @@
         <span v-if="payerLabel" class="payer">Payer · {{ payerLabel }}</span>
       </div>
       <div class="na-quick-session__cell">
-        <span class="lbl">DOS</span>
+        <span class="lbl">Date of service</span>
         <input
           v-if="editable"
           type="date"
@@ -76,7 +76,7 @@
         </span>
       </div>
       <div class="na-quick-session__cell">
-        <span class="lbl">Duration</span>
+        <span class="lbl">Duration (min)</span>
         <input
           v-if="editable"
           type="number"
@@ -161,18 +161,6 @@
             +{{ addon.code }}{{ addon.units > 1 ? ` ×${addon.units}` : '' }}
           </span>
         </div>
-      </div>
-      <div v-if="!setupComplete" class="na-quick-session__cell na-quick-session__cell--setup">
-        <span class="lbl">Setup</span>
-        <button
-          type="button"
-          class="na-quick-session__setup"
-          @click="$emit('toggle-setup')"
-        >
-          <span aria-hidden="true">!</span>
-          Complete client setup
-          <span class="chev" aria-hidden="true">▾</span>
-        </button>
       </div>
     </div>
     <p v-if="durationHint" class="na-quick-session__hint">{{ durationHint }}</p>
@@ -575,4 +563,13 @@ function onCodeChange(raw) {
   padding: 6px 10px;
 }
 
+
+.na-quick-session__cell .lbl, .na-quick-session__cell :deep(.clp > label) {
+  font-size: .76rem; font-weight: 650; text-transform: none; letter-spacing: normal;
+  line-height: 1.4; color: #42576c;
+}
+.na-quick-session__cell .lbl {display:flex;align-items:center;gap:.25rem;min-height:1.65rem;margin-bottom:.22rem}
+.na-quick-session__cell :deep(.clp > label) {display:grid;gap:.22rem;line-height:1.65rem}
+.na-quick-session__cell :is(input,select), .na-quick-session__cell :deep(.clp select) {box-sizing:border-box;min-height:2.25rem;width:100%;font:inherit;font-size:.875rem;color:#19354d}
+.na-quick-session__cell .lbl :deep(button) {height:1.5rem;width:1.5rem;min-width:0;min-height:0;padding:0}
 </style>

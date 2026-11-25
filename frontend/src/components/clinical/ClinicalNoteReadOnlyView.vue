@@ -362,6 +362,7 @@
       <p v-else class="ccn-field-hint">Clinical additions require the clinical author’s own signature. Billing changes can be proposed through Create amendment in Note versions.</p>
     </section>
 
+    <ConfidentialClinicalEntries v-if="!compact && note.id && note.clientId && note.agencyId && (note.canSignClinicalNote || Number(note.providerSignedByUserId) === Number(authStore.user?.id))" attached :note-id="note.id" :agency-id="note.agencyId" :client-id="note.clientId" />
     <SessionSupportingMaterials v-if="!compact && note.clinicalSessionId" :key="note.clinicalSessionId" :clinical-session-id="note.clinicalSessionId" />
 
     <section v-if="!compact && canAmendBilling && note.clinicalSessionId" class="ccn-block" aria-label="Billing amendment">
@@ -373,6 +374,7 @@
 
 <script setup>
 import { canAccessMedicalBilling } from '../../config/medicalBillingAccess.js';
+import ConfidentialClinicalEntries from './ConfidentialClinicalEntries.vue';
 import SessionSupportingMaterials from './SessionSupportingMaterials.vue';
 import ClinicalNoteVersionHistory from './ClinicalNoteVersionHistory.vue';
 import { computed, ref, watch } from 'vue';

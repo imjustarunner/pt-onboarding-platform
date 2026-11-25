@@ -27,9 +27,9 @@ describe('enrollment and assessment source context',()=>{
    {id:1,status:'submitted',intake_link_id:1,intake_data:{clinicalResponses:phq(Array(9).fill(3))}}
   ]);
   const result=await buildClinicalIntakeSourceContext({agencyId:2,clientId:10},{loadSubmissions,findLink:async()=>({organization_id:2}),buildRecord:({submission})=>({sections:[{title:'Clinical interview',rows:[{label:'Presenting concerns',value:`Reported history ${submission.id}`},{label:'Full name of client',value:'Do not transmit this identity'}]}]})});
-  expect(loadSubmissions).toHaveBeenCalledWith(10,{agencyId:2});
+  expect(loadSubmissions).toHaveBeenCalledWith(10,{agencyId:2,completedOnly:true});
   expect(result.instruments[0]).toMatchObject({total:null,complete:false,sourceRef:'intake:2'});
-  expect(result.contextText).toContain('Reported history 2');expect(result.contextText).not.toContain('Do not transmit this identity');expect(result.contextText).not.toContain('Reported history 1');
+  expect(result.contextText).toContain('Reported history 2');expect(result.contextText).not.toContain('Do not transmit this identity');expect(result.contextText).toContain('Reported history 1');expect(result.manualSections['Presenting Problem']).toContain('Earlier enrollment 2');
   expect(result.sources.map(source=>source.submissionId)).toEqual([2,1]);
  });
  it('rejects an enrollment link from another agency and includes no unreviewed draft',async()=>{

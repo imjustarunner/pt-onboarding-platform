@@ -3,7 +3,7 @@ import {existsSync} from 'node:fs';
 import pool from '../../config/clinicalDatabase.js';
 import {splitSqlStatements,stripSqlLineComments} from '../../utils/migrationSql.js';
 export async function ensureSafetyPlanSchema() {
-  for(const file of ['025_client_safety_plans.sql','033_portal_document_assignment_batches.sql','036_clinical_document_requests.sql']) {
+  for(const file of ['025_client_safety_plans.sql','033_portal_document_assignment_batches.sql','036_clinical_document_requests.sql','037_confidential_clinician_entries.sql']) {
     const deployed=new URL('../../../database/clinical_migrations/'+file,import.meta.url);
     const local=new URL('../../../../database/clinical_migrations/'+file,import.meta.url);
     const sql=await readFile(existsSync(deployed)?deployed:local,'utf8');
