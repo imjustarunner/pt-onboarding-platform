@@ -27,8 +27,8 @@ class AgencyServiceLocation {
     return rows || [];
   }
 
-  static async findById(id) {
-    const [rows] = await pool.execute(
+  static async findById(id, db = pool) {
+    const [rows] = await db.execute(
       `SELECT l.*,
               o.name AS billing_office_name,
               COALESCE(o.physical_office_location_id, o.id) AS physical_office_location_id,
@@ -45,11 +45,11 @@ class AgencyServiceLocation {
     return rows?.[0] || null;
   }
 
-  static async findByAgencyAndSchool(agencyId, schoolOrganizationId) {
+  static async findByAgencyAndSchool(agencyId, schoolOrganizationId, db = pool) {
     const sid = Number(schoolOrganizationId || 0);
     if (!agencyId || !sid) return null;
     try {
-      const [rows] = await pool.execute(
+      const [rows] = await db.execute(
         `SELECT l.*,
                 o.name AS billing_office_name
          FROM agency_service_locations l
@@ -58,7 +58,7 @@ class AgencyServiceLocation {
            AND l.school_organization_id = ?
            AND l.is_active = 1
          ORDER BY l.id ASC
-         LIMIT 1`,
+         LIMIT 1${db !== pool ? ' FOR UPDATE OF l' : ''}`,
         [agencyId, sid]
       );
       return rows?.[0] || null;
@@ -68,7 +68,7 @@ class AgencyServiceLocation {
     }
   }
 
-  static async create(payload) {
+  static async create(payload, db = pool) {
     const {
       agencyId,
       name,
@@ -89,7 +89,7 @@ class AgencyServiceLocation {
     const schoolOrgId = Number(schoolOrganizationId || 0) || null;
     const kind = String(locationKind || 'custom').trim().slice(0, 32) || 'custom';
     try {
-      const [result] = await pool.execute(
+      const [result] = await db.execute(
         `INSERT INTO agency_service_locations
            (agency_id, name, place_of_service, street_address, city, state, postal_code, notes,
             requires_credentialing, billing_office_location_id, school_organization_id, created_by_user_id,
@@ -113,11 +113,11 @@ class AgencyServiceLocation {
           isProviderVisible ? 1 : 0
         ]
       );
-      return this.findById(result.insertId);
+      return this.findById(result.insertId, db);
     } catch (e) {
       if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
       try {
-        const [result] = await pool.execute(
+        const [result] = await db.execute(
           `INSERT INTO agency_service_locations
              (agency_id, name, place_of_service, street_address, city, state, postal_code, notes,
               requires_credentialing, billing_office_location_id, school_organization_id, created_by_user_id)
@@ -137,10 +137,10 @@ class AgencyServiceLocation {
             createdByUserId
           ]
         );
-        return this.findById(result.insertId);
+        return this.findById(result.insertId, db);
       } catch (e2) {
         if (e2?.code !== 'ER_BAD_FIELD_ERROR') throw e2;
-        const [result] = await pool.execute(
+        const [result] = await db.execute(
           `INSERT INTO agency_service_locations
              (agency_id, name, place_of_service, street_address, city, state, postal_code, notes,
               requires_credentialing, billing_office_location_id, created_by_user_id)
@@ -159,12 +159,12 @@ class AgencyServiceLocation {
             createdByUserId
           ]
         );
-        return this.findById(result.insertId);
+        return this.findById(result.insertId, db);
       }
     }
   }
 
-  static async update(id, updates = {}) {
+  static async update(id, updates = {}, db = pool) {
     const map = {
       name: 'name',
       placeOfService: 'place_of_service',
@@ -194,13 +194,13 @@ class AgencyServiceLocation {
       }
       else vals.push(updates[k]);
     }
-    if (!fields.length) return this.findById(id);
+    if (!fields.length) return this.findById(id, db);
     vals.push(id);
-    await pool.execute(
+    await db.execute(
       `UPDATE agency_service_locations SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
       vals
     );
-    return this.findById(id);
+    return this.findById(id, db);
   }
 }
 

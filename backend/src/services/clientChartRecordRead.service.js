@@ -11,3 +11,14 @@ export async function readChartRecord(scope, section, owner = 0, db = pool) {
   return { value: envelope.value, revision: rows[0].revision };
 }
 
+
+export function insuranceDraftSlots(value) {
+  if (!value || value.coverageMode === 'self_pay') return {};
+  return value.coverageDrafts || { [value.position === 'secondary' ? 'secondary' : 'primary']: value };
+}
+
+export function billingHandoffTaskIds(value, handoffs) {
+  return Object.fromEntries(Object.entries(insuranceDraftSlots(value))
+    .filter(([position, draft]) => draft.text?.trim() && draft.text.trim() === handoffs?.[position]?.text && handoffs[position].taskId)
+    .map(([position]) => [position, handoffs[position].taskId]));
+}

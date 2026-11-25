@@ -7453,6 +7453,7 @@ export const importClientDemographics = async (req, res, next) => {
       demographicsToClientPatch,
       applyGuardianContactOwnership,
       encryptDemographicsPayload,
+      decryptDemographicsPayload,
       isDemographicsEncryptionConfigured,
       demographicsImportHasContent,
       clientHasDemographicsOnFile
@@ -7497,14 +7498,32 @@ export const importClientDemographics = async (req, res, next) => {
     }
     const patch = demographicsToClientPatch(parsed);
     if (classification) patch.recordsContactClassification = classification;
-    if (req.body?.contactOwner === 'client') parsed.contactOwner = 'client';
-    if (req.body?.contactOwner === 'guardian') {
-      const current = await Client.findById(clientId, { includeSensitive: true });
+    const merging = req.body?.mergeExisting === true;
+    const current = merging || req.body?.contactOwner === 'guardian'
+      ? await Client.findById(clientId, { includeSensitive: true }) : null;
+    if (req.body?.contactOwner === 'client' && (parsed.contactPhone || parsed.email || !merging)) parsed.contactOwner = 'client';
+    if (req.body?.contactOwner === 'guardian' && (parsed.contactPhone || parsed.email || !merging)) {
       applyGuardianContactOwnership(parsed, patch, current);
     }
     if (isDemographicsEncryptionConfigured()) {
       // Store as object for JSON columns (mysql2 serializes); avoid double-encoded strings.
-      patch.demographics_phi_enc = encryptDemographicsPayload(parsed);
+      let demographics = parsed;
+      if (merging && current?.demographics_phi_enc) {
+        const saved = decryptDemographicsPayload(current.demographics_phi_enc);
+        const supplied = Object.fromEntries(Object.entries(parsed).filter(([,value]) => value != null && value !== ''));
+        demographics = { ...saved, ...supplied };
+        if (parsed.contactOwner === 'guardian') {
+          if (Object.hasOwn(patch, 'contact_phone')) demographics.contactPhone = patch.contact_phone;
+          if (Object.hasOwn(patch, 'email')) demographics.email = patch.email;
+          if (demographics.contactPhone == null && demographics.email == null) {
+            demographics.appointmentReminderType = null;
+            demographics.textMessagesOk = null;
+          }
+        } else if (parsed.contactOwner === 'client') {
+          delete demographics.sourceContact;
+        }
+      }
+      patch.demographics_phi_enc = encryptDemographicsPayload(demographics);
     } else {
       // Still persist operational fields; envelope skipped when no key configured
       console.warn('[importClientDemographics] encryption key not configured; storing operational fields only');

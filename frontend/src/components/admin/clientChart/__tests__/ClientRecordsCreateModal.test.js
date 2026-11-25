@@ -107,3 +107,25 @@ it('lets an explicitly delegated provider choose the imported client’s actual 
  m.role='provider_plus';const get=m.get.getMockImplementation();m.get.mockImplementation(async(url,...args)=>url==='/provider-scheduling/transition-workspace/import-access'?{data:{canImportClients:true}}:get(url,...args));
  const w=mountModal();await flushPromises();const control=w.findAll('.cr-context select')[3];expect(control.attributes('disabled')).toBeUndefined();expect(control.text()).toContain('Pat Provider');expect(w.text()).toContain('Insurance');expect(w.find('option[value=self_pay]').exists()).toBe(false);expect(m.role).toBe('provider_plus');w.unmount();
 });
+
+it('hands fresh pastes to a confirmed existing school chart without creating a new chart',async()=>{
+ const confirm=vi.spyOn(window,'confirm').mockReturnValue(true);
+ const post=m.post.getMockImplementation();
+ const candidate={id:31,full_name:'Ekko Loisel',date_of_birth:'2010-02-03',kind:'possible_duplicate',canMerge:true};
+ m.post.mockImplementation(async(url,...args)=>{
+  if(url==='/clients/import-candidates')return {data:{candidates:[candidate]}};
+  if(url==='/clients/31/chart-import/merge')return {data:{id:31,agency_id:2,organization_id:5,client_type:'school'}};
+  return post(url,...args);
+ });
+ localStorage.setItem('client-entry-context:10:2',JSON.stringify({providerId:9}));
+ const w=mountModal();await flushPromises();
+ await w.get('textarea[data-section=demographics]').setValue('Legal Name\nEkko Loisel');
+ await w.findAll('button').find(b=>b.text()==='Read patient info').trigger('click');await flushPromises();
+ await confirmPatientContactOwner(w);
+ await w.findAll('button').find(b=>b.text()==='Merge into this chart').trigger('click');await flushPromises();
+ expect(m.post).toHaveBeenCalledWith('/clients/31/chart-import/merge',expect.objectContaining({confirmed:true,expectedName:'Ekko Loisel'}),expect.anything());
+ expect(w.findComponent(Panel).props()).toMatchObject({clientId:31,autoImport:true,initialTexts:{demographics:'Legal Name\nEkko Loisel'}});
+ expect(m.post.mock.calls.some(([url])=>url==='/clients'||url.endsWith('/provider-assignments'))).toBe(false);
+ expect(w.text()).toContain('Updating existing chart #31');
+ w.unmount();confirm.mockRestore();
+});

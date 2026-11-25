@@ -86,3 +86,13 @@ it('reuses the agency counseling service and preserves its existing program when
  await finishClientCreation({...a,organizationId:2,outcome:'assign',serviceKind:'counseling'});
  expect(a.api.post).toHaveBeenCalledWith('/clients/12/service-enrollments',expect.objectContaining({serviceId:40,providerUserId:9,organizationId:3,addProvider:true}));
 });
+
+it('reuses the selected school roster weekday and syncs its Counseling assignment during records import',async()=>{
+ const a=args();
+ a.api.get.mockResolvedValue({data:[{organization_id:5,provider_user_id:Number(a.providerId),service_day:'Tuesday',is_primary:0}]});
+ a.api.post.mockResolvedValue({data:{schoolSetup:{schoolOrganizationId:5,providerIds:[Number(a.providerId)]}}});
+ await finishClientCreation({...a,organizationId:5,isSchool:true,outcome:'assign',recordsImport:true});
+ expect(a.api.post).toHaveBeenCalledWith(`/clients/${a.clientId}/provider-assignments`,
+  {organization_id:5,provider_user_id:Number(a.providerId),service_day:'Tuesday',is_primary:true},expect.anything());
+ expect(a.api.post).toHaveBeenCalledWith(`/clients/${a.clientId}/chart-import/school-setup`,{},expect.anything());
+});

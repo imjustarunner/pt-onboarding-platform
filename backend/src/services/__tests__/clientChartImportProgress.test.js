@@ -54,3 +54,19 @@ it('reopens a completed chart for selected areas and retains that choice while i
 it('rejects empty or unknown manual update selections',async()=>{
  await expect(beginClientChartImport(scope,[],10,{db,selectedSections:[]})).rejects.toHaveProperty('status',400);await expect(beginClientChartImport(scope,[],10,{db,selectedSections:['made_up']})).rejects.toHaveProperty('status',400);
 });
+
+it('accepts a Billing handoff for only the exact coverage paste, and still requires the other sections',async()=>{
+ await beginClientChartImport(scope,['demographics','insurance'],10,{db});
+ const draft={coverageDrafts:{primary:{text:' Primary paste ',imported:false},secondary:{text:'Secondary paste',imported:true}}};
+ const receipt={primary:{text:'Previous primary paste',taskId:42},secondary:{text:'Primary paste',taskId:43}};
+ let demographicsImported=false;
+ readRecord.mockImplementation(async(_scope,key)=>({value:
+  key==='insurance'?draft:key==='insuranceHandoff'?receipt:{imported:demographicsImported}
+ }));
+ await expect(completeClientChartImport(scope,10,{db,readRecord})).rejects.toHaveProperty('status',409);
+ demographicsImported=true;
+ await expect(completeClientChartImport(scope,10,{db,readRecord})).rejects.toHaveProperty('status',409);
+ receipt.primary.text='Primary paste';
+ await expect(completeClientChartImport(scope,10,{db,readRecord})).resolves.toMatchObject({status:'complete'});
+ expect(readRecord).toHaveBeenCalledWith(scope,'insuranceHandoff',0);
+});

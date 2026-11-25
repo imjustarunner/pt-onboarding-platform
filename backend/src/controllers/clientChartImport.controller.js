@@ -1,8 +1,9 @@
+import { billingHandoffTaskIds } from '../services/clientChartRecordRead.service.js';
 import { pendingResponsibleBillingContact, proposeResponsibleBillingContact } from '../services/clientBillingAccount.service.js';
 import { queueInsuranceVerificationSafely } from '../services/insuranceVerificationTask.service.js';
 import { readCoverageVerificationSummary, latestPayerResponses } from '../services/coverageVerificationSummary.service.js';
 import { requireClientChartImportAccess } from '../services/clientChartImportAccess.service.js';
-import { chartSections, readChartRecord, saveChartRecord, importSupplementaryChartSection } from '../services/clientChartImport.service.js';
+import { chartSections, readChartRecord, saveChartRecord, importSupplementaryChartSection, handOffChartInsurance } from '../services/clientChartImport.service.js';
 import { readClientInsurance } from '../services/clientInsurance.service.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
 import {beginClientChartImport,completeClientChartImport} from '../services/clientChartImportProgress.service.js';
@@ -30,7 +31,11 @@ export async function startChartRecordsImport(req,res,next){try{
  if(Array.isArray(sections))for(const section of sections)requireSectionAccess(req,section);
  const selectedSections=req.body?.selectedSections??null;
  if(Array.isArray(selectedSections))for(const section of selectedSections)requireSectionAccess(req,section);
- const progress=await (selectedSections===null?beginClientChartImport(scope,sections,Number(req.user.id)):beginClientChartImport(scope,sections,Number(req.user.id),{selectedSections}));
+ const onlyIncomplete=req.body?.onlyIncomplete===true;
+ const actor=Number(req.user.id);
+ const progress=await (selectedSections!==null||onlyIncomplete
+  ? beginClientChartImport(scope,sections,actor,{selectedSections,...(onlyIncomplete ? {onlyIncomplete} : {})})
+  : beginClientChartImport(scope,sections,actor));
  await logAuditEvent(req,{actionType:'client_records_import_started',agencyId:scope.agencyId,targetType:'client',targetId:scope.clientId});
  res.set('Cache-Control','no-store').json({progress});
 }catch(error){next(error);}}
@@ -45,7 +50,12 @@ export async function getChartImportDrafts(req, res, next) {
     const scope = await scopeOf(req);
     const entries = await Promise.all(chartSections.filter(key => canManageAccount(req) || !accountSections.has(key)).map(async key => [key, await readChartRecord(scope, key, Number(req.user.id))]));
     await logAuditEvent(req, { actionType: 'client_chart_import_drafts_viewed', agencyId: scope.agencyId, targetType: 'client', targetId: scope.clientId });
-    res.set('Cache-Control', 'no-store').json({ drafts: Object.fromEntries(entries) });
+    const drafts = Object.fromEntries(entries);
+    if (drafts.insurance?.value) {
+      const { value } = await readChartRecord(scope, 'insuranceHandoff');
+      drafts.insurance.billingTaskIds = billingHandoffTaskIds(drafts.insurance.value, value);
+    }
+    res.set('Cache-Control', 'no-store').json({ drafts });
   } catch (error) { next(error); }
 }
 
@@ -94,6 +104,11 @@ export async function importChartSection(req, res, next) {
     if (!text) throw Object.assign(new Error('Paste content before importing'), { status: 400 });
     const position = req.body?.position || 'primary';
     if (!['primary','secondary'].includes(position)) throw Object.assign(new Error('Choose primary or secondary coverage'), { status: 400 });
+    if (section === 'insurance' && req.body?.deferToBilling === true) {
+      const result = await handOffChartInsurance(scope, position, text, Number(req.user.id));
+      await logAuditEvent(req, { actionType: 'client_chart_insurance_sent_to_billing', agencyId: scope.agencyId, targetType: 'client', targetId: scope.clientId, metadata: { position, taskId: result.taskId } });
+      return res.set('Cache-Control', 'no-store').json({ result });
+    }
     const guardianContactNames = req.body?.guardianContactNames || [];
     if (!Array.isArray(guardianContactNames) || guardianContactNames.length > 100 || guardianContactNames.some(name => typeof name !== 'string' || name.length > 255)) throw Object.assign(new Error('Select valid contacts for portal preparation'), { status: 400 });
     if (section === 'contacts' && (req.body?.preparePrimaryGuardian === true || guardianContactNames.length) && !['super_admin','admin','support'].includes(req.user?.role)) throw Object.assign(new Error('Account support access is required to prepare portal accounts'), { status: 403 });

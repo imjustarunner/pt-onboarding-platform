@@ -4,6 +4,7 @@ import { hasSchedulingBillingAccess } from './schedulingBillingAccess.service.js
 
 const parse = value => typeof value === 'string' ? JSON.parse(value || '{}') : value || {};
 const reasons = {
+  records_import_handoff: 'Staff sent a policy to Billing during records import. Open the client’s private insurance details to review the original paste and verify the policy.',
   billing_party_review: 'Review the contact flagged during records import under Account → Billing & insurance. Confirm who should receive balances and review payment-only portal access when appropriate.',
   cob_unresolved: 'A Stedi coordination of benefits check needs help. Open Check overlapping coverage in the private billing profile, resolve each reported policy and the billing order, or reconcile the uncertain attempt in Stedi.',
   missing_card: 'No complete insurance card was uploaded. Cards are optional; verify the coverage electronically or through the payer portal and help with missing information.',

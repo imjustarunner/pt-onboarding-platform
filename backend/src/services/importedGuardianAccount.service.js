@@ -21,7 +21,7 @@ export async function prepareImportedGuardianAccount(scope,affiliationId,actorUs
  const fullName=String(current.contact_full_name||'').trim(),names=fullName.split(/\s+/);
  if(names.length<2)throw fail('Save the parent or guardian’s first and last name on their contact card.');
  const contact={...saved,fullName,email:current.contact_email||'',mobilePhone:current.contact_phone||'',relationshipType:relationship||current.relationship_type||saved.relationshipType};
- const portalAccount=await prepareGuardianAccount({client,profile:{fullName,firstName:names[0],lastName:names.slice(1).join(' '),email:contact.email,phone:contact.mobilePhone,relationship:contact.relationshipType},actorUserId});
+ const portalAccount=await prepareGuardianAccount({client,profile:{fullName,firstName:names[0],lastName:names.slice(1).join(' '),email:contact.email,phone:contact.mobilePhone,relationship:contact.relationshipType},actorUserId,reviewLinkedGuardians:true});
  if(!portalAccount.prepared)throw fail(portalAccount.reason||'This contact’s account could not be prepared.');
  const notifications=await seedImportedGuardianNotifications({...scope,guardianUserId:portalAccount.userId,affiliationId,contact,actorUserId});
  const result={...contact,portalAccount,...(notifications?{notificationImport:notifications}:{})};

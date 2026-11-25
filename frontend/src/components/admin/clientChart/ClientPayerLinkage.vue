@@ -56,7 +56,7 @@ async function load(){
  try{
   const response=await api.get(`/clients/${props.clientId}/chart-import/payer-readiness`,config());if(version!==generation)return;
   policies.value=response.data.policies||[];coverageVerified.value=response.data.coverageVerifiedForClaims===true;payerResponses.value=response.data.payerResponses||{};
-  if(policies.value.some(p=>p.hasInsurance) && !coverageVerified.value) {
+  if(policies.value.some(p=>p.hasInsurance && (!p.linked || !coverageVerified.value))) {
    const {data}=await api.post(`/clients/${props.clientId}/chart-import/payer-automation`,{},config());if(version!==generation)return;
    notice.value=data.eligibilityQueueWarning || automaticEligibilityNotice(data.automaticEligibility) || (data.unresolved?.length?'Insurance saved. Billing review is needed for the unresolved payer match. You can continue importing.':'');
    const refreshed=await api.get(`/clients/${props.clientId}/chart-import/payer-readiness`,config());if(version!==generation)return;

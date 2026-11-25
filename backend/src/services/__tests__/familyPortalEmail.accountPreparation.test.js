@@ -31,3 +31,12 @@ it('links siblings to the same existing parent login while each child’s new ac
  const d=deps({id:5,role:'client_guardian'});const first=await prepareGuardianAccount({client:{id:12,agency_id:2},profile,actorUserId:7},d);const second=await prepareGuardianAccount({client:{id:13,agency_id:2},profile:{...profile,email:'parent@example.test'},actorUserId:7},d);
  expect(first).toMatchObject({created:false,userId:5,requiresAccessReview:true});expect(second).toMatchObject({created:false,userId:5,requiresAccessReview:true});expect(d.User.create).not.toHaveBeenCalled();expect(d.ClientGuardian.upsertLink.mock.calls.map(([link])=>[link.clientId,link.guardianUserId,link.accessEnabled])).toEqual([[12,5,false],[13,5,false]]);
 });
+
+it('keeps an existing linked guardian when the same contact imports a different login email',async()=>{
+ const d=deps();
+ d.ClientGuardian.listForClient=vi.fn().mockResolvedValue([{guardian_user_id:20,first_name:'Pat',last_name:'Example',email:'previous@example.test',relationship_type:'guardian'}]);
+ const result=await prepareGuardianAccount({client,profile,reviewLinkedGuardians:true},d);
+ expect(result).toMatchObject({prepared:false,reason:expect.stringContaining('already have a linked portal account')});
+ expect(d.User.create).not.toHaveBeenCalled();
+ expect(d.ClientGuardian.upsertLink).not.toHaveBeenCalled();
+});

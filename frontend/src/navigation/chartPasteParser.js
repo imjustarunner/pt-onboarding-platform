@@ -94,10 +94,18 @@ const INSURANCE_FIELDS = {
   'Payer ID': 'payerId', 'Member ID': 'memberId', 'Member Number': 'memberId', 'Policy Group': 'groupNumber', 'Group Number': 'groupNumber', Copay: 'copay',
   Eligibility: 'lastEligibilityCheck', 'Subscriber Name': 'subscriberName', 'Policy Holder Name': 'subscriberName', Name: 'subscriberName',
   'Subscriber DOB': 'subscriberDob', 'Subscriber Date of Birth': 'subscriberDob', 'Date of Birth': 'subscriberDob',
-  'Administrative Sex': 'subscriberSex', 'Subscriber Sex': 'subscriberSex', 'Relationship to Subscriber': 'relationshipToSubscriber', 'Policy Holder': 'relationshipToSubscriber',
+  'Administrative Sex': 'subscriberSex', 'Subscriber Sex': 'subscriberSex', 'Relationship to Subscriber': 'relationshipToSubscriber', 'Policy Holder': 'policyHolder',
   'Subscriber Address': 'subscriberAddressLine1', Address: 'subscriberAddressLine1', 'Phone Number': 'subscriberPhone',
   'Effective Date': 'effectiveDate', 'Termination Date': 'terminationDate'
 };
+
+export function normalizeImportedSubscriberRelationship(value) {
+  const label = String(value || '').trim().toLowerCase().replace(/\s+/g, ' ').replace(/ of$/, '');
+  if (/^(?:self(?: \(?(?:patient|client|insured|subscriber)\)?)?|(?:patient|client)(?: \(self\))?|same as (?:patient|client))$/.test(label)) return 'self';
+  if (['child', 'dependent', 'son', 'daughter'].includes(label)) return 'child';
+  if (label === 'spouse' || label === 'other') return label;
+  return '';
+}
 
 export function parseChartInsurance(input, { position = null } = {}) {
   const blocks = { primary: [], secondary: [] };
@@ -114,8 +122,6 @@ export function parseChartInsurance(input, { position = null } = {}) {
       slot = plain[1].toLowerCase();
       if (position && slot !== position) throw Object.assign(new Error(`This paste is labeled ${slot}. Choose ${slot} coverage before importing it.`), { status: 400 });
       if (plain[2].trim()) blocks[slot].push(`Insurance carrier:\t${plain[2].trim()}`);
-    } else if (/^Policy Holder:\s*/i.test(line.trim())) {
-      blocks[slot].push(`Relationship to Subscriber:\t${line.replace(/^\s*Policy Holder:\s*/i, '').replace(/\s+of$/i, '')}`);
     } else if (!/^\s*(Insurance|Policy Information|Verify Eligibility)\s*$/i.test(line)) blocks[slot].push(line);
   }
   const result = {};
@@ -130,7 +136,9 @@ export function parseChartInsurance(input, { position = null } = {}) {
       policy.subscriberAddressLine1 = address.shift() || '';
       if (address.length) policy.subscriberAddressLine2 = address.join(' ');
     }
-    if (policy.relationshipToSubscriber) policy.relationshipToSubscriber = policy.relationshipToSubscriber.toLowerCase().replace(/\s+of$/, '');
+    const relationship = policy.relationshipToSubscriber || policy.policyHolder;
+    if (relationship) policy.relationshipToSubscriber = normalizeImportedSubscriberRelationship(relationship) || relationship;
+    if (policy.policyHolder && normalizeImportedSubscriberRelationship(policy.policyHolder)) delete policy.policyHolder;
     if (policy.subscriberSex) policy.subscriberSex = ({ female: 'F', male: 'M', unknown: 'U' })[policy.subscriberSex.toLowerCase()] || policy.subscriberSex;
     for (const key of ['subscriberDob', 'effectiveDate', 'terminationDate']) if (policy[key]) policy[key] = date(policy[key]);
     if (policy.subscriberName) {

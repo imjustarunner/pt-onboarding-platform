@@ -1,10 +1,10 @@
 vi.mock('../../services/coverageVerificationSummary.service.js',()=>({latestPayerResponses:vi.fn(async()=>({})),readCoverageVerificationSummary:vi.fn(async()=>({current:false,verifiedAt:null}))}));
 import { beforeEach, expect, it, vi } from 'vitest';
-const m = vi.hoisted(() => ({ access:vi.fn(), read:vi.fn(), save:vi.fn(), importSection:vi.fn(), insurance:vi.fn(), audit:vi.fn(),start:vi.fn(),finish:vi.fn(),prepareContactGuardian:vi.fn() }));
+const m = vi.hoisted(() => ({ access:vi.fn(), read:vi.fn(), save:vi.fn(), importSection:vi.fn(), handoff:vi.fn(), insurance:vi.fn(), audit:vi.fn(),start:vi.fn(),finish:vi.fn(),prepareContactGuardian:vi.fn() }));
 vi.mock('../../services/importedGuardianAccount.service.js',()=>({prepareImportedGuardianAccount:m.prepareContactGuardian}));
 vi.mock('../../services/clientChartImportProgress.service.js',()=>({beginClientChartImport:m.start,completeClientChartImport:m.finish}));
 vi.mock('../../services/clientChartImportAccess.service.js', () => ({ requireClientChartImportAccess:m.access }));
-vi.mock('../../services/clientChartImport.service.js', () => ({ chartSections:['demographics','intake','plan','insurance','contacts','comments','payer','billingComments'], readChartRecord:m.read, saveChartRecord:m.save, importSupplementaryChartSection:m.importSection }));
+vi.mock('../../services/clientChartImport.service.js', () => ({ chartSections:['demographics','intake','plan','insurance','contacts','comments','payer','billingComments'], readChartRecord:m.read, saveChartRecord:m.save, importSupplementaryChartSection:m.importSection, handOffChartInsurance:m.handoff }));
 vi.mock('../../services/clientInsurance.service.js', () => ({ readClientInsurance:m.insurance }));
 vi.mock('../../services/auditEvent.service.js', () => ({ logAuditEvent:m.audit }));
 import { getChartImportDraft, getChartImportDrafts, saveChartImportDraft, importChartSection, getChartSupplementaryRecords,startChartRecordsImport,finishChartRecordsImport,prepareChartContactGuardian } from '../clientChartImport.controller.js';
@@ -96,4 +96,20 @@ it('opens only selected areas under the authenticated actor and protects billing
  const request=req();request.body={sections:[],selectedSections:['contacts','insurance']};
  await startChartRecordsImport(request,res(),vi.fn());expect(m.start).toHaveBeenCalledWith({clientId:12,agencyId:2},[],10,{selectedSections:['contacts','insurance']});
  m.start.mockClear();request.user.role='provider';const next=vi.fn();await startChartRecordsImport(request,res(),next);expect(next).toHaveBeenCalledWith(expect.objectContaining({status:403}));expect(m.start).not.toHaveBeenCalled();
+});
+
+it('lets agency account staff hand off a policy without putting the paste in the audit trail', async () => {
+ const request=req();request.params.section='insurance';
+ request.body={text:'Synthetic original policy',position:'secondary',deferToBilling:true};
+ const response=res(),next=vi.fn();m.handoff.mockResolvedValue({taskId:91});
+ await importChartSection(request,response,next);
+ expect(next).not.toHaveBeenCalled();
+ expect(m.handoff).toHaveBeenCalledWith({clientId:12,agencyId:2},'secondary','Synthetic original policy',10);
+ expect(m.audit.mock.calls[0][1]).toMatchObject({actionType:'client_chart_insurance_sent_to_billing',metadata:{position:'secondary',taskId:91}});
+ expect(JSON.stringify(m.audit.mock.calls[0][1])).not.toContain(request.body.text);
+ expect(response.json).toHaveBeenCalledWith({result:{taskId:91}});
+ request.user.role='provider';
+ const rejected=vi.fn();await importChartSection(request,res(),rejected);
+ expect(rejected).toHaveBeenCalledWith(expect.objectContaining({status:403}));
+ expect(m.handoff).toHaveBeenCalledOnce();
 });

@@ -4,6 +4,13 @@
     <button v-if="!opened" class="btn btn-secondary" type="button" @click="load">Review private insurance details</button>
     <p v-if="error" role="alert">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p>
     <p v-if="insuranceLoading" role="status">Loading insurance and saved verification results…</p>
+    <details v-if="opened && canSeeBilling && Object.keys(insuranceHandoff).length" class="insurance-handoff">
+      <summary>Insurance sent to Billing from records import</summary>
+      <details v-for="(handoff, position) in insuranceHandoff" :key="position">
+        <summary>{{ position === 'primary' ? 'Primary insurance' : 'Secondary insurance' }} · Task #{{ handoff.taskId }}</summary>
+        <pre>{{ handoff.text }}</pre>
+      </details>
+    </details>
     <template v-if="profileLayout && opened && draft">
      <nav class="insurance-sections" aria-label="Insurance sections"><button v-for="panel in profilePanels" :key="panel.key" type="button" :aria-pressed="activePanel===panel.key" @click="activePanel=panel.key">{{ panel.label }}</button></nav>
      <section v-if="activePanel==='overview'" class="insurance-overview" aria-label="Coverage overview">
@@ -109,6 +116,7 @@ const patientFields=[{key:'firstName',label:'Legal first name'},{key:'lastName',
 const payers=ref([]),paperCoverage=ref(null);
 const policies=ref([]),selectedSources=ref({primary:'',secondary:''}),demographics=ref({});
 const eligibilityFindings=ref([]);
+const insuranceHandoff=ref({});
 const insuranceFingerprint=ref(''),fieldSources=ref({}),insuranceLoading=ref(false),activePanel=ref('overview'),coveragePanel=ref(null);
 const profilePanels=computed(()=>[{key:'overview',label:'Overview'},{key:'details',label:'Edit insurance'},...(canSeeBilling.value?[{key:'benefits',label:'Benefits & other coverage'},{key:'verification',label:'Verify coverage'}]:[])]);
 const latestFinding=slot=>eligibilityFindings.value.find(f=>f.slot===slot&&(!props.serviceDate||String(f.serviceDate).slice(0,10)===props.serviceDate.slice(0,10)));
@@ -156,7 +164,7 @@ async function load(){
  const n=++seq;clearTimeout(pollTimer);error.value='';notice.value='';insuranceLoading.value=true;
  try{
   const res=await api.get(insurancePath.value,{params:{agencyId:props.agencyId,...(props.paperDocumentId?{paperDocumentId:props.paperDocumentId}:{})},skipGlobalLoading:true});if(n!==seq)return;
-  const data=res.data,v=data.insurance || {};insuranceFingerprint.value=data.insuranceFingerprint||'';fieldSources.value=v.eligibilityFieldSources||{};demographics.value=data.demographics || {};payers.value=data.payers || [];paperCoverage.value=data.paperCoverage || null;policies.value=data.policies || [];eligibilityFindings.value=data.eligibilityFindings || [];eligibilityStatus.value=data.eligibilityStatus || null;paperRequired.value=v.paperReviewRequired===true;paperSourceDocumentId.value=props.paperDocumentId || v.paperSourceDocumentId;paperFinalizedAt.value=v.paperFinalizedAt || null;
+  const data=res.data,v=data.insurance || {};insuranceHandoff.value=data.insuranceHandoff || {};insuranceFingerprint.value=data.insuranceFingerprint||'';fieldSources.value=v.eligibilityFieldSources||{};demographics.value=data.demographics || {};payers.value=data.payers || [];paperCoverage.value=data.paperCoverage || null;policies.value=data.policies || [];eligibilityFindings.value=data.eligibilityFindings || [];eligibilityStatus.value=data.eligibilityStatus || null;paperRequired.value=v.paperReviewRequired===true;paperSourceDocumentId.value=props.paperDocumentId || v.paperSourceDocumentId;paperFinalizedAt.value=v.paperFinalizedAt || null;
   selectedSources.value=Object.fromEntries(['primary','secondary'].map(slot=>[slot,v.coverageSources?.[slot]?`${v.coverageSources[slot].profileId}:${v.coverageSources[slot].slot}`:'']));
   installSavedDraft(v);const savedPatient=JSON.stringify(draft.value.patient);useDemographics();let paperAdded=false;
   if(isPaper.value){const prepared=preparePacketDraft(v,paperCoverage.value,payers.value,draft.value.patient);draft.value.primary=prepared.primary;draft.value.secondary=prepared.secondary || {};hasSecondary.value=!!prepared.secondary;paperOrderPrepared.value=prepared.reordered;if(prepared.reordered){draft.value.profileId=null;draft.value.coverageSources={};selectedSources.value={primary:'',secondary:''};}paperAdded=draftDirty.value;}
@@ -202,13 +210,16 @@ async function save(options={}){
  }catch(e){if(n===seq)error.value=e.response?.data?.error?.message || 'Insurance could not be saved';return false;}finally{if(n===seq)busy.value=false;}
 }
 
-watch(()=>[props.agencyId,props.clientId,canSeeBilling.value,props.accountSupport,props.paperDocumentId],()=>{seq++;clearTimeout(pollTimer);paperFinalizedAt.value=null;paperRequired.value=false;eligibilityStatus.value=null;insuranceFingerprint.value='';fieldSources.value={};activePanel.value='overview';insuranceLoading.value=false;opened.value=false;draft.value=null;policies.value=[];eligibilityFindings.value=[];selectedSources.value={primary:'',secondary:''};error.value='';notice.value='';demographics.value={};payers.value=[];paperCoverage.value=null;busy.value=false;});
+watch(()=>[props.agencyId,props.clientId,canSeeBilling.value,props.accountSupport,props.paperDocumentId],()=>{seq++;clearTimeout(pollTimer);paperFinalizedAt.value=null;paperRequired.value=false;eligibilityStatus.value=null;insuranceFingerprint.value='';fieldSources.value={};activePanel.value='overview';insuranceLoading.value=false;opened.value=false;draft.value=null;policies.value=[];eligibilityFindings.value=[];selectedSources.value={primary:'',secondary:''};error.value='';notice.value='';demographics.value={};payers.value=[];paperCoverage.value=null;insuranceHandoff.value={};busy.value=false;});
 async function refreshPaperCoverage(){const n=seq;try{const {data}=await api.get(insurancePath.value,{params:{agencyId:props.agencyId,...(props.paperDocumentId?{paperDocumentId:props.paperDocumentId}:{})}});if(n===seq){paperCoverage.value=data.paperCoverage || null;notice.value='Packet reading refreshed. Compare the updated proposal with the PDF; your unsaved policy edits are still here.';}}catch(e){if(n===seq)error.value='Packet details could not refresh. Your policy edits are still here.';}}
 defineExpose({ save, isOpen: opened, refreshPaperCoverage });
 onBeforeUnmount(()=>{seq++;clearTimeout(pollTimer);});
 onMounted(()=>{if(props.startOpen && (canSeeBilling.value || props.accountSupport))load();});
 </script>
-<style scoped>.client-insurance-editor {padding:16px;border:1px solid var(--border);border-radius:10px;margin:16px 0}.client-insurance-editor form {display:grid;gap:16px}.identity-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}.identity-fields label{display:grid;gap:5px}input:not([type=checkbox]){padding:9px;border:1px solid var(--app-line, #94a3b8);border-radius:6px}p[role=alert]{color:var(--app-text-red, #b91c1c)}</style>
+<style scoped>
+.insurance-handoff { padding: 12px; margin-block: 12px; border: 1px solid #c8d9e8; border-radius: 8px; }
+.insurance-handoff summary { cursor: pointer; }
+.insurance-handoff pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }.client-insurance-editor {padding:16px;border:1px solid var(--border);border-radius:10px;margin:16px 0}.client-insurance-editor form {display:grid;gap:16px}.identity-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}.identity-fields label{display:grid;gap:5px}input:not([type=checkbox]){padding:9px;border:1px solid var(--app-line, #94a3b8);border-radius:6px}p[role=alert]{color:var(--app-text-red, #b91c1c)}</style>
 
 <style scoped>.paper-policy-slots{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px}.paper-policy-slots article{padding:10px;border:1px solid var(--border,#cad8df);border-radius:8px;overflow-wrap:anywhere}.paper-policy-slots p{margin:6px 0}.paper-policy-slots span{font-size:12px}.paper-policy-summary h5{margin:0 0 8px}details>summary{cursor:pointer;font-weight:600}.paper-coverage{padding:9px;border:1px solid var(--border,#d6dfe3);border-radius:7px}.insurance-identity .identity-fields{margin-top:10px}</style>
 

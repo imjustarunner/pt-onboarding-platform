@@ -11,9 +11,9 @@ class OfficeLocation {
     return rows;
   }
 
-  static async findByAgency(agencyId, { includeInactive = false } = {}) {
+  static async findByAgency(agencyId, { includeInactive = false, db = pool } = {}) {
     const where = includeInactive ? 'agency_id = ?' : 'agency_id = ? AND is_active = TRUE';
-    const [rows] = await pool.execute(
+    const [rows] = await db.execute(
       `SELECT * FROM office_locations WHERE ${where} ORDER BY name ASC`,
       [agencyId]
     );
@@ -21,9 +21,9 @@ class OfficeLocation {
   }
 
   // Multi-agency: list offices assigned to an agency via join table
-  static async findByAgencyMembership(agencyId, { includeInactive = false, physicalOnly = false } = {}) {
+  static async findByAgencyMembership(agencyId, { includeInactive = false, physicalOnly = false, db = pool } = {}) {
     const where = (includeInactive ? '1=1' : 'ol.is_active = TRUE') + (physicalOnly ? ' AND ol.physical_office_location_id IS NULL' : '');
-    const [rows] = await pool.execute(
+    const [rows] = await db.execute(
       `SELECT ol.*
        FROM office_locations ol
        JOIN office_location_agencies ola ON ola.office_location_id = ol.id
@@ -37,9 +37,9 @@ class OfficeLocation {
 
   // Prefer the agency's own billing identity at each shared physical building.
   // Scheduling membership alone must not select another agency's NPI by name order.
-  static async findBillingByAgency(agencyId) {
-    const rows = await this.findByAgencyMembership(agencyId);
-    const owned = await this.findByAgency(agencyId);
+  static async findBillingByAgency(agencyId, db = pool) {
+    const rows = await this.findByAgencyMembership(agencyId, { db });
+    const owned = await this.findByAgency(agencyId, { db });
     const byBuilding = new Map();
     for (const row of [...rows, ...owned]) {
       const id = Number(row.physical_office_location_id || row.id);
@@ -56,8 +56,8 @@ class OfficeLocation {
     return await OfficeLocationAgency.userHasAccess({ officeLocationId, agencyIds: ids });
   }
 
-  static async findById(id) {
-    const [rows] = await pool.execute('SELECT * FROM office_locations WHERE id = ?', [id]);
+  static async findById(id, db = pool) {
+    const [rows] = await db.execute('SELECT * FROM office_locations WHERE id = ?', [id]);
     return rows[0] || null;
   }
 

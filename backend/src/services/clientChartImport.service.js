@@ -4,8 +4,8 @@ import { payerLinkFingerprint, exactCatalogPayer } from '../utils/chartPayerLink
 import { clientInsurancePayers } from './clientInsurancePayers.service.js';
 import pool from '../config/database.js';
 import { encryptDemographicsPayload, decryptDemographicsPayload } from './demographicsImport.service.js';
-import { readClientInsurance, writeClientInsurance } from './clientInsurance.service.js';
-import { parseChartContacts, parseChartInsurance, parsePatientComments, parsePayerInformation, parseBillingComments } from './chartPasteParser.service.js';
+import { readClientInsurance, writeClientInsurance, insuranceDemographics, mergePatientDefaults } from './clientInsurance.service.js';
+import { parseChartContacts, parseChartInsurance, normalizeImportedSubscriberRelationship, parsePatientComments, parsePayerInformation, parseBillingComments } from './chartPasteParser.service.js';
 import { upsertClientAffiliatedContact } from './clientContactAffiliation.service.js';
 import ClientContactAffiliation from '../models/ClientContactAffiliation.model.js';
 import Client from '../models/Client.model.js';
@@ -13,6 +13,7 @@ import ClientGuardian from '../models/ClientGuardian.model.js';
 import { normalizeSmsPhone } from '../utils/smsThreadIdentity.js';
 import { prepareGuardianAccount } from './guardianAccountPreparation.service.js';
 import {seedImportedGuardianNotifications} from './importedGuardianNotifications.service.js';
+import { policyIsMedicaid } from '../utils/insurancePaymentPolicy.js';
 import { queueInsuranceVerificationSafely } from './insuranceVerificationTask.service.js';
 
 export const chartSections = ['demographics', 'intake', 'plan', 'insurance', 'contacts', 'comments', 'payer', 'billingComments'];
@@ -34,7 +35,7 @@ export async function saveChartRecord(scope, section, owner, value, actorId, exp
 async function saveLockedChartRecord(scope, section, owner, value, actorId, expectedRevision, db) {
     const previous = await readChartRecord(scope, section, owner, db);
     if (expectedRevision != null && expectedRevision !== Number(previous.revision)) throw Object.assign(new Error('This draft changed in another window. Reopen the import panel before editing further.'), { status: 409 });
-    const merged = ['contacts','payer','payerLinks'].includes(section) && owner === 0
+    const merged = ['contacts','payer','payerLinks','insuranceHandoff'].includes(section) && owner === 0
       ? { ...previous.value, ...Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, { ...previous.value?.[key], ...entry }])) }
       : value;
     const revision = Number(previous.revision) + 1;
@@ -45,6 +46,21 @@ async function saveLockedChartRecord(scope, section, owner, value, actorId, expe
     return { value: merged, revision };
 }
 
+function comparableName(name) {
+  const words = name.trim().split(',').map(part => part.trim());
+  const formatted = words.length === 2 ? words.reverse().join(' ') : name;
+  return formatted.normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+export async function handOffChartInsurance(scope, position, text, actorId) {
+  const taskId = await queueInsuranceVerificationSafely({ ...scope, actorUserId: actorId, reason: 'records_import_handoff' });
+  if (!taskId) throw Object.assign(new Error('Billing follow-up could not be created. The original paste remains in your draft. Retry, or ask your agency administrator to check the insurance verification task list.'), { status: 503 });
+  await saveChartRecord(scope, 'insuranceHandoff', 0, {
+    [position]: { text, taskId, sentAt: new Date().toISOString() }
+  }, actorId);
+  return { taskId };
+}
+
 export async function importSupplementaryChartSection(scope, section, text, actorId, { position = null, preparePrimaryGuardian = false, guardianContactNames = [], syncGuardianReminders = false } = {}) {
   if (section === 'insurance') {
     const parsed = parseChartInsurance(text, { position });
@@ -53,6 +69,16 @@ export async function importSupplementaryChartSection(scope, section, text, acto
       await db.beginTransaction();
       await db.execute('SELECT id FROM clients WHERE id=? AND agency_id=? FOR UPDATE', [scope.clientId, scope.agencyId]);
       const previous = await readClientInsurance(scope.clientId, scope.agencyId, db) || {};
+      const chartPatient = await insuranceDemographics(scope.clientId, scope.agencyId, db);
+      const patientName = comparableName([chartPatient.firstName, chartPatient.lastName].filter(Boolean).join(' '));
+      for (const policy of Object.values(parsed)) {
+        const relation = normalizeImportedSubscriberRelationship(policy.relationshipToSubscriber);
+        const holderNames = [policy.policyHolder, policy.subscriberName].filter(Boolean);
+        const holderIsPatient = chartPatient.firstName && chartPatient.lastName && holderNames.length
+          && holderNames.every(name => comparableName(name) === patientName)
+          && (!policy.subscriberDob || policy.subscriberDob === chartPatient.dateOfBirth);
+        if (relation || holderIsPatient) policy.relationshipToSubscriber = relation || 'self';
+      }
       const changed = Object.fromEntries(['primary', 'secondary'].filter(slot => parsed[slot]).map(slot => [slot, { ...previous[slot], ...parsed[slot] }]));
       // Source system IDs are not trusted clearinghouse routes. Preserve an
       // existing link only when its source ID is unchanged; verify new routes.
@@ -88,7 +114,15 @@ export async function importSupplementaryChartSection(scope, section, text, acto
           linked[slot] = policy.payerId;
         }
       }
-      const insurance = await writeClientInsurance({ ...previous, ...changed, ...scope, confirmedBy: actorId, verifiedForClaims: false, queueEligibility: Object.keys(linked).length > 0 }, db);
+      for (const policy of Object.values(changed)) {
+        if (policyIsMedicaid(policy)) policy.relationshipToSubscriber = 'self';
+        if (policy.relationshipToSubscriber && !normalizeImportedSubscriberRelationship(policy.relationshipToSubscriber)) {
+          throw Object.assign(new Error('Choose the client’s relationship to the subscriber, or send the policy to Billing for review.'), { status: 400 });
+        }
+      }
+      const useChartIdentity = Object.values(changed).some(policy => policy.relationshipToSubscriber === 'self');
+      const patient = useChartIdentity ? mergePatientDefaults(chartPatient, previous.patient || {}) : previous.patient;
+      const insurance = await writeClientInsurance({ ...previous, ...changed, ...scope, patient, confirmedBy: actorId, verifiedForClaims: false, queueEligibility: Object.keys(linked).length > 0 }, db);
       if (Object.keys(linked).length) {
         const checkedAt = new Date().toISOString();
         const evidence = Object.fromEntries(Object.entries(linked).map(([slot, payerId]) => [slot, { payerId, checkedAt, policyFingerprint: payerLinkFingerprint(insurance[slot]) }]));
@@ -149,7 +183,7 @@ export async function importSupplementaryChartSection(scope, section, text, acto
       if ((preparePrimaryGuardian && contact === primaryContact) || requestedAccounts.has(nameKey(contact.fullName))) {
         const names = contact.fullName.split(/\s+/);
         const portalAccount = await prepareGuardianAccount({ client, profile: { ...contact, firstName: contact.firstName || names.shift(), lastName: contact.lastName || names.join(' '),
-          phone: contact.mobilePhone || contact.phone || contact.homePhone || contact.workPhone, relationship: contact.relationshipType }, actorUserId: actorId });
+          phone: contact.mobilePhone || contact.phone || contact.homePhone || contact.workPhone, relationship: contact.relationshipType }, actorUserId: actorId, reviewLinkedGuardians:true });
         imported[id].portalAccount = portalAccount;
       }
       if (contact === primaryContact && inheritedChannels) {

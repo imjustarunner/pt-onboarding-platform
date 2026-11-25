@@ -1,5 +1,6 @@
 import pool from '../config/database.js';
 import {chartSections,readChartRecord} from './clientChartImport.service.js';
+import {billingHandoffTaskIds,insuranceDraftSlots} from './clientChartRecordRead.service.js';
 import {markRecordsClientCurrent} from './clientRecordsStatus.service.js';
 const fail=(status,message)=>Object.assign(Error(message),{status});
 const object=value=>typeof value==='string'?JSON.parse(value):value||{};
@@ -13,9 +14,10 @@ async function write(scope,state,db,expectedRevision){
  if(Number(result.affectedRows)!==1)throw fail(409,'This records import changed in another window. Reload its saved progress before finishing.');
  return state;
 }
-export async function beginClientChartImport(scope,sections,actorId,{db=pool,selectedSections=null}={}){
+export async function beginClientChartImport(scope,sections,actorId,{db=pool,selectedSections=null,onlyIncomplete=false}={}){
  if(!Array.isArray(sections)||sections.length>chartSections.length||sections.some(key=>!chartSections.includes(key)))throw fail(400,'Choose valid record sections to import.');
  const previous=await current(scope,db);
+ if(onlyIncomplete&&previous.status==='complete')throw fail(409,'Records import was completed in another window. Open the chart to review it.');
  if(selectedSections!==null&&(!Array.isArray(selectedSections)||!selectedSections.length||selectedSections.some(key=>!chartSections.includes(key))))throw fail(400,'Select valid record sections to update.');
  const selection=selectedSections===null?(previous.status==='pending'?previous.selectedSections:null):[...new Set(selectedSections)];
  const revision=Number(previous.revision||0);
@@ -37,8 +39,15 @@ export async function completeClientChartImport(scope,actorId,{db=pool,readRecor
  for(const key of state.sections){
   if(!allowedSections.includes(key))throw fail(403,'Account support access is required to finish these record sections.');
   const {value}=await readRecord(scope,key,actorId);
-  const coverage=key==='insurance'&&value?.coverageMode!=='self_pay'&&value?.coverageDrafts?Object.values(value.coverageDrafts).filter(item=>item.text?.trim()):null;
-  const imported=coverage?.length?coverage.every(item=>item.imported===true):value?.imported===true;
+  let imported=value?.imported===true;
+  if (key==='insurance') {
+   const filled=Object.entries(insuranceDraftSlots(value)).filter(([,slot])=>slot.text?.trim());
+   if (filled.length) {
+    const remaining=filled.filter(([,slot])=>slot.imported!==true);
+    const taskIds=remaining.length ? billingHandoffTaskIds(value,(await readRecord(scope,'insuranceHandoff',0)).value) : {};
+    imported=remaining.every(([position])=>Boolean(taskIds[position]));
+   }
+  }
   if(!imported||value?.needsReview===true)throw fail(409,'Import and review every filled section before finishing this client.');
  }
  const revision=Number(state.revision||0);
