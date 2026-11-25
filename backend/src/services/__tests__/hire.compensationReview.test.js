@@ -35,14 +35,15 @@ describe('optional contract rate illustrations', () => {
     mocks.rules.mockRejectedValue(new Error('Database unavailable'));
     await expect(contractCompensationLevels(6, { includeServiceRates: true })).rejects.toThrow('Database unavailable');
   });
-  it('keeps the NLU wizard available when a legacy profile has no Homework Help schedule', async () => {
+  it('keeps the Homework Help warning separate from other service rates', async () => {
     mocks.profiles.mockResolvedValue([{ id: 1, category: 2, level: 1, creditRate: 26,
       hcodeRate: 24, indirectRate: 20 }]);
-    mocks.rules.mockResolvedValue([{ service_code: 'HOMEWORK HELP 15 MIN', category: 'homework_help' }]);
+    mocks.rules.mockResolvedValue([{ service_code: 'HOMEWORK HELP 15 MIN', category: 'homework_help' }, { service_code: '90837', category: 'direct', pay_system_bucket: 'credit' }]);
     const [row] = await contractCompensationLevels(6, { includeServiceRates: true });
     expect(row).toMatchObject({ category: 2, level: 1, direct_rate: 26,
-      serviceRatesError: expect.stringContaining('Homework Help requires an approved, effective program compensation schedule') });
-    expect(row.serviceRates).toBeUndefined();
+      homeworkHelpRatesError: expect.stringContaining('Homework Help requires an approved, effective program compensation schedule') });
+    expect(row.serviceRates).toEqual([expect.objectContaining({ code: '90837' })]);
+    expect(row.serviceRatesError).toBeUndefined();
   });
   it('still refuses an actual Homework Help rate calculation without approved program terms', () => {
     expect(() => contractServiceRates({ category: 2, level: 1, paySystem: {

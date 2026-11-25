@@ -63,6 +63,7 @@ export function agreementRateProfile(profile, agreement) {
     : {};
   return {...profile, ...tierTerms,
     ...(s.spanishBonus ? {spanishBonus:s.spanishBonus} : {}),
+    ...(typeof s.denverDifferentialEligible === 'boolean' && s.locationBonus ? {locationBonus:s.locationBonus} : {}),
     // Only an executed/authorized new schedule adopts NLU's new category meaning.
     // Clear matrix markers when reading a signed legacy schedule.
     nluCompensationPolicyVersion:s.nluCompensationPolicyVersion || null,

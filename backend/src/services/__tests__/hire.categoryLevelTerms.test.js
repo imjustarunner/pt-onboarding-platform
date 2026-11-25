@@ -14,5 +14,20 @@ describe('current employment pay schedule',()=>{
   const html=rendered.map(c=>c.body_html).join('');expect(html).toContain('Category 2, Level 1');expect(html).toContain('$55.00');expect(html).toContain('$32.00');expect(html).toContain('10 minutes');expect(html).not.toContain('$$');expect(html).not.toContain('$24.00');expect(html).toContain('does not erase earned wages');expect(html).toContain('no probationary waiting period');expect(rendered[1].body_html).toBe('');
  });
  it('supports starter copies and includes no clinical rate for facilitators',()=>{const result=applyEmploymentPayTerms(employmentStarterClauses(),terms('Facilitator'));const comp=result.find(c=>c.clause_key==='STARTER_V1_COMPENSATION');expect(comp.body_html).not.toContain('Clinical Session Rate');expect(comp.body_html).toContain('Direct Care Rate');expect(result.find(c=>c.clause_key==='STARTER_V1_BENEFITS').body_html).toContain('protected leave');});
+ it('records Denver and Spanish differential tiers in new ITSCO offers',()=>{
+  const render = (officeCity, locationBonus) => employmentCategoryLevelTerms({
+    agencySlug:'itsco', row:{category:2,level:1,paySystem:{...profile,locationBonus}},
+    tokens:{ROLE_LABEL:'Provider',ASSIGNED_OFFICE_ID:'42',ASSIGNED_OFFICE_CITY:officeCity,SPANISH_DIFFERENTIAL_ELIGIBLE:'1'}
+  });
+  const standard = render('Denver', {1:0,2:0,3:0});
+  expect(standard.schedule).toMatchObject({denverDifferentialEligible:true,spanishDifferentialEligible:true,locationBonus:{1:0,2:1,3:2}});
+  expect(standard.compensation).toContain('Denver location differential');
+  expect(standard.compensation).toContain('Tier 3 — $2.00');
+  const configured = render('Denver', {1:0,2:3,3:4});
+  expect(configured.schedule.locationBonus).toEqual({1:0,2:3,3:4});
+  const otherOffice = render('Colorado Springs');
+  expect(otherOffice.schedule.denverDifferentialEligible).toBe(false);
+  expect(otherOffice.compensation).not.toContain('Denver location differential');
+ });
  it('requires real current rates and preserves the source profile',()=>{const before=structuredClone(profile);terms();expect(profile).toEqual(before);expect(()=>employmentCategoryLevelTerms({row:{}})).toThrow('Configure');expect(()=>employmentCategoryLevelTerms({row:{category:2,level:1,paySystem:{...profile,hcodeRate:null}}})).toThrow('hcodeRate');});
 });

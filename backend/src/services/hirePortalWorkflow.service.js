@@ -167,17 +167,17 @@ export async function onboardingContactForAgency(agencyId) {
     email, title: 'Clinical Practice Assistant', photoPath: contact?.profile_photo_path || null };
 }
 
-export async function buildPortalWorkflow({ user, agencyId, tasks, prehireTasks, extras, backgroundCheck, hireAccountMode, journey, progressOnly = false }) {
-  const packet = await portalPacket(user.id, agencyId);
+export async function buildPortalWorkflow({ user, agencyId, tasks, prehireTasks, extras, backgroundCheck, hireAccountMode, journey, progressOnly = false, previewPacket = null }) {
+  const packet = previewPacket || await portalPacket(user.id, agencyId);
   const config = packet.workflow || {};
-  const submissions = await portalStepSubmissions(user.id, { completionOnly: progressOnly, handbookMetadata: user.status === 'ONBOARDING' });
+  const submissions = previewPacket ? {} : await portalStepSubmissions(user.id, { completionOnly: progressOnly, handbookMetadata: user.status === 'ONBOARDING' });
   const stored = (phase, key) => submissions[`${phase}:${key}`];
   const prehireClosed = !!journey.prehireCompletedAt || ['PREHIRE_REVIEW', 'ONBOARDING'].includes(user.status);
   const onboardingClosed = !!journey.onboardingCompletedAt;
   const steps = { pre_hire: [], onboarding: [] };
   const add = (phase, step) => steps[phase].push({ required: true, ...step });
   const pTasks = uniquePortalTasks(user.status === 'ONBOARDING' ? prehireTasks : tasks).filter(t => !['background', 'handbook', 'job-description'].includes(builtInHireDocument(t)));
-  const hiringChoices=await hiringCommunicationContext(agencyId,user.id);
+  const hiringChoices=await hiringCommunicationContext(agencyId, previewPacket ? null : user.id);
   for(const phase of ['pre_hire','onboarding'])add(phase,{key:'hiring-notifications',kind:'hiring-notifications',title:'Hiring notification preference',required:false,complete:!!hiringChoices.reviewedAt,communicationChoices:hiringChoices});
   const contract = (pTasks || []).filter((t) => t.metadata?.contractGeneration || t.metadata?.employmentContract || t.metadata?.autoFromSendPreHire);
   add('pre_hire', { key: 'background', kind: 'background', title: 'Background check authorization', complete: !!backgroundCheck.signed });
@@ -252,6 +252,12 @@ export async function buildPortalWorkflow({ user, agencyId, tasks, prehireTasks,
     add(phase, { key: 'review', kind: 'review', title: 'Final review', required: false, complete: phase === 'pre_hire' ? prehireClosed : onboardingClosed });
   }
   steps.pre_hire=applyPrehireStepOverrides(steps.pre_hire,submissions);
+  if (previewPacket) return {
+    config, steps, assignedOffice: user.work_location || '', supervisor: { name: config.supervisorName || '' },
+    progress: { pre_hire: summarizeSteps(steps.pre_hire) },
+    profile: { full_legal_name: [user.first_name, user.last_name].filter(Boolean).join(' '), personal_email: user.personal_email || user.email },
+    profileFields: PREEMPLOYMENT_FIELDS
+  };
   if (progressOnly) return { progress: { pre_hire: summarizeSteps(steps.pre_hire), onboarding: summarizeSteps(steps.onboarding) } };
   const [info] = await pool.execute(`SELECT d.field_key, v.value FROM user_info_values v
     JOIN user_info_field_definitions d ON d.id = v.field_definition_id
