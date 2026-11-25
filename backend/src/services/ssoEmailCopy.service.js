@@ -8,13 +8,21 @@ const addresses = value => header(value).toLowerCase().match(/[^\s<>,;"]+@[^\s<>
 
 // This is a transport copy, not another participant or client contact. The
 // verified personal mailbox is resolved on the server, never supplied by a caller.
-export async function withSsoSenderCopy({ identity, generatedByUserId, source, to, cc, bcc }) {
+export async function withSsoSenderCopy({ identity, generatedByUserId, source, to, cc, bcc, optionalMailboxCopy = false }) {
   if (source !== 'manual' || !generatedByUserId ||
       !['messages', 'messages_at_tenant'].includes(identity?.identity_key)) return bcc;
   const user = await User.findById(generatedByUserId);
   const enabled = value => value === true || value === 1 || value === '1';
   if (!user || !activeMessageStaff(user) || enabled(user.sso_password_override) || enabled(user.login_is_group_email)) return bcc;
-  const mailbox = await resolveEmailSendMailbox({ agencyId: identity.agency_id, userId: generatedByUserId, optional: true });
+  let mailbox;
+  try { mailbox = await resolveEmailSendMailbox({ agencyId: identity.agency_id, userId: generatedByUserId, optional: true }); }
+  catch (error) {
+    // Signed cancellation notices already have their own verified company
+    // sender and support copies. An unavailable private copy is not a reason
+    // to prevent the notice; never guess or expose an unverified address.
+    if (optionalMailboxCopy) return bcc;
+    throw error;
+  }
   if (mailbox?.routing !== 'workspace_user' || mailbox.fromEmail?.toLowerCase() !== identity.from_email?.toLowerCase()) return bcc;
   const domain = String(identity.from_email || '').toLowerCase().split('@')[1];
   const copy = tenantStaffWorkAddress({ work_mailbox_email: mailbox.inbox?.from_email, personal_email: user.personal_email }, domain);

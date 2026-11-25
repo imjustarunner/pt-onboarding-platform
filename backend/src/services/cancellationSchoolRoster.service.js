@@ -35,7 +35,7 @@ export async function sendRosterEmail({ agencyId, clientId, ...message }) {
   const sender = await resolveDayCancellationEmail({ agencyId, providerId:message.providerId, providerAuthored:message.providerAuthored,
     actorUserId:message.generatedByUserId, reviewedCancellationToken:message.reviewedCancellationToken,
     reviewedCancellationItemKey:message.reviewedCancellationItemKey });
-  const brand = { ...context.brand, ...sender.portalEmailBrand, replyTo: sender.replyToOverride, displayName: sender.fromDisplayNameOverride };
+  const brand = { ...sender.portalEmailBrand, ...context.brand, replyTo: sender.replyToOverride, displayName: sender.fromDisplayNameOverride };
   const appointmentsUrl = context.url(`guardian?panel=appointments&clientId=${encodeURIComponent(clientId)}`);
   const text = `${message.text}\n\nReview my appointments: ${appointmentsUrl}`;
   const { escapeNoticeHtml } = await import('./scheduleNoticeMessage.service.js');

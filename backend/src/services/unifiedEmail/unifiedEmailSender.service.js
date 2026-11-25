@@ -1477,7 +1477,8 @@ export async function sendEmailFromIdentity({
   if (internetMessageIdOverride && !/^<[^<>\s]+@[^<>\s]+>$/.test(internetMessageIdOverride)) throw new Error('Invalid RFC Message-ID');
   let internetMessageId = internetMessageIdOverride || `<${randomUUID()}@${String(identity.from_email).split('@').pop()}>`;
   const deliveryBcc = redirected.redirected ? redirected.bcc : await withSsoSenderCopy({
-    identity, generatedByUserId, source, to: redirected.to, cc: redirected.cc, bcc: redirected.bcc
+    identity, generatedByUserId, source, to: redirected.to, cc: redirected.cc, bcc: redirected.bcc,
+    ...(operational ? { optionalMailboxCopy: true } : {})
   });
   const groupEnvelope = await managedGroupEnvelope({ to: redirected.to, cc: redirected.cc, bcc: deliveryBcc, actorUserId: generatedByUserId });
   const deliveryEnvelope = blindClientRecipient ? blindClientEmailEnvelope(groupEnvelope) : groupEnvelope;

@@ -23,7 +23,7 @@ export async function schoolDayAbsenceSender({ agencyId, providerId, providerAut
 }
 export async function sendSchoolDayAbsenceEmail({ agencyId, providerId, providerAuthored, ...message }) {
   if (message.reviewedCancellationToken) {
-    const envelope=await resolveDayCancellationEmail({agencyId,providerId,providerAuthored,
+    const envelope=await resolveDayCancellationEmail({agencyId,providerId,providerAuthored,school:true,
       actorUserId:message.generatedByUserId,reviewedCancellationToken:message.reviewedCancellationToken,
       reviewedCancellationItemKey:message.reviewedCancellationItemKey});
     return sendEmailFromIdentity({...message,agencyId,...envelope,templateType:'day_cancellation'});

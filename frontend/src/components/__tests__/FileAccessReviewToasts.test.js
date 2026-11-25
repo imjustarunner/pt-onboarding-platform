@@ -33,6 +33,13 @@ it('links to the request owner’s activity and document audit', async () => {
 it('requires a different designated reviewer for the current user’s request', async () => {
  mountToasts(3); await flushPromises(); expect(wrapper.text()).toContain('Another designated reviewer'); expect(wrapper.findAll('button')).toHaveLength(0);
 });
+it('offers audited owner recovery only when the server confirms sole-reviewer eligibility',async()=>{
+ mocks.get.mockResolvedValue({data:{tickets:[{...ticket,hold_reason:'volume_limit'}],selfRecoveryAllowed:true}});
+ mountToasts(3);await flushPromises();expect(wrapper.text()).toContain('Restore your file access');expect(wrapper.text()).toContain('file-access volume limit');
+ expect(wrapper.findAll('button').some(button=>button.text()==='Reviewed & reset')).toBe(false);
+ const form=wrapper.get('form');await form.get('textarea').setValue('I reviewed the logs and need to continue routine file work.');await form.get('input[type=checkbox]').setValue(true);
+ await form.trigger('submit');await flushPromises();expect(wrapper.find('article').exists()).toBe(false);
+});
 
 it('does not restore a resolved request from an older in-flight queue read', async () => {
  mountToasts(); await flushPromises(); let resolve; mocks.get.mockReturnValueOnce(new Promise(r => { resolve = r; }));

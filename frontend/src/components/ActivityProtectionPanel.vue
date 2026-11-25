@@ -34,9 +34,13 @@
    <article v-for="ticket in data.tickets || []" :key="ticket.id">
     <strong>{{ ticket.actor_email || `User ${ticket.user_id}` }} · {{ time(ticket.created_at) }}</strong><p>{{ ticket.reason }}</p>
     <p>Requested: {{ ticket.requested_units }} file operations. Request {{ ticket.id.slice(0,8) }}.</p>
+    <SoleReviewerFileRecovery v-if="Number(ticket.user_id) === Number(data.reviewerUserId) && data.selfRecoveryAllowed" :ticket-id="ticket.id" @reviewed="load()" />
+    <p v-else-if="Number(ticket.user_id) === Number(data.reviewerUserId)">Another designated reviewer must handle this request. Sole-reviewer owner recovery becomes available only when no other active reviewer exists.</p>
+    <template v-else>
     <label>Review explanation<input v-model="draft(ticket.id).note" minlength="10" maxlength="1000" /></label>
     <label>Approve this many operations<input v-model.number="draft(ticket.id).units" type="number" min="1" :max="ticket.requested_units" /></label>
     <div class="actions"><button :disabled="busy" @click="decide(ticket,'approved')">Approve for one hour</button><button :disabled="busy" @click="decide(ticket,'denied')">Deny</button></div>
+    </template>
    </article>
    <h3>Blocked requests</h3>
    <p>Each blocked request is logged. Opening a page or retrying can create several entries for the same access hold. Related requests are grouped below; every request and review remains on record.</p>
@@ -73,6 +77,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue';
 import api from '../services/api';
+import SoleReviewerFileRecovery from './SoleReviewerFileRecovery.vue';
 const props=defineProps({review:{type:Boolean,default:false}});
 const data=ref({}),error=ref(''),message=ref(''),busy=ref(false),reason=ref(''),units=ref(1),code=ref(''),drafts=reactive({});
 const verificationRequired=ref(false),alertStatus=ref('unreviewed');

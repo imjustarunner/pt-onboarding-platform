@@ -1,7 +1,7 @@
 {
-  "operation": "Publish passing shared provider-assignment and portal-invitation header regression assertions; runtime behavior is unchanged",
+  "operation": "Release reviewed company cancellation senders, client-context branding, nearest replacement dates and audited sole-reviewer recovery; preserve newer intake work",
   "authorization": "User explicitly requested commit, push, live deployment and meeting invitations in this chat",
-  "requestedAt": "2026-11-24T22:39:34.884800+00:00",
+  "requestedAt": "2026-11-25T00:28:23.487484+00:00",
   "preserveLiveSources": true,
   "automationGroupRole": "MANAGER",
   "groupOwnerSettingsConfirmed": true,
@@ -14,5 +14,7 @@
     "changesGlobalRole": false,
     "schemaMigrationRequired": false,
     "clientImportScope": "TherapyNotes add/import, actual provider assignment and existing portal invitation workflow within existing memberships"
-  }
+  },
+  "sourceHandoffCommit": "fcdb7983d29f738db162964689714ef005386933",
+  "integrationBase": "a91ad804abe0306bbc605c07639a1c209d0f31fd"
 }

@@ -53,3 +53,13 @@ it('omits a private or unavailable copy while continuing the work-address send',
   resolveEmailSendMailbox.mockResolvedValue(null);
   expect(await withSsoSenderCopy(input)).toBeNull();
 });
+
+it('keeps a reviewed operational notice independent of an unavailable private work-mailbox copy',async()=>{
+ resolveEmailSendMailbox.mockRejectedValue(new Error('Configure your work group email before sending email.'));
+ expect(await withSsoSenderCopy({...input,bcc:'authorized-reviewer@example.test',optionalMailboxCopy:true})).toBe('authorized-reviewer@example.test');
+ expect(await withSsoSenderCopy({...input,optionalMailboxCopy:true})).toBe(null);
+ await expect(withSsoSenderCopy(input)).rejects.toThrow('Configure your work group email');
+});
+it('still includes a verified tenant work copy on a reviewed notice when it is available',async()=>{
+ expect(await withSsoSenderCopy({...input,optionalMailboxCopy:true})).toBe('halle@itsco.health');
+});

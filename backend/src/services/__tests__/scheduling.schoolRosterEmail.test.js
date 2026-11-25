@@ -42,3 +42,10 @@ describe('school roster family appointments link', () => {
     expect(m.send).toHaveBeenCalledWith(expect.objectContaining({templateType:'day_cancellation',reviewedCancellationToken:'signed-token'}));
   });
 });
+
+it('preserves the school family brand while applying the current shared sender and reply-to',async()=>{
+ m.context.mockResolvedValue({brand:{clinical:true,products:['SchoolCareBridge · school coordination'],name:'ITSCO'},tenant:{name:'ITSCO'},url:m.url});
+ m.sender.mockResolvedValue({portalEmailBrand:{clinical:false,products:[],name:'ITSCO'},replyToOverride:'support@itsco.health',fromDisplayNameOverride:'Provider'});
+ await sendRosterEmail({agencyId:2,clientId:2340,providerId:7,to:'parent@example.test',text:'Reviewed absence'});
+ expect(m.render).toHaveBeenCalledWith(expect.objectContaining({brand:expect.objectContaining({clinical:true,products:['SchoolCareBridge · school coordination'],replyTo:'support@itsco.health'})}));
+});
