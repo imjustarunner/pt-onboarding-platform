@@ -1,4 +1,5 @@
 import { ref, unref, onScopeDispose, watch } from 'vue';
+import { rateLimitRetryAt } from '../utils/rateLimitRetry.js';
 
 const active = value => ['running', 'pending'].includes(value?.status);
 const message = error => error?.response?.data?.error?.message || 'Narriva review is unavailable. Your note is preserved.';
@@ -18,24 +19,40 @@ export function useNarrivaReview({ agencyId, apiClient, base = '/narriva', pollM
       error.value='Unlock your session to continue. Your saved note and review are preserved; the same review resumes after you unlock.';
     } else error.value=message(e);
   }
-  const wait = () => new Promise(resolve => { settle = resolve; timer = setTimeout(() => { settle = null; resolve(); }, pollMs); });
+  const wait = delay => new Promise(resolve => { settle = resolve; timer = setTimeout(() => { settle = null; resolve(); }, delay); });
   async function pollReview(current) {
-    const deadline=Date.now()+180000;
-    while(active(review.value) && current===generation){
-      if(Date.now()>=deadline)throw new Error('Review did not complete');
-      await wait();if(current!==generation)return null;
-      const result=await apiClient.get(`${base}/reviews/${review.value.id}`,{params:{agencyId:Number(unref(agencyId)),poll:1},skipGlobalLoading:true});
-      if(current!==generation)return null;
-      if(!result.data?.review?.id)throw new Error('Missing review');
-      if(result.data.review.heartbeat){
-        review.value={...review.value,stage:result.data.review.stage,phase:result.data.review.phase || review.value.phase,enrollmentSources:result.data.review.enrollmentSources || review.value.enrollmentSources};
-        if(result.data.review.previewAvailable && !review.value.draftPreview){
-          const preview=await apiClient.get(`${base}/reviews/${review.value.id}`,{params:{agencyId:Number(unref(agencyId))},skipGlobalLoading:true});
-          if(current!==generation)return null;
-          if(preview.data?.review?.id)review.value=preview.data.review;
+    const deadline = Date.now() + 180000;
+    let delay = pollMs;
+    while (active(review.value) && current === generation) {
+      if (Date.now() + delay >= deadline) throw new Error('Review did not complete');
+      await wait(delay);
+      if (current !== generation) return null;
+      try {
+        const result = await apiClient.get(`${base}/reviews/${review.value.id}`, {
+          params: { agencyId: Number(unref(agencyId)), poll: 1 }, skipGlobalLoading: true
+        });
+        if (current !== generation) return null;
+        if (!result.data?.review?.id) throw new Error('Missing review');
+        if (result.data.review.heartbeat) {
+          review.value = { ...review.value, stage: result.data.review.stage, phase: result.data.review.phase || review.value.phase, enrollmentSources: result.data.review.enrollmentSources || review.value.enrollmentSources };
+          if (result.data.review.previewAvailable && !review.value.draftPreview) {
+            const preview = await apiClient.get(`${base}/reviews/${review.value.id}`, {
+              params: { agencyId: Number(unref(agencyId)) }, skipGlobalLoading: true
+            });
+            if (current !== generation) return null;
+            if (preview.data?.review?.id) review.value = preview.data.review;
+          }
+        } else {
+          review.value = result.data.review;
         }
+        delay = pollMs;
+      } catch (error) {
+        if (current !== generation) return null;
+        if (error?.response?.status !== 429) throw error;
+        const now = Date.now();
+        delay = Math.max(pollMs, rateLimitRetryAt(error, now, 5000) - now);
+        if (now + delay >= deadline) throw error;
       }
-      else review.value=result.data.review;
     }
     return review.value;
   }

@@ -22,6 +22,23 @@ describe('Narriva inline source confirmation', () => {
     expect(wrapper.text()).toContain('Updated here');
     wrapper.unmount();
   });
+  it('keeps an in-progress parent correction during unrelated encounter updates', async () => {
+    const context = { agencyId: 450, clientId: 12, clinicalSessionId: 30, participants: 'Client Only' };
+    const wrapper = mount(NarrivaInlineFinding, { props: {
+      finding: { id: 'encounter_consent:participants', action: 'review_participants' }, context
+    } });
+    await wrapper.get('select').setValue('Others (client not present)');
+    await wrapper.get('input').setValue('Parent');
+    await wrapper.setProps({ context: { ...context, durationMinutes: 45 } });
+    await wrapper.get('form').trigger('submit');
+    expect(wrapper.emitted('apply')[0][0]).toMatchObject({
+      participants: 'Others (client not present)', participantsDetail: 'Parent'
+    });
+    await wrapper.setProps({ context: { ...context, clientId: 13, clinicalSessionId: 31 } });
+    expect(wrapper.get('select').element.value).toBe('Client Only');
+    expect(wrapper.find('input').exists()).toBe(false);
+    wrapper.unmount();
+  });
   it('records a risk-assessment to-do without inventing assessment findings', async () => {
     const wrapper = mount(NarrivaInlineFinding, { props: { checkId: 'risk_safety', finding: { id: 'risk_safety:assessment', action: 'risk_assessment' } } });
     await wrapper.get('form').trigger('submit');

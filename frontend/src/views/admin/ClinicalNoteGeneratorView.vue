@@ -394,7 +394,7 @@
         </section>
 
         <div v-if="!needsClientAttachStep" class="na-write-after-attach">
-        <NarrivaModeChooser v-if="!signedNoteViewerId && !chartNoteReadOnly && !finalizedNarriva" :disabled="needsActualProgressSession" v-model="noteWriterMode" :default-mode="narrivaDefaultMode" :allow-manual="canUseManualSkipAi" :allow-narriva="narrivaFeatures.writing !== false" :allow-smart="showCsNoteBuildPathway && narrivaFeatures.writing !== false" :saving="narrivaPreferenceSaving" :error="narrivaPreferenceError" @save-default="saveNarrivaDefault" />
+        <NarrivaModeChooser v-if="!signedNoteViewerId && !chartNoteReadOnly && !finalizedNarriva" v-model="noteWriterMode" :default-mode="narrivaDefaultMode" :allow-manual="canUseManualSkipAi" :allow-narriva="narrivaFeatures.writing !== false" :allow-smart="showCsNoteBuildPathway && narrivaFeatures.writing !== false" :saving="narrivaPreferenceSaving" :error="narrivaPreferenceError" @save-default="saveNarrivaDefault" />
         <button v-if="encounterToolLocked && (isClientChartAid || therapyNotesWriterOnly) && !chartNoteReadOnly && !signedNoteViewerId" class="na-btn-outline" type="button" :disabled="savingDraftManual || needsActualProgressSession" @click="saveDraftNow">{{ savingDraftManual ? 'Saving…' : 'Save draft' }}</button>
         <div v-if="!encounterToolLocked && (isClientChartAid || therapyNotesWriterOnly)" class="na-aid-bar">
           <div class="na-aid-bar-copy">
@@ -3393,7 +3393,7 @@ const preparingNarrivaCheck = ref(false);
 const narrivaChecksSubmitted = ref(false);
 const narrivaCheckDisabled = computed(() => preparingNarrivaCheck.value || generating.value || narrivaReviewBusy.value || appointmentAlertBlocked.value || needsActualProgressSession.value || progressPlanBlocksWriting.value || !String(inputText.value || '').trim());
 const narrivaPreflightReady = computed(() => narrivaReview.value?.phase === 'pre_generation' && ['passed', 'bypassed'].includes(narrivaReview.value?.status));
-const narrivaInlineContext = computed(() => ({ agencyId: Number(noteAidAgencyId.value || currentAgencyId.value), credentialTier: derivedTier.value, diagnosisMode: clinicalContextDiagnosisMode.value, diagnoses: structuredChartDiagnoses.value, diagnosticJustification: chartDiagnosticJustification.value, presentingProblem: chartPresentingProblem.value, consentConfirmed: narrivaConsentConfirmed.value, participants: sessionParticipants.value, participantsDetail: sessionParticipantsDetail.value, dateOfService: dateOfService.value, startTime: sessionStartTimeLocal.value, endTime: sessionEndTimeLocal.value, durationMinutes: sessionDurationMinutes.value, serviceCode: actualServiceCode.value, location: sessionLocationModel.value, clientLocationDescription: narrivaClientLocationDescription.value }));
+const narrivaInlineContext = computed(() => ({ clientId: effectiveClientId.value, clinicalSessionId: sessionClinicalSessionId.value, officeEventId: sessionOfficeEventId.value, agencyId: Number(noteAidAgencyId.value || currentAgencyId.value), credentialTier: derivedTier.value, diagnosisMode: clinicalContextDiagnosisMode.value, diagnoses: structuredChartDiagnoses.value, diagnosticJustification: chartDiagnosticJustification.value, presentingProblem: chartPresentingProblem.value, consentConfirmed: narrivaConsentConfirmed.value, participants: sessionParticipants.value, participantsDetail: sessionParticipantsDetail.value, dateOfService: dateOfService.value, startTime: sessionStartTimeLocal.value, endTime: sessionEndTimeLocal.value, durationMinutes: sessionDurationMinutes.value, serviceCode: actualServiceCode.value, location: sessionLocationModel.value, clientLocationDescription: narrivaClientLocationDescription.value }));
 const sessionLocationEdited=ref(false);
 watch(sessionClinicalSessionId,()=>{sessionLocationEdited.value=false;});
 const sessionLocationModel=computed({get:()=>({locationLabel:sessionLocationLabel.value,...sessionLocationMetadata(),clientLocationDescription:narrivaClientLocationDescription.value,modality:sessionLocationMetadata().modality || narrivaModality.value}),set:value=>{
@@ -3446,7 +3446,11 @@ const narrivaRiskIncluded = ref(false), narrivaRiskCompleted = ref(false), narri
 const { review: narrivaReview, busy: narrivaReviewBusy, error: narrivaReviewError, runReview: startNarrivaReview, observeReview: observeNarrivaReview, resolveFinding: resolveNarrivaFinding, invalidate: invalidateNarrivaReview } = useNarrivaReview({ agencyId: computed(() => noteAidAgencyId.value || currentAgencyId.value), apiClient:api });
 const noteWriterMode = computed({
   get: () => skipAiAid.value ? 'manual' : notePathway.value === 'csNoteBuild' ? 'smart_notes' : 'narriva',
-  set: mode => { narrivaModeTouched = true; applyNarrivaMode(mode); }
+  set: mode => {
+    narrivaModeTouched = true;
+    applyNarrivaMode(mode);
+    if (draftId.value && !isWorkspaceHydrating()) scheduleAutosave(600);
+  }
 });
 function applyNarrivaMode(mode) {
   const target = ['manual','narriva','smart_notes'].includes(mode) ? mode : 'manual';
@@ -3457,13 +3461,19 @@ function applyNarrivaMode(mode) {
 async function loadNarrivaDefault() {
   const agencyId = Number(noteAidAgencyId.value || currentAgencyId.value);
   if (!agencyId) return;
+  narrivaPreferenceError.value = '';
   try {
     const { data } = await api.get('/narriva/preferences', { params: { agencyId }, skipGlobalLoading:true });
+    if (agencyId !== Number(noteAidAgencyId.value || currentAgencyId.value)) return;
     narrivaFeatures.value={...narrivaFeatures.value,...(data.features || data.preferences?.features || {})};
     const mode = data?.defaultMode || data?.preferences?.defaultMode;
     narrivaDefaultMode.value = ['manual','narriva','smart_notes'].includes(mode) ? mode : 'manual';
     if (!narrivaModeTouched && !draftId.value && !String(inputText.value || '').trim() && !Object.values(outputObj.value?.sections || {}).some(value=>String(value || '').trim() && !/^Write this section/.test(String(value)))) applyNarrivaMode(narrivaDefaultMode.value);
-  } catch { narrivaPreferenceError.value = 'Your saved default could not be loaded. You can still choose a writing method.'; }
+  } catch {
+    if (agencyId === Number(noteAidAgencyId.value || currentAgencyId.value)) {
+      narrivaPreferenceError.value = 'Your saved default could not be loaded. You can still choose a writing method.';
+    }
+  }
 }
 async function saveNarrivaDefault(mode) {
   if (narrivaPreferenceSaving.value) return;

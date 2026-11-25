@@ -1,5 +1,5 @@
 import {beforeEach,it,expect,vi} from 'vitest';
-const m=vi.hoisted(()=>({providerIssue:vi.fn(),context:vi.fn(),agency:vi.fn(),access:vi.fn(),memberships:vi.fn(),eligibility:vi.fn(),session:vi.fn(),officeSession:vi.fn()}));
+const m=vi.hoisted(()=>({providerIssue:vi.fn(),context:vi.fn(),agency:vi.fn(),access:vi.fn(),memberships:vi.fn(),eligibility:vi.fn(),session:vi.fn(),officeSession:vi.fn(),selfPayOnly:vi.fn()}));
 vi.mock('../../services/providerServiceOfferings.service.js',()=>({clinicalProviderIssue:m.providerIssue}));
 vi.mock('../../services/clientServiceContext.service.js',()=>({clinicalBookingContextIssue:m.context}));
 vi.mock('../../services/clinicalEligibility.service.js',()=>({default:{ensureAgencyAccess:m.agency}}));
@@ -7,6 +7,7 @@ vi.mock('../../services/clientRecordAccess.service.js',()=>({resolveClientRecord
 vi.mock('../../utils/noteAidClientAgency.js',()=>({listClientAgencyMembershipIds:m.memberships}));
 vi.mock('../../services/clientPayerServiceEligibility.service.js',()=>({clientPayerServiceEligibility:m.eligibility}));
 vi.mock('../../models/clinical/ClinicalSession.model.js',()=>({default:{findById:m.session,findByOfficeEventAndClient:m.officeSession}}));
+vi.mock('../../services/selfPayRates.service.js',()=>({getAgencySelfPayOnly:m.selfPayOnly}));
 import {getClientServiceCodeEligibility} from '../clientServiceCodeEligibility.controller.js';
 beforeEach(()=>{vi.clearAllMocks();m.context.mockResolvedValue('');m.providerIssue.mockResolvedValue('');m.access.mockResolvedValue({ok:true});m.memberships.mockResolvedValue([2]);m.eligibility.mockResolvedValue({serviceCodes:['90837'],program:'commercial'});});
 const request=()=>({user:{id:8,role:'provider'},query:{agencyId:'2',clientId:'3',dateOfService:'2026-11-16'}});
@@ -53,4 +54,14 @@ it('also requires the selected provider to offer Clinical for a new visit',async
  expect(m.providerIssue).toHaveBeenCalledWith(2,8);
  expect(res.json).toHaveBeenCalledWith(expect.objectContaining({serviceCodes:[]}));
  expect(m.eligibility).not.toHaveBeenCalled();
+});
+
+it.each([true, false])('keeps service eligibility and scopes the missing-policy advisory to insurance workflows (self-pay only: %s)', async selfPayOnly => {
+  m.selfPayOnly.mockResolvedValue(selfPayOnly);
+  const message = 'No insurance policy is recorded. Confirm the billing basis before submission.';
+  m.eligibility.mockResolvedValue({ serviceCodes: ['90834'], billingBasisUnrecorded: true, message });
+  const { res, next } = await call(request());
+  expect(next).not.toHaveBeenCalled();
+  expect(m.selfPayOnly).toHaveBeenCalledWith(2);
+  expect(res.json).toHaveBeenCalledWith({ agencyId: 2, serviceCodes: ['90834'], message: selfPayOnly ? '' : message });
 });

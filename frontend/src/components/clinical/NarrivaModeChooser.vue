@@ -22,7 +22,11 @@ const props = defineProps({ modelValue: { type: String, default: 'manual' }, def
 const emit = defineEmits(['update:modelValue', 'save-default']);
 const expanded = ref(false);
 const selectedLabel = computed(() => NARRIVA_MODES.find(mode => mode.id === props.modelValue)?.label || 'Choose writing method');
-function choose(mode) { emit('update:modelValue', mode); emit('save-default', mode); expanded.value = false; }
+function choose(mode) {
+  if (props.disabled || !isAllowed(mode)) return;
+  if (mode !== props.modelValue) emit('update:modelValue', mode);
+  expanded.value = false;
+}
 const isAllowed = mode => (mode !== 'manual' || props.allowManual) && (mode !== 'narriva' || props.allowNarriva) && (mode !== 'smart_notes' || props.allowSmart);
 </script>
 <style scoped>

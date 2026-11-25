@@ -7,10 +7,10 @@
     <p v-if="!review && !busy" class="narriva-compliance__hint">Submit your session narrative for compliance check. Confirm the details here before generating the note.</p>
     <p v-if="review?.status === 'stale'" class="narriva-compliance__error">The source content changed. Recheck the draft to update its review.</p>
     <p v-if="preGeneration && review && !busy && ['passed','bypassed','action_required'].includes(review.status)" class="narriva-confirmed-score" role="status">
-      <strong>{{ Math.round(confirmedChecks * 100 / 5) }}%</strong> · {{ confirmedChecks }} of 5 session checks passed
+      <strong>{{ confirmedChecks }} of 5</strong> required checks passed
     </p>
     <section v-if="review || busy" class="narriva-score" :class="{ 'narriva-score--passed': verified }" aria-label="Documentation quality score">
-      <div class="narriva-score__summary"><div><span>Documentation quality</span><strong v-if="scoring">{{ scoring.score }}<small>%</small></strong><strong v-else class="narriva-score__unavailable">{{ busy ? 'Checking…' : 'Score unavailable' }}</strong></div><div><strong>{{ scoreOutcome }}</strong><p v-if="scoring">Required score: {{ scoring.threshold }}% · All 5 required checks must also pass.</p><p v-else>A saved-note review must return a score before verification is available.</p></div></div>
+      <div class="narriva-score__summary"><div><span>Documentation quality</span><strong v-if="scoring">{{ scoring.score }}<small>%</small></strong><strong v-else class="narriva-score__unavailable">{{ busy ? 'Checking…' : 'Score unavailable' }}</strong></div><div><strong>{{ scoreOutcome }}</strong><p v-if="scoring">Required score: {{ scoring.threshold }}% · All 5 required checks must also pass.</p><p v-else>{{ error ? 'The review could not finish. Retry the check when you’re ready.' : 'A saved-note review must return a score before verification is available.' }}</p></div></div>
       <p v-if="scoring?.explanation">{{ scoring.explanation }}</p>
       <div v-if="mandatoryBlockers.length || scoring?.mandatoryPassed === false" class="narriva-score__blockers"><strong>Required checks blocking Narriva verification</strong><ul v-if="mandatoryBlockers.length"><li v-for="check in mandatoryBlockers" :key="check.id">{{ check.label }} · {{ label(check.status) }}</li></ul><p v-else>The required checks have not been confirmed. Run the checks again.</p></div>
       <details v-if="scoring?.criteria?.length" class="narriva-score__criteria"><summary>View score breakdown</summary><ul><li v-for="criterion in scoring.criteria" :key="criterion.id"><div><strong>{{ criterion.label }}</strong><span>{{ criterionLabel(criterion) }}</span></div><p v-if="criterion.message">{{ criterion.message }}</p><blockquote v-for="(evidence, index) in criterionEvidence(criterion)" :key="index">{{ evidence }}</blockquote></li></ul></details>
@@ -65,6 +65,7 @@ const confirmedChecks = computed(() => checks.value.filter(check => check.status
 const verified = computed(() => !props.busy && props.review?.status === 'passed' && checks.value.every(check => check.status === 'passed') && scoring.value?.passed === true && scoring.value.mandatoryPassed === true && scoring.value.qualityPassed !== false && scoring.value.score >= scoring.value.threshold);
 const mandatoryBlockers = computed(() => checks.value.filter(check => check.status !== 'passed'));
 const scoreOutcome = computed(() => {
+  if (props.error && !props.busy) return 'Review interrupted';
   if (props.busy || ['pending', 'running'].includes(props.review?.status)) return 'Review in progress';
   if (props.review?.status === 'stale') return 'Source changed · recheck draft';
   if (props.review?.status === 'bypassed') return 'Kept as written · not approved';
@@ -78,7 +79,7 @@ function criterionLabel(criterion) {
   return typeof criterion.earned === 'number' && Number.isFinite(criterion.earned) && typeof criterion.possible === 'number' && Number.isFinite(criterion.possible) ? `${criterion.earned} / ${criterion.possible} points · ${state}` : state;
 }
 const criterionEvidence = criterion => (Array.isArray(criterion.evidence) ? criterion.evidence : []).map(item => typeof item === 'string' ? item : item?.excerpt || item?.text).filter(item => typeof item === 'string' && item.trim());
-const label = value => ({ pending: 'Waiting', running: 'Checking', passed: 'Confirmed', action_required: 'Review needed', bypassed: 'Kept as written', unavailable: 'Unavailable', failed: 'Unavailable', stale: 'Changed' }[value] || 'Waiting');
+const label = value => !props.busy && props.error && ['pending', 'running'].includes(value) ? 'Awaiting retry' : ({ pending: 'Waiting', running: 'Checking', passed: 'Confirmed', action_required: 'Review needed', bypassed: 'Kept as written', unavailable: 'Unavailable', failed: 'Unavailable', stale: 'Changed' }[value] || 'Waiting');
 const symbol = value => ({ passed: '✓', running: '◌', action_required: '!', bypassed: '–', unavailable: '!', failed: '!' }[value] || '○');
 const actionLabel = action => ({ assessment:'Add assessment or attachment',encounter:'Review encounter details',clinical_context:'Review clinical context',edit_note:'Edit note content',risk_assessment: 'Open risk assessment', add_risk_assessment: 'Open risk assessment', clinical_service:'Review clinical service', service_code: 'Review service code', change_service_code: 'Review service code', participants: 'Review participants', review_participants: 'Review participants', consent: 'Review consent', add_assessment: 'Add assessment or attachment', treatment_plan: 'Review treatment plan', narrative: 'Edit Session Narrative' }[typeof action === 'string' ? action : action?.id] || action?.label || 'Review this finding');
 function bypass(finding) { const reason = reasons[finding.id]?.trim(); if (!reason || reason.length < 5 || !finding.canBypass || props.busy) return; emit('resolve', { findingId: finding.id, action: 'bypass', reason }); openBypass.value = ''; }

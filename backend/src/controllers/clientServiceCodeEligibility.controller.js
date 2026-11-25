@@ -4,6 +4,7 @@ import ClinicalEligibilityService from '../services/clinicalEligibility.service.
 import { resolveClientRecordAccess } from '../services/clientRecordAccess.service.js';
 import { listClientAgencyMembershipIds } from '../utils/noteAidClientAgency.js';
 import { clientPayerServiceEligibility } from '../services/clientPayerServiceEligibility.service.js';
+import { getAgencySelfPayOnly } from '../services/selfPayRates.service.js';
 import ClinicalSession from '../models/clinical/ClinicalSession.model.js';
 import { resolveClinicalDraftSessionContext } from '../services/clinicalDraftSessionContext.service.js';
 
@@ -54,7 +55,8 @@ export async function getClientServiceCodeEligibility(req, res, next) {
       if (issue) return res.set('Cache-Control','no-store').json({serviceCodes:[],agencyId,message:issue});
     }
     const eligibility = await clientPayerServiceEligibility({ agencyId, clientId, providerUserId, dateOfService });
-    const {pendingClassificationCodes = [], ...billing} = eligibility;
+    const { pendingClassificationCodes = [], billingBasisUnrecorded, ...billing } = eligibility;
+    if (billingBasisUnrecorded && await getAgencySelfPayOnly(agencyId)) billing.message = '';
     const documentationCode = pendingClassificationCodes.includes(bookedCode) ? bookedCode : null;
     res.set('Cache-Control', 'no-store').json({ ...billing, agencyId, ...(documentationCode ? {documentationCode} : {}) });
   } catch (error) { next(error); }
