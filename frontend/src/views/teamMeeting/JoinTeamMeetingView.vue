@@ -219,6 +219,7 @@
           'join-session-layout--chat-only': !canSeeMeetingWorkspace,
           'join-session-layout--lobby': isInLobby && !videoFullscreen,
           'join-session-layout--video-focus': !chatPanelOpen || videoFullscreen,
+          'join-session-layout--training-workspace': isTraining && showMeetingWorkspace,
           'join-session-layout--video-fs': videoFullscreen
         }"
       >
@@ -351,7 +352,7 @@
             />
           </section>
         </div>
-        <aside v-if="resolvedEventId && !isInLobby && canSeeMeetingWorkspace && !videoFullscreen" class="join-workspace">
+        <aside v-if="showMeetingWorkspace" class="join-workspace">
           <div v-if="workspaceBannerVisible && !isInterviewMeeting && !isEvaluationMeeting" class="join-workspace__banner">
             <span class="join-workspace__lock" aria-hidden="true">🔒</span>
             <p>
@@ -1208,6 +1209,8 @@ const canSeeFullWorkspace = computed(() => {
 const canSeeMeetingWorkspace = computed(() => canSeeFullWorkspace.value || (
   !isInterviewMeeting.value && !isEvaluationMeeting.value && !!Number(authStore.user?.id || 0)
 ));
+const showMeetingWorkspace = computed(() => !!resolvedEventId.value && !isInLobby.value
+  && canSeeMeetingWorkspace.value && !videoFullscreen.value);
 
 watch([isInterviewMeeting, canSeeFullWorkspace], ([interview, interviewer]) => {
   if (interview) tileFocus.value = interviewer ? 'remote' : 'equal';
@@ -2767,8 +2770,8 @@ onUnmounted(() => {
   flex-direction: column;
 }
 .join-video :deep(.vsr__stage:not(.vsr__stage--strip):not(.vsr__stage--focus-collapsed)) {
-  flex: 1 1 0;
-  min-height: 0 !important;
+  flex: var(--meeting-camera-flex, 1 1 0);
+  min-height: var(--meeting-camera-min-height, 0px) !important;
   height: auto !important;
 }
 .join-video--lobby :deep(.vsr__viewport) { aspect-ratio: 1; height: auto; min-height: 0; }
@@ -2798,6 +2801,26 @@ onUnmounted(() => {
 .join-video__stage--collapsed :deep(.vsr__stage--focus-collapsed) {
   flex: 0 0 104px;
   height: 104px !important;
+}
+.join-session-layout--training-workspace .join-video {
+  overflow: auto;
+}
+/* Let the column scroll when participant cards, sound recovery, or wrapped
+   controls need more room, while keeping the camera and agenda visible. */
+.join-session-layout--training-workspace .join-video__stage:not(.join-video__stage--collapsed) {
+  --meeting-camera-flex: 0 0 var(--meeting-camera-min-height);
+  --meeting-camera-min-height: clamp(200px, 43dvh, 440px);
+  display: flex;
+  flex-direction: column;
+  flex: 1 0 auto;
+}
+.join-session-layout--training-workspace .join-video__stage:not(.join-video__stage--collapsed) :deep(.supervision-video-room),
+.join-session-layout--training-workspace .join-video__stage:not(.join-video__stage--collapsed) :deep(.vsr) {
+  flex: 1 0 auto;
+  height: auto;
+}
+.join-session-layout--training-workspace .join-video__stage:not(.join-video__stage--collapsed) :deep(.vsr__viewport) {
+  flex: 1 0 auto;
 }
 .join-workspace {
   min-width: 0;
@@ -3013,6 +3036,12 @@ onUnmounted(() => {
   }
   .join-workspace {
     max-height: 48vh;
+  }
+  .join-session-layout--training-workspace {
+    grid-template-rows: minmax(0, 1fr) minmax(120px, 31dvh);
+  }
+  .join-session-layout--training-workspace .join-video__stage:not(.join-video__stage--collapsed) {
+    --meeting-camera-min-height: clamp(150px, 32dvh, 240px);
   }
   .join-video__stage--pip {
     position: relative;

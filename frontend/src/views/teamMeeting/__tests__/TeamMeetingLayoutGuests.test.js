@@ -1,7 +1,7 @@
 import { shallowMount, flushPromises } from '@vue/test-utils';
 import { beforeEach, afterEach, describe, it, expect, vi } from 'vitest';
 
-const m = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), workspace: {}, agenda: [], host: true, failContent: false, capabilities:undefined }));
+const m = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), workspace: {}, agenda: [], host: true, subtype: 'general', failContent: false, capabilities:undefined }));
 vi.mock('../../../services/api', () => ({ default: { get: m.get, post: m.post } }));
 vi.mock('../../../utils/orgScopedPath', () => ({ resolveHostImpliedPortalSlug: () => '' }));
 vi.mock('../../../store/auth', () => ({ useAuthStore: () => ({ isAuthenticated: true, user: { id: 9, role: 'provider' } }) }));
@@ -14,16 +14,16 @@ import JoinTeamMeetingView from '../JoinTeamMeetingView.vue';
 
 let wrapper;
 beforeEach(() => {
-  vi.useFakeTimers(); vi.clearAllMocks(); m.host = true; m.failContent = false; m.capabilities=undefined;
+  vi.useFakeTimers(); vi.clearAllMocks(); m.host = true; m.subtype = 'general'; m.failContent = false; m.capabilities=undefined;
   m.workspace = { goals: [], actionItems: [] }; m.agenda = [];
   m.get.mockImplementation(async url => {
     if (url.endsWith('/workspace')) {
       if (m.failContent) throw new Error('Offline');
-      return { data: { workspace: m.workspace, meetingSettings: { agenda: false, goals: false, actionItems: false }, participants: [], meetingSubtype: 'general' } };
+      return { data: { workspace: m.workspace, meetingSettings: { agenda: false, goals: false, actionItems: false }, participants: [], meetingSubtype: m.subtype } };
     }
     if (url === '/meeting-agendas') return { data: { items: m.agenda } };
-    if (url.includes('join-info')) return { data: { orgSlug: 'tenant', eventId: 101, meetingSubtype: 'general' } };
-    if (url.includes('video-token')) return { data: { token: 'video', sessionId: 'room', applicationId: 'app', eventId: 101, capabilities:m.capabilities, isHost: m.host, identity: 'user-9', meetingSubtype: 'general' } };
+    if (url.includes('join-info')) return { data: { orgSlug: 'tenant', eventId: 101, meetingSubtype: m.subtype } };
+    if (url.includes('video-token')) return { data: { token: 'video', sessionId: 'room', applicationId: 'app', eventId: 101, capabilities:m.capabilities, isHost: m.host, identity: 'user-9', meetingSubtype: m.subtype } };
     if (url.includes('meeting-candidates')) return { data: { users: [{ id: 12, firstName: 'Test', lastName: 'Attendee' }] } };
     return { data: {} };
   });
@@ -39,6 +39,24 @@ const video = () => wrapper.findComponent({ name: 'SupervisionVideoRoom' });
 const button = label => wrapper.findAll('button').find(b => b.text() === label);
 
 describe('meeting layout follows content', () => {
+  it('keeps the training workspace available without full screen for attendees', async () => {
+    m.host = false;
+    m.subtype = 'training';
+    await render();
+    wrapper.findComponent({ name: 'ScheduledTrainingPanel' }).vm.$emit('state', {
+      proctor: false, participants: [{ id: 6, isHost: true }], event: { videoAllowed: true, videoDefaultOn: false }
+    });
+    await flushPromises();
+    expect(wrapper.find('.join-session-layout--training-workspace .join-workspace').exists()).toBe(true);
+    expect(video().props('videoFullscreen')).toBe(false);
+    video().vm.$emit('update:videoFullscreen', true);
+    await flushPromises();
+    expect(wrapper.find('.join-workspace').exists()).toBe(false);
+    video().vm.$emit('update:videoFullscreen', false);
+    await flushPromises();
+    expect(wrapper.find('.join-session-layout--training-workspace .join-workspace').exists()).toBe(true);
+  });
+
   it('uses equal/full video for empty content even when options exist, and lets either participant reveal editors', async () => {
     m.host = false;
     await render();
