@@ -6,6 +6,8 @@ import { logAuditEvent } from '../services/auditEvent.service.js';
 import {persistSupportTicketAttachment} from '../services/supportTicketUploads.service.js';
 import { ticketAttachmentType } from '../utils/ticketAttachmentType.js';
 import { canAccessCredentialing, appendCredentialingTicketVisibility } from '../services/credentialingAccess.service.js';
+import { canAccessPeopleOperations, appendPeopleOperationsTicketVisibility, peopleOperationsRecipients } from '../services/peopleOperationsAccess.service.js';
+import { isStaffAccount } from '../utils/staffEligibility.js';
 import { ticketDepartmentKeys, canWorkDepartmentTicket, appendDepartmentTicketVisibility } from '../services/supportTicketDepartmentAccess.service.js';
 import { listUserDepartmentalGroupKeys } from '../services/departmentalGroupAccess.service.js';
 import { sendSupportTicketEmailReply, listSupportTicketSenderOptions, listTicketEmailDeliveryMetadata, resolveSupportTicketEmailThread } from '../services/supportTicketEmail.service.js';
@@ -195,6 +197,7 @@ async function applyTopicAudienceVisibility({ req, where, params, topicFilter = 
 
   await appendDepartmentTicketVisibility({ userId: req.user.id, where, params, requireDepartment: !isAgencyAdminUser(req) && req.user?.role !== 'school_staff' });
   if (!(await hasSupportTicketTopicColumn())) return;
+  await appendPeopleOperationsTicketVisibility(req.user.id, where, params);
 
   const filter = topicFilter ? normalizeTicketTopic(topicFilter) : null;
   if (filter) {
@@ -243,7 +246,7 @@ async function applyTopicAudienceVisibility({ req, where, params, topicFilter = 
   }
   if ((payrollIds || []).length) {
     parts.push(
-      `(LOWER(COALESCE(t.topic, '')) IN ('payroll','people_operations') AND t.agency_id IN (${payrollIds.map(() => '?').join(',')}))`
+      `(LOWER(COALESCE(t.topic, '')) = 'payroll' AND t.agency_id IN (${payrollIds.map(() => '?').join(',')}))`
     );
     params.push(...payrollIds.map((n) => Number(n)));
   }
@@ -257,9 +260,25 @@ async function applyTopicAudienceVisibility({ req, where, params, topicFilter = 
 }
 
 /** Specialized topics: admin always; others need matching responsibility flag (or be creator/claimant). */
-async function actorCanAccessTicketTopic(req, ticket) {
+async function peopleOperationsWorkAccess(req, agencyId) {
+  req.peopleOperationsTicketGrants ||= new Map();
+  const key = `${Number(req.user.id)}:${Number(agencyId)}`;
+  if (!req.peopleOperationsTicketGrants.has(key)) req.peopleOperationsTicketGrants.set(key, canAccessPeopleOperations(req.user.id, Number(agencyId)));
+  return req.peopleOperationsTicketGrants.get(key);
+}
+
+async function peopleOperationsRequesterOnly(req, ticket) {
+  return String(ticket?.topic || '').toLowerCase() === 'people_operations'
+    && !await peopleOperationsWorkAccess(req, ticket.agency_id);
+}
+
+async function actorCanAccessTicketTopic(req, ticket, { work = false } = {}) {
   if (ticket?.created_by_source_key === PLOTLINE_SUPPORT_SOURCE) return canWorkPlotlineSupport(req.user.id);
   if (String(ticket?.topic || '').toLowerCase() === 'credentialing') return canAccessCredentialing(req.user, ticket.agency_id);
+  if (String(ticket?.topic || '').toLowerCase() === 'people_operations') {
+    return (!work && Number(ticket.created_by_user_id) === Number(req.user.id))
+      || peopleOperationsWorkAccess(req, ticket.agency_id);
+  }
   if (req.user?.role === 'school_staff' && Number(ticket?.created_by_user_id) === Number(req.user.id) && Number(ticket?.school_organization_id)) return true;
   if ((await ticketDepartmentKeys(ticket)).length) return canWorkDepartmentTicket({ ticket, userId: req.user.id });
   const role = String(req.user?.role || '').toLowerCase();
@@ -287,7 +306,7 @@ async function actorCanAccessTicketTopic(req, ticket) {
     const ids = await User.listBillingAgencyIds(uid);
     return (ids || []).map(Number).includes(aid);
   }
-  if (topic === 'payroll' || topic === 'people_operations') {
+  if (topic === 'payroll') {
     const ids = await User.listPayrollAgencyIds(uid);
     return (ids || []).map(Number).includes(aid);
   }
@@ -332,15 +351,27 @@ async function hasSupportTicketMessageInternalColumn() {
   }
 }
 
-function enrichTicketForClient(ticket) {
+function enrichTicketForClient(ticket, { requesterOnly = false } = {}) {
+  if (!ticket) return ticket;
   const decrypted = decryptTicketRow(ticket);
+  if (requesterOnly && decrypted) {
+    for (const key of Object.keys(decrypted)) if (/^(ai_|draft_)/.test(key)) delete decrypted[key];
+  }
   return {
     ...decrypted,
     display_status: ticketDisplayStatus(decrypted),
     closed_reason: decrypted.status==='closed' && /^Closed and forwarded by /.test(decrypted.answer||'') ? 'forwarded' : null,
     priority: decrypted.priority || 'medium',
-    draft_sources: parseDraftSourcesFromTicket(decrypted)
+    draft_sources: requesterOnly ? [] : parseDraftSourcesFromTicket(decrypted)
   };
+}
+
+async function ticketForViewer(req, ticket) {
+  if (!ticket) return ticket;
+  const requesterOnly = await peopleOperationsRequesterOnly(req, ticket);
+  const result = enrichTicketForClient(ticket, { requesterOnly });
+  if (String(ticket.topic || '').toLowerCase()==='people_operations') result.people_operations_can_work = !requesterOnly;
+  return result;
 }
 
 async function insertTicketMessageRow({
@@ -477,12 +508,12 @@ async function actorCanUseDepartmentTickets(req) {
   return req.departmentTicketAccess;
 }
 
-async function ensureTicketScopeAccess(req, ticket) {
+async function ensureTicketScopeAccess(req, ticket, { work = true } = {}) {
   const access = ticket.school_organization_id
     ? await ensureOrgAccess(req, ticket.school_organization_id)
     : await ensureAgencyAccess(req, ticket.agency_id);
   if (!access.ok) return access;
-  if (!(await actorCanAccessTicketTopic(req, ticket))) return { ok: false, status: 403, message: 'This ticket is routed to a different audience' };
+  if (!(await actorCanAccessTicketTopic(req, ticket, { work }))) return { ok: false, status: 403, message: 'This ticket is routed to a different audience' };
   return access;
 }
 
@@ -578,10 +609,11 @@ async function listAgencySupportRecipients({ agencyId, topic = 'general' }) {
   const aid = parseInt(agencyId, 10);
   if (!aid) return [];
   const t = normalizeTicketTopic(topic);
+  if (t === 'people_operations') return peopleOperationsRecipients(aid);
   // Always include admins. For specialized topics, also include flagged responsibility holders.
   let flagSql = '';
   if (t === 'billing') flagSql = ' OR COALESCE(ua.has_billing_access, 0) = 1';
-  else if (t === 'payroll' || t === 'people_operations') flagSql = ' OR COALESCE(ua.has_payroll_access, 0) = 1';
+  else if (t === 'payroll') flagSql = ' OR COALESCE(ua.has_payroll_access, 0) = 1';
   else if (t === 'credentialing') flagSql = ' OR COALESCE(ua.can_manage_credentialing, 0) = 1';
 
   const [rows] = await pool.execute(
@@ -1040,7 +1072,7 @@ export const listMySupportTickets = async (req, res, next) => {
        ORDER BY t.created_at DESC`,
       [req.user.id]
     );
-    const visible=[];for(const ticket of rows||[]){if(req.user?.role==='school_staff'){try{await authorizeSupportTicketConversation(req,ticket);}catch(error){if([403,404].includes(error.status))continue;throw error;}}visible.push(enrichTicketForClient(ticket));}
+    const visible=[];for(const ticket of rows||[]){if(req.user?.role==='school_staff'){try{await authorizeSupportTicketConversation(req,ticket);}catch(error){if([403,404].includes(error.status))continue;throw error;}}visible.push(await ticketForViewer(req,ticket));}
     res.json(visible);
   } catch (e) {
     next(e);
@@ -1392,15 +1424,15 @@ export const listSupportTicketsQueue = async (req, res, next) => {
         createdByScope.set(Number(ticket?.id || 0), createdByScope.get(key));
       })
     );
-    res.json(tickets.map((ticket) => {
+    res.json(await Promise.all(tickets.map(async (ticket) => {
       const senderRoiAccessState = createdByScope.get(Number(ticket?.id || 0)) || 'n/a';
-      const enriched = enrichTicketForClient(ticket);
+      const enriched = await ticketForViewer(req,ticket);
       return {
         ...enriched,
         sender_roi_access_state: senderRoiAccessState,
         sender_is_limited: senderRoiAccessState === 'limited'
       };
-    }));
+    })));
   } catch (e) {
     next(e);
   }
@@ -1681,7 +1713,7 @@ export const updateSupportTicketPriority = async (req, res, next) => {
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
     await pool.execute(`UPDATE support_tickets SET priority = ? WHERE id = ?`, [priority, ticketId]);
     const [out] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ?`, [ticketId]);
-    res.json(enrichTicketForClient(out?.[0] || ticket));
+    res.json(await ticketForViewer(req,out?.[0] || ticket));
   } catch (e) {
     next(e);
   }
@@ -1766,7 +1798,7 @@ export const createPlatformSupportTicket = async (req, res, next) => {
     }
 
     const [rows] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ?`, [result.insertId]);
-    const created = enrichTicketForClient(rows?.[0] || null);
+    const created = await ticketForViewer(req,rows?.[0] || null);
 
     try {
       if (created?.id && (await hasSupportTicketMessagesTable())) {
@@ -1932,7 +1964,7 @@ export const escalateSupportTicketToPlatform = async (req, res, next) => {
     }
 
     const [out] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ?`, [ticketId]);
-    res.json(enrichTicketForClient(out?.[0] || null));
+    res.json(await ticketForViewer(req,out?.[0] || null));
   } catch (e) {
     next(e);
   }
@@ -2082,7 +2114,7 @@ export const createSupportTicket = async (req, res, next) => {
     }
 
     const [rows] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ?`, [result.insertId]);
-    const created = enrichTicketForClient(rows?.[0] || null);
+    const created = await ticketForViewer(req,rows?.[0] || null);
 
     // Best-effort: persist the initial question as a message row when the table exists.
     try {
@@ -2164,14 +2196,17 @@ export const getClientSupportTicketThread = async (req, res, next) => {
     const accessState = await getSchoolStaffTicketAccessState({ req, schoolOrganizationId, clientId });
     const limitToOwnTickets = accessState === 'limited';
     const ticketParams = [schoolOrganizationId, clientId];
-    const ownTicketClause = limitToOwnTickets ? ' AND created_by_user_id = ?' : '';
+    const ownTicketClause = limitToOwnTickets ? ' AND t.created_by_user_id = ?' : '';
     if (limitToOwnTickets) ticketParams.push(req.user.id);
+    const visibility = [];
+    await appendPeopleOperationsTicketVisibility(req.user.id, visibility, ticketParams);
     const [rows] = await pool.execute(
-      `SELECT *
-       FROM support_tickets
-       WHERE school_organization_id = ?
-         AND client_id = ?
+      `SELECT t.*
+       FROM support_tickets t
+       WHERE t.school_organization_id = ?
+         AND t.client_id = ?
          ${ownTicketClause}
+         ${visibility.length ? `AND ${visibility.join(' AND ')}` : ''}
        ORDER BY created_at DESC, id DESC
        LIMIT 1`,
       ticketParams
@@ -2179,13 +2214,17 @@ export const getClientSupportTicketThread = async (req, res, next) => {
     const ticket = rows?.[0] || null;
 
     let messages = [];
+    if (ticket && String(ticket.topic || '').toLowerCase()==='people_operations' && !await actorCanAccessTicketTopic(req,ticket)) {
+      return res.status(403).json({error:{message:'People Operations access is required for this conversation.'}});
+    }
     if (ticket?.id && (await hasSupportTicketMessagesTable())) {
       const messageParams = [ticket.id];
       const ownMessageClause = limitToOwnTickets ? ' AND m.author_user_id = ?' : '';
       if (limitToOwnTickets) messageParams.push(req.user.id);
       const hasInternal = await hasSupportTicketMessageInternalColumn();
       const role = String(req.user?.role || '').toLowerCase();
-      const internalClause = role === 'school_staff' && hasInternal ? ' AND COALESCE(m.is_internal, 0) = 0' : '';
+      const hideInternal = role === 'school_staff' || await peopleOperationsRequesterOnly(req,ticket);
+      const internalClause = hideInternal && hasInternal ? ' AND COALESCE(m.is_internal, 0) = 0' : '';
       const [mRows] = await pool.execute(
         `SELECT m.*,
                 u.first_name AS author_first_name,
@@ -2201,7 +2240,7 @@ export const getClientSupportTicketThread = async (req, res, next) => {
       messages = (Array.isArray(mRows) ? mRows : []).map((m) => decryptTicketMessageRow(m));
     }
 
-    res.json({ ticket: ticket ? enrichTicketForClient(ticket) : null, messages });
+    res.json({ ticket: ticket ? await ticketForViewer(req,ticket) : null, messages });
   } catch (e) {
     next(e);
   }
@@ -2253,8 +2292,9 @@ export const markClientSupportTicketThreadRead = async (req, res, next) => {
            WHERE school_organization_id = ?
              AND client_id = ?
              AND close_on_read = 1
-             AND LOWER(status) = 'answered'`,
-          [schoolOrganizationId, clientId]
+             AND LOWER(status) = 'answered'
+             AND created_by_user_id = ?`,
+          [schoolOrganizationId, clientId, req.user.id]
         );
       } catch {
         // best-effort
@@ -2295,21 +2335,24 @@ export const listClientSupportTickets = async (req, res, next) => {
     const limitRaw = req.query?.limit ? parseInt(req.query.limit, 10) : 50;
     const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(limitRaw, 200)) : 50;
     const queryParams = [schoolOrganizationId, clientId];
-    const ownTicketClause = limitToOwnTickets ? ' AND created_by_user_id = ?' : '';
+    const ownTicketClause = limitToOwnTickets ? ' AND t.created_by_user_id = ?' : '';
     if (limitToOwnTickets) queryParams.push(req.user.id);
+    const visibility = [];
+    await appendPeopleOperationsTicketVisibility(req.user.id, visibility, queryParams);
 
     const [rows] = await pool.execute(
-      `SELECT *
-       FROM support_tickets
-       WHERE school_organization_id = ?
-         AND client_id = ?
+      `SELECT t.*
+       FROM support_tickets t
+       WHERE t.school_organization_id = ?
+         AND t.client_id = ?
          ${ownTicketClause}
+         ${visibility.length ? `AND ${visibility.join(' AND ')}` : ''}
        ORDER BY created_at DESC, id DESC
        LIMIT ${limit}`,
       queryParams
     );
 
-    let tickets = (rows || []).map((t) => enrichTicketForClient(t));
+    let tickets = await Promise.all((rows || []).map((t) => ticketForViewer(req,t)));
     if (String(req.user?.role || '').toLowerCase() === 'school_staff') {
       const staffWindow = await ClientSchoolStaffRoiAccess.getStaffAccessWindow({
         clientId,
@@ -2338,12 +2381,12 @@ export async function authorizeSupportTicketConversation(req,ticket) {
     if(!schoolId||!(memberships||[]).some(row=>Number(row.id)===schoolId)||!agencyId||Number(agencyId)!==Number(ticket.agency_id))throw Object.assign(new Error('This support ticket is outside your school.'),{status:403});
     if(Number(ticket.created_by_user_id)===Number(req.user.id)){
       if(!(await actorCanAccessTicketTopic(req,ticket)))throw Object.assign(new Error('This ticket is routed to a different audience'),{status:403});
-      return {role,restrictToOwnTicket:true};
+      return {role,restrictToOwnTicket:true,peopleOperationsRequesterOnly:String(ticket.topic || '').toLowerCase()==='people_operations'};
     }
   }
     const isTicketCreatorEarly = Number(ticket?.created_by_user_id || 0) === Number(req.user?.id || 0);
     if (!(role === 'client_guardian' && isTicketCreatorEarly)) {
-      const access = await ensureTicketScopeAccess(req, ticket);
+      const access = await ensureTicketScopeAccess(req, ticket, { work: false });
       if (!access.ok) throw Object.assign(new Error(access.message),{status:access.status});
     }
 
@@ -2369,7 +2412,8 @@ export async function authorizeSupportTicketConversation(req,ticket) {
       throw Object.assign(new Error('Limited ticket access only allows your own tickets'),{status:403});
     }
     const isTicketCreator = Number(ticket?.created_by_user_id || 0) === Number(req.user?.id || 0);
-    let canView = (role === 'school_staff' && isTicketCreator && Number(ticket.school_organization_id)>0) || isAgencyAdminUser(req) || role === 'super_admin' || (role === 'client_guardian' && isTicketCreator) || await canWorkDepartmentTicket({ ticket, userId: req.user.id });
+    let canView = (String(ticket.topic || '').toLowerCase() === 'people_operations' && isTicketCreator)
+      || (role === 'school_staff' && isTicketCreator && Number(ticket.school_organization_id)>0) || isAgencyAdminUser(req) || role === 'super_admin' || (role === 'client_guardian' && isTicketCreator) || await canWorkDepartmentTicket({ ticket, userId: req.user.id });
     if (!canView && role === 'school_staff' && ticket.client_id) {
       canView = await ClientSchoolStaffRoiAccess.schoolStaffHasActiveRoiAccess({
         clientId: ticket.client_id,
@@ -2398,7 +2442,7 @@ export async function authorizeSupportTicketConversation(req,ticket) {
     }
 
 
-  return {role,restrictToOwnTicket};
+  return {role,restrictToOwnTicket,peopleOperationsRequesterOnly:await peopleOperationsRequesterOnly(req,ticket)};
 }
 
 export const markSupportTicketReadForViewer = async (req, res, next) => {
@@ -2427,7 +2471,7 @@ export const listSupportTicketMessages = async (req, res, next) => {
     const ticket = rows?.[0] || null;
     if (!ticket) return res.status(404).json({ error: { message: 'Ticket not found' } });
 
-    const {role,restrictToOwnTicket} = await authorizeSupportTicketConversation(req,ticket);
+    const {role,restrictToOwnTicket,peopleOperationsRequesterOnly:requesterOnly} = await authorizeSupportTicketConversation(req,ticket);
 
     if (String(ticket.created_by_source_key || '').toLowerCase() === 'prehire_portal_chat') {
       try {
@@ -2439,12 +2483,12 @@ export const listSupportTicketMessages = async (req, res, next) => {
     }
 
     if (!(await hasSupportTicketMessagesTable())) {
-      return res.json({ ticket: enrichTicketForClient(ticket), messages: [] });
+      return res.json({ ticket: await ticketForViewer(req,ticket), messages: [] });
     }
 
     const hasSoftDelete = await hasSupportTicketMessagesSoftDeleteColumns();
     const hasInternal = await hasSupportTicketMessageInternalColumn();
-    const hideInternal = role === 'school_staff' || role === 'client_guardian';
+    const hideInternal = requesterOnly || role === 'school_staff' || role === 'client_guardian';
     const messageParams = [ticketId];
     const ownMessageClause = ''; // Own-ticket scope was checked above; include public replies from Support.
     const internalClause = hideInternal && hasInternal ? ' AND COALESCE(m.is_internal, 0) = 0' : '';
@@ -2493,7 +2537,7 @@ export const listSupportTicketMessages = async (req, res, next) => {
     const metadata = parseMetadataJson(ticket.ai_draft_metadata_json);
 
     res.json({
-      ticket: enrichTicketForClient(ticket),
+      ticket: await ticketForViewer(req,ticket),
       readBefore: readBefore.toISOString(),
       messages: normalized.map((m) => ({ ...m, email_delivery: deliveryByMessage.get(Number(m.id)) || null })),
       emailReply: res.locals.emailReply || res.locals.websiteEmailReply || null,
@@ -2503,9 +2547,9 @@ export const listSupportTicketMessages = async (req, res, next) => {
       assignmentHistory: hideInternal ? [] : await ticketAssignmentHistory(ticket),
       canonicalTicketId: emailThread?.canonicalTicketId || null,
       lastMessageId: Math.max(0, ...list.filter((m) => !m.is_deleted).map((m) => Number(m.id))),
-      draftSnapshotId: metadata?.draftSnapshotId || null,
-      draftThreadRevision: metadata?.threadRevision ?? null,
-      draftWarnings: metadata?.reviewWarnings || [],
+      draftSnapshotId: hideInternal ? null : metadata?.draftSnapshotId || null,
+      draftThreadRevision: hideInternal ? null : metadata?.threadRevision ?? null,
+      draftWarnings: hideInternal ? [] : metadata?.reviewWarnings || [],
       attachments
     });
   } catch (e) {
@@ -2544,14 +2588,15 @@ export const createSupportTicketMessage = async (req, res, next) => {
         return res.status(403).json({ error: { message: 'Access denied' } });
       }
     } else {
-      access = await ensureTicketScopeAccess(req, ticket);
+      access = await ensureTicketScopeAccess(req, ticket, { work: false });
       if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
       if (!(await actorCanAccessTicketTopic(req, ticket))) {
         return res.status(403).json({ error: { message: 'This ticket is routed to a different audience' } });
       }
     }
 
-    await authorizeSupportTicketConversation(req,ticket);
+    const conversationAccess = await authorizeSupportTicketConversation(req,ticket);
+    if (wantInternal && conversationAccess.peopleOperationsRequesterOnly) return res.status(403).json({error:{message:'People Operations permission is required to post internal notes.'}});
 
     if (!(await hasSupportTicketMessagesTable())) {
       return res.status(409).json({ error: { message: 'Ticket messages are not enabled (missing migration)' } });
@@ -2626,7 +2671,7 @@ export const createSupportTicketMessage = async (req, res, next) => {
       }
     }
 
-    if (supportsTicketEmailReply(ticket) && !wantInternal && (isAgencyAdminUser(req) || await canWorkDepartmentTicket({ ticket, userId: req.user.id }))) {
+    if (supportsTicketEmailReply(ticket) && !conversationAccess.peopleOperationsRequesterOnly && !wantInternal && (isAgencyAdminUser(req) || await canWorkDepartmentTicket({ ticket, userId: req.user.id }))) {
       res.locals.emailReply = await sendSupportTicketEmailReply({
         ticketId, actorUserId: req.user.id, actorRole: role, body, parentMessageId: parentId,
         senderIdentityId: req.body?.senderIdentityId, senderMode: req.body?.senderMode || 'staff',
@@ -2642,7 +2687,7 @@ export const createSupportTicketMessage = async (req, res, next) => {
       authorUserId: req.user.id,
       authorRole: String(req.user?.role || ''),
       body,
-      requireEncryption: ticket.created_by_source_key === 'office_kiosk_support',
+      requireEncryption: ticket.source_channel === 'email' || ticket.created_by_source_key === 'office_kiosk_support',
       isInternal: wantInternal && (isAgencyAdminUser(req) || role === 'super_admin' || role === 'staff' || role === 'clinical_practice_assistant' || await canWorkDepartmentTicket({ ticket, userId: req.user.id }))
     });
 
@@ -2676,6 +2721,10 @@ export const createSupportTicketMessage = async (req, res, next) => {
       return await listSupportTicketMessages(req, res, next);
     }
 
+    // People Operations correspondence stays in its permission-scoped app queue.
+    // The Google group carries mail only to the two application administrators.
+    if (String(ticket.topic || '').toLowerCase()==='people_operations') return listSupportTicketMessages(req,res,next);
+
     // Best-effort: email other side of the thread (school staff <-> agency team).
     try {
       const agencyId = ticket.agency_id ? Number(ticket.agency_id) : null;
@@ -2703,7 +2752,7 @@ export const createSupportTicketMessage = async (req, res, next) => {
       ].filter(Boolean).join('\n');
 
       const categoryKey = 'school_portal_client_messages';
-      const recipients = role === 'school_staff'
+      const recipients = role === 'school_staff' || conversationAccess.peopleOperationsRequesterOnly
         ? await listAgencySupportRecipients({ agencyId, topic: ticket.topic || 'general' })
         : await schoolTicketReplyRecipients(ticket);
 
@@ -3234,7 +3283,7 @@ export const answerSupportTicket = async (req, res, next) => {
         expectedLastMessageId: req.body?.expectedLastMessageId, desiredStatus: status
       });
       const [updated] = await pool.execute('SELECT * FROM support_tickets WHERE id = ?', [ticketId]);
-      return res.json({ ...enrichTicketForClient(updated?.[0]), emailReply });
+      return res.json({ ...(await ticketForViewer(req,updated?.[0])), emailReply });
     }
 
     // Enforce ownership:
@@ -3419,7 +3468,7 @@ export const answerSupportTicket = async (req, res, next) => {
     }
 
     const [rows2] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ?`, [ticketId]);
-    const enriched = enrichTicketForClient(rows2?.[0] || null);
+    const enriched = await ticketForViewer(req,rows2?.[0] || null);
 
     let promotedLibraryEntry = null;
     const promoteRaw = req.body?.promoteToLibrary;
@@ -3458,7 +3507,7 @@ export const claimSupportTicket = async (req, res, next) => {
   try {
     const role = String(req.user?.role || '').toLowerCase();
     const canClaim = ['admin','super_admin','support'].includes(role);
-    if (!canClaim) {
+    if (!canClaim && !isStaffAccount(req.user)) {
       return res.status(403).json({ error: { message: 'Only staff/admin/support can claim support tickets' } });
     }
 
@@ -3468,6 +3517,9 @@ export const claimSupportTicket = async (req, res, next) => {
     const [rows] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ? LIMIT 1`, [ticketId]);
     const ticket = rows?.[0];
     if (!ticket) return res.status(404).json({ error: { message: 'Ticket not found' } });
+    if (!canClaim && !(String(ticket.topic || '').toLowerCase()==='people_operations' && await peopleOperationsWorkAccess(req,ticket.agency_id))) {
+      return res.status(403).json({error:{message:'Only authorized ticket staff can claim this ticket.'}});
+    }
     if (!isAgencyAdminUser(req) && role !== 'school_staff' && !await canWorkDepartmentTicket({ ticket, userId: req.user.id })) {
       return res.status(403).json({ error: { message: 'You can manage only tickets for your assigned agency groups' } });
     }
@@ -3541,6 +3593,9 @@ export const unclaimSupportTicket = async (req, res, next) => {
 };
 
 async function assignmentEligibility(ticket, user, departmentKeys) {
+  if (String(ticket.topic || '').toLowerCase() === 'people_operations' && !await canAccessPeopleOperations(user.id, ticket.agency_id)) {
+    return 'Assignee does not have People Operations access for this organization';
+  }
   if (String(ticket.topic || '').toLowerCase() === 'credentialing' && !(await canAccessCredentialing(user, ticket.agency_id))) {
     return 'Assignee does not have credentialing access';
   }
@@ -3593,7 +3648,8 @@ export const listSupportTicketAssignees = async (req, res, next) => {
       const access = await ensureTicketScopeAccess(req, ticket);
       if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
-      const rows = await listEligibleTicketAssignees(targetAgencyId);
+      const rows = String(ticket.topic || '').toLowerCase() === 'people_operations'
+        ? await peopleOperationsRecipients(targetAgencyId) : await listEligibleTicketAssignees(targetAgencyId);
       const departmentKeys = await ticketDepartmentKeys(ticket);
       const problems = await Promise.all(rows.map(user => assignmentEligibility(ticket, user, departmentKeys)));
       return res.json({
@@ -3636,7 +3692,9 @@ export const assignSupportTicket = async (req, res, next) => {
     const canonical=await resolveSupportTicketEmailThread(ticket);
     if(canonical.canonicalTicketId!==Number(ticket.id))return res.status(409).json({error:{message:`Open ticket #${canonical.canonicalTicketId} to manage this conversation`},canonicalTicketId:canonical.canonicalTicketId});
 
-    const assignee = (await listEligibleTicketAssignees(ticket.agency_id)).find(user => Number(user.id) === Number(assigneeId));
+    const eligible = String(ticket.topic || '').toLowerCase() === 'people_operations'
+      ? await peopleOperationsRecipients(ticket.agency_id) : await listEligibleTicketAssignees(ticket.agency_id);
+    const assignee = eligible.find(user => Number(user.id) === Number(assigneeId));
     if (!assignee) return res.status(400).json({error:{message:'Choose an active ticket team member in this agency. School staff and providers without ticket duties cannot be assigned.'}});
 
     const problem = await assignmentEligibility(ticket, assignee, await ticketDepartmentKeys(ticket));
@@ -3772,7 +3830,11 @@ async function listProvidersAssignedToClientInSchool({ clientId, schoolOrganizat
 }
 
 async function providersEligibleForForward(ticket){
- return ticket.client_id ? listProvidersAssignedToClientInSchool({clientId:ticket.client_id,schoolOrganizationId:ticket.school_organization_id}) : listAgencyForwardProviders(ticket.agency_id);
+ const providers = ticket.client_id ? await listProvidersAssignedToClientInSchool({clientId:ticket.client_id,schoolOrganizationId:ticket.school_organization_id}) : await listAgencyForwardProviders(ticket.agency_id);
+ if (String(ticket.topic || '').toLowerCase() !== 'people_operations' && !(await ticketDepartmentKeys(ticket)).includes('people_operations')) return providers;
+ // Keep HR correspondence under the current permission check; personal-inbox
+ // copies would retain access after a staff permission is removed.
+ return [];
 }
 export const listClientAssignedProvidersForSupportTicket=async(req,res,next)=>{
  try{
@@ -3780,6 +3842,7 @@ export const listClientAssignedProvidersForSupportTicket=async(req,res,next)=>{
   const [[ticket]]=await pool.execute('SELECT * FROM support_tickets WHERE id=?',[Number(req.params.id)]);
   if(!ticket)return res.status(404).json({error:{message:'Ticket not found'}});
   await authorizeSupportTicketConversation(req,ticket);
+  const access=await ensureTicketScopeAccess(req,ticket);if(!access.ok)return res.status(access.status).json({error:{message:access.message}});
   res.json({providers:await providersEligibleForForward(ticket)});
  }catch(error){next(error);}
 };
@@ -3789,6 +3852,8 @@ export const forwardSupportTicketToProviders=async(req,res,next)=>{
   const [[ticket]]=await pool.execute('SELECT * FROM support_tickets WHERE id=?',[Number(req.params.id)]);
   if(!ticket)return res.status(404).json({error:{message:'Ticket not found'}});
   await authorizeSupportTicketConversation(req,ticket);
+  const access=await ensureTicketScopeAccess(req,ticket);if(!access.ok)return res.status(access.status).json({error:{message:access.message}});
+  if(String(ticket.topic||'').toLowerCase()==='people_operations'||(await ticketDepartmentKeys(ticket)).includes('people_operations'))return res.status(400).json({error:{message:'Assign this People Operations conversation to another authorized team member.'}});
   const canonical=await resolveSupportTicketEmailThread(ticket);if(canonical.canonicalTicketId!==Number(ticket.id))return res.status(409).json({error:{message:`Open ticket #${canonical.canonicalTicketId} to forward this conversation`}});
   res.json(await forwardTicketToProviderInboxes({ticketId:ticket.id,actorUserId:req.user.id,providerUserIds:req.body?.providerUserIds,note:req.body?.message,requestId:req.body?.clientRequestId},{providerCandidates:providersEligibleForForward}));
  }catch(error){next(error);}
@@ -4208,9 +4273,10 @@ export async function loadTicketConversation(req,ticketId){
  await authorizeSupportTicketConversation(req,ticket);return ticket;
 }
 async function ticketAttachmentIsVisible(req,ticket,row){
- if(!row.support_ticket_message_id)return true;
+ const requesterOnly=await peopleOperationsRequesterOnly(req,ticket);
+ if(!row.support_ticket_message_id)return !requesterOnly||Number(row.uploaded_by_user_id)===Number(req.user.id);
  const [[message]]=await pool.execute('SELECT ticket_id,is_internal,is_deleted FROM support_ticket_messages WHERE id=? AND ticket_id=? LIMIT 1',[row.support_ticket_message_id,ticket.id]);
- return !!message && Number(message.is_deleted||0)!==1 && (!['school_staff','client_guardian'].includes(String(req.user.role||'').toLowerCase())||Number(message.is_internal||0)!==1);
+ return !!message && Number(message.is_deleted||0)!==1 && (!(requesterOnly||['school_staff','client_guardian'].includes(String(req.user.role||'').toLowerCase()))||Number(message.is_internal||0)!==1);
 }
 async function visibleTicketAttachments(req,ticket){
  const rows=await listTicketAttachments(ticket.id),result=[];for(const row of rows)if(await ticketAttachmentIsVisible(req,ticket,row)){const {file_path,...publicRow}=row;result.push(publicRow);}return result;
@@ -4227,6 +4293,7 @@ export async function getSupportTicketEmailPreview(req,res,next){
   const [[ticket]]=await pool.execute('SELECT * FROM support_tickets WHERE id=?',[Number(req.params.id)]);
   if(!ticket)return res.status(404).json({error:{message:'Ticket not found'}});
   await authorizeSupportTicketConversation(req,ticket);
+  const access=await ensureTicketScopeAccess(req,ticket);if(!access.ok)return res.status(access.status).json({error:{message:access.message}});
   if(['school_staff','client_guardian'].includes(req.user.role))return res.status(403).json({error:{message:'Email receipts are available to the ticket team'}});
   const id=Number(req.params.communicationId);if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:{message:'Invalid email receipt'}});
   res.json(await ticketEmailPreview(ticket,id));
@@ -4238,6 +4305,7 @@ export async function previewSupportTicketReply(req,res,next){
   const [[ticket]]=await pool.execute('SELECT * FROM support_tickets WHERE id=?',[Number(req.params.id)]);
   if(!ticket)return res.status(404).json({error:{message:'Ticket not found'}});
   await authorizeSupportTicketConversation(req,ticket);
+  const access=await ensureTicketScopeAccess(req,ticket);if(!access.ok)return res.status(access.status).json({error:{message:access.message}});
   if(['school_staff','client_guardian'].includes(req.user.role))return res.status(403).json({error:{message:'Only the ticket team can preview replies'}});
   if(!supportsTicketEmailReply(ticket))return res.status(400).json({error:{message:'This ticket does not have an email recipient'}});
   res.json(await previewTicketReply({ticket,actorUserId:req.user.id,senderIdentityId:req.body?.senderIdentityId,senderMode:req.body?.senderMode,body:req.body?.body}));

@@ -58,6 +58,27 @@ async function render(props = {}, stubs = {}) {
   await flushPromises();
 }
 
+it('keeps People Operations requester replies available while hiding staff tools',async()=>{
+ mocks.auth.user={id:7,role:'support'};
+ const ticket={...assignedTicket,topic:'people_operations',created_by_user_id:7,people_operations_can_work:false};
+ mocks.api.get.mockImplementation(async url=>url==='/support-tickets/101/messages'?{data:{ticket,messages:[]}}:{data:{}});
+ await render({embedded:true,initialTicketId:101,agencyId:2,syncRoute:false});
+ expect(button('Internal note')).toBeUndefined();
+ expect(button('Official answer')).toBeUndefined();
+ expect(button('Claim')).toBeUndefined();
+ expect(wrapper.findComponent({name:'TicketAssignmentControl'}).exists()).toBe(false);
+ expect(wrapper.find('.composer-textarea').exists()).toBe(true);
+});
+
+it('lets a staff member with the current People Operations grant work that queue',async()=>{
+ mocks.auth.user={id:7,role:'staff',has_hiring_access:1};
+ const ticket={...assignedTicket,topic:'people_operations',claimed_by_user_id:null,people_operations_can_work:true};
+ mocks.api.get.mockImplementation(async url=>url==='/support-tickets/101/messages'?{data:{ticket,messages:[]}}:{data:{}});
+ await render({embedded:true,initialTicketId:101,agencyId:2,syncRoute:false});
+ expect(button('Claim')).toBeDefined();
+ expect(button('Internal note')).toBeDefined();
+});
+
 describe('TicketDeskView queue navigation', () => {
   it('uses the permitted agency in an assignment email link before loading the ticket queue', async () => {
     mocks.agency.agencies.push({ id: 3, name: 'Other agency', organization_type: 'agency' });

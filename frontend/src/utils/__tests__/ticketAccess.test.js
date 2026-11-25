@@ -22,6 +22,10 @@ it('uses active scoped grants, rejecting inactive memberships and false string f
   expect(canAccessTicketDesk({ role: 'provider', agencies: [{ id: 2, has_billing_access: 1, is_active: 0 }] }, 2)).toBe(false);
 });
 
-it('does not introduce ticket desk access from People Operations hiring permission', () => {
+it('uses an organization People Operations grant without broadening a global hiring flag', () => {
   expect(canAccessTicketDesk({ role: 'provider', hasHiringAccess: true, agencies: [{ id: 2, is_active: 1 }] }, 2)).toBe(false);
+  const user={role:'provider',agencies:[{id:2,is_active:1,has_hiring_access:1}]};
+  expect(canAccessTicketDesk(user,2)).toBe(true);
+  expect(canAccessTicketDesk(user,3)).toBe(false);
+  expect(canAccessTicketDesk({role:'provider',agencies:[{id:2,is_active:0,has_hiring_access:1}]},2)).toBe(false);
 });

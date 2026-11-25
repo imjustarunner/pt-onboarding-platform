@@ -18,6 +18,8 @@ const agencyLogo = id => agencies.value.find(a => Number(a.id) === Number(id))?.
 const messages = computed(() => detail.value?.messages || []);
 const title = computed(() => detail.value?.ticket?.subject || detail.value?.conversation?.subject || selected.value?.title || 'Support message');
 const canReply = computed(() => !!detail.value && ['ticket', 'sms'].includes(selected.value?.kind));
+const canWorkTicket = computed(() => String(detail.value?.ticket?.topic || '').toLowerCase()==='people_operations'
+  ? detail.value?.ticket?.people_operations_can_work === true : true);
 const ticketStatus = computed(() => detail.value?.ticket?.status || selected.value?.status);
 const statusLabel=value=>String(value || 'open').replaceAll('_',' ').replace(/^./,letter=>letter.toUpperCase());
 const smsContact=computed(()=>detail.value?.conversation?.primary_participant_name || messages.value.find(m=>m.direction==='inbound')?.from?.name || messages.value.find(m=>m.direction==='inbound')?.from?.phone || detail.value?.conversation?.subject || selected.value?.title || 'Contact');
@@ -36,7 +38,7 @@ async function load() {
   finally { if (current === request) loading.value = false; }
 }
 async function open(item) {
-  const current = ++detailRequest; selected.value = item; detail.value = null; detailLoading.value = true; reply.value = ''; sender.value = ''; error.value = '';
+  const current = ++detailRequest; selected.value = item; detail.value = null; detailLoading.value = true; reply.value = ''; internal.value = false; sender.value = ''; error.value = '';
   try { const { data } = await axios.get(url(`/${item.kind}/${item.id}`), config()); if (current === detailRequest) { detail.value = data.detail; sender.value = String(data.detail?.senderOptions?.[0]?.id || ''); } }
   catch (e) { if (current === detailRequest) error.value = e.response?.data?.error?.message || 'This support item could not be opened.'; }
   finally { if (current === detailRequest) detailLoading.value = false; }
@@ -97,7 +99,7 @@ onBeforeUnmount(() => { clearTimeout(timer); ++request; ++detailRequest; });
       <template v-else-if="detail">
         <template v-if="selected.kind === 'communication'"><p>{{ detail.recipient_address }}</p><p>Delivery: <strong>{{ statusLabel(detail.delivery_status || 'unknown') }}</strong></p><p v-if="detail.error_message" role="alert">{{ detail.error_message }}</p><MobileSupportBody :body="detail.body || ''"/><p class="ms-meta">A delivery record is preserved as sent. Reply through its ticket or conversation.</p></template>
         <template v-else>
-          <div v-if="selected.kind === 'ticket'" class="ms-actions"><span>{{ statusLabel(ticketStatus) }}</span><button :disabled="busy" @click="action(ticketClaimed?'unclaim':'claim')">{{ ticketClaimed?'Release claim':'Claim ticket' }}</button><button v-if="ticketStatus!=='closed'" :disabled="busy" @click="action('close')">Close ticket</button></div>
+          <div v-if="selected.kind === 'ticket' && canWorkTicket" class="ms-actions"><span>{{ statusLabel(ticketStatus) }}</span><button :disabled="busy" @click="action(ticketClaimed?'unclaim':'claim')">{{ ticketClaimed?'Release claim':'Claim ticket' }}</button><button v-if="ticketStatus!=='closed'" :disabled="busy" @click="action('close')">Close ticket</button></div>
           <header v-if="selected.kind==='sms'" class="ms-sms-heading"><strong>Texting with {{smsContact}}</strong><span>{{smsNumber}} · {{statusLabel(detail.conversation?.status)}}</span></header>
           <div v-if="detail.ticket?.question" class="ms-message"><strong>Original request</strong><MobileSupportBody :body="detail.ticket.question"/></div>
           <div v-for="message in messages" :key="message.id" class="ms-message" :class="{'ms-internal':message.is_internal || message.is_internal_note,'ms-inbound':selected.kind==='sms' && message.direction==='inbound','ms-outbound':selected.kind==='sms' && message.direction==='outbound'}">
@@ -105,7 +107,7 @@ onBeforeUnmount(() => { clearTimeout(timer); ++request; ++detailRequest; });
             <MobileSupportBody :body="message.body_text || message.body || message.text || ''" :plain="!!message.body_text || selected.kind === 'sms'"/><small v-if="selected.kind==='sms' && message.direction==='outbound'">{{statusLabel(message.send_status || 'pending')}}</small><small v-if="message.email_delivery">Delivery: {{ message.email_delivery.status || message.email_delivery.delivery_status || 'pending' }}</small>
           </div>
           <div v-if="detail.attachments?.length" class="ms-meta">{{ detail.attachments.length }} attachment(s). Use the full ticket desk to review protected attachments.</div>
-          <form v-if="canReply" class="ms-compose" @submit.prevent="action('reply')"><label v-if="selected.kind==='ticket'"><input v-model="internal" type="checkbox"> Internal note</label><label v-if="selected.kind==='ticket' && !internal && detail.senderOptions?.length">Send from<select v-model="sender"><option v-for="option in detail.senderOptions" :key="option.id" :value="String(option.id)">{{ option.teamDisplayName || option.display_name || option.fromEmail || option.from_email || option.label }}</option></select></label><label>{{ internal?'Internal note':selected.kind==='sms'?'Text reply':'Reply' }}<textarea ref="replyInput" v-model="reply" rows="4" maxlength="10000" :disabled="busy"></textarea></label>
+          <form v-if="canReply" class="ms-compose" @submit.prevent="action('reply')"><label v-if="selected.kind==='ticket' && canWorkTicket"><input v-model="internal" type="checkbox"> Internal note</label><label v-if="selected.kind==='ticket' && !internal && detail.senderOptions?.length">Send from<select v-model="sender"><option v-for="option in detail.senderOptions" :key="option.id" :value="String(option.id)">{{ option.teamDisplayName || option.display_name || option.fromEmail || option.from_email || option.label }}</option></select></label><label>{{ internal?'Internal note':selected.kind==='sms'?'Text reply':'Reply' }}<textarea ref="replyInput" v-model="reply" rows="4" maxlength="10000" :disabled="busy"></textarea></label>
           <MessageLinkControl :textarea="replyInput" :disabled="busy" /><button type="submit" :disabled="busy || !reply.trim()">{{ busy?'Saving…':internal?'Save internal note':'Send reply' }}</button></form>
         </template>
       </template>

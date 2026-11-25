@@ -27,6 +27,7 @@ export async function forwardTicketToProviderInboxes(input,dependencies={}){
  try{
   await db.beginTransaction();
   const [[ticket]]=await db.execute('SELECT * FROM support_tickets WHERE id=? FOR UPDATE',[ticketId]);if(!ticket)throw fail('Ticket not found',404);
+  if(String(ticket.topic||'').toLowerCase()==='people_operations')throw fail('Assign this People Operations conversation to another authorized team member.',403);
   const key=createHash('sha256').update(`${actorUserId}:${requestId}`).digest('hex');
   const [previous]=await db.execute(`SELECT metadata FROM user_activity_log WHERE agency_id=? AND action_type='support_ticket_forwarded'
    AND JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.ticketId'))=? AND JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.requestKey'))=? LIMIT 1`,[ticket.agency_id,String(ticketId),key]);
