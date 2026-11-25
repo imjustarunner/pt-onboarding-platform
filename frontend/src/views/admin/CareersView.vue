@@ -467,7 +467,7 @@
           <span class="muted small">Shown on the careers details modal and apply acknowledgement screen.</span>
         </div>
         <JobDescriptionSectionsEditor v-model="createForm.descriptionSections" />
-        <ContractExpectationsEditor v-model="createForm.prehireConfig.contractDefaults" />
+        <ContractExpectationsEditor v-model="createForm.prehireConfig.contractDefaults" :posting-tenant="postingServiceTenant" />
         <JobHirePackagesEditor ref="createPackagesRef" v-model="createForm.prehireConfig" :agency-id="effectiveAgencyId" />
         <p class="muted small">This job will receive its own starter interview question set. After saving, open Edit to tailor the questions and ratings before interviewing applicants.</p>
       </div>
@@ -663,7 +663,7 @@
               <span class="muted small">Shown on careers details and apply acknowledgement.</span>
             </div>
             <JobDescriptionSectionsEditor v-model="editForm.descriptionSections" />
-            <ContractExpectationsEditor v-model="editForm.prehireConfig.contractDefaults" />
+            <ContractExpectationsEditor v-model="editForm.prehireConfig.contractDefaults" :posting-tenant="postingServiceTenant" />
             <JobHirePackagesEditor ref="editPackagesRef" v-model="editForm.prehireConfig" :agency-id="effectiveAgencyId" />
           </div>
           <JobInterviewGuideEditor v-if="editingRow?.id" ref="editGuideRef" :key="`interview-${effectiveAgencyId}-${editingRow.id}`" :job-description-id="editingRow.id" :agency-id="effectiveAgencyId" :job-title="editForm.title" embedded-in-posting :disabled="savingEdit" />
@@ -1100,6 +1100,12 @@ const effectiveAgencyId = computed(() => {
   if (chosen) return chosen;
   return Number(agencyStore.currentAgency?.id || authStore.user?.agencyId || 0) || null;
 });
+const postingServiceTenant = computed(() => {
+  const slug = String(selectedAgency.value?.slug || '').toLowerCase();
+  if (/^itsco(?:-|$)/.test(slug)) return 'itsco';
+  if (/^(?:nlu(?:-|$)|nextlevelup(?:lcc)?$)/.test(slug)) return 'nlu';
+  return '';
+});
 const selectedAgency = computed(() =>
   agencyChoices.value.find((a) => Number(a?.id) === Number(effectiveAgencyId.value)) || null
 );
@@ -1353,6 +1359,10 @@ const saveAgencyCareersPage = async () => {
 
 const createJob = async () => {
   if (!effectiveAgencyId.value || creating.value || createUncertain.value) return;
+  if (!pendingJob.value && postingServiceTenant.value === 'nlu' && !createForm.value.prehireConfig.contractDefaults?.serviceTracks?.length) {
+    createError.value = 'Choose Clinical, Learning, or both under the posting’s service tracks.';
+    return;
+  }
   if (!pendingJob.value && (createPackagesRef.value?.sharedDirty || createPackagesRef.value?.saving)) { createError.value = 'Save or discard the All jobs defaults before saving this posting.'; return; }
   const agencyId = effectiveAgencyId.value;
   let posting = false;

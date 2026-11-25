@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  buildPublicAppUrl,
+  buildPublicAppUrl, hirePortalUrl,
   buildPublicMarketingUrl,
   buildPublicPortalBaseUrl,
   buildPublicPortalLoginUrl,
@@ -15,6 +15,10 @@ import {
 const PLATFORM = 'https://plottwisthq.com';
 
 describe('publicPortalUrl', () => {
+  it('uses Plotline for new hire links with the credential confined to a path segment', () => {
+    assert.equal(hirePortalUrl('opaque/sample?value'), 'https://plotlinepo.com/pre-hire/opaque%2Fsample%3Fvalue');
+    assert.equal(hirePortalUrl(null), null);
+  });
   it('keeps the isolated QA agency reset and login links on its actual ITSCO app path', () => {
     const agency = { id: 450, slug: 'auricwell-qa-demo', portal_url: 'auricwell-qa-demo',
       organization_type: 'agency', feature_flags: { qaSandbox: { syntheticOnly: true } } };

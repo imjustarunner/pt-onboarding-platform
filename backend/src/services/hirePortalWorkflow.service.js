@@ -8,7 +8,6 @@ import pool from '../config/database.js';
 import { builtInHireDocument } from '../../../frontend/src/navigation/hireDocuments.js';
 import {createHash} from 'node:crypto';
 import ProviderPublicProfile from '../models/ProviderPublicProfile.model.js';
-import { hiringCommunicationContext } from './hiringCommunication.service.js';
 import { getHireUserSetup, persistHireUserSetup } from './hireUserSetup.service.js';
 import { getStaffCommunicationChoices, saveStaffCommunicationChoices } from './staffCommunicationChoices.service.js';
 import { isStaffCommunicationRole } from '../utils/staffCommunicationChoices.js';
@@ -177,8 +176,6 @@ export async function buildPortalWorkflow({ user, agencyId, tasks, prehireTasks,
   const steps = { pre_hire: [], onboarding: [] };
   const add = (phase, step) => steps[phase].push({ required: true, ...step });
   const pTasks = uniquePortalTasks(user.status === 'ONBOARDING' ? prehireTasks : tasks).filter(t => !['background', 'handbook', 'job-description'].includes(builtInHireDocument(t)));
-  const hiringChoices=await hiringCommunicationContext(agencyId, previewPacket ? null : user.id);
-  for(const phase of ['pre_hire','onboarding'])add(phase,{key:'hiring-notifications',kind:'hiring-notifications',title:'Hiring notification preference',required:false,complete:!!hiringChoices.reviewedAt,communicationChoices:hiringChoices});
   const contract = (pTasks || []).filter((t) => t.metadata?.contractGeneration || t.metadata?.employmentContract || t.metadata?.autoFromSendPreHire);
   add('pre_hire', { key: 'background', kind: 'background', title: 'Background check authorization', complete: !!backgroundCheck.signed });
   add('pre_hire', { key: 'job-description', kind: 'job-description', title: 'Your job description', complete: !!extras.jdAcknowledged });

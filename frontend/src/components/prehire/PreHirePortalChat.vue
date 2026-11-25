@@ -34,9 +34,10 @@
 
       <div ref="messagesEl" class="ph-chat-messages">
         <div v-if="loading" class="ph-chat-empty">Loading messages…</div>
+        <div v-else-if="loadError" class="ph-chat-empty" role="alert">Messages could not load. <button type="button" @click="loadMessages">Try again</button></div>
         <div v-else-if="messages.length === 0" class="ph-chat-empty">
           <p>Have a question about your pre-hire items?</p>
-          <p>Send us a message — we're here to help.</p>
+          <p>{{ preview ? 'The candidate can contact People Operations here after receiving the invitation.' : 'Send us a message and we’ll help.' }}</p>
         </div>
         <div
           v-for="msg in messages"
@@ -58,9 +59,9 @@
           type="text"
           class="ph-chat-input"
           placeholder="Type your message…"
-          :disabled="sending"
+          :disabled="sending || preview"
         />
-        <button type="submit" class="ph-chat-send" :disabled="sending || !draft.trim()" aria-label="Send message">
+        <button type="submit" class="ph-chat-send" :disabled="sending || preview || !draft.trim()" aria-label="Send message">
           ➤
         </button>
       </form>
@@ -86,11 +87,13 @@ const props = defineProps({
   token: { type: String, required: true },
   portalApi: { type: Object, required: true },
   supportTeam: { type: Object, default: () => ({ label: 'People Operations', members: [] }) },
-  agencyName: { type: String, default: '' }
+  agencyName: { type: String, default: '' },
+  preview: Boolean
 });
 
-const collapsed = ref(typeof window !== 'undefined' && window.innerWidth <= 1100);
-const loading = ref(true);
+const collapsed = ref(false);
+const loading = ref(!props.preview);
+const loadError = ref(false);
 const sending = ref(false);
 const draft = ref('');
 const messages = ref([]);
@@ -118,12 +121,14 @@ const scrollToBottom = async () => {
 };
 
 const loadMessages = async () => {
+  if (props.preview) return;
   try {
     const { data } = await props.portalApi.get(`/prehire-portal/${props.token}/messages`);
+    loadError.value = false;
     messages.value = Array.isArray(data?.messages) ? data.messages : [];
     await scrollToBottom();
   } catch {
-    /* ignore transient errors */
+    loadError.value = true;
   } finally {
     loading.value = false;
   }
@@ -131,7 +136,7 @@ const loadMessages = async () => {
 
 const send = async () => {
   const body = draft.value.trim();
-  if (!body || sending.value) return;
+  if (props.preview || !body || sending.value) return;
   sending.value = true;
   try {
     const { data } = await props.portalApi.post(`/prehire-portal/${props.token}/messages`, { message: body });
@@ -160,6 +165,7 @@ watch(() => props.token, () => {
 });
 
 onMounted(() => {
+  if (props.preview) return;
   loadMessages();
   pollTimer = setInterval(loadMessages, 5000);
 });
@@ -173,14 +179,16 @@ defineExpose({ expand, collapse });
 
 <style scoped>
 .ph-chat-wrap {
+  width: 100%;
   position: relative;
   flex-shrink: 0;
   height: 100%;
 }
 
 .ph-chat {
-  width: 360px;
-  height: 100%;
+  width: 100%;
+  min-height: 420px;
+  height: min(660px, 75dvh);
   display: flex;
   flex-direction: column;
   background: #fff;
@@ -418,15 +426,7 @@ defineExpose({ expand, collapse });
 }
 
 @media (max-width: 1100px) {
-  .ph-chat-wrap { height: 0; flex: 0 0 0; }
-  .ph-chat {
-    position: fixed;
-    right: 0;
-    top: 0;
-    bottom: 0;
-    z-index: 50;
-    width: min(360px, 100vw);
-  }
+  .ph-chat { min-height: 350px; }
 
   .ph-chat-fab {
     right: 16px;

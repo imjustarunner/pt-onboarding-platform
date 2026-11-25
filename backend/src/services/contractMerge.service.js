@@ -21,12 +21,12 @@ import HiringResumeParse from '../models/HiringResumeParse.model.js';
 import OfficeLocation from '../models/OfficeLocation.model.js';
 import appConfig from '../config/config.js';
 import { normalizeContractPlaceholders, findContractPlaceholders } from '../utils/contractPlaceholders.js';
-import { weeklyRequiredHours, withWeeklyHoursExpectations } from '../utils/contractServiceExpectations.js';
+import { minimumWeeklyHours, weeklyRequiredHours, withWeeklyHoursExpectations } from '../utils/contractServiceExpectations.js';
 import { contractServiceFocusSettings, hasSchoolServiceFocus, SCHOOL_DAY_EXPECTATION_HTML } from './contractServiceFocus.service.js';
 import { handbookTenant } from './handbookTenant.js';
 import { buildItscoAgreementPlan } from './itscoAgreementBuilder.service.js';
 import { CATEGORY_LEVEL_COMPENSATION_CLAUSE } from '../content/contractCategoryLevelCompensation.js';
-import { CONTRACT_SERVICE_ROLES, inferContractServiceRoles, inferNluContractCategory, contractServiceRolePlan, applyContractServiceRoleClauses } from '../content/contractServiceRoles.js';
+import { availableContractRoles, contractServiceTrack, inferContractServiceRoles, inferNluContractCategory, contractServiceRolePlan, applyContractServiceRoleClauses } from '../content/contractServiceRoles.js';
 import { NLU_COMPENSATION_CATEGORIES } from '../content/nluCompensationPolicy.js';
 import { individualRoleCompensationTerms } from '../content/individualRoleCompensationTerms.js';
 import { employmentStarterClauses } from './employmentStarter.service.js';
@@ -373,7 +373,7 @@ export async function getAgencyBuilderDefaults(agencyId) {
   return {
     ...await contractServiceFocusSettings(agency),
     contractTenant:handbookTenant(agency),
-    contractServiceRoleOptions: handbookTenant(agency) ? CONTRACT_SERVICE_ROLES.filter(role=>handbookTenant(agency)!=='isi'||role.id!=='tutoring').map(({id,title,description,clause_key})=>({id,title,description,clauseKey:clause_key,...(id==='psychological_testing'?{codeGuide:TESTING_SERVICE_CODES.map(row=>({code:row.code,name:row.name,payBucket:row.bucket==='credit'?'Clinical Session Rate':'Direct Care Rate',basis:testingCompensationBasis(row),testingOnly:!!row.requiredRole,example:testingExampleSummary(row.code)}))}:{})})) : [],
+    contractServiceRoleOptions: handbookTenant(agency) ? availableContractRoles(handbookTenant(agency)).map(({id,title,description,clause_key})=>({id,title,description,clauseKey:clause_key,...(id==='psychological_testing'?{codeGuide:TESTING_SERVICE_CODES.map(row=>({code:row.code,name:row.name,payBucket:row.bucket==='credit'?'Clinical Session Rate':'Direct Care Rate',basis:testingCompensationBasis(row),testingOnly:!!row.requiredRole,example:testingExampleSummary(row.code)}))}:{})})) : [],
     agency: agency
       ? {
           id: agency.id,
@@ -573,7 +573,8 @@ export async function autofillTokensForCandidate({
     ...expectationsToTokens(jobContractExpectations(jobDescriptionRow || {})),
     CONTRACT_EXPECTATIONS: jobContractExpectations(jobDescriptionRow || {}),
     CONTRACT_POSTING_DEFAULTS: jobContractExpectations(jobDescriptionRow || {}),
-    CONTRACT_SERVICE_ROLES: serviceRoleDefaults.roles,
+    CONTRACT_SERVICE_TRACKS: handbookTenant(agency) === 'itsco' ? ['clinical'] : jobContractExpectations(jobDescriptionRow || {}).serviceTracks,
+    CONTRACT_SERVICE_ROLES: serviceRoleDefaults.roles.filter(role => availableContractRoles(handbookTenant(agency), jobContractExpectations(jobDescriptionRow || {}).serviceTracks).some(option => option.id === role)),
     CONTRACT_SERVICE_ROLE_SOURCE: serviceRoleDefaults.source,
     ...(handbookTenant(agency)==='isi'?{INDIVIDUAL_COMPENSATION_BASIS:jobContractExpectations(jobDescriptionRow||{}).individualCompensationBasis??'approved_individual_agreement'}:{})
   };
@@ -611,9 +612,11 @@ export async function renderContractHtml({
   if (agreementPlan) Object.assign(mergedTokens, normalizeTokens({ ROLE_LABEL: agreementPlan.roleLabel,
     TRAINING_START_PHASE: agreementPlan.trainingStartPhase || '',
     TRAINING_START_PHASE_LABEL: agreementPlan.trainingStartPhase === 'practicum' ? 'Practicum' : agreementPlan.trainingStartPhase === 'internship' ? 'Internship' : '' }));
-  const requiredWeeklyHours = weeklyRequiredHours(mergedInput.MIN_HOURS ?? mergedInput.MINHOURS);
+  const minimumHours = minimumWeeklyHours(mergedInput.MIN_HOURS ?? mergedInput.MINHOURS);
+  const requiredWeeklyHours = weeklyRequiredHours(minimumHours);
   // Always derive these values server-side; stale preview tokens cannot override them.
   Object.assign(mergedTokens, normalizeTokens({
+    ...(minimumHours == null ? {} : { MIN_HOURS: String(minimumHours) }),
     MIN_AVAILABLE_HOURS: requiredWeeklyHours == null ? '' : String(requiredWeeklyHours),
     MIN_SCHEDULED_HOURS: requiredWeeklyHours == null ? '' : String(requiredWeeklyHours)
   }));
@@ -635,7 +638,18 @@ export async function renderContractHtml({
     inferred: inferContractServiceRoles({job:{title:mergedTokens.JOB_TITLE,role_type:mergedTokens.ROLE_TYPE},credential:mergedTokens.CREDENTIAL,serviceFocus:mergedTokens.SERVICE_FOCUS}).roles,
     enabled: !!handbookTenant(agency) && config.pay_mode !== 'none' && !/amendment|addendum|acknowledg/i.test(config.slug || '')
   };
-  if(handbookTenant(agency)==='isi' && mergedTokens.PROBATION_APPLIES && roleInput.selected?.includes('tutoring'))throw Object.assign(new Error('The Inner Strength Institute does not offer tutoring. Choose the approved clinical or other assigned service roles.'),{status:400});
+  const tenant = handbookTenant(agency);
+  const postingTrackScope = Array.isArray(mergedTokens.CONTRACT_SERVICE_TRACKS);
+  if (postingTrackScope && roleInput.enabled) {
+    const availableRoles = new Set(availableContractRoles(tenant, mergedTokens.CONTRACT_SERVICE_TRACKS).map(role => role.id));
+    if (Array.isArray(roleInput.selected) && roleInput.selected.some(role => !availableRoles.has(role))) {
+      throw Object.assign(new Error('Remove service roles outside the organization or posting’s approved service tracks.'), { status: 400 });
+    }
+    roleInput.inferred = roleInput.inferred.filter(role => availableRoles.has(role));
+  }
+  if (tenant === 'isi' && mergedTokens.PROBATION_APPLIES && roleInput.selected?.includes('tutoring')) {
+    throw Object.assign(new Error('The Inner Strength Institute does not offer tutoring. Choose the approved clinical or other assigned service roles.'), { status: 400 });
+  }
   let rolePlan = contractServiceRolePlan(roleInput);
   let roleLibraryClauses = [];
   if (rolePlan.roles.length) {
@@ -645,6 +659,14 @@ export async function renderContractHtml({
     rolePlan=contractServiceRolePlan({...roleInput,libraryClauses});
   }
   mergedTokens.CONTRACT_SERVICE_ROLES = rolePlan.roles;
+  if (roleInput.enabled && tenant === 'nlu' && postingTrackScope && !rolePlan.roles.length) {
+    throw Object.assign(new Error('Select an assigned Clinical or Learning role from this posting’s service tracks.'), { status: 400 });
+  }
+  delete mergedTokens.CONTRACT_ASSIGNED_SERVICE_TRACKS;
+  delete mergedTokens.CONTRACTASSIGNEDSERVICETRACKS;
+  if (roleInput.enabled && postingTrackScope && ['itsco', 'nlu'].includes(tenant)) {
+    mergedTokens.CONTRACT_ASSIGNED_SERVICE_TRACKS = tenant === 'itsco' ? ['clinical'] : [...new Set(rolePlan.roles.map(contractServiceTrack))];
+  }
   if(handbookTenant(agency)!=='isi'){
     for(const field of ['INDIVIDUAL_COMPENSATION_BASIS','PRIOR_COMPENSATION_AGREEMENT_REFERENCE']){
       delete mergedTokens[field];
@@ -704,18 +726,21 @@ export async function renderContractHtml({
   for(const key of ['CONTRACT_HANDBOOK_REFERENCE_VERSION','HANDBOOK_PUBLICATION_VERSION_ID']){delete mergedTokens[key];delete mergedTokens[key.replaceAll('_','')];}
   if(mergedTokens.HANDBOOK_REFERENCES_ENABLED==='1'&&handbookTenant(agency)&&!handbookIndex)throw Object.assign(new Error('Publish this company’s approved Workplace Handbook before preparing a new agreement with policy references.'),{status:409});
   if(handbookIndex){mergedTokens.CONTRACT_HANDBOOK_REFERENCE_VERSION=CONTRACT_HANDBOOK_REFERENCE_VERSION;mergedTokens.HANDBOOK_PUBLICATION_VERSION_ID=handbookIndex.version_id;}
+  let weeklyExpectationRendered = false;
   const visibleClauses = selectedClauses.map(clause => {
     let html = terms ? handbookReferencedContractHtml(clause.body_html) : clause.body_html;
     if (handbookTenant(agency) === 'itsco' && /JOB_DESC|DUTIES/.test(String(clause.clause_key).toUpperCase())) {
       html = html.replace(/Deliver services primarily within school-based settings at least 2\s*[–—-]\s*3 days per week, with in-office client sessions gradually increasing over time as directed by the Practice\./gi,
         'Deliver services in the settings assigned by the Practice, following the individual service expectations in this agreement.');
     }
+    const updated = withWeeklyHoursExpectations(html, { append: requiredWeeklyHours != null && !weeklyExpectationRendered });
+    if (updated.includes('data-weekly-hours-expectations')) weeklyExpectationRendered = true;
     return {
       ...clause,
-      body_html: linkContractHandbookHtml(withWeeklyHoursExpectations(html), {agency,index:handbookIndex,clauseKey:clause.clause_key})
+      body_html: linkContractHandbookHtml(updated, {agency,index:handbookIndex,clauseKey:clause.clause_key})
     };
   });
-  if (agreementPlan && String(mergedInput.MIN_HOURS ?? '').trim() && !visibleClauses.some(clause => findContractPlaceholders(clause.body_html).some(key => key.replaceAll('_', '') === 'MINHOURS'))) {
+  if (agreementPlan && requiredWeeklyHours != null && !weeklyExpectationRendered) {
     visibleClauses.splice(3, 0, { body_html: withWeeklyHoursExpectations('<p>The {{ROLE_LABEL}} is expected to maintain at least {{MIN_HOURS}} direct service hours per week.</p>') });
   }
   if (includeAssignedOffice && !visibleClauses.some(clause => {

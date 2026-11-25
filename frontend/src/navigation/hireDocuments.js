@@ -29,7 +29,6 @@ export function availableHiringTemplate(template) {
 }
 
 export const standardPrehireSteps = [
-  { key: 'hiring-notifications', title: 'Hiring notification preference', action: 'Choose notification preferences', instructions: 'The candidate chooses how to receive hiring updates.', required: false },
   { key: 'background', title: 'Background check authorization', action: 'Complete and sign the secure form', instructions: 'The candidate enters their authorization details and signs in the portal. This is provided by the app; a second authorization document from a saved collection is not assigned.' },
   { key: 'job-description', title: 'Job description', action: 'Review and sign', instructions: 'The candidate reads the job description from this posting and signs to confirm.' },
   { key: 'agreement', title: 'Employment agreement', action: 'Review and sign', instructions: 'The candidate reviews the personalized agreement prepared in Contract & cosigners and signs it. Selected cosigners then receive their signing tasks.' },

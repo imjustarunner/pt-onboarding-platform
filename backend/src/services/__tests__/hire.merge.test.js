@@ -86,10 +86,10 @@ describe('contract merge validation', () => {
       ROLE_LABEL: 'Provider', MIN_HOURS: goal, WEEKLY_SESSION_GOAL: 99,
       MIN_AVAILABLE_HOURS: 999, MIN_SCHEDULED_HOURS: 999, MINSCHEDULEDHOURS: 999
     } });
-    expect(result.html).toContain(`Maintain ${goal} direct service hours`);
+    expect(result.html).toContain(`Maintain ${Number(String(goal).match(/\d+(?:\.\d+)?/)[0])} direct service hours`);
     expect(result.html).toContain(`maintain at least ${capacity} hours per week of client-bookable availability in the app`);
     expect(result.html).toContain(`schedule at least ${capacity} hours per week`);
-    expect(result.html).toContain('compensation rate for the selected category and level');
+    expect(result.html).toContain('Compensation for approved work follows the agreement’s pay terms.');
     expect(result.html.split('<body>')[1]).not.toContain('999');
     expect(result.tokens.MIN_AVAILABLE_HOURS).toBe(String(capacity));
     expect(result.tokens.MINSCHEDULEDHOURS).toBe(String(capacity));
@@ -107,6 +107,15 @@ describe('contract merge validation', () => {
     const result = await renderContractHtml({ agencyId: 1, configId: 1, tokens: { ROLE_LABEL: 'Provider', MINHOURS: 21 } });
     expect(result.html.match(/data-weekly-hours-expectations/g)).toHaveLength(1);
     expect(result.html).toContain('schedule at least 27 hours per week');
+  });
+  it('replaces a legacy weekly availability paragraph with the reviewed hours', async () => {
+    mockServiceClause('<p>Maintain {{MIN_HOURS}} direct service hours per week.</p><p><strong>Weekly availability and scheduling expectations:</strong> Maintain 25 hours.</p>');
+    const result = await renderContractHtml({agencyId:1,configId:1,tokens:{ROLE_LABEL:'Provider',MIN_HOURS:12}});
+    const body = result.html.split('<body>')[1];
+    expect(body).toContain('The individual minimum is 12 direct-service hours per week.');
+    expect(body).toContain('schedule at least 15 hours per week');
+    expect(body).not.toContain('Maintain 25 hours.');
+    expect(body.match(/data-weekly-hours-expectations/g)).toHaveLength(1);
   });
   it('covers seeded and dynamically generated minimum-hours clauses', () => {
     const clauses = ITSCO_CONTRACT_CLAUSES.filter(clause => clause.body_md.includes('{{MIN_HOURS}}'));

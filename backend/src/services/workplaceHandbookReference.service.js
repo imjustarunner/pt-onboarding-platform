@@ -1,3 +1,4 @@
+import { handbookResponseForReader } from './workplaceHandbookAccess.js';
 import { getPublishedHandbook } from './workplaceHandbook.service.js';
 import { sourceForAgency } from './workplaceHandbookWorkflow.service.js';
 import { handbookMetadata } from './workplaceHandbookContent.js';
@@ -12,4 +13,16 @@ export async function getPortalHandbookEdition(agencyId, { referenceOnly = false
   if (!source?.sections?.length) return null;
   return { beta: true, version: null, revision: source.revision,
     metadata: { ...handbookMetadata(source), beta: true }, sections: source.sections, updates: [] };
+}
+
+export async function previewPortalHandbook(agencyId) {
+  const edition = await getPortalHandbookEdition(agencyId, { referenceOnly: true });
+  return handbookResponseForReader({
+    available: !!edition, acknowledgeable: false,
+    handbook: edition ? {
+      ...edition,
+      title: edition.document?.title || 'Workplace Handbook',
+      sections: edition.sections.map(section => ({ ...section, bodyHtml: section.body_html || section.content_html || section.body || '' }))
+    } : null
+  });
 }

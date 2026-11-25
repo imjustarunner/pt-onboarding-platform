@@ -26,7 +26,7 @@ import { generateResumeSummaryJson } from '../services/resumeStructuring.service
 import { extractResumePhotoPngFromPdf } from '../services/resumePhotoExtraction.service.js';
 import config from '../config/config.js';
 import Agency from '../models/Agency.model.js';
-import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
+import { hirePortalUrl } from '../utils/publicPortalUrl.js';
 import {
   submitInterviewSplashAttendance,
   submitInterviewSplashCapsule,
@@ -2140,7 +2140,7 @@ export const emailPrehirePortalLink = async (req, res, next) => {
     }
 
     const tokenResult = await User.generatePasswordlessToken(candidateUserId, 7 * 24, 'prehire_portal');
-    const tokenLink = buildPublicAppUrl(await Agency.findById(agencyId), `pre-hire/${tokenResult.token}`);
+    const tokenLink = hirePortalUrl(tokenResult.token);
 
     const { sendPrehirePortalInviteEmail } = await import('../services/prehireInviteEmail.service.js');
     const emailResult = await sendPrehirePortalInviteEmail({
@@ -2203,7 +2203,7 @@ export const promoteCandidateToPendingSetup = async (req, res, next) => {
 
     // Create or extend the personal pre-hire portal token.
     const tokenResult = await User.generatePasswordlessToken(candidateUserId, 7 * 24, 'prehire_portal');
-    const tokenLink = buildPublicAppUrl(await Agency.findById(agencyId), `pre-hire/${tokenResult.token}`);
+    const tokenLink = hirePortalUrl(tokenResult.token);
 
     // Preserve the exact job-description version this person was hired against.
     await ensureAssignedJobDescriptionDocument(candidateUserId, req.user.id);
@@ -4117,9 +4117,8 @@ export const getCandidatePrehireLink = async (req, res, next) => {
     const user = await User.findById(userId);
     const valid = user?.passwordless_token && user.passwordless_token_purpose === 'prehire_portal'
       && new Date(user.passwordless_token_expires_at).getTime() > Date.now();
-    const agency = await Agency.findById(agencyId);
     res.setHeader('Cache-Control', 'no-store');
-    res.json({ portalLink: valid ? buildPublicAppUrl(agency, `pre-hire/${user.passwordless_token}`) : null });
+    res.json({ portalLink: valid ? hirePortalUrl(user.passwordless_token) : null });
   } catch (e) { next(e); }
 };
 
@@ -4191,6 +4190,24 @@ export const previewCandidatePrehire = async (req, res, next) => {
       backgroundCheck, backgroundCheckLegal: buildBackgroundCheckLegalCopy(agency, { legalName }),
       jobDescription: packet.jobDescription, hireAccountMode, portalPhase: 'pre_hire', progress: workflow.progress.pre_hire
     });
+  } catch (error) { next(error); }
+};
+
+export const previewCandidateHandbook = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+    const candidateUserId = parseIntParam(req.params.userId);
+    if (!candidateUserId || !await ensureCandidateInAgency(candidateUserId, agencyId)) {
+      return res.status(404).json({ error: { message: 'Candidate not found in this agency' } });
+    }
+    res.set('Cache-Control', 'private, no-store');
+    if (req.query.slug) {
+      const { readContractHandbookReference } = await import('../services/contractHandbookReferences.service.js');
+      return res.json({ reference: await readContractHandbookReference({ agencyId, slug: req.query.slug, versionId: req.query.versionId }) });
+    }
+    const { previewPortalHandbook } = await import('../services/workplaceHandbookReference.service.js');
+    return res.json(await previewPortalHandbook(agencyId));
   } catch (error) { next(error); }
 };
 
@@ -4282,9 +4299,8 @@ export const sendPreHire = async (req, res, next) => {
     }
 
     // Link goes directly to the pre-hire portal, not the regular passwordless login
-    const tenantAgency = await Agency.findById(agencyId);
     const tokenLink = tokenResult
-      ? buildPublicAppUrl(tenantAgency, `pre-hire/${tokenResult.token}`)
+      ? hirePortalUrl(tokenResult.token)
       : null;
 
     const recipientEmail = String(user.personal_email || user.email || '').trim();
@@ -4705,9 +4721,8 @@ export const sendOnboardingInvite = async (req, res, next) => {
     if (!agencyId) return res.status(400).json({ error: { message: 'Organization is required.' } });
     const agencies = await User.getAgencies(candidateUserId);
     if (!agencies.some((a) => Number(a.id) === Number(agencyId))) return res.status(403).json({ error: { message: 'Candidate does not belong to this organization.' } });
-    const agency = await Agency.findById(agencyId);
     const { token } = await User.generatePasswordlessToken(candidateUserId, 14 * 24, 'prehire_portal');
-    const tokenLink = buildPublicAppUrl(agency, `pre-hire/${token}`);
+    const tokenLink = hirePortalUrl(token);
     const { sendOnboardingPortalInviteEmail } = await import('../services/onboardingInviteEmail.service.js');
     const email = await sendOnboardingPortalInviteEmail({ agencyId, user, portalLink: tokenLink, generatedByUserId: req.user.id });
     if (email.status === 'failed') {
@@ -4755,7 +4770,6 @@ export const listPrehireCandidates = async (req, res, next) => {
       statuses
     );
 
-    const linkAgencies = new Map(await Promise.all([...new Set(rows.map(r => agencyId || r.portal_agency_id))].map(async id => [Number(id), await Agency.findById(id)])));
     const candidates = await Promise.all(rows.map(async (r) => {
       const progress = await candidatePrehireProgress(r.id, agencyId || r.portal_agency_id);
       const { total, completed, percent } = progress;
@@ -4771,7 +4785,7 @@ export const listPrehireCandidates = async (req, res, next) => {
         required_progress_pct: percent,
         progress_basis: 'required_prehire_steps',
         prehire_portal_link: r.passwordless_token && !tokenExpired
-          ? buildPublicAppUrl(linkAgencies.get(Number(agencyId || r.portal_agency_id)), `pre-hire/${r.passwordless_token}`)
+          ? hirePortalUrl(r.passwordless_token)
           : null,
         prehire_token_expires_at: r.passwordless_token_expires_at || null,
         prehire_token_expired: tokenExpired,

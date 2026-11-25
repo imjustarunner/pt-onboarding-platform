@@ -14,6 +14,12 @@ export function sanitizeContractExpectations(raw={}) {
   const out={};
   for (const k of ['roleLabel','serviceFocus','schedule','supervisorName','expectedHours','directHours','daysPerWeek']) if (raw[k] !== undefined) out[k]=text(raw[k], k==='schedule'?1000:250);
   if (raw.includeSupervision !== undefined) out.includeSupervision=raw.includeSupervision===true || raw.includeSupervision==='1';
+  if (raw.serviceTracks !== undefined) {
+    if (!Array.isArray(raw.serviceTracks) || raw.serviceTracks.some(track => !['clinical', 'learning'].includes(track))) {
+      throw Object.assign(new Error('Choose Clinical, Learning, or both for this posting.'), { status: 400 });
+    }
+    if (raw.serviceTracks.length) out.serviceTracks = [...new Set(raw.serviceTracks)];
+  }
   if (raw.serviceRoles !== undefined) out.serviceRoles=normalizeContractServiceRoles(raw.serviceRoles, {strict:true});
   if (raw.serviceRoleDetails !== undefined) out.serviceRoleDetails=normalizeContractServiceRoleDetails(raw.serviceRoleDetails);
   if (raw.individualCompensationBasis !== undefined) {

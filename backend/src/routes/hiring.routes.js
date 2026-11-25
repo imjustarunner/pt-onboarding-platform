@@ -78,6 +78,7 @@ import {
   sendPreHire,
   candidatePrehireDraft,
   previewCandidatePrehire,
+  previewCandidateHandbook,
   candidateHirePackages,
   getCandidatePrehireLink,
   emailPrehirePortalLink,
@@ -224,6 +225,7 @@ router.put('/candidates/:userId/hire-packages/:phase', candidateHirePackages);
 router.get('/candidates/:userId/prehire-draft', candidatePrehireDraft);
 router.put('/candidates/:userId/prehire-draft', candidatePrehireDraft);
 router.post('/candidates/:userId/prehire-preview', previewCandidatePrehire);
+router.get('/candidates/:userId/prehire-preview/handbook', previewCandidateHandbook);
 router.get('/candidates/:userId/prehire-link', getCandidatePrehireLink);
 router.post('/candidates/:userId/send-prehire', sendPreHire);
 router.post('/candidates/:userId/email-prehire-link', emailPrehirePortalLink);

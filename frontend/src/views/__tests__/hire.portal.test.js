@@ -5,7 +5,11 @@ import { ref, nextTick } from 'vue';
 const http = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), defaults: { baseURL: '/api' } }));
 vi.mock('pdfjs-dist', () => ({ GlobalWorkerOptions: {} }));
 vi.mock('../../services/api', () => ({ default: http }));
-vi.mock('axios', () => ({ default: { create: () => http } }));
+vi.mock('axios', () => ({ default: { create: ({ adapter } = {}) => adapter ? {
+  get: (url, options) => adapter({ method: 'get', url, ...options }),
+  post: (url, data) => adapter({ method: 'post', url, data }),
+  defaults: http.defaults
+} : http } }));
 vi.mock('vue-router', () => ({ useRoute: () => ({ params: { token: 'test-token' } }), useRouter: () => ({ push: vi.fn() }) }));
 import CandidatePreHirePortal from '../CandidatePreHirePortalView.vue';
 import { isOnboardingActive, useOnboardingActivity } from '../../composables/useOnboardingActivity.js';
@@ -59,6 +63,31 @@ describe('candidate process interface', () => {
     expect(wrapper.get('fieldset.journey-prehire').attributes('disabled')).toBeDefined();
     await wrapper.findAll('.step-actions button').at(-1).trigger('click');
     expect(wrapper.get('iframe[title="Employment agreement"]').attributes('srcdoc')).toContain('Elena’s agreement');
+    expect(http.get).not.toHaveBeenCalled();
+    expect(http.post).not.toHaveBeenCalled();
+  });
+  it('opens the preview handbook and work username without a candidate session', async () => {
+    const data = state();
+    data.candidate = { firstName: 'Elena', status: 'PREHIRE_OPEN' };
+    data.journey = {};
+    data.workflow.steps.pre_hire = [{ key: 'work-email', kind: 'work-email', title: 'Choose your work username' }];
+    const previewHandbook = vi.fn().mockResolvedValue({ data: { available: true, handbook: {
+      title: 'Workplace Handbook', version: { id: 3 }, sections: [{ slug: 'intro', title: 'Welcome', bodyHtml: '<p>Welcome to ITSCO.</p>' }]
+    } } });
+    wrapper = mount(CandidatePreHirePortal, { props: { previewData: data, previewHandbook }, global: { stubs: { WorkplaceHandbookBook: true } } });
+    await flushPromises();
+    const nav = text => wrapper.find('.hire-nav nav').findAll('button').find(button => button.text().includes(text));
+    await nav('Pre-Hire').trigger('click');
+    await flushPromises();
+    expect(wrapper.text()).toContain('Choose an available username');
+    expect(wrapper.text()).not.toContain('Work email choices could not be loaded');
+    await nav('Workplace handbook').trigger('click');
+    await flushPromises();
+    expect(previewHandbook).toHaveBeenCalledWith({ reference: '1' });
+    expect(wrapper.findComponent({name:'WorkplaceHandbookBook'}).props('handbook').sections[0].title).toBe('Welcome');
+    await nav('Messages').trigger('click');
+    await flushPromises();
+    expect(wrapper.get('.ph-chat-input').attributes('disabled')).toBeDefined();
     expect(http.get).not.toHaveBeenCalled();
     expect(http.post).not.toHaveBeenCalled();
   });

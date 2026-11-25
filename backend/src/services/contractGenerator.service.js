@@ -1,3 +1,4 @@
+import { availableContractRoles } from '../content/contractServiceRoles.js';
 import {assertContractProbationChoice} from '../content/contractProbationPolicy.js';
 import { compensationAgencyPolicy } from './compensationCategories.service.js';
 import { contractCompensationLevels } from './contractCompensation.service.js';
@@ -276,7 +277,7 @@ export async function getCandidateWizardContext({
   const [templates, configs, compensationLevels, agencyDefaults, tokens, compensationPolicy] = await Promise.all([
     listTemplates(agencyId),
     listConfigs(agencyId),
-    contractCompensationLevels(agencyId, { includeServiceRates: true }),
+    contractCompensationLevels(agencyId, { includeServiceRates: true, scopedHiringRates: true }),
     getAgencyBuilderDefaults(agencyId),
     autofillTokensForCandidate({
       agencyId,
@@ -311,7 +312,8 @@ export async function getCandidateWizardContext({
     serviceCompensation: compensationPolicy.serviceCompensation,
     serviceFocusOptions: agencyDefaults.serviceFocusOptions,
     contractTenant: agencyDefaults.contractTenant,
-    contractServiceRoleOptions: agencyDefaults.contractServiceRoleOptions,
+    contractServiceRoleOptions: (agencyDefaults.contractServiceRoleOptions || []).filter(role =>
+      availableContractRoles(agencyDefaults.contractTenant, tokens.CONTRACT_SERVICE_TRACKS).some(option => option.id === role.id)),
     schoolDaysEnabled: agencyDefaults.schoolDaysEnabled,
     agreementBuilder: contractAgreementBuilder({ agency: agencyDefaults.agency, configs, tokens }),
     jobDescClauses,
@@ -359,6 +361,9 @@ export async function previewCandidateContract({
     merged[key]=autofill[key] || '';merged[key.replaceAll('_','')]=merged[key];
   }
 
+  // Job posting track limits come from the saved posting rather than draft tokens.
+  merged.CONTRACT_SERVICE_TRACKS = autofill.CONTRACT_SERVICE_TRACKS;
+  delete merged.CONTRACTSERVICETRACKS;
   merged.HANDBOOK_REFERENCES_ENABLED='1';
   if (Object.hasOwn(tokens, 'UNIVERSITY_NAME')) merged.UNIVERSITY = tokens.UNIVERSITY_NAME;
   // Agency and office records own these fields. Blank or stale client tokens must

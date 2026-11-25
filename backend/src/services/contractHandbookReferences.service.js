@@ -95,6 +95,8 @@ export function linkContractHandbookHtml(html,{agency,index,clauseKey=''}={}) {
     [/Workplace Handbook section “[^”]+”/gi,levelPolicy],
     [/paid sick leave policy/gi,bySlug(index,'sick-leave-accrual-and-protected-use','paid-time-off-and-colorado-sick-leave')],
     [/introductory compensation policy/gi,probationPolicy],
+    [/workload clinical hours/gi,bySlug(index,'compensation-workload-clinical-hours')],
+    [/workload tiers?(?: [1-3])?/gi,bySlug(index,'benefits-tier-framework')],
     [/Clinical Supervision and Oversight(?: policies)?/gi,supervision],
     [/Workplace Handbook/gi,genericPolicy]
   ].filter(([,section])=>section);

@@ -8,7 +8,7 @@ import { programServiceForCode } from '../content/programServiceRates.js';
 import { STANDARD_SPANISH_DIFFERENTIAL } from '../content/spanishDifferential.js';
 import { denverDifferentialRates } from '../content/denverDifferential.js';
 
-export async function contractCompensationLevels(agencyId, { includeServiceRates = false } = {}) {
+export async function contractCompensationLevels(agencyId, { includeServiceRates = false, scopedHiringRates = false } = {}) {
   const [levels, profiles, serviceRates] = await Promise.all([PayrollCompensationLevel.listForAgency(agencyId), PayrollPaySystemRate.listForAgency(agencyId), PayrollCompensationLevel.getLevelRatesForAgency(agencyId)]);
   const selected = new Map(levels.map(row => [`${row.category}:${row.level}`, row]));
   for (const profile of profiles.filter(p => p.id)) {
@@ -18,7 +18,8 @@ export async function contractCompensationLevels(agencyId, { includeServiceRates
   const rules = includeServiceRates ? await PayrollServiceCodeRule.listForAgency(agencyId) : [];
   const isHomeworkRule = rule => programServiceForCode(rule.service_code, rule.category) === 'homework_help';
   const homeworkRules = rules.filter(isHomeworkRule);
-  const generalRules = rules.filter(rule => !isHomeworkRule(rule));
+  const isLearningRule = rule => ['tutoring', 'homework_help'].includes(programServiceForCode(rule.service_code, rule.category)) || String(rule.category || '').toLowerCase() === 'childcare';
+  const generalRules = rules.filter(rule => !isHomeworkRule(rule) && (!scopedHiringRates || (!isLearningRule(rule) && !testingServiceDefinition(rule.service_code)?.requiredRole)));
   return [...selected.values()].sort((a,b) => a.category-b.category || a.level-b.level).map(row => {
     const profile = profiles.find(p => Number(p.category) === Number(row.category) && Number(p.level) === Number(row.level) && p.id);
     const result = { ...row, paySystem: profile || null, legacyServiceRates: serviceRates[`${row.category}:${row.level}`] || [],
@@ -39,7 +40,7 @@ export async function contractCompensationLevels(agencyId, { includeServiceRates
           }
         }
       }
-      try { result.serviceRates = profile ? contractServiceRates(result, generalRules) : result.legacyServiceRates.filter(rate => programServiceForCode(rate.serviceCode) !== 'homework_help').map(rate => ({ code: rate.serviceCode, rate: `$${Number(rate.rateAmount).toFixed(2)}`, unit: rate.rateUnit === 'per_hour' ? 'per hour' : 'per unit' })); }
+      try { result.serviceRates = profile ? contractServiceRates(result, generalRules) : result.legacyServiceRates.filter(rate => programServiceForCode(rate.serviceCode) !== 'homework_help' && (!scopedHiringRates || (!isLearningRule({ service_code: rate.serviceCode }) && !testingServiceDefinition(rate.serviceCode)?.requiredRole))).map(rate => ({ code: rate.serviceCode, rate: `$${Number(rate.rateAmount).toFixed(2)}`, unit: rate.rateUnit === 'per_hour' ? 'per hour' : 'per unit' })); }
       catch (error) {
         // This is an optional rate illustration, not a payroll calculation or
         // contract approval. Policy review can require actual work details that

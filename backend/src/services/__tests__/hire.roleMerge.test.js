@@ -21,6 +21,11 @@ beforeEach(()=>{
 });
 const render=tokens=>renderContractHtml({agencyId:6,configId:1,tokens:{COMPENSATION_CATEGORY:'2',COMPENSATION_LEVEL:'3',ROLE_LABEL:'Employee',JOB_TITLE:'Childcare Provider',CREDENTIAL:'GED',...tokens}});
 describe('selected service clauses in the full contract preview',()=>{
+ it('rejects tutoring in a clinical-track ITSCO pre-hire agreement',async()=>{
+  mocks.agency.mockResolvedValue({id:2,slug:'itsco',name:'ITSCO'});
+  await expect(render({CONTRACT_SERVICE_TRACKS:['clinical'],CONTRACT_SERVICE_ROLES:['tutoring']}))
+    .rejects.toThrow('outside the organization or posting’s approved service tracks');
+ });
  it('requires an actual published handbook for a new API preview and never falls back to draft links',async()=>{
   await expect(render({HANDBOOK_REFERENCES_ENABLED:'1',PROBATION_APPLIES:'no',CONTRACT_SERVICE_ROLES:[]})).rejects.toMatchObject({status:409});
  });

@@ -15,7 +15,7 @@ import { findContractPlaceholders } from '../utils/contractPlaceholders.js';
  */
 import pool from '../config/database.js';
 import { isItscoPacketChromeAgency } from '../services/packetBrandChrome.service.js';
-import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
+import { hirePortalUrl } from '../utils/publicPortalUrl.js';
 import { savePrehireSignedReceipt } from '../services/prehireSignedReceipt.service.js';
 import { journeyTasks, getJourney, taskProgress, completeOnboarding, recordOnboardingActivity } from '../services/hireJourney.service.js';
 import User from '../models/User.model.js';
@@ -232,7 +232,7 @@ export const getPortal = async (req, res, next) => {
     }
     const token = String(req.params.token || '');
     const portalPath = token ? `/pre-hire/${token}` : null;
-    const portalLink = portalPath ? buildPublicAppUrl(agencyRaw, portalPath) : null;
+    const portalLink = hirePortalUrl(token);
 
     let credentialPacket = null;
     try {
@@ -1018,7 +1018,7 @@ export const completePortalModule = async (req, res, next) => {
       ok: true,
       progress,
       portalPath,
-      portalLink: portalPath ? buildPublicAppUrl(await loadPortalAgency(userId), portalPath) : null,
+      portalLink: hirePortalUrl(token),
       message: 'Form completed. You can return to your portal anytime with your personal link.'
     });
   } catch (e) {

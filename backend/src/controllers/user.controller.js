@@ -90,7 +90,7 @@ import {
 import { generateJoinToken, joinUrlForSupervision, joinUrlForTeamMeeting } from '../utils/joinToken.js';
 import { assertRecurringWindow } from '../utils/recurringWindow.js';
 import { normalizeSupervisionStartDateYmd } from '../utils/supervisionHoursGate.util.js';
-import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
+import { buildPublicAppUrl, hirePortalUrl } from '../utils/publicPortalUrl.js';
 import {
   clientScheduleInstantToUtcMysql,
   normalizeUtcMysqlScheduleInstant,
@@ -10553,7 +10553,7 @@ export const promoteToOnboarding = async (req, res, next) => {
       if (req.body?.sendMethod !== 'none') {
         const { sendOnboardingPortalInviteEmail } = await import('../services/onboardingInviteEmail.service.js');
         inviteDelivery = await sendOnboardingPortalInviteEmail({ agencyId: agencyRow.id, user,
-          portalLink: buildPublicAppUrl(agencyRow, `pre-hire/${portalToken}`), generatedByUserId: req.user.id, promoted: true });
+          portalLink: hirePortalUrl(portalToken), generatedByUserId: req.user.id, promoted: true });
         inviteSent = inviteDelivery.status === 'sent';
       }
     } catch (e) {
