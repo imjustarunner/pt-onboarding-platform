@@ -1,0 +1,7 @@
+{
+  "scope": "Connection-local temporary table only. No permanent payroll rows, schema, or application identities changed.",
+  "legacySchemaCompatibility": "passed",
+  "migratedSchema": "passed",
+  "rollbackPreservesPreviousResults": "passed",
+  "permanentSchemaUnchanged": true
+}
