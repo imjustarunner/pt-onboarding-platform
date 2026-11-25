@@ -148,7 +148,9 @@ export function intakeSectionsForRecord(sections, { mentalStatusExam, riskAssess
     const codeOf = d => typeof d === 'string' ? d : d.icd10_code || d.code || '';
     set(['Diagnosis', 'Diagnoses'], diagnoses.map(d => [codeOf(d), d.description].filter(Boolean).join(' ')).filter(Boolean).join('\n'));
     const reasons = diagnoses.filter(d => d.justification).map(d => [codeOf(d), d.justification].filter(Boolean).join(': '));
-    if (diagnosticJustification && !diagnoses.some(d => d.justification === diagnosticJustification)) reasons.push(diagnosticJustification);
+    if (diagnosticJustification && reasons.length < diagnoses.length && !diagnoses.some(d => d.justification === diagnosticJustification)) {
+      reasons.push(diagnosticJustification);
+    }
     if (reasons.length) set(['Diagnostic Justification'], reasons.join('\n\n'));
   }
   if (skipMse) for (const title of Object.keys(result)) if (/mental status|^mse$/i.test(title)) delete result[title];

@@ -243,7 +243,7 @@ async function load(){
     if(data.reviewUnavailable)notice.value='Your draft is open. The saved compliance result could not be loaded.';
     const savedReview=data.review?.narriva;
     if(savedReview?.checks){
-      reviewPhase.value=savedReview.phase || 'output';
+      reviewPhase.value=finalizedNarriva.value?'output':savedReview.phase || 'output';
       reviewStarted.value=true;
       if(savedReview.phase==='pre_generation')preflightSource.value=preflightFingerprint();
       void observeReview(savedReview);
@@ -375,7 +375,11 @@ async function sign(){
     const intake=aidKind(encounterAid.value)==='intake';
     const chart={...outputJson.meta.structuredChart,diagnoses:outputJson.meta.structuredChart.diagnoses.map(dx=>({...dx}))};
     outputJson.meta.structuredChart=chart;
-    if(intake)chart.intakeDiagnoses=chart.diagnoses.map(dx=>({...dx,icd10_code:dx.icd10_code || dx.code}));
+    if(intake){
+      chart.intakeDiagnoses=chart.diagnoses.map(dx=>({...dx,icd10_code:dx.icd10_code || dx.code}));
+      const primary=chart.diagnoses.find(dx=>Number(dx.is_primary)===1) || chart.diagnoses[0];
+      if(primary?.justification)chart.diagnosticJustification=primary.justification;
+    }
     const recordSections=chartRecordSections.value;
     let note=pendingAuthorSignature?.note;
     if(!note){

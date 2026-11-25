@@ -75,3 +75,11 @@ it('carries existing chart codes and the clinical formulation into the reviewed 
   expect(sections.Diagnosis).toBe('F41.1 Anxiety\nZ63.4 Family context');
   expect(sections['Diagnostic Justification']).toBe('F41.1: Documented worry.\n\nThe evaluation documented functional impairment.');
 });
+
+it('exports the approved per-code justifications without a superseded generated formulation', () => {
+  const sections = intakeSectionsForRecord({}, {
+    diagnoses: [{code:'F41.1', justification:'Updated clinician rationale.'}, {code:'Z63.4', justification:'Reviewed family context.'}],
+    diagnosticJustification:'Superseded generated formulation.'
+  });
+  expect(sections['Diagnostic Justification']).toBe('F41.1: Updated clinician rationale.\n\nZ63.4: Reviewed family context.');
+});

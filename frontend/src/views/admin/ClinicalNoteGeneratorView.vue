@@ -1044,7 +1044,7 @@
         <NarrivaReviewResults v-if="!showAidPicker && !workspaceHydrateDepth" :own="!['admin','agency_admin','super_admin'].includes(authStore.user?.role) && ![true,1,'1'].includes(authStore.user?.has_supervisor_privileges)" :agency-id="noteAidAgencyId || currentAgencyId" />
         <NarrivaReviewProgress v-if="generating && narrivaPreGenerationRequired" stage="finalizing" />
         <NarrivaReviewWorkspace @approval="narrivaDraftApproval = $event" @edit="resolveNarrivaFinding({action:'edit_draft',sections:$event})" v-if="noteWriterMode === 'narriva' && narrivaComplianceRequired && !signedNoteViewerId && !isClientChartAid && (narrivaChecksSubmitted || narrivaReview?.id)" :review="narrivaReview" :busy="!generating && (preparingNarrivaCheck || narrivaReviewBusy)" :pre-generation="!finalizedNarriva && narrivaReviewPhase === 'pre_generation'">
-        <NarrivaCompliancePanel v-if="!generating && !preparingNarrivaCheck && !narrivaReviewBusy && noteWriterMode === 'narriva' && narrivaComplianceRequired && !signedNoteViewerId && !isClientChartAid && (narrivaChecksSubmitted || narrivaReview?.id)" :review="narrivaReview" :pre-generation="narrivaReviewPhase === 'pre_generation'" :risk-assessment-required="narrivaRiskRequired" :busy="narrivaReviewBusy" :error="narrivaReviewError" @retry="runNarrivaChecks" @resolve="resolveNarrivaFinding" @action="onNarrivaFindingAction">
+        <NarrivaCompliancePanel v-if="!generating && !preparingNarrivaCheck && !narrivaReviewBusy && noteWriterMode === 'narriva' && narrivaComplianceRequired && !signedNoteViewerId && !isClientChartAid && (narrivaChecksSubmitted || narrivaReview?.id)" :review="narrivaReview" :pre-generation="!finalizedNarriva && narrivaReviewPhase === 'pre_generation'" :risk-assessment-required="narrivaRiskRequired" :busy="narrivaReviewBusy" :error="narrivaReviewError" @retry="runNarrivaChecks" @resolve="resolveNarrivaFinding" @action="onNarrivaFindingAction">
           <template #finding="{ checkId, finding }">
             <NarrivaAssessmentEvidence v-if="!finding.bypassed && finding.action === 'assessment'" v-model="narrivaAssessmentEvidence" :agency-id="noteAidAgencyId || currentAgencyId" :client-id="effectiveClientId" :clinical-session-id="sessionClinicalSessionId" :draft-id="draftId" :api-client="api" />
             <NarrivaInlineFinding v-else-if="!finding.bypassed" :check-id="checkId" :finding="finding" :context="narrivaInlineContext" :location-choices="sessionLocationChoices" :service-choices="rawEligibleServiceCodes" :disabled="narrivaReviewBusy" @apply="applyNarrivaInlineUpdate" />
@@ -1145,6 +1145,9 @@
                     @click="toggleSectionEdit(panel.id)"
                   >
                     {{ sectionEditing[panel.id] ? 'Done' : 'Edit' }}
+                  </button>
+                  <button v-if="therapyNotesWriterOnly || therapyContext" type="button" class="na-mini-btn" :disabled="!panelText(panel)" @click="copyTherapySection(panel)">
+                    {{ copiedTherapySection === panel.id ? 'Copied' : 'Copy' }}
                   </button>
                 </span>
               </div>
@@ -5395,6 +5398,16 @@ watch(outputObj, () => {
   }
 });
 
+const copiedTherapySection = ref('');
+async function copyTherapySection(panel) {
+  try {
+    await navigator.clipboard.writeText(panelText(panel));
+    copiedTherapySection.value = panel.id;
+  } catch {
+    approvalError.value = 'The browser could not copy this section.';
+  }
+}
+
 const toggleSectionEdit = (title) => {
   const t = String(title || '');
   const next = !sectionEditing[t];
@@ -7004,10 +7017,11 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
       : (isTreatmentSummaryAid.value
         ? `Treatment Summary ${dos}`.trim()
         : `${String(noteType).replace(/_/g, ' ')} ${serviceCodeForMetadata ? `(${serviceCodeForMetadata}) ` : ''}${dos}`.trim());
+    const approvedDiagnosticJustification = (isIntakeOutput.value ? primaryChartDiagnosis.value?.justification : '') || chartDiagnosticJustification.value;
     const structuredChart = {
       diagnoses: structuredChartDiagnoses.value,
       intakeDiagnoses: isIntakeOutput.value ? intakeDiagnosisRecommendations.value : undefined,
-      diagnosticJustification: chartDiagnosticJustification.value || null,
+      diagnosticJustification: approvedDiagnosticJustification || null,
       mentalStatusExam: skipMentalStatusExam.value ? null : chartMentalStatus.value,
       riskAssessment: chartRiskAssessment.value,
       medications: chartMedications.value,
@@ -7044,7 +7058,7 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
       primaryDiagnosisId: isClientChartAid.value ? null : (primaryChartDiagnosis.value?.id || null),
       diagnosticJustification: isClientChartAid.value
         ? null
-        : (chartDiagnosticJustification.value || primaryChartDiagnosis.value?.justification || null),
+        : (approvedDiagnosticJustification || primaryChartDiagnosis.value?.justification || null),
       metadata: {
         generatedBy: 'clinical_note_generator',
         aiGenerated: !manualSections,
@@ -9721,7 +9735,7 @@ const loadDraftIntoWorkspace = async (d, options = {}) => {
     try {
       const {data}=await api.get(`/narriva/drafts/${id}/status`,{params:{agencyId:noteAidAgencyId.value || currentAgencyId.value,clinicalSessionId:sessionClinicalSessionId.value},skipGlobalLoading:true});
       if(isCurrentLoad() && id===draftId.value && version===narrivaEditVersion && !narrivaReviewBusy.value && data?.review?.id){
-        narrivaReviewPhase.value=data.review.phase;
+        narrivaReviewPhase.value=finalizedNarriva.value?'output':data.review.phase;
         void observeNarrivaReview(data.review);
       }
     } catch { /* The draft remains editable if review restoration is unavailable. */ }
