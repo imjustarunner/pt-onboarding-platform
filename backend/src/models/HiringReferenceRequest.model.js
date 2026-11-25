@@ -76,6 +76,10 @@ class HiringReferenceRequest {
     return this.mapRow(rows[0]);
   }
 
+  static async markSent(id) {
+    await pool.execute("UPDATE hiring_reference_requests SET status='sent', sent_at=CURRENT_TIMESTAMP WHERE id=? AND status='send_failed'", [id]);
+  }
+
   static async findByPublicLinkToken(token) {
     const t = String(token || '').trim().toLowerCase();
     if (!t) return null;

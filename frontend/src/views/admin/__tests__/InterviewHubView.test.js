@@ -9,15 +9,16 @@ vi.mock('vue-router', () => ({ useRoute: () => ({ query: {} }) }));
 vi.mock('../HiringCandidatesView.vue', () => ({ default: { template: '<div />' } }));
 import InterviewHub from '../InterviewHubView.vue';
 
-let wrapper, staff, wrapped;
+let wrapper, staff, wrapped, interviews;
 const dayana = { id: 476, first_name: 'Dayana', last_name: 'Example', role: 'provider', has_hiring_access: 1 };
 const candidate = { user_id: 30, first_name: 'Jordan', last_name: 'Applicant' };
 const button = text => wrapper.findAll('button').find(b => b.text() === text);
 
 beforeEach(() => {
-  vi.clearAllMocks(); staff = [dayana]; wrapped = false;
+  vi.clearAllMocks(); staff = [dayana]; wrapped = false; interviews = [];
   api.get.mockImplementation(async url => {
     let data;
+    if (url === '/hiring/interview-hub/interviews') return { data:{data:interviews} };
     if (url === '/hiring/assignees') data = staff;
     else if (url === '/hiring/candidates') data = [candidate];
     else if (url === '/hiring/job-descriptions') data = [{ id: 7, title: 'Counselor' }];
@@ -37,6 +38,17 @@ async function open() {
 }
 
 describe('Interview Hub scheduling options', () => {
+  it('opens the most recent interview first in the All list', async () => {
+    interviews = [
+      {id:1,display_title:'Earlier interview',interview_starts_at:'2026-08-01T10:00:00Z',candidate_user_id:30},
+      {id:2,display_title:'Later interview',interview_starts_at:'2026-11-15T10:00:00Z',candidate_user_id:30}
+    ];
+    wrapper = mount(InterviewHub);
+    await flushPromises();
+    expect(wrapper.findAll('.ih-list-name').map(row => row.text())).toEqual(['Later interview', 'Earlier interview']);
+    expect(wrapper.get('.ih-list-item.selected').text()).toContain('Later interview');
+  });
+
   it.each([false, true])('shows the granted interviewer and candidates from hiring lists (wrapped: %s)', async useWrapper => {
     wrapped = useWrapper;
     await open();

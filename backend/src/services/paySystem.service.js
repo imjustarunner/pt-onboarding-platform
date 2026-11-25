@@ -717,6 +717,7 @@ export async function loadUserPaySystemContext({
 
   if (!future?.individual && (!assignment?.category || !assignment?.level)) throw Object.assign(new Error(`Payroll setup is incomplete for employee ${userId}: a category and level are required.`), {code:'AMENDMENT_PAYROLL_REVIEW_REQUIRED'});
 
+  const hasAgreedSpanishEligibility = !!future && Object.hasOwn(assignment, 'spanish_bonus_eligible');
   // Future hires use their reviewed individual snapshot; never create a shared ISI matrix.
   let rateProfile = future ? {agencyId, tierBonus:{1:0,2:0,3:0},spanishBonus:{1:0,2:0,3:0},locationBonus:{1:0,2:0,3:0}} : await PayrollPaySystemRate.get(agencyId, assignment.category, assignment.level);
   if (!rateProfile) {
@@ -734,7 +735,7 @@ export async function loadUserPaySystemContext({
     );
     providerStartDate = urows?.[0]?.original_start || urows?.[0]?.provider_start_date || urows?.[0]?.first_client || null;
     // Auto-detect Spanish from languages_spoken if flag not set
-    if (!Number(assignment.spanish_bonus_eligible) && urows?.[0]?.languages_spoken) {
+    if (!hasAgreedSpanishEligibility && !Number(assignment.spanish_bonus_eligible) && urows?.[0]?.languages_spoken) {
       const lang = String(urows[0].languages_spoken).toLowerCase();
       if (/\bspanish\b|\bespañol\b|\bespanol\b/.test(lang)) {
         assignment.spanish_bonus_eligible = 1;

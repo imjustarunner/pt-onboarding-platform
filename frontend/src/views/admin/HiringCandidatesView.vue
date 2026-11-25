@@ -1,8 +1,9 @@
 <template>
-  <div :class="embeddedDetailOnly ? 'hiring-root hiring-root--embedded' : 'container hiring-root'">
+  <div class="plotline-people-operations" :class="embeddedDetailOnly ? 'hiring-root hiring-root--embedded' : 'container hiring-root'">
+    <PlotlineSignature v-if="!embeddedDetailOnly" context="People Operations" product="PO" />
     <div v-if="!embeddedDetailOnly" class="header" data-tour="hiring-header">
       <div>
-        <h2 data-tour="hiring-title">Applications</h2>
+        <h2 class="po-page-title" data-tour="hiring-title">Applications</h2>
         <div class="subtle">Review applications and move candidates through hiring</div>
       </div>
       <div class="header-actions" data-tour="hiring-actions">
@@ -148,7 +149,7 @@
                     <option value="offered">Offered</option>
                   </select>
                 </div>
-                <button class="btn btn-primary" @click="openMarkHiredModal" :disabled="!selectedId">
+                <button class="btn btn-primary" @click="showReferenceGate" :disabled="!selectedId">
                   Start pre-hire
                 </button>
                 <div class="more-actions">
@@ -649,10 +650,20 @@
       </div>
     </div>
 
+    <div v-if="referenceGateCandidateId && referenceGateCandidateId === selectedId && referenceGateAgencyId === Number(effectiveAgencyId)" class="reference-gate-overlay" @click.self="referenceGateCandidateId = null">
+      <div class="reference-gate-modal" role="dialog" aria-modal="true" aria-labelledby="reference-gate-title" @keydown.esc="referenceGateCandidateId = null">
+        <PrehireReferenceGate :user-id="Number(referenceGateCandidateId)" :agency-id="Number(effectiveAgencyId)" cancellable
+          @ready="startPrehireAfterReferences" @cancel="referenceGateCandidateId = null"
+          @references="referenceGateCandidateId = null; openReferencesTab()" />
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
+import PlotlineSignature from '../../components/plotline/PlotlineSignature.vue';
+import '../../styles/plotlinePeopleOperations.css';
+import PrehireReferenceGate from '../../components/hiring/PrehireReferenceGate.vue';
 import ReferenceWorkspace from '../../components/hiring/ReferenceWorkspace.vue';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -1454,8 +1465,15 @@ const generatePreScreenReport = async (opts = {}) => {
 // Mark Hired → dedicated Start Pre-Hire page
 const lastHireTokenLink = ref('');
 
-const openMarkHiredModal = () => {
-  if (!selectedId.value) return;
+const referenceGateCandidateId = ref(null);
+const referenceGateAgencyId = ref(null);
+function showReferenceGate() {
+  referenceGateAgencyId.value = Number(effectiveAgencyId.value);
+  referenceGateCandidateId.value = selectedId.value;
+}
+const startPrehireAfterReferences = () => {
+  if (referenceGateCandidateId.value !== selectedId.value || referenceGateAgencyId.value !== Number(effectiveAgencyId.value)) return;
+  referenceGateCandidateId.value = null;
   const aid = Number(effectiveAgencyId.value || agencyStore.currentAgency?.id || 0);
   const q = aid ? `?agencyId=${aid}` : '';
   router.push(orgPath(`/admin/hiring/start-pre-hire/${selectedId.value}${q}`));
@@ -2418,6 +2436,9 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.reference-gate-overlay { position: fixed; z-index: 1100; inset: 0; padding: 16px; display: grid; place-items: center; background: #152b2580; }
+.reference-gate-modal { width: min(100%, 34rem); }
+
 .hiring-root {
   padding-top: 16px;
   padding-bottom: 40px;
@@ -2434,13 +2455,16 @@ onUnmounted(() => {
   max-width: 100%;
   margin: 0;
 }
-.grid--embedded {
+.grid.grid--embedded {
   grid-template-columns: minmax(0, 1fr);
+  width: 100%;
 }
 .detail-panel--embedded {
   border: none;
   padding: 0;
   min-height: 480px;
+  box-sizing: border-box;
+  overflow-wrap: anywhere;
 }
 .job-dash {
   display: flex;
@@ -2582,7 +2606,7 @@ onUnmounted(() => {
 .linkish {
   border: none;
   background: none;
-  color: #5b21b6;
+  color: var(--po-action-hover);
   cursor: pointer;
   padding: 0;
   font: inherit;
@@ -2679,12 +2703,12 @@ onUnmounted(() => {
   gap: 6px;
 }
 .stage-tab:hover {
-  background: #f5f3ff;
-  color: #5b21b6;
+  background: var(--po-surface);
+  color: var(--po-action-hover);
 }
 .stage-tab.active {
-  color: #6d28d9;
-  background: #ede9fe;
+  color: var(--po-action);
+  background: var(--po-selected);
 }
 .stage-count {
   background: #e2e8f0;
@@ -2694,8 +2718,8 @@ onUnmounted(() => {
   font-size: 11px;
 }
 .stage-tab.active .stage-count {
-  background: #ddd6fe;
-  color: #5b21b6;
+  background: var(--po-line);
+  color: var(--po-action-hover);
 }
 .list-filters-extra {
   display: flex;
@@ -2705,7 +2729,7 @@ onUnmounted(() => {
   margin: -2px 0 10px;
 }
 .list-controls .btn-sm.active {
-  outline: 2px solid #7c3aed;
+  outline: 2px solid var(--po-action);
 }
 .modern-row {
   display: flex;
@@ -2716,7 +2740,7 @@ onUnmounted(() => {
   width: 36px;
   height: 36px;
   border-radius: 999px;
-  background: linear-gradient(135deg, #8b5cf6, #6366f1);
+  background: linear-gradient(135deg, #56836b, #315646);
   color: #fff;
   display: grid;
   place-items: center;
@@ -2751,7 +2775,7 @@ onUnmounted(() => {
   width: 56px;
   height: 56px;
   border-radius: 999px;
-  background: linear-gradient(135deg, #8b5cf6, #6366f1);
+  background: linear-gradient(135deg, #56836b, #315646);
   color: #fff;
   display: grid;
   place-items: center;
@@ -2802,7 +2826,7 @@ onUnmounted(() => {
   color: #b91c1c;
 }
 .pill-applied { background: #f1f5f9; color: #475569; }
-.pill-review { background: #ede9fe; color: #6d28d9; }
+.pill-review { background: var(--po-selected); color: var(--po-action); }
 .pill-interview { background: #ffedd5; color: #c2410c; }
 .pill-offered { background: #dbeafe; color: #1d4ed8; }
 .pill-hired { background: #dcfce7; color: #166534; }
@@ -2860,9 +2884,9 @@ onUnmounted(() => {
   cursor: pointer;
 }
 .list-item.active {
-  border-color: #8b5cf6;
-  background: #f5f3ff;
-  box-shadow: inset 3px 0 0 #7c3aed;
+  border-color: #56836b;
+  background: var(--po-surface);
+  box-shadow: inset 3px 0 0 var(--po-action);
 }
 .list-item-duplicate {
   border-color: #dc2626;

@@ -238,10 +238,10 @@ const coverLetterDocuments = computed(() => props.coverLetterDocuments || []);
 .cov { display: flex; flex-direction: column; gap: 12px; }
 .cov-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
   gap: 12px;
 }
-.cov-grid--2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.cov-grid--2 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); }
 .cov-card {
   border: 1px solid #e5e7eb;
   border-radius: 12px;

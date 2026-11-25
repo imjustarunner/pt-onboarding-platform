@@ -41,7 +41,7 @@ import {
 import HiringReferenceRequest from '../models/HiringReferenceRequest.model.js';
 import EmailService from '../services/email.service.js';
 import UserActivityLog from '../models/UserActivityLog.model.js';
-import { createAndSendReferenceRequests } from '../services/hiringReferenceRequests.service.js';
+import { createAndSendReferenceRequests, prehireReferenceStatus } from '../services/hiringReferenceRequests.service.js';
 import { resolveHiringReferenceConsent } from '../services/hiringReferenceConsent.service.js';
 import { sanitizeCareersPageJson } from '../utils/careersPageSanitize.js';
 import { sanitizePrehireConfig, mergePrehireDocuments } from '../utils/prehireConfigSanitize.js';
@@ -4135,6 +4135,21 @@ export const candidatePrehireDraft = async (req, res, next) => {
   } catch (error) { next(error); }
 };
 
+export const getPrehireReferenceStatus = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+    const userId = parseIntParam(req.params.userId);
+    if (!userId || !await ensureCandidateInAgency(userId, agencyId)) {
+      return res.status(404).json({ error: { message: 'Candidate not found in this agency' } });
+    }
+    const [agency, user, profile] = await Promise.all([
+      Agency.findById(agencyId), User.findById(userId), HiringProfile.findByCandidateUserId(userId)
+    ]);
+    return res.json(await prehireReferenceStatus({ agencyId, user, profile, agency }));
+  } catch (error) { next(error); }
+};
+
 export const sendPreHire = async (req, res, next) => {
   try {
     const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
@@ -4150,7 +4165,14 @@ export const sendPreHire = async (req, res, next) => {
     if (!user) return res.status(404).json({ error: { message: 'Candidate not found' } });
 
     if (!['PROSPECTIVE','PENDING_SETUP','PREHIRE_OPEN'].includes(user.status)) return res.status(409).json({ error: { message: 'This pre-hire packet is closed. Reopen it before changing or resending it.' } });
+    const [agency, profile] = await Promise.all([Agency.findById(agencyId), HiringProfile.findByCandidateUserId(candidateUserId)]);
+    const references = await prehireReferenceStatus({ agencyId, user, profile, agency });
+    if (!references.ready) return res.status(409).json({ error: { message: references.message, code: 'PREHIRE_REFERENCES_REQUIRED' } });
     const preparedPacket = await prepareHirePacket({ userId: candidateUserId, agencyId, body: req.body });
+    if (agency?.slug === 'itsco') {
+      const choice = preparedPacket.workflow.spanishProvider;
+      req.body.contractTokens = { ...req.body.contractTokens, SPANISH_DIFFERENTIAL_ELIGIBLE: typeof choice === 'boolean' ? (choice ? '1' : '0') : '' };
+    }
     req.body.packageId = preparedPacket.prehirePackageId;
     if (preparedPacket.workflow.supervisorUserId) {
       if (req.body.includeSupervisor) req.body.contractTokens = { ...req.body.contractTokens, SUPERVISOR_NAME: preparedPacket.workflow.supervisorName };

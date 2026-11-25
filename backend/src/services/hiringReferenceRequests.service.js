@@ -21,17 +21,6 @@ import {
 
 const TOKEN_BYTES = 32;
 
-async function markRequestSendFailed(rowId) {
-  try {
-    await pool.execute(
-      `UPDATE hiring_reference_requests SET status='send_failed', updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='sent'`,
-      [rowId]
-    );
-  } catch {
-    // ignore
-  }
-}
-
 export async function sendHiringReferenceOutboundEmail({ identity, to, subject, text, html, openTrackToken = null }) {
   const pixel = openTrackToken ? buildReferenceOpenPixelUrl(openTrackToken) : '';
   const htmlWithPixel = pixel ? appendEmailOpenPixel(html, pixel) : html;
@@ -66,6 +55,35 @@ export async function sendHiringReferenceOutboundEmail({ identity, to, subject, 
   } catch (e) {
     return { ok: false, skipped: false, error: String(e?.message || e), messageId: null };
   }
+}
+
+export async function prehireReferenceStatus({ agencyId, user, profile, agency }) {
+  const required = agency?.slug === 'itsco' && ['PROSPECTIVE', 'PENDING_SETUP'].includes(user?.status);
+  if (!required) return { required: false, ready: true };
+  const contacts = parseReferencesArray(profile)
+    .map((ref, index) => ({ index, email: String(ref?.email || '').trim().toLowerCase(), present: !!(ref?.name || ref?.phone || ref?.phone_number || ref?.email) }))
+    .filter(ref => ref.present);
+  if (!contacts.length) return { required, ready: false, sendable: 0, message: 'Add professional references with the applicant’s authorization before starting pre-hire.' };
+  const [requests, [completedByPhone]] = await Promise.all([
+    HiringReferenceRequest.listByProfileAndAgency(profile.id, agencyId),
+    pool.execute('SELECT reference_index FROM hiring_reference_contacts WHERE hiring_profile_id=? AND agency_id=? AND contact_method=? AND outcome=?',
+      [profile.id, agencyId, 'phone', 'completed'])
+  ]);
+  const pending = contacts.filter(ref =>
+    !completedByPhone.some(row => Number(row.reference_index) === ref.index) &&
+    !requests.some(row => Number(row.reference_index) === ref.index &&
+      String(row.reference_email || '').toLowerCase() === ref.email &&
+      (row.status === 'completed' || (row.status === 'sent' && Number(new Date(row.token_expires_at)) > Date.now())))
+  );
+  if (!pending.length) return { required, ready: true, sendable: 0 };
+  const withEmail = pending.filter(ref => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ref.email));
+  const consent = withEmail.length ? await resolveHiringReferenceConsent({ profile, agencyId, candidateUserId: user.id }) : null;
+  return {
+    required, ready: false, sendable: consent?.allowed ? withEmail.length : 0,
+    message: consent && !consent.allowed ? consent.message : pending.length > withEmail.length
+      ? 'For references without an email address, record a completed phone reference before continuing.'
+      : 'Send the remaining reference portal invitations before starting pre-hire.'
+  };
 }
 
 export function buildReferenceFormUrl(rawToken) {
@@ -255,27 +273,23 @@ export async function createAndSendReferenceRequests({
     const [completedContacts] = await pool.execute(`SELECT id FROM hiring_reference_contacts
       WHERE hiring_profile_id = ? AND agency_id = ? AND reference_index = ? AND outcome = 'completed' LIMIT 1`, [pid, aid, i]);
     if (completedContacts.length) { skipped.push({ referenceIndex: i, email, reason: 'completed_by_phone' }); continue; }
-    if (onlyIfNotSent) {
-      // eslint-disable-next-line no-await-in-loop
-      const exists = await HiringReferenceRequest.hasActiveSentForIndex(pid, i);
-      if (exists) {
-        skipped.push({ referenceIndex: i, email, reason: 'already_sent' });
-        logHiringReferenceEvent({
-          candidateUserId: uid,
-          agencyId: aid,
-          kind: 'reference_invite_skipped',
-          referenceIndex: i,
-          referenceEmail: email,
-          reason: 'already_sent',
-          outcome: 'skipped'
-        });
-        continue;
-      }
+    const existing = (await HiringReferenceRequest.listByProfileAndAgency(pid, aid))
+      .filter(row => Number(row.reference_index) === i && String(row.reference_email || '').toLowerCase() === email);
+    if (existing.some(row => row.status === 'completed')) { skipped.push({ referenceIndex: i, email, reason: 'completed' }); continue; }
+    const active = existing.reverse().find(row => row.status === 'sent' && new Date(row.token_expires_at) > new Date());
+    if (onlyIfNotSent && active) {
+      skipped.push({ referenceIndex: i, email, reason: 'already_sent' });
+      logHiringReferenceEvent({
+        candidateUserId: uid,
+        agencyId: aid,
+        kind: 'reference_invite_skipped',
+        referenceIndex: i,
+        referenceEmail: email,
+        reason: 'already_sent',
+        outcome: 'skipped'
+      });
+      continue;
     }
-
-    const existing = (await HiringReferenceRequest.listByProfileAndAgency(pid, aid)).filter(r => Number(r.reference_index) === i);
-    if (existing.some(r => r.status === 'completed')) { skipped.push({ referenceIndex: i, email, reason: 'completed' }); continue; }
-    const active = existing.reverse().find(r => r.status === 'sent' && r.reference_email === email && new Date(r.token_expires_at) > new Date());
     const publicLinkToken = active?.public_link_token || crypto.randomBytes(TOKEN_BYTES).toString('hex');
     const requestDeadline = active ? new Date(active.token_expires_at) : expiresAt;
     let row = active;
@@ -290,7 +304,7 @@ export async function createAndSendReferenceRequests({
         referenceEmail: email,
         publicLinkToken,
         tokenExpiresAt: expiresSql,
-        status: 'sent',
+        status: 'send_failed',
         sentByUserId,
         intakeSubmissionId,
         questionnaire: preparedQuestionnaire,
@@ -343,11 +357,10 @@ export async function createAndSendReferenceRequests({
     });
 
     if (!out.ok) {
-      if (!active) await markRequestSendFailed(row.id);
       if (out.skipped) {
         errors.push(`Reference invite not sent to ${email} (${out.reason || 'skipped'}).`);
       } else {
-        errors.push(`Failed to email ${email}: ${out.error || 'unknown error'}`);
+        errors.push(`Failed to email ${email}: ${out.error || out.reason || 'unknown error'}`);
       }
       logHiringReferenceEvent({
         candidateUserId: uid,
@@ -368,6 +381,7 @@ export async function createAndSendReferenceRequests({
       continue;
     }
 
+    if (!active) await HiringReferenceRequest.markSent(row.id);
     logHiringReferenceEvent({
       candidateUserId: uid,
       agencyId: aid,

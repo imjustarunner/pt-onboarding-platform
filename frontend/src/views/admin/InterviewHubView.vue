@@ -1,8 +1,9 @@
 <template>
-  <div class="ih-root">
+  <div class="ih-root plotline-people-operations">
+    <PlotlineSignature context="People Operations" product="PO" />
     <div class="ih-header">
       <div>
-        <h2 class="ih-title">Interview Hub</h2>
+        <h2 class="ih-title po-page-title">Interview Hub</h2>
         <p class="ih-subtitle">Create, customize, and manage interview experiences.</p>
       </div>
       <div class="ih-header-actions">
@@ -261,6 +262,8 @@
 </template>
 
 <script setup>
+import PlotlineSignature from '../../components/plotline/PlotlineSignature.vue';
+import '../../styles/plotlinePeopleOperations.css';
 import InterviewInvitePreview from '../../components/hiring/InterviewInvitePreview.vue';
 import InterviewQuestionPicker from '../../components/hiring/InterviewQuestionPicker.vue';
 import { computed, onMounted, ref, watch } from 'vue';
@@ -417,7 +420,11 @@ const filteredInterviews = computed(() => {
   const list = [...(interviews.value || [])].sort((a, b) => {
     const ta = new Date(a.interview_starts_at || 0).getTime();
     const tb = new Date(b.interview_starts_at || 0).getTime();
-    return ta - tb;
+    const validA = !!a.interview_starts_at && Number.isFinite(ta);
+    const validB = !!b.interview_starts_at && Number.isFinite(tb);
+    if (validA !== validB) return validA ? -1 : 1;
+    const byTime = validA ? (timeFilter.value === 'all' ? tb - ta : ta - tb) : 0;
+    return byTime || Number(b.id) - Number(a.id);
   });
   if (timeFilter.value === 'all') return list;
   const now = new Date();
@@ -855,8 +862,9 @@ onMounted(async () => {
 
 <style scoped>
 .ih-root {
-  padding: 20px 24px 40px;
+  padding: 20px clamp(12px, 2vw, 32px) 40px;
   max-width: 100%;
+  background: var(--po-surface);
   box-sizing: border-box;
 }
 .ih-header {
@@ -897,8 +905,8 @@ onMounted(async () => {
   margin-bottom: -1px;
 }
 .ih-tab.active {
-  color: #6d28d9;
-  border-bottom-color: #7c3aed;
+  color: var(--po-action);
+  border-bottom-color: var(--po-action);
 }
 .ih-error {
   background: #fef2f2;
@@ -910,16 +918,16 @@ onMounted(async () => {
 }
 .ih-error p { margin: 0 0 8px; }
 .ih-success {
-  background: #f5f3ff;
-  color: #5b21b6;
-  border: 1px solid #ddd6fe;
+  background: var(--po-surface);
+  color: var(--po-action-hover);
+  border: 1px solid var(--po-line);
   border-radius: 10px;
   padding: 10px 12px;
   margin-bottom: 12px;
 }
 .ih-split {
   display: grid;
-  grid-template-columns: 300px minmax(0, 1fr);
+  grid-template-columns: clamp(16rem, 23vw, 23rem) minmax(0, 1fr);
   gap: 16px;
   min-height: 520px;
 }
@@ -949,9 +957,9 @@ onMounted(async () => {
   cursor: pointer;
 }
 .ih-chip.active {
-  background: #ede9fe;
-  border-color: #c4b5fd;
-  color: #5b21b6;
+  background: var(--po-selected);
+  border-color: #a6bea9;
+  color: var(--po-action-hover);
 }
 .ih-list {
   list-style: none;
@@ -967,8 +975,8 @@ onMounted(async () => {
 }
 .ih-list-item:hover { background: #faf5ff; }
 .ih-list-item.selected {
-  background: #f5f3ff;
-  box-shadow: inset 3px 0 0 #7c3aed;
+  background: var(--po-surface);
+  box-shadow: inset 3px 0 0 var(--po-action);
 }
 .ih-list-name { font-weight: 600; color: #111827; font-size: 0.92rem; }
 .ih-list-meta {
@@ -993,8 +1001,9 @@ onMounted(async () => {
   overflow: hidden;
 }
 .ih-main--applicant :deep(.detail-panel--embedded) {
-  max-height: calc(100vh - 240px);
-  overflow-y: auto;
+  width: 100%;
+  max-width: none;
+  padding: clamp(12px, 2vw, 28px);
 }
 .ih-empty-main {
   display: flex;
@@ -1040,8 +1049,8 @@ onMounted(async () => {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: #ede9fe;
-  color: #5b21b6;
+  background: var(--po-selected);
+  color: var(--po-action-hover);
   border-radius: 999px;
   padding: 4px 10px;
   font-size: 13px;
@@ -1081,7 +1090,7 @@ onMounted(async () => {
   font-size: 12px;
   word-break: break-all;
 }
-.ih-link { color: #6d28d9; font-weight: 600; text-decoration: none; }
+.ih-link { color: var(--po-action); font-weight: 600; text-decoration: none; }
 .ih-link:hover { text-decoration: underline; }
 .ih-status {
   display: inline-block;
@@ -1093,7 +1102,7 @@ onMounted(async () => {
   background: #f3f4f6;
   color: #374151;
 }
-.ih-status.st-scheduled { background: #ede9fe; color: #5b21b6; }
+.ih-status.st-scheduled { background: var(--po-selected); color: var(--po-action-hover); }
 .ih-status.st-in_progress { background: #dbeafe; color: #1e40af; }
 .ih-status.st-completed { background: #dcfce7; color: #166534; }
 .ih-status.st-cancelled { background: #fee2e2; color: #991b1b; }
@@ -1135,7 +1144,7 @@ onMounted(async () => {
 }
 .ih-weight { max-width: 90px; }
 .ih-jobset-form {
-  border: 1px solid #ede9fe;
+  border: 1px solid var(--po-selected);
   background: #faf5ff;
   border-radius: 10px;
   padding: 12px;
@@ -1221,11 +1230,11 @@ onMounted(async () => {
 .btn:disabled { opacity: 0.55; cursor: not-allowed; }
 .btn-sm { padding: 5px 10px; font-size: 0.8rem; }
 .btn-primary {
-  background: #7c3aed;
-  border-color: #7c3aed;
+  background: var(--po-action);
+  border-color: var(--po-action);
   color: #fff;
 }
-.btn-primary:hover:not(:disabled) { background: #6d28d9; }
+.btn-primary:hover:not(:disabled) { background: var(--po-action); }
 .btn-secondary {
   background: #fff;
   border-color: #d1d5db;

@@ -8,6 +8,8 @@
 
     <div v-if="loading" class="sph-initial-loading" role="status"><div class="sph-skeleton" /><p>Opening candidate and job details…</p></div>
     <div v-else-if="error" class="error" role="alert">{{ error }} <button type="button" @click="load">Retry loading setup</button></div>
+    <PrehireReferenceGate v-else-if="requiresReferenceCheck && !referenceGatePassed" :user-id="Number(userId)" :agency-id="Number(agencyId)"
+      @ready="referenceGatePassed = true" @references="openCandidateReferences" />
     <template v-else>
       <div class="sph-context-strip"><span class="sph-avatar">{{ initials }}</span><div><strong>{{ candidateName }}</strong><span>{{ candidateEmail }}</span></div><div class="sph-context-job"><strong>{{ jobTitle || 'Job not linked' }}</strong><span>{{ locationLabel || 'Location not provided' }}</span></div><span class="sph-stage-badge">{{ stageLabel }}</span></div>
       <nav class="sph-steps" aria-label="Pre-hire setup"><button v-for="(label, i) in setupSteps" :key="label" type="button" :aria-current="setupStep === i ? 'step' : undefined" @click="setupStep = i"><span>{{ i + 1 }}</span>{{ label }}</button></nav>
@@ -34,8 +36,8 @@
         </fieldset>
         <p v-if="portalWorkflow.supervisorRole && (!portalWorkflow.supervisorTemplateId || !portalWorkflow.supervisorClause)" role="alert" class="sph-warn">Configure the approved supervisory clause and acknowledgment in hiring settings before sending.</p>
         <label>Who will supervise this hire?<select v-model="portalWorkflow.supervisorUserId"><option :value="null">Not assigned yet</option><option v-for="u in staffUsers.filter(u => Number(u.id) !== Number(userId) && isSupervisor(u))" :key="u.id" :value="u.id">{{ u.first_name }} {{ u.last_name }}</option></select></label>
-        <label v-if="contractTenant === 'itsco'">Will this provider deliver services in Spanish?
-          <select v-model="portalWorkflow.spanishProvider"><option :value="undefined">Choose when confirmed</option><option :value="true">Yes, approved to provide services in Spanish</option><option :value="false">No Spanish-language assignment</option></select>
+        <label v-if="contractTenant === 'itsco'">Spanish-language pay differential
+          <select v-model="portalWorkflow.spanishProvider"><option :value="undefined">Choose when confirmed</option><option :value="true">Yes, approved for Spanish-language services and the differential</option><option :value="false">No Spanish-language differential</option></select>
         </label>
       </section>
 
@@ -256,6 +258,7 @@
 </template>
 
 <script setup>
+import PrehireReferenceGate from '../../components/hiring/PrehireReferenceGate.vue';
 import { prehireIssueDestination } from '../../utils/nluPrehireForm.js';
 import CredentialPicker from '../../components/CredentialPicker.vue';
 import { isSupervisor } from '../../utils/helpers.js';
@@ -291,6 +294,12 @@ const route = useRoute();
 const router = useRouter();
 const agencyStore = useAgencyStore();
 
+const referenceGatePassed = ref(false);
+const requiresReferenceCheck = computed(() => contractTenant.value === 'itsco' &&
+  ['PROSPECTIVE', 'PENDING_SETUP'].includes(detail.value?.user?.status));
+function openCandidateReferences() {
+  router.push(candidateRecordPath.value + '&tab=references');
+}
 const loading = ref(true);
 const workspaceRoot = ref(null);
 const sending = ref(false);
@@ -767,6 +776,9 @@ const contractTokens = computed(() => ({ ...wizardTokens.value, ...contractOverr
     CONTRACT_SERVICE_ROLE_DETAILS: individualExpectations.value.serviceRoleDetails || {},
     INDIVIDUAL_COMPENSATION_BASIS: contractTenant.value === 'isi' ? individualExpectations.value.individualCompensationBasis || '' : '',
     PRIOR_COMPENSATION_AGREEMENT_REFERENCE: contractTenant.value === 'isi' ? individualExpectations.value.priorAgreementReference || '' : ''
+  } : {}),
+  ...(contractTenant.value === 'itsco' && typeof portalWorkflow.value.spanishProvider === 'boolean' ? {
+    SPANISH_DIFFERENTIAL_ELIGIBLE: portalWorkflow.value.spanishProvider ? '1' : '0'
   } : {}),
   PROBATION_APPLIES:contract.probationChoice,PROBATION_TERMS:contract.probationTerms,PROVIDER_DESIGNATION_LEVEL:contract.providerDesignationLevel,
   COMPENSATION_CATEGORY: usesIndividualAgreement.value ? '' : contract.compensationCategory, COMPENSATION_LEVEL: usesIndividualAgreement.value ? '' : contract.compensationLevel,

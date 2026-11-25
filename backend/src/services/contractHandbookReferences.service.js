@@ -2,7 +2,7 @@ import pool from '../config/database.js';
 import {agencyDocumentPresentation} from './documentAgencyBranding.js';
 import {buildPublicAppUrl} from '../utils/publicPortalUrl.js';
 import {handbookTenant} from './handbookTenant.js';
-export const CONTRACT_HANDBOOK_REFERENCE_VERSION='contract-handbook-modal-2026-11-24';
+export const CONTRACT_HANDBOOK_REFERENCE_VERSION='contract-handbook-modal-2026-11-25';
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fail=(message,status=404)=>Object.assign(new Error(message),{status});
 const validId=value=>Number.isSafeInteger(Number(value))&&Number(value)>0;
@@ -43,6 +43,13 @@ const SERVICE_RATE_SECTIONS = {
 // Select standard service rows from the cited publication. The Testing appendix
 // is a separate section with its own authorization requirements.
 export function contractServiceRateSection(sections, slug) {
+  if (slug === 'contract-service-quantities-and-timekeeping') {
+    const appendix = sections.find(section => section.slug === 'colorado-billing-compensation-appendix');
+    const topic = String(appendix?.body_html || '').split(/(?=<h2(?:\s|>))/i)
+      .find(part => /^<h2[^>]*>Actual time, payer units and internal credits<\/h2>/i.test(part));
+    if (!topic) return null;
+    return { ...appendix, slug, title: 'Actual time, payer units and internal credits', parent_slug: appendix.slug, body_html: topic };
+  }
   const rate = Object.hasOwn(SERVICE_RATE_SECTIONS, slug) && SERVICE_RATE_SECTIONS[slug];
   const appendix = sections.find(section => section.slug === 'colorado-billing-compensation-appendix');
   if (!rate || !appendix) return null;
@@ -68,12 +75,13 @@ export function linkContractHandbookHtml(html,{agency,index,clauseKey=''}={}) {
   if(!index?.sections?.length)return html;
   const keys=String(clauseKey).toUpperCase();
   const standardRate = slug => contractServiceRateSection(index.sections,slug);
-  const timekeeping = bySlug(index,'actual-work-time-support-and-corrections','timekeeping-support-and-overtime');
+  const timekeeping = standardRate('contract-service-quantities-and-timekeeping');
+  const supervision = bySlug(index,'supervision-procedures');
   const rolePolicy = bySlug(index,'counseling-and-psychotherapy-role-expectations','service-focus-assignment');
   const levelPolicy = bySlug(index,'compensation-level-expectations-and-review','pay-levels-and-provider-designation');
   const missedFeePolicy = bySlug(index,'missed-session-fee-compensation');
   const probationPolicy = bySlug(index,'compensation-introductory-probationary-compensation','employee-contract-policy');
-  const genericPolicy = /DUTIES|JOB_DESC|ROLE_/.test(keys) ? rolePolicy : null;
+  const genericPolicy = keys === 'SUPERVISION' ? supervision : /DUTIES|JOB_DESC|ROLE_/.test(keys) ? rolePolicy : null;
   const mappings=[
     [/(?:Workplace Handbook Testing area|Testing handbook reference)/gi,/PSYCHOLOGICAL_TESTING/.test(keys) ? bySlug(index,'testing-services') : null],
     [/Clinical Session Rate appendix/gi,standardRate('contract-clinical-session-rate')],
@@ -87,7 +95,7 @@ export function linkContractHandbookHtml(html,{agency,index,clauseKey=''}={}) {
     [/Workplace Handbook section “[^”]+”/gi,levelPolicy],
     [/paid sick leave policy/gi,bySlug(index,'sick-leave-accrual-and-protected-use','paid-time-off-and-colorado-sick-leave')],
     [/introductory compensation policy/gi,probationPolicy],
-    [/Clinical Supervision and Oversight/gi,rolePolicy],
+    [/Clinical Supervision and Oversight(?: policies)?/gi,supervision],
     [/Workplace Handbook/gi,genericPolicy]
   ].filter(([,section])=>section);
   let anchorDepth=0;
@@ -105,7 +113,8 @@ export function linkContractHandbookHtml(html,{agency,index,clauseKey=''}={}) {
   if(/DUTIES|JOB_DESC|ROLE_/.test(keys))for(const slug of ['career-pathways-job-titles-service-focus-and-compensation-structure','career-pathway-overview','service-focus-assignment'])slugs.add(slug);
   if(/PSYCHOLOGICAL_TESTING/.test(keys))for(const slug of ['testing-services','psychological-testing-and-telephone-protocol','testing-code-examples-and-pay-buckets'])slugs.add(slug);
   if(/CHILDCARE/.test(keys))slugs.add('childcare-role-and-supervision');
-  if(/BACHELORS_COUNSELING|PSYCHOTHERAPY|SUPERVISION/.test(keys))slugs.add('counseling-and-psychotherapy-role-expectations');
+  if(/BACHELORS_COUNSELING|PSYCHOTHERAPY/.test(keys))slugs.add('counseling-and-psychotherapy-role-expectations');
+  if(keys === 'SUPERVISION' && supervision) slugs.add(supervision.slug);
   if(/TUTORING/.test(keys)&&!['tisi','innerstrength','inner-strength'].includes(agency.slug))for(const section of index.sections)if(/tutoring/i.test(section.title)&&/pay|compensation|learning|pathway|service/i.test(section.title))slugs.add(section.slug);
   if(/SIG_BLOCK|SIGNATURE_BLOCK/.test(keys))slugs.add('employee-contract-policy');
   const references=[...slugs].map(slug=>bySlug(index,slug)).filter(Boolean);

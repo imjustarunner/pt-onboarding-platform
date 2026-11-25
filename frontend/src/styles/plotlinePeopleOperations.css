@@ -1,0 +1,36 @@
+/* Shared Plotline palette for staff hiring workspaces. */
+.plotline-people-operations {
+  --po-ink: #18372e;
+  --po-muted: #53685f;
+  --po-action: #255d49;
+  --po-action-hover: #194633;
+  --po-line: #d6e0d7;
+  --po-selected: #eaf2ea;
+  --po-surface: #f8f9f5;
+  --po-clay: #90533f;
+  --po-clay-surface: #f6eee8;
+  color: var(--po-ink);
+  font-family: 'Plotline Inter', system-ui, sans-serif;
+}
+
+.plotline-people-operations .po-page-title {
+  color: var(--po-ink);
+  font-family: 'Plotline Sora', system-ui, sans-serif;
+  font-size: clamp(1.55rem, 2.5vw, 2.2rem);
+  font-weight: 650;
+  letter-spacing: -.035em;
+}
+
+.plotline-people-operations > .plotline-signature {
+  justify-content: flex-start;
+  padding: 0 0 12px;
+}
+
+.plotline-people-operations .hiring-hub-switcher {
+  background: var(--po-selected);
+  border-color: var(--po-line);
+}
+
+.plotline-people-operations .hiring-hub-switcher-btn.is-active {
+  color: var(--po-action);
+}

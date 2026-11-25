@@ -3,7 +3,7 @@ const m = vi.hoisted(() => ({ execute:vi.fn(), find:vi.fn(), insert:vi.fn(), com
 vi.mock('../../config/database.js', () => ({default:{execute:m.execute}}));
 vi.mock('../../models/User.model.js', () => ({default:{findById:async()=>({first_name:'Rory',last_name:'QA',email:'applicant@example.test'})}}));
 vi.mock('../../models/Agency.model.js', () => ({default:{findById:async()=>({id:463,name:'Juniper QA'})}}));
-vi.mock('../../models/HiringReferenceRequest.model.js', () => ({default:{expireStaleRows:vi.fn(),findByPublicLinkToken:m.find,recordLinkOpen:async()=>false,insertRow:m.insert,listByProfileAndAgency:m.rows,markCompleted:m.complete}}));
+vi.mock('../../models/HiringReferenceRequest.model.js', () => ({default:{expireStaleRows:vi.fn(),findByPublicLinkToken:m.find,recordLinkOpen:async()=>false,insertRow:m.insert, markSent: async id => m.execute("mark sent", [id]),listByProfileAndAgency:m.rows,markCompleted:m.complete}}));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js', () => ({sendEmailFromIdentity:m.send}));
 vi.mock('../hiringReferenceIdentity.service.js', () => ({resolveHiringReferenceSenderIdentity:async()=>({id:51,agency_id:463}),resolveHiringReferenceReplyTo:async()=>'po@agency.test'}));
 vi.mock('../hiringReferenceConsent.service.js', () => ({resolveHiringReferenceConsent:m.consent}));
@@ -11,7 +11,7 @@ vi.mock('../hiringReferenceReceipt.service.js', () => ({runReferenceReceiptNotif
 vi.mock('../publicFormBranding.service.js', () => ({buildPublicFormBranding:async()=>null,resolveOrgLogoUrl:()=>null}));
 vi.mock('../emailTemplate.service.js', () => ({default:{getTerminologySettings:()=>'People Operations'}}));
 vi.mock('../hiringReferenceActivity.service.js', () => ({appendEmailOpenPixel:html=>html,buildReferenceOpenPixelUrl:()=>'',logHiringReferenceEvent:vi.fn()}));
-import { createAndSendReferenceRequests, getPublicReferenceMetaByRawToken, submitPublicReferenceForm } from '../hiringReferenceRequests.service.js';
+import { prehireReferenceStatus, createAndSendReferenceRequests, getPublicReferenceMetaByRawToken, submitPublicReferenceForm } from '../hiringReferenceRequests.service.js';
 import { referenceContactDetails } from '../../utils/hiringReferenceContact.js';
 import { referenceQuestionnaire } from '../../utils/hiringReferenceQuestionnaire.js';
 const contact={name:'Taylor Reference',email:'taylor@example.test',phone:'555-0100',organization:'Example Consulting',relationship:'Former project mentor'};
@@ -66,4 +66,16 @@ it('rejects malformed contact corrections before completing the reference',async
  m.find.mockResolvedValue({...row(),referenceContact:referenceContactDetails(contact)});
  await expect(submitPublicReferenceForm('synthetic-token',{referenceEmail:'not-an-email'})).rejects.toThrow('valid contact email');
  expect(m.complete).not.toHaveBeenCalled();expect(m.send).not.toHaveBeenCalled();
+});
+
+it('holds new ITSCO pre-hire until the current reference was contacted successfully', async () => {
+ const input = {agencyId:2,agency:{slug:'itsco'},user:{id:1871,status:'PROSPECTIVE'},profile:{id:253,references_json:[contact]}};
+ m.rows.mockResolvedValue([{...row(),status:'send_failed'}]);
+ await expect(prehireReferenceStatus(input)).resolves.toMatchObject({ready:false,sendable:1});
+ m.rows.mockResolvedValue([{...row(),reference_email:'previous@example.test'}]);
+ await expect(prehireReferenceStatus(input)).resolves.toMatchObject({ready:false,sendable:1});
+ m.rows.mockResolvedValue([row()]);
+ await expect(prehireReferenceStatus(input)).resolves.toMatchObject({ready:true});
+ expect(m.rows).toHaveBeenCalledWith(253,2);
+ await expect(prehireReferenceStatus({...input,agency:{slug:'nlu'}})).resolves.toMatchObject({required:false,ready:true});
 });

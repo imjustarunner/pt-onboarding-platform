@@ -1,10 +1,10 @@
 <template>
-  <div class="phr-root">
+  <div class="phr-root plotline-people-operations">
     <!-- Header -->
-    <PlotlineSignature context="Hiring workspace" product="PO" />
+    <PlotlineSignature context="People Operations" product="PO" />
     <div class="phr-header">
       <div>
-        <h2 class="phr-title" data-tour="prehire-title">Pre-Hire</h2>
+        <h2 class="phr-title po-page-title" data-tour="prehire-title">Pre-Hire</h2>
         <p class="phr-subtitle">Candidates in setup, pre-hire, and ready-for-review stages</p>
       </div>
       <div class="phr-header-right">
@@ -562,6 +562,7 @@
 </template>
 
 <script setup>
+import '../../styles/plotlinePeopleOperations.css';
 import PlotlineSignature from '../../components/plotline/PlotlineSignature.vue';
 import PrehireRequirementOverrides from '../../components/admin/PrehireRequirementOverrides.vue';
 import { ref, computed, watch, onMounted } from 'vue';
@@ -1034,7 +1035,7 @@ const initials = (u) => {
   return (f + l).toUpperCase() || '?';
 };
 
-const AVATAR_COLORS = ['#6366f1','#10b981','#f59e0b','#ef4444','#3b82f6','#8b5cf6','#ec4899','#14b8a6'];
+const AVATAR_COLORS = ['#315646', '#46725d', '#8a593b', '#817347', '#50665f', '#427064', '#90533f', '#394d3a'];
 const avatarStyle = (u) => {
   const idx = (u.id || 0) % AVATAR_COLORS.length;
   return { background: AVATAR_COLORS[idx], color: 'white' };
@@ -1343,7 +1344,7 @@ onMounted(load);
 .phr-task-title { flex: 1; color: #111827; }
 .phr-task-done { text-decoration: line-through; color: #9ca3af; }
 .phr-task-status-pill { font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 20px; }
-.phr-required-badge { font-size: 10px; font-weight: 700; background: #ede9fe; color: #5b21b6; padding: 2px 6px; border-radius: 20px; flex-shrink: 0; }
+.phr-required-badge { font-size: 10px; font-weight: 700; background: var(--po-selected); color: var(--po-action-hover); padding: 2px 6px; border-radius: 20px; flex-shrink: 0; }
 
 /* Documents tab */
 .phr-doc-list { display: flex; flex-direction: column; gap: 8px; }
@@ -1394,7 +1395,7 @@ onMounted(load);
 .phr-doc-item-ref { background: #f8fafc; border: 1px solid #e9f0fc; }
 .phr-doc-item-clickable { cursor: pointer; }
 .phr-doc-item-clickable:hover { border-color: #93c5fd; background: #f1f5ff; }
-.phr-doc-icon-ref { color: #6366f1; }
+.phr-doc-icon-ref { color: #315646; }
 .phr-pill-blue { background: #eff6ff; color: #2563eb; }
 .phr-doc-view-link {
   font-size: 12px;

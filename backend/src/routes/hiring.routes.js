@@ -49,6 +49,7 @@ import {
   getDashboardStats,
   getPipelineBoard,
   listCandidateReferenceRequests,
+  getPrehireReferenceStatus,
   listCandidateReferenceActivity,
   postCandidateReferenceRequestsSend,
   listCandidateReviews,
@@ -183,6 +184,7 @@ router.get('/candidates/:userId/applications', listCandidateApplications);
 router.patch('/candidates/:userId/interview', patchCandidateInterview);
 router.get('/candidates/:userId/reference-workspace', getCandidateReferenceWorkspace);
 router.post('/candidates/:userId/reference-contacts', postCandidateReferenceContact);
+router.get('/candidates/:userId/prehire-reference-status', getPrehireReferenceStatus);
 router.get('/candidates/:userId/reference-requests', listCandidateReferenceRequests);
 router.get('/candidates/:userId/reference-activity', listCandidateReferenceActivity);
 router.post('/candidates/:userId/reference-requests/send', postCandidateReferenceRequestsSend);

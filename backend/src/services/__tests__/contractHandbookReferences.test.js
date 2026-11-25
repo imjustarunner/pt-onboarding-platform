@@ -43,7 +43,7 @@ describe('versioned in-contract handbook references',()=>{
     agency:{id:2,slug:'itsco'},index:publishedIndex,clauseKey:'COMP_FFS'
   });
   expect([...linked.matchAll(/data-handbook-section="([^"]+)"/g)].map(match => match[1])).toEqual([
-    'contract-clinical-session-rate','contract-direct-care-rate','actual-work-time-support-and-corrections'
+    'contract-clinical-session-rate','contract-direct-care-rate','contract-service-quantities-and-timekeeping'
   ]);
   const db = {execute:vi.fn(async sql => sql.includes('FROM workplace_handbook_documents') ? [[{...index,sections:undefined}]] :
     sql.includes('FROM workplace_handbook_sections') ? [publishedSections] : [[{id:2,slug:'itsco',name:'ITSCO'}]])};
@@ -51,10 +51,25 @@ describe('versioned in-contract handbook references',()=>{
   expect(result.section.bodyHtml).toContain('90834');
   expect(result.section.bodyHtml).not.toContain('96116');
   expect(result.section.bodyHtml).not.toContain('H0004');
+  const timekeeping = await readContractHandbookReference({agencyId:2,slug:'contract-service-quantities-and-timekeeping',versionId:18},db);
+  expect(timekeeping.section.bodyHtml).toContain('Actual time, payer units and internal credits');
+  expect(timekeeping.section.bodyHtml).not.toMatch(/Saved code inventory|Clinical supervision compensation|Testing code inventory/);
   const direct = contractServiceRateSection(publishedSections,'contract-direct-care-rate');
   expect(direct.body_html).toContain('H0004');
   expect(direct.body_html).not.toContain('96116');
   expect(direct.body_html).not.toContain('90834');
+ });
+ it('uses the supervision procedures from the agreement’s handbook edition', () => {
+  const additions = [
+    { slug: 'counseling-and-psychotherapy-role-expectations', title:'Counseling and psychotherapy' },
+    { slug: 'supervision-procedures', title:'Supervision procedures' }
+  ];
+  const linked = linkContractHandbookHtml('<p>Consult the Workplace Handbook and the Clinical Supervision and Oversight policies.</p>', {
+    agency:{id:2,slug:'itsco'},index:{...index,sections:[...sections,...additions]},clauseKey:'SUPERVISION'
+  });
+  expect([...linked.matchAll(/data-handbook-section="([^"]+)"/g)].map(match => match[1])).toEqual([
+    'supervision-procedures','supervision-procedures','supervision-procedures'
+  ]);
  });
  it('escapes company slugs, labels and sections and keeps ordinary PDF-readable anchors',()=>{
   const linked=contractHandbookAnchor(agency,index,{slug:'testing-services',title:'Testing & consent'},'Workplace Handbook');

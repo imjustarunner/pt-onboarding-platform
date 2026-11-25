@@ -1,5 +1,5 @@
 <template>
-  <div class="wo-hub so-hub po-hub">
+  <div class="wo-hub so-hub po-hub plotline-people-operations">
     <div class="hub-ambient" aria-hidden="true">
       <span
         v-for="dot in ambientDots"
@@ -18,6 +18,7 @@
       />
     </div>
 
+    <PlotlineSignature context="People Operations" product="PO" />
     <header class="hub-header" data-tour="people-ops-hub-header">
       <div class="hub-brand">
         <div class="hub-icon" aria-hidden="true">
@@ -28,7 +29,7 @@
           </svg>
         </div>
         <div>
-          <h1 class="hub-title" data-tour="people-ops-hub-title">People Operations</h1>
+          <h1 class="hub-title po-page-title" data-tour="people-ops-hub-title">People Operations</h1>
           <p class="hub-subtitle" data-tour="people-ops-hub-subtitle">
             Hiring, careers, onboarding, and development — organized in one place.
           </p>
@@ -399,6 +400,8 @@
 </template>
 
 <script setup>
+import PlotlineSignature from '../components/plotline/PlotlineSignature.vue';
+import '../styles/plotlinePeopleOperations.css';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../store/auth';
@@ -587,7 +590,7 @@ const allSections = computed(() => [
         desc: 'Create and manage job postings shown on the careers page.',
         cta: 'Open →',
         to: orgTo('/admin/careers/jobs'),
-        tone: 'indigo',
+        tone: 'teal',
         icon: icon.careers,
         tour: 'people-ops-job-postings',
         show: canManageHiring.value && hasHiringFeature.value,
@@ -648,7 +651,7 @@ const allSections = computed(() => [
         desc: 'Manage pre-hire packages before onboarding starts.',
         cta: 'Open →',
         to: orgTo('/admin/pre-hire'),
-        tone: 'rose',
+        tone: 'orange',
         icon: icon.onboard,
         tour: 'people-ops-pre-hire',
         show: canManageHiring.value && hasHiringFeature.value,
@@ -661,7 +664,7 @@ const allSections = computed(() => [
         desc: 'Build and assign employment contracts from editable clauses, configs, and pay levels.',
         cta: 'Open →',
         to: orgTo('/admin/contracts'),
-        tone: 'violet',
+        tone: 'teal',
         icon: icon.docs,
         tour: 'people-ops-contract-generator',
         show: canManageHiring.value && hasHiringFeature.value,
@@ -709,7 +712,7 @@ const allSections = computed(() => [
         desc: 'View, assign, and manage agency documents.',
         cta: 'Open →',
         to: orgTo('/admin/documents'),
-        tone: 'indigo',
+        tone: 'teal',
         icon: icon.docs,
         tour: 'people-ops-documents',
         show: isAdmin.value && actorRole.value !== 'clinical_practice_assistant' && canSignDocuments.value,
@@ -779,7 +782,7 @@ const allSections = computed(() => [
     id: 'policies',
     label: 'Policies & Acknowledgements',
     desc: 'Workplace Handbook and policy attestations.',
-    tone: 'indigo',
+    tone: 'teal',
     icon: icon.policy,
     cards: [
       {
@@ -789,7 +792,7 @@ const allSections = computed(() => [
         desc: 'Manage Workplace Handbook versions and Provider Update handbook section from Provider Update admin.',
         cta: 'Open →',
         to: orgTo('/admin/provider-update'),
-        tone: 'indigo',
+        tone: 'teal',
         icon: icon.policy,
         tour: null,
         show: true,
@@ -803,7 +806,7 @@ const allSections = computed(() => [
         cta: 'Soon',
         to: null,
         disabled: true,
-        tone: 'indigo',
+        tone: 'teal',
         icon: icon.policy,
         tour: null,
         show: true,
@@ -815,7 +818,7 @@ const allSections = computed(() => [
     id: 'employee-relations',
     label: 'Employee Relations',
     desc: 'Engagement, retention, and milestones.',
-    tone: 'rose',
+    tone: 'orange',
     icon: icon.relations,
     cards: [
       {
@@ -825,7 +828,7 @@ const allSections = computed(() => [
         desc: 'See who is eligible for a cup, dinner, pullover, or later milestone, and track gifts sent.',
         cta: 'Open →',
         to: orgTo('/admin/employee-relations'),
-        tone: 'rose',
+        tone: 'orange',
         icon: icon.relations,
         tour: 'people-ops-employee-relations',
         show: canManageHiring.value && (hasHiringFeature.value || hasPeopleOpsFeature.value),
@@ -1012,3 +1015,28 @@ onMounted(() => {
 <style scoped src="../styles/operationsHub.css"></style>
 
 <style src="../styles/hubSectionTones.css"></style>
+
+<style scoped>
+.po-hub {
+  --hub-ink: var(--po-ink);
+  --hub-muted: var(--po-muted);
+  --hub-line: var(--po-line);
+  --hub-bg: var(--po-surface);
+  background: linear-gradient(140deg, #f0f4ed, #faf8f2);
+}
+.po-hub > .plotline-signature { position: relative; z-index: 1; }
+.po-hub .hub-center.tone-root,
+.po-hub .hub-satellite {
+  border-color: #bfd0c1;
+  background: #fffdf8;
+  box-shadow: 0 6px 24px #18372e14;
+}
+.po-hub .hub-satellite:hover,
+.po-hub .hub-satellite.hovered {
+  border-color: #578168;
+  box-shadow: 0 6px 22px #18372e28;
+}
+.po-hub .hub-orbit-node::before { opacity: .22; }
+.po-hub .hub-sidebar-panel { background: #fffdf8; }
+.po-hub .hub-calendar-btn { background: var(--po-action); color: white; border-color: var(--po-action); }
+</style>

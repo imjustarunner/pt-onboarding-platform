@@ -34,3 +34,9 @@ it('accepts explicitly nonclinical NLU agreements with intentionally unset clini
  schedule.creditRate=40;await expect(futureHirePayContext(context,m)).rejects.toThrow('reviewed numeric pay terms');
  schedule.creditRate=null;delete schedule.nluCompensationPolicyVersion;await expect(futureHirePayContext(context,m)).rejects.toThrow('reviewed numeric pay terms');
 });
+
+it.each([true,false])('uses explicit Spanish eligibility from the effective ITSCO agreement (%s)',async spanishDifferentialEligible=>{
+ agencies=[{id:2,slug:'itsco'}];
+ m.agreement.mockResolvedValue({data:{schedule:{...rates,spanishDifferentialEligible}}});
+ expect((await futureHirePayContext({...context,agencyId:2},m)).assignment.spanish_bonus_eligible).toBe(spanishDifferentialEligible ? 1 : 0);
+});

@@ -1,9 +1,9 @@
 <template>
-  <div class="hd-root container">
-    <PlotlineSignature context="Hiring workspace" product="PO" />
+  <div class="hd-root container plotline-people-operations">
+    <PlotlineSignature context="People Operations" product="PO" />
     <div class="hd-header">
       <div>
-        <h2 class="hd-title">Welcome back{{ firstName ? `, ${firstName}` : '' }}</h2>
+        <h2 class="hd-title po-page-title">Welcome back{{ firstName ? `, ${firstName}` : '' }}</h2>
         <p class="hd-subtitle">Here’s what’s happening with your hiring today.</p>
       </div>
       <div class="hd-header-actions">
@@ -203,6 +203,7 @@
 </template>
 
 <script setup>
+import '../../styles/plotlinePeopleOperations.css';
 import PlotlineSignature from '../../components/plotline/PlotlineSignature.vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -531,14 +532,14 @@ onMounted(() => {
   cursor: pointer;
 }
 .hd-kpi:hover {
-  border-color: #c4b5fd;
+  border-color: #a6bea9;
   box-shadow: 0 4px 14px rgba(124, 58, 237, 0.08);
 }
 .hd-kpi-icon {
   width: 36px;
   height: 36px;
   border-radius: 10px;
-  background: #f5f3ff;
+  background: var(--po-surface);
   display: grid;
   place-items: center;
 }
@@ -596,7 +597,7 @@ onMounted(() => {
 .linkish {
   background: none;
   border: none;
-  color: #7c3aed;
+  color: var(--po-action);
   cursor: pointer;
   padding: 0;
   font-size: 0.85rem;
@@ -628,8 +629,8 @@ onMounted(() => {
 .hd-job-row:hover,
 .hd-iv-row:hover,
 .hd-activity-row:hover {
-  border-color: #ddd6fe;
-  background: #f5f3ff;
+  border-color: var(--po-line);
+  background: var(--po-surface);
 }
 .hd-job-title,
 .hd-iv-name,
@@ -648,8 +649,8 @@ onMounted(() => {
   flex-wrap: wrap;
 }
 .hd-badge {
-  background: #ede9fe;
-  color: #6d28d9;
+  background: var(--po-selected);
+  color: var(--po-action);
   border-radius: 999px;
   padding: 2px 8px;
   font-size: 0.72rem;
@@ -657,7 +658,7 @@ onMounted(() => {
   white-space: nowrap;
 }
 .hd-badge--soft {
-  background: #f3e8ff;
+  background: var(--po-selected);
 }
 .hd-warn {
   margin-top: 12px;
@@ -668,7 +669,7 @@ onMounted(() => {
   width: 36px;
   height: 36px;
   border-radius: 999px;
-  background: linear-gradient(135deg, #8b5cf6, #6366f1);
+  background: linear-gradient(135deg, #56836b, #315646);
   color: #fff;
   display: grid;
   place-items: center;
@@ -708,7 +709,7 @@ onMounted(() => {
 }
 .hd-pipe-fill {
   height: 100%;
-  background: linear-gradient(90deg, #8b5cf6, #6366f1);
+  background: linear-gradient(90deg, #56836b, #315646);
   border-radius: 999px;
 }
 .hd-funnel {
@@ -718,7 +719,7 @@ onMounted(() => {
   align-items: center;
 }
 .hd-funnel-step {
-  background: linear-gradient(90deg, #7c3aed, #6366f1);
+  background: linear-gradient(90deg, var(--po-action), #315646);
   color: #fff;
   border-radius: 10px;
   padding: 10px 14px;
@@ -758,7 +759,7 @@ onMounted(() => {
   margin-top: 5px;
 }
 .hd-dot--blue { background: #3b82f6; }
-.hd-dot--purple { background: #8b5cf6; }
+.hd-dot--purple { background: #56836b; }
 .hd-dot--green { background: #22c55e; }
 .hd-dot--red { background: #ef4444; }
 

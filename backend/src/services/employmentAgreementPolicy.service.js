@@ -62,6 +62,7 @@ export function agreementRateProfile(profile, agreement) {
     ? {tierBonusFfs:{1:0,2:0,3:isNluCompensationProfile(s)&&Number(s.category)===1?0:bonus},tierBonusHcode:{1:0,2:0,3:Number(s.category)===(isNluCompensationProfile(s)?2:1)?bonus:0}}
     : {};
   return {...profile, ...tierTerms,
+    ...(s.spanishBonus ? {spanishBonus:s.spanishBonus} : {}),
     // Only an executed/authorized new schedule adopts NLU's new category meaning.
     // Clear matrix markers when reading a signed legacy schedule.
     nluCompensationPolicyVersion:s.nluCompensationPolicyVersion || null,

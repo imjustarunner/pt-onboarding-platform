@@ -8,6 +8,7 @@ import {employmentStarterClauses} from '../services/employmentStarter.service.js
 import { programScheduleTerms, isProgramServiceRole } from './programServiceRates.js';
 import {nluEmploymentCategoryTerms} from './nluEmploymentCategoryTerms.js';
 import {TESTING_SERVICE_POLICY_VERSION,testingCompensationSchedule} from './testingServicePolicy.js';
+import {STANDARD_SPANISH_DIFFERENTIAL} from './spanishDifferential.js';
 import {withContractProbation,contractProbationHtml} from './contractProbationPolicy.js';
 export const EMPLOYMENT_PAY_VERSION = 'category-level-employment-2026-10-29-program';
 const escape = s => String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -23,6 +24,11 @@ export function employmentCategoryLevelTerms({row,tokens={},agencyName='the Prac
  const school=handbookTenant({slug:agencySlug || tokens.AGENCY_SLUG})==='itsco' && /\bschools?\b/i.test(tokens.SERVICE_FOCUS||'');
  const tenant = handbookTenant({slug:agencySlug || tokens.AGENCY_SLUG});
  const schedule=withContractProbation({...p,supportRate:p.supportActivityRate,clinicalEligible:clinical,category:Number(row.category),level:Number(row.level),autoIndirectMinutes:directCareIndirectMinutes(p.autoIndirectMinutesPerHour),tier3LevelBonus:Number(p.tierBonus?.[3]||0),...programScheduleTerms({tenant,category:row.category,level:row.level})},tokens);
+ const spanishChoice = String(tokens.SPANISH_DIFFERENTIAL_ELIGIBLE ?? '');
+ if (tenant === 'itsco' && ['1','0'].includes(spanishChoice)) {
+  schedule.spanishDifferentialEligible = spanishChoice === '1';
+  schedule.spanishBonus = {...STANDARD_SPANISH_DIFFERENTIAL, ...p.spanishBonus};
+ }
  const roles=tokens.CONTRACT_SERVICE_ROLES||[];
  const serviceCompensationTerms={};
  if(roles.includes('psychological_testing')) {
@@ -38,6 +44,7 @@ export function employmentCategoryLevelTerms({row,tokens={},agencyName='the Prac
  const compensation=`<h2>Compensation · Category ${Number(row.category)}, Level ${Number(row.level)}</h2>
  <p>The individual schedule below sets the agreed rates for this appointment. Category reflects qualifications; level selects rates within that category. Workload and benefit tiers are separate. These terms replace conflicting legacy direct/indirect, hourly-or-credit and funding-percentage language for work under this agreement. Changes require advance written notice and any required agreement; earned pay and leave are preserved.</p>
  ${personalRateTable(schedule)}${personalPayTypeDescriptions(schedule).replaceAll('ITSCO',escape(agencyName))}
+  ${schedule.spanishDifferentialEligible ? '<h3>Spanish-language pay differential</h3><p>Eligible productive service hours are paid the Spanish-language differential at the applicable workload tier under the Workplace Handbook.</p>' : ''}
  <h3>Service quantities and timekeeping</h3><p>Use the assigned service’s compensation basis above and record all actual work under the timekeeping and actual work policy. Keep payer units, compensation equivalents and hours worked as separate records. Changes to service quantities apply prospectively after written notice and any required agreement.</p>
  <p>Pay for approved services and duties uses this schedule regardless of insurance, self-pay, grants or other funding. Service and duty pay is not a percentage of revenue; any separate share of collected missed-session fees follows the Workplace Handbook. Record actual direct, indirect and support work in the app, separately from payer units and internal credits. Required onboarding and assigned training are paid at the applicable support activity rate. Record additional compensable work without duplicate payment. A late note, missing approval or denied claim does not erase earned wages. Applicable minimum-wage, overtime and rest-period rules continue to apply.</p>
  ${contractProbationHtml(schedule,tokens)||'<h3>New-hire probation and workload</h3><p>New-hire probation lasts no more than 90 calendar days from the original Start Date and ends earlier if management ends it or the employee reaches Tier 3. A later tier decrease does not restart probation. The schedule shows the disclosed reduced rates. Minimum-workload rules and applicable waivers follow the effective handbook; the existing-provider amendment’s 60-day transition is not automatically a new-hire waiver.</p>'}

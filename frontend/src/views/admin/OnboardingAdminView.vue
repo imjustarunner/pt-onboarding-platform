@@ -1,9 +1,10 @@
 <template>
-  <div class="ona-root">
+  <div class="ona-root plotline-people-operations">
+    <PlotlineSignature context="People Operations" product="PO" />
     <!-- Header -->
     <div class="ona-header">
       <div>
-        <h2 class="ona-title">Onboarding</h2>
+        <h2 class="ona-title po-page-title">Onboarding</h2>
         <p class="ona-subtitle">
           Review completed onboarding packages, then mark employees active. Send Invite resends their existing personal portal link.
         </p>
@@ -193,6 +194,8 @@
 </template>
 
 <script setup>
+import PlotlineSignature from '../../components/plotline/PlotlineSignature.vue';
+import '../../styles/plotlinePeopleOperations.css';
 import { ref, computed, watch, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
@@ -375,7 +378,7 @@ const sendInvite = async (e, method) => {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const fullName = (u) => `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.email || '—';
 const initials = (u) => ((u.first_name || '').charAt(0) + (u.last_name || '').charAt(0)).toUpperCase() || '?';
-const AVATAR_COLORS = ['#6366f1','#10b981','#f59e0b','#ef4444','#3b82f6','#8b5cf6','#ec4899','#14b8a6'];
+const AVATAR_COLORS = ['#315646', '#46725d', '#8a593b', '#817347', '#50665f', '#427064', '#90533f', '#394d3a'];
 const avatarStyle = (u) => ({ background: AVATAR_COLORS[(u.id || 0) % AVATAR_COLORS.length], color: 'white' });
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
 
