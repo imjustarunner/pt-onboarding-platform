@@ -5,6 +5,7 @@ import { persistSchoolServiceAvailability } from './schoolServiceAvailability.se
 import {normalizeFocusAgeValues} from '../utils/providerFacetNormalization.js';
 import { FACET_FIELD_ALIASES } from '../constants/clinicalFacetFields.js';
 import pool from '../config/database.js';
+import { linkPrehireReceiptFile } from './hireJourney.service.js';
 import { builtInHireDocument } from '../../../frontend/src/navigation/hireDocuments.js';
 import {createHash} from 'node:crypto';
 import ProviderPublicProfile from '../models/ProviderPublicProfile.model.js';
@@ -15,7 +16,7 @@ import { agreementsForUser, agreementPublic } from './supervisionAgreement.servi
 import { CLINICAL_PROFILE_FIELDS, needsClinicalProfile, clinicalProfileForm } from '../utils/hireClinicalProfile.js';
 import { listClinicalFacetsForUser } from './providerClinicalFacets.service.js';
 import { encryptGuardianIntake, decryptGuardianIntake } from './guardianIntakeEncryption.service.js';
-import { PREEMPLOYMENT_FIELDS, composeWorkflow, jsonObject, summarizeSteps, validatePreemployment, onboardingPasswordReady } from '../utils/hirePortalWorkflow.js';
+import { BACKGROUND_PROFILE_FIELDS, PREEMPLOYMENT_FIELDS, composeWorkflow, jsonObject, summarizeSteps, validatePreemployment, onboardingPasswordReady } from '../utils/hirePortalWorkflow.js';
 
 export async function portalPacket(userId, agencyId, db = pool) {
   const [[saved]] = await db.execute('SELECT config_json FROM hire_portal_packets WHERE user_id = ? AND agency_id = ?', [userId, agencyId]);
@@ -89,21 +90,10 @@ export async function savePortalStep({ userId, agencyId, phase, key, value, comp
       VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE encrypted_value = VALUES(encrypted_value), completed_at = VALUES(completed_at)`,
     [userId, phase, key, encrypted, complete ? new Date() : null]);
     if (phase === 'onboarding' && key === 'user-setup' && complete) await persistHireUserSetup(db, userId, agencyId, value);
-    if (profile) {
-      for (const field of PREEMPLOYMENT_FIELDS) {
-        const [[existing]] = await db.execute(`SELECT id FROM user_info_field_definitions WHERE field_key = ? AND (agency_id = ? OR agency_id IS NULL)
-          ORDER BY agency_id DESC, id ASC LIMIT 1`, [field.key, agencyId]);
-        let id = existing?.id;
-        if (!id) {
-          const [insert] = await db.execute(`INSERT INTO user_info_field_definitions (field_key, field_label, field_type, agency_id, is_required, order_index)
-            VALUES (?, ?, ?, ?, 0, 0) ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)`, [field.key, field.label, field.type, agencyId]);
-          id = insert.insertId;
-        }
-        await db.execute(`INSERT INTO user_info_values (user_id, field_definition_id, value) VALUES (?, ?, ?)
-          ON DUPLICATE KEY UPDATE value = VALUES(value)`, [userId, id, value[field.key] || '']);
-      }
+    if (profile && complete) {
+      await persistHireProfileFields(db, userId, agencyId, PREEMPLOYMENT_FIELDS, value);
       await db.execute(`UPDATE users SET personal_email = COALESCE(NULLIF(?, ''), personal_email), preferred_name = ?, personal_phone = ? WHERE id = ?`,
-        [value.permanent_personal_email || value.personal_email, value.preferred_name || null, value.cell_number || null, userId]);
+        [value.personal_email, value.preferred_name || null, value.cell_number || null, userId]);
     }
     if (phase === 'onboarding' && key === 'clinical-profile' && complete) {
       for (const field of CLINICAL_PROFILE_FIELDS) {
@@ -125,8 +115,11 @@ export async function savePortalStep({ userId, agencyId, phase, key, value, comp
       await db.execute("INSERT INTO provider_public_profiles(user_id,public_details_json) VALUES(?,JSON_OBJECT('clinicalFocus',CAST(? AS JSON))) ON DUPLICATE KEY UPDATE public_details_json=JSON_SET(COALESCE(public_details_json,JSON_OBJECT()),'$.clinicalFocus',CAST(? AS JSON))",[userId,JSON.stringify(value.clinicalFocus),JSON.stringify(value.clinicalFocus)]);
     }
     if (file) {
-      await db.execute(`INSERT INTO user_admin_docs (user_id, title, doc_type, storage_path, original_name, mime_type, created_by_user_id, is_legal_hold)
+      const [document] = await db.execute(`INSERT INTO user_admin_docs (user_id, title, doc_type, storage_path, original_name, mime_type, created_by_user_id, is_legal_hold)
         VALUES (?, ?, ?, ?, ?, ?, ?, 1)`, [userId, file.title, file.docType || 'prehire_upload', file.path, file.name, file.mime, userId]);
+      if (phase === 'pre_hire' && complete) {
+        await linkPrehireReceiptFile(db, { userId, agencyId, itemKey: `portal:${key}`, title: file.title, documentId: document.insertId });
+      }
       if (key === 'headshot') {
         await db.execute('UPDATE users SET profile_photo_path = ? WHERE id = ?', [file.profilePath, userId]);
         await db.execute('UPDATE user_photos SET is_profile = 0 WHERE user_id = ?', [userId]);
@@ -137,6 +130,29 @@ export async function savePortalStep({ userId, agencyId, phase, key, value, comp
   } catch (e) { await db.rollback(); throw e; } finally {
     try { if(usernameLocked)await db.execute('SELECT RELEASE_LOCK(?)',[usernameLock]); } finally { db.release(); }
   }
+}
+
+export async function persistHireProfileFields(db, userId, agencyId, fields, values) {
+  for (const field of fields) {
+    if (!Object.hasOwn(values, field.key)) continue;
+    const [[existing]] = await db.execute(`SELECT id FROM user_info_field_definitions WHERE field_key = ? AND (agency_id = ? OR agency_id IS NULL)
+      ORDER BY agency_id DESC, id ASC LIMIT 1`, [field.key, agencyId]);
+    let id = existing?.id;
+    if (!id) {
+      const [insert] = await db.execute(`INSERT INTO user_info_field_definitions (field_key, field_label, field_type, agency_id, is_required, order_index)
+        VALUES (?, ?, ?, ?, 0, 0) ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)`, [field.key, field.label, field.type === 'credentials' ? 'text' : field.type, agencyId]);
+      id = insert.insertId;
+    }
+    await db.execute(`INSERT INTO user_info_values (user_id, field_definition_id, value) VALUES (?, ?, ?)
+      ON DUPLICATE KEY UPDATE value = VALUES(value)`, [userId, id, values[field.key]]);
+  }
+}
+
+export async function agreementCredentialForHire(userId, agencyId, fallback = '', db = pool) {
+  const [[record]] = await db.execute(`SELECT g.token_values_json FROM contract_generations g JOIN tasks t ON t.id = g.task_id
+    WHERE g.candidate_user_id = ? AND g.agency_id = ? AND t.status NOT IN ('overridden', 'deleted', 'archived') ORDER BY g.id DESC LIMIT 1`, [userId, agencyId]);
+  const tokens = jsonObject(record?.token_values_json);
+  return String(tokens.CREDENTIAL || tokens.CREDENTIALS || fallback || '').trim();
 }
 
 export function uniquePortalTasks(tasks = []) {
@@ -178,6 +194,7 @@ export async function buildPortalWorkflow({ user, agencyId, tasks, prehireTasks,
   const pTasks = uniquePortalTasks(user.status === 'ONBOARDING' ? prehireTasks : tasks).filter(t => !['background', 'handbook', 'job-description'].includes(builtInHireDocument(t)));
   const contract = (pTasks || []).filter((t) => t.metadata?.contractGeneration || t.metadata?.employmentContract || t.metadata?.autoFromSendPreHire);
   add('pre_hire', { key: 'background', kind: 'background', title: 'Background check authorization', complete: !!backgroundCheck.signed });
+  if (!prehireClosed || stored('pre_hire', 'profile')) add('pre_hire', { key: 'profile', kind: 'profile', title: 'Pre-employment information', complete: !!stored('pre_hire', 'profile')?.completedAt });
   add('pre_hire', { key: 'job-description', kind: 'job-description', title: 'Your job description', complete: !!extras.jdAcknowledged });
   for (const task of contract) add('pre_hire', { key: `task-${task.id}`, kind: 'task', title: task.title, task, complete: task.status === 'completed' });
   if (!contract.length) add('pre_hire', { key: 'agreement', kind: 'unavailable', title: 'Employment agreement', complete: false, instructions: 'People Operations needs to prepare your employment agreement.' });
@@ -186,7 +203,6 @@ export async function buildPortalWorkflow({ user, agencyId, tasks, prehireTasks,
   // Retain the setup step for hires already in onboarding without a username;
   // new hires choose it before People Operations starts that phase.
   if(user.status==='ONBOARDING' && !usernameComplete)add('onboarding',{key:'work-email',kind:'work-email',title:'Choose your work username',complete:false});
-  if (!prehireClosed || stored('pre_hire', 'profile')) add('pre_hire', { key: 'profile', kind: 'profile', title: 'Pre-employment information', complete: !!stored('pre_hire', 'profile')?.completedAt });
   if (!prehireClosed || stored('pre_hire', 'headshot')) add('pre_hire', { key: 'headshot', kind: 'headshot', title: 'Your professional headshot', complete: !!stored('pre_hire', 'headshot')?.completedAt });
   // Pre-hire handbook access lives in the reference navigation, outside steps.
   for (const doc of extras.prehireDocs || []) {
@@ -252,14 +268,17 @@ export async function buildPortalWorkflow({ user, agencyId, tasks, prehireTasks,
   if (previewPacket) return {
     config, steps, assignedOffice: user.work_location || '', supervisor: { name: config.supervisorName || '' },
     progress: { pre_hire: summarizeSteps(steps.pre_hire) },
-    profile: { full_legal_name: [user.first_name, user.last_name].filter(Boolean).join(' '), personal_email: user.personal_email || user.email },
+    agreementCredential: user.credential || '',
+    profile: { provider_credential: user.credential || '', full_legal_name: [user.first_name, user.last_name].filter(Boolean).join(' '), personal_email: user.personal_email || user.email },
     profileFields: PREEMPLOYMENT_FIELDS
   };
   if (progressOnly) return { progress: { pre_hire: summarizeSteps(steps.pre_hire), onboarding: summarizeSteps(steps.onboarding) } };
+  const profileKeys = [...new Set([...PREEMPLOYMENT_FIELDS, ...BACKGROUND_PROFILE_FIELDS].map(field => field.key))];
+  const agreementCredential = await agreementCredentialForHire(user.id, agencyId, user.credential);
   const [info] = await pool.execute(`SELECT d.field_key, v.value FROM user_info_values v
     JOIN user_info_field_definitions d ON d.id = v.field_definition_id
     WHERE v.user_id = ? AND (d.agency_id = ? OR d.agency_id IS NULL)
-      AND d.field_key IN (${PREEMPLOYMENT_FIELDS.map(() => '?').join(',')}) ORDER BY d.agency_id ASC`, [user.id, agencyId, ...PREEMPLOYMENT_FIELDS.map(field => field.key)]);
+      AND d.field_key IN (${profileKeys.map(() => '?').join(',')}) ORDER BY d.agency_id ASC`, [user.id, agencyId, ...profileKeys]);
   const savedInfo = Object.fromEntries(info.map(row => [row.field_key, row.value]));
   let background = {};
   if (backgroundCheck.signed) {
@@ -273,15 +292,18 @@ export async function buildPortalWorkflow({ user, agencyId, tasks, prehireTasks,
   const savedProfile = stored('pre_hire', 'profile')?.value || {};
   const profile = { personal_email: user.personal_email || user.email || '',
     full_legal_name: `${user.first_name || ''} ${user.last_name || ''}`.trim(),
-    preferred_name: user.preferred_name || '', cell_number: user.personal_phone || '',
-    ...savedInfo, ...Object.fromEntries(Object.entries(background).filter(([,value]) => value)), ...savedProfile };
+    preferred_name: user.preferred_name || '', cell_number: user.personal_phone || '', provider_credential: agreementCredential,
+    ...savedInfo, ...savedProfile, ...Object.fromEntries(Object.entries(background).filter(([key,value]) => value && !Object.hasOwn(savedProfile, key))),
+    provider_credential: savedProfile.provider_credential ?? (agreementCredential || savedInfo.provider_credential || '') };
   const [[resume]] = await pool.execute(`SELECT id, original_name FROM user_admin_docs
     WHERE user_id = ? AND doc_type = 'resume' ORDER BY id DESC LIMIT 1`, [user.id]);
   const [[supervisor]] = await pool.execute(`SELECT u.id, u.first_name, u.last_name, u.profile_photo_path FROM supervisor_assignments sa JOIN users u ON u.id = sa.supervisor_id
     WHERE sa.supervisee_id = ? AND sa.agency_id = ? ORDER BY sa.is_primary DESC, sa.id ASC LIMIT 1`, [user.id, agencyId]);
   const onboardingContact = await onboardingContactForAgency(agencyId);
   return { onboardingContact, config, assignedOffice: user.work_location || '', steps, progress: { pre_hire: summarizeSteps(steps.pre_hire), onboarding: summarizeSteps(steps.onboarding) },
-    profile, profileFields: PREEMPLOYMENT_FIELDS, headshot: stored('pre_hire', 'headshot')?.value ? { uploaded: true, version: stored('pre_hire', 'headshot').completedAt } : null,
+    profile, agreementCredential,
+    homeAddress: { street: user.home_street_address, line2: user.home_address_line2, city: user.home_city, state: user.home_state, postalCode: user.home_postal_code },
+    profileFields: PREEMPLOYMENT_FIELDS, headshot: stored('pre_hire', 'headshot')?.value ? { uploaded: true, version: stored('pre_hire', 'headshot').completedAt } : null,
     resume: resume ? { uploaded: true, name: resume.original_name, documentId: resume.id } : stored('pre_hire', 'resume')?.value ? { uploaded: true, name: stored('pre_hire', 'resume').value.name } : null,
     preferredWorkEmail: stored('pre_hire', 'work-email')?.value?.email || stored('onboarding', 'work-email')?.value?.email || '',
     supervisor: supervisor ? { id: supervisor.id, name: `${supervisor.first_name} ${supervisor.last_name}`, photoPath: supervisor.profile_photo_path || null } : { name: config.supervisorName || '' } };

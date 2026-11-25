@@ -1,5 +1,6 @@
 import { isStudentIntern } from './internMeetingPolicy.service.js';
 import pool from '../config/database.js';
+import { isCandidateSubmissionAdminDoc } from '../utils/employeeVisibleAdminDocs.js';
 import { builtInHireDocument } from '../../../frontend/src/navigation/hireDocuments.js';
 
 export const parseMetadata = (value) => {
@@ -77,13 +78,29 @@ export async function ensureJourney(userId, db = pool) {
      ON DUPLICATE KEY UPDATE user_id = VALUES(user_id)`, [userId]);
 }
 
+export async function listPrehireReceiptFiles(userId, agencyId, db = pool) {
+  const [rows] = await db.execute(`SELECT DISTINCT d.id, d.title, d.doc_type, d.created_by_user_id, d.storage_path
+    FROM hiring_prehire_checklist_items i JOIN user_admin_docs d ON d.id = i.submission_admin_doc_id AND d.user_id = i.user_id
+    WHERE i.user_id = ? AND i.agency_id = ? AND i.completed_on IS NOT NULL AND d.storage_path IS NOT NULL
+    ORDER BY d.id`, [userId, agencyId]);
+  return rows.filter(doc => isCandidateSubmissionAdminDoc(doc, userId)).map(doc => ({ id: doc.id, title: doc.title, category: doc.doc_type }));
+}
+
+export async function linkPrehireReceiptFile(db, { userId, agencyId, itemKey, title, documentId }) {
+  await db.execute(`INSERT INTO hiring_prehire_checklist_items (user_id, agency_id, item_key, title, completed_on, submission_admin_doc_id)
+    VALUES (?, ?, ?, ?, CURDATE(), ?) ON DUPLICATE KEY UPDATE completed_on = COALESCE(completed_on, CURDATE()),
+    submission_admin_doc_id = IF(agency_id=VALUES(agency_id),VALUES(submission_admin_doc_id),submission_admin_doc_id)`,
+    [userId, agencyId, itemKey, title, documentId]);
+}
+
 export async function closePrehire(userId, snapshot, db = pool) {
   await ensureJourney(userId, db);
+  const [[journeyAgency]] = await db.execute('SELECT agency_id FROM hire_journeys WHERE user_id=?', [userId]);
+  const files = journeyAgency?.agency_id ? await listPrehireReceiptFiles(userId, journeyAgency.agency_id, db) : [];
   await db.execute(
     `UPDATE hire_journeys SET prehire_completed_at = COALESCE(prehire_completed_at, UTC_TIMESTAMP()),
-      prehire_snapshot = COALESCE(prehire_snapshot, ?) WHERE user_id = ?`, [JSON.stringify(snapshot), userId]);
+      prehire_snapshot = COALESCE(prehire_snapshot, ?) WHERE user_id = ?`, [JSON.stringify({ ...snapshot, files }), userId]);
   const {queueHiringNotification}=await import('./hiringNotification.service.js');
-  const [[journeyAgency]]=await db.execute('SELECT agency_id FROM hire_journeys WHERE user_id=?',[userId]);
   if(journeyAgency?.agency_id)await queueHiringNotification({userId,agencyId:journeyAgency.agency_id,key:'prehire_complete',type:'prehire_complete'},db);
   // Freeze provenance before the employee's status changes.
   await db.execute(

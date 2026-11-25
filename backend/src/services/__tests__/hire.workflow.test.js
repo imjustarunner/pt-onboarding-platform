@@ -3,7 +3,7 @@ vi.mock('../companyDocumentLearning.service.js',()=>({onboardingGuideSteps:vi.fn
 const mocks = vi.hoisted(() => ({ execute: vi.fn(), getConnection: vi.fn(), findUser: vi.fn(), journeyTasks: vi.fn(), getJourney: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: mocks, onTableWrite:vi.fn() }));
 vi.mock('../../models/User.model.js', () => ({ default: { findById: mocks.findUser } }));
-vi.mock('../hireJourney.service.js', () => ({ journeyTasks: mocks.journeyTasks, getJourney: mocks.getJourney }));
+vi.mock('../hireJourney.service.js', async importOriginal => ({ ...await importOriginal(), journeyTasks: mocks.journeyTasks, getJourney: mocks.getJourney }));
 import { composeWorkflow, sanitizeWorkflow, validatePreemployment, summarizeSteps, onboardingPasswordReady } from '../../utils/hirePortalWorkflow.js';
 import { onboardingContactForAgency, uniquePortalTasks, portalPacket, buildPortalWorkflow, savePortalStep, requiredSubmissionKeys, assertPortalStepCompletion, assertOnboardingPasswordReady } from '../hirePortalWorkflow.service.js';
 vi.mock('../../config/database.js', () => ({ default: mocks, onTableWrite:vi.fn() }));
@@ -33,13 +33,22 @@ describe('packet composition and validation', () => {
   });
   it('allows drafts but validates completed profile information', () => {
     expect(validatePreemployment({ full_legal_name: 'Taylor' }).full_legal_name).toBe('Taylor');
-    expect(() => validatePreemployment({ full_legal_name: 'Taylor' }, true)).toThrow('Email is required');
+    expect(() => validatePreemployment({ full_legal_name: 'Taylor' }, true)).toThrow('Personal email is required');
     expect(() => validatePreemployment({ date_of_birth: '2026-02-31' })).toThrow('valid date of birth');
-    expect(() => validatePreemployment({ personal_email: 'invalid' })).toThrow('valid email');
+    expect(() => validatePreemployment({ personal_email: 'invalid' })).toThrow('valid personal email');
   });
   it('does not accept client-supplied profile keys such as permissions or SSN', () => {
     const values = validatePreemployment({ full_legal_name: 'Taylor', has_supervisor_privileges: true, ssn: '123456789' });
     expect(values).not.toHaveProperty('ssn'); expect(values).not.toHaveProperty('has_supervisor_privileges');
+  });
+  it('keeps a single personal email, ignores duplicate background fields, and retains the declared signature name', () => {
+    const input = { full_legal_name: 'Elena Example', date_of_birth: '2000-03-01', personal_email: 'elena@example.test',
+      permanent_personal_email: 'old@example.test', mailing_address: 'Do not repeat', previous_addresses: 'Do not repeat',
+      prior_names: 'Do not repeat', preferred_signature_name: 'Elena E.', provider_credential: 'Legacy title' };
+    const values = validatePreemployment(input, true, 'Legacy title');
+    expect(values).toMatchObject({ personal_email: 'elena@example.test', preferred_signature_name: 'Elena E.', provider_credential: 'Legacy title' });
+    for (const omitted of ['permanent_personal_email', 'mailing_address', 'previous_addresses', 'prior_names']) expect(values).not.toHaveProperty(omitted);
+    expect(validatePreemployment({ ...input, provider_credential: 'LPC, MS' }, true, 'Legacy title').provider_credential).toBe('LPC, MS');
   });
   it('never lets the final review or optional work substitute for required steps', () => {
     expect(summarizeSteps([{ kind: 'profile', complete: false }, { kind: 'review', complete: true }, { required: false, complete: true }])).toMatchObject({ total: 1, completed: 0, allDone: false });
@@ -69,7 +78,7 @@ describe('phase manifest', () => {
   it('includes username, personal information and headshot in prehire, while password setup stays in onboarding', async () => {
     mocks.execute.mockImplementation(async (sql) => sql.includes('config_json FROM') ? [[{ config_json: { workflow: { resources: [] }, handbookUrl: 'https://drive.google.com/file/d/book/view' } }]] : [[]]);
     const manifest = await buildPortalWorkflow({ user: { id: 1, status: 'PREHIRE_OPEN', first_name: 'Taylor', sso_password_override: '0' }, agencyId: 2, tasks: [], prehireTasks: [], extras: {}, backgroundCheck: {}, hireAccountMode: 'group_password', journey: {} });
-    expect(manifest.steps.pre_hire[0].kind).toBe('background');
+    expect(manifest.steps.pre_hire.slice(0, 3).map(step => step.kind)).toEqual(['background', 'profile', 'job-description']);
     expect(manifest.steps.pre_hire.find(step => step.kind === 'job-description')).toMatchObject({ required: true, complete: false });
     expect(manifest.steps.pre_hire.some(step => step.kind === 'hiring-notifications')).toBe(false);
     expect(manifest.steps.onboarding.some(step => step.kind === 'hiring-notifications')).toBe(false);
@@ -152,6 +161,20 @@ describe('persistent step writes', () => {
     const profile = mocks.execute.mock.calls.find(([sql]) => sql.startsWith('UPDATE users SET profile_photo_path'));
     expect(retained[1]).toContain('private/retained.jpg'); expect(profile[1][0]).toBe('profile-photos/editable.jpg');
     expect(db.commit).toHaveBeenCalled();
+  });
+  it('uses the submitted personal email and updates the account only when the profile is confirmed', async () => {
+    mocks.execute.mockImplementation(async sql => {
+      if (sql.startsWith('SELECT status')) return [[{ status: 'PREHIRE_OPEN' }]];
+      if (sql.includes('SELECT id FROM user_info_field_definitions')) return [[{ id: 9 }]];
+      return [[]];
+    });
+    const args = { userId: 1, agencyId: 2, phase: 'pre_hire', key: 'profile', profile: true,
+      value: { personal_email: 'new@example.test', permanent_personal_email: 'old@example.test', preferred_name: 'Elena', cell_number: '555-0100' } };
+    await savePortalStep({ ...args, complete: false });
+    expect(mocks.execute.mock.calls.some(([sql]) => sql.includes('UPDATE users SET personal_email'))).toBe(false);
+    await savePortalStep(args);
+    const [, update] = mocks.execute.mock.calls.find(([sql]) => sql.includes('UPDATE users SET personal_email'));
+    expect(update).toEqual(['new@example.test', 'Elena', '555-0100', 1]);
   });
   it('rolls back profile data when the linked account cannot be updated', async () => {
     mocks.execute.mockImplementation(async (sql) => {

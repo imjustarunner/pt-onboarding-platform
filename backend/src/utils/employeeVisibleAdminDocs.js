@@ -45,6 +45,6 @@ export function isCandidateSubmissionAdminDoc(doc, candidateUserId) {
     return !!uid && createdBy === uid;
   }
   if (STAFF_TEMPLATE_ADMIN_DOC_TYPES.includes(type)) return false;
-  if (!type) return !!doc?.storage_path;
+  if (!type) return !!doc?.storage_path && !!uid && createdBy === uid;
   return CANDIDATE_COMPLETED_COPY_TYPES.includes(type);
 }

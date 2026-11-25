@@ -2,7 +2,7 @@ import {readContractHandbookReference,portalContractHandbookAgency} from '../ser
 import { hireAccountModeForUser, hireModeRequiresPortalPassword } from '../utils/hireAccountMode.js';
 import { loadPortalPrehireExtras, resolveJobDescriptionIdForCandidate } from '../services/hirePortalExtras.service.js';
 import { onboardingPasswordReady } from '../utils/hirePortalWorkflow.js';
-import { applicantReferenceStatus } from '../models/HiringReferenceContact.model.js';
+import { isEmploymentContract } from '../utils/contractSignatureFields.js';
 import { handbookResponseForReader } from '../services/workplaceHandbookAccess.js';
 import { answerPublishedHandbook } from '../services/workplaceHandbookAnswer.service.js';
 import { buildPortalWorkflow, portalPacket, portalStepSubmissions, requiredSubmissionKeys } from '../services/hirePortalWorkflow.service.js';
@@ -17,7 +17,7 @@ import pool from '../config/database.js';
 import { isItscoPacketChromeAgency } from '../services/packetBrandChrome.service.js';
 import { hirePortalUrl } from '../utils/publicPortalUrl.js';
 import { savePrehireSignedReceipt } from '../services/prehireSignedReceipt.service.js';
-import { journeyTasks, getJourney, taskProgress, completeOnboarding, recordOnboardingActivity } from '../services/hireJourney.service.js';
+import { journeyTasks, getJourney, listPrehireReceiptFiles, linkPrehireReceiptFile, taskPhase, taskProgress, completeOnboarding, recordOnboardingActivity } from '../services/hireJourney.service.js';
 import User from '../models/User.model.js';
 import HiringNote from '../models/HiringNote.model.js';
 import EmailService from '../services/email.service.js';
@@ -256,12 +256,7 @@ export const getPortal = async (req, res, next) => {
     const canFinalizeLogin = hireModeRequiresPortalPassword(hireAccountMode) && usernameChosen && !passwordFinalized && onboardingPasswordReady(user, workflow, journey);
     if (status === 'ONBOARDING') portalPhase = journey?.onboardingCompletedAt ? 'onboarding_review' : canFinalizeLogin ? 'finalize_login' : 'onboarding';
 
-    const referenceStatus = agencyRaw?.id ? await applicantReferenceStatus(userId, agencyRaw.id) : [];
-    let referenceNames = hiringProfile?.references_json || [];
-    if (typeof referenceNames === 'string') { try { referenceNames = JSON.parse(referenceNames); } catch { referenceNames = []; } }
-    for (const status of referenceStatus) status.referenceName ||= referenceNames[status.referenceIndex]?.name || `Reference ${status.referenceIndex + 1}`;
     res.json(handbookResponseForReader({
-      referenceStatus,
       candidate: {
         id: user.id,
         firstName: user.first_name,
@@ -1269,16 +1264,23 @@ export const getPortalSubmissions = async (req, res, next) => {
     } catch { /* ignore */ }
 
     const [signedRows] = await pool.execute(
-      `SELECT id, title, status, document_action_type, completed_at, created_at
-       FROM tasks
-       WHERE assigned_to_user_id = ?
-         AND task_type = 'document'
-         AND (document_action_type IS NULL OR document_action_type != 'countersignature')
-         AND status = 'completed'
-       ORDER BY COALESCE(completed_at, created_at) DESC
-       `,
-      [userId]
-    ).catch(() => [[]]);
+      `SELECT t.id, t.title, t.status, t.document_action_type, t.completed_at, t.created_at, t.metadata,
+              EXISTS(SELECT 1 FROM signed_documents s WHERE s.task_id = t.id AND s.user_id = t.assigned_to_user_id AND s.signed_pdf_path IS NOT NULL) AS signed
+       FROM tasks t
+       WHERE t.assigned_to_user_id = ?
+         AND t.task_type = 'document'
+         AND (t.document_action_type IS NULL OR t.document_action_type != 'countersignature')
+         AND t.status = 'completed'
+       ORDER BY COALESCE(t.completed_at, t.created_at) DESC`, [userId]
+    );
+    const hireRecord = await getJourney(userId);
+    const agency = await loadPortalAgency(userId);
+    const files = hireRecord?.prehire?.files || (agency ? await listPrehireReceiptFiles(userId, agency.id) : []);
+    const completedDocuments = signedRows.map(task => ({
+      id: task.id, title: task.title, actionType: task.document_action_type, completedAt: task.completed_at || task.created_at,
+      phase: taskPhase(task, user?.status), employmentAgreement: isEmploymentContract(task.metadata),
+      signedFileUrl: Number(task.signed) ? (req.hireLibraryContext ? `/onboarding-packages/my-record/tasks/${task.id}/signed-file` : `/prehire-portal/${req.params.token}/tasks/${task.id}/signed-file`) : null
+    }));
 
     let applications = [];
     try {
@@ -1309,13 +1311,11 @@ export const getPortalSubmissions = async (req, res, next) => {
           }
         : null,
       uploadedMaterials: adminDocs,
-      completedDocuments: (signedRows || []).map((t) => ({
-        id: t.id,
-        title: t.title,
-        actionType: t.document_action_type,
-        completedAt: t.completed_at || t.created_at
-      })),
-      journey: await getJourney(userId),
+      completedDocuments,
+      employmentAgreement: completedDocuments.find(doc => doc.employmentAgreement && doc.signedFileUrl) || null,
+      prehireFiles: files.map(doc => ({ ...doc, fileUrl: req.hireLibraryContext
+        ? `/onboarding-packages/my-record/files/${doc.id}` : `/prehire-portal/${req.params.token}/submissions/files/${doc.id}` })),
+      journey: hireRecord,
       inlineSubmissions: await portalStepSubmissions(userId),
       applications: applications.map((a) => ({
         id: a.id,
@@ -1331,20 +1331,31 @@ export const submitPortalBackgroundCheck = async (req, res, next) => {
     const userId = req.portalUser.id;
     const agency = await loadPortalAgency(userId);
     if (!agency) return res.status(404).json({ error: { message: 'Organization not found.' } });
-    const { saveBackgroundCheckAuthorization } = await import('../services/backgroundCheckAuthorization.service.js');
+    const { prepareBackgroundCheckAuthorization, saveBackgroundCheckAuthorization, getBackgroundCheckAuthorizationSummary } = await import('../services/backgroundCheckAuthorization.service.js');
+    const { persistHireProfileFields } = await import('../services/hirePortalWorkflow.service.js');
+    const { BACKGROUND_PROFILE_FIELDS } = await import('../utils/hirePortalWorkflow.js');
     const user = await User.findById(userId);
-    const signerName = `${user?.first_name || ''} ${user?.last_name || ''}`.trim();
-    const summary = await saveBackgroundCheckAuthorization({
-      userId,
-      agencyId: agency.id,
+    const prepared = prepareBackgroundCheckAuthorization({
       payload: req.body || {},
-      signerName
+      signerName: `${user?.first_name || ''} ${user?.last_name || ''}`.trim()
     });
-    await savePrehireSignedReceipt({ userId, agencyId: agency.id, itemKey: 'background_check',
+    const { summary } = prepared;
+    await savePrehireSignedReceipt({
+      userId, agencyId: agency.id, itemKey: 'background_check',
       title: 'Authorization for Background Check', docType: 'background_check_authorization',
-      body: `Authorization signed. SSN ${summary.ssnMasked}. DL ${summary.dlMasked}.\n${buildBackgroundCheckLegalCopy(agency, { legalName: signerName }).paragraphs.join('\n\n')}`,
-      signerName, signatureData: req.body.signatureData });
-    res.json({ ok: true, ...summary });
+      body: `Authorization signed. SSN ${summary.ssnMasked}. DL ${summary.dlMasked}.\n${buildBackgroundCheckLegalCopy(agency, { legalName: summary.signerName }).paragraphs.join('\n\n')}`,
+      signerName: summary.signerName, signatureData: req.body?.signatureData,
+      beforeRetain: async db => {
+        await saveBackgroundCheckAuthorization({ userId, agencyId: agency.id, prepared }, db);
+        await persistHireProfileFields(db, userId, agency.id, BACKGROUND_PROFILE_FIELDS, prepared.profile);
+        if (prepared.homeAddress) {
+          const { street, line2, city, state, postalCode } = prepared.homeAddress;
+          await db.execute(`UPDATE users SET home_street_address = ?, home_address_line2 = ?, home_city = ?, home_state = ?, home_postal_code = ? WHERE id = ?`,
+            [street, line2 || null, city, state, postalCode, userId]);
+        }
+      }
+    });
+    res.json({ ok: true, ...await getBackgroundCheckAuthorizationSummary(userId, agency.id) });
   } catch (e) {
     if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);
@@ -1566,46 +1577,41 @@ export const uploadPortalPrehireDocument = async (req, res, next) => {
     if (!req.file) return res.status(400).json({ error: { message: 'file upload is required' } });
     const title = String(req.body?.title || 'Pre-hire upload').trim().slice(0, 255) || 'Pre-hire upload';
     const docId = String(req.body?.docId || '').trim().slice(0, 80);
-    const { doc } = await findPortalPrehireDocForUser(userId, docId);
+    const { agency, doc } = await findPortalPrehireDocForUser(userId, docId);
     let assignedUpload = doc?.kind === 'upload';
     if (!assignedUpload && /^admin_doc_\d+$/.test(docId)) {
       const [[source]] = await pool.execute("SELECT id FROM user_admin_docs WHERE id = ? AND user_id = ? AND doc_type = 'prehire_upload' AND (created_by_user_id IS NULL OR created_by_user_id != ?)", [Number(docId.replace('admin_doc_', '')), userId, userId]);
       assignedUpload = !!source;
     }
-    if (!assignedUpload) return res.status(403).json({ error: { message: 'This upload is not part of your assigned packet.' } });
+    if (!agency || !assignedUpload) return res.status(403).json({ error: { message: 'This upload is not part of your assigned packet.' } });
     if (req.file.size > 10 * 1024 * 1024) return res.status(400).json({ error: { message: 'Choose a file up to 10 MB.' } });
     const StorageService = (await import('../services/storage.service.js')).default;
-    const UserAdminDoc = (await import('../models/UserAdminDoc.model.js')).default;
-
     const originalName = req.file.originalname || 'document';
     const mimeType = req.file.mimetype || 'application/octet-stream';
     const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
     const safeExt = originalName.includes('.') ? `.${originalName.split('.').pop()}` : '';
     const filename = `prehire-upload-${userId}-${uniqueSuffix}${safeExt}`;
-    const storageResult = await StorageService.saveAdminDoc(req.file.buffer, filename, mimeType);
+    const db = await pool.getConnection();
+    let documentId;
+    try {
+      await db.beginTransaction();
+      const [[user]] = await db.execute('SELECT status FROM users WHERE id = ? FOR UPDATE', [userId]);
+      const [[journey]] = await db.execute('SELECT prehire_completed_at FROM hire_journeys WHERE user_id = ?', [userId]);
+      if (!['PROSPECTIVE', 'PENDING_SETUP', 'PREHIRE_OPEN'].includes(user?.status) || journey?.prehire_completed_at) {
+        throw Object.assign(new Error('Your pre-hire submissions are closed. Contact People Operations for corrections.'), { status: 409 });
+      }
+      const storageResult = await StorageService.saveAdminDoc(req.file.buffer, filename, mimeType);
+      const [created] = await db.execute(`INSERT INTO user_admin_docs
+        (user_id, title, doc_type, note_text, storage_path, original_name, mime_type, created_by_user_id)
+        VALUES (?, ?, 'prehire_upload', ?, ?, ?, ?, ?)`,
+        [userId, title, `Pre-hire document ${docId}`, storageResult.relativePath, originalName, mimeType, userId]);
+      documentId = created.insertId;
+      await linkPrehireReceiptFile(db, { userId, agencyId: agency.id, itemKey: `doc:${docId}`, title, documentId });
+      await db.commit();
+    } catch (error) { await db.rollback(); throw error; }
+    finally { db.release(); }
 
-    const created = await UserAdminDoc.create({
-      userId,
-      title,
-      docType: 'prehire_upload',
-      noteText: docId ? `Pre-hire document ${docId}` : 'Candidate portal upload',
-      storagePath: storageResult.relativePath,
-      originalName,
-      mimeType,
-      createdByUserId: userId
-    });
-
-    if (docId) {
-      try {
-        await pool.execute(
-          `INSERT INTO hiring_prehire_checklist_items (user_id, agency_id, item_key, title, completed_on) VALUES (?, ?, ?, ?, CURDATE())
-           ON DUPLICATE KEY UPDATE completed_on = COALESCE(completed_on, CURDATE())`,
-          [userId, (await loadPortalAgency(userId)).id, `doc:${docId}`, title]
-        );
-      } catch { /* ignore */ }
-    }
-
-    res.status(201).json({ ok: true, id: created?.id || null, title });
+    res.status(201).json({ ok: true, id: documentId, title });
   } catch (e) {
     next(e);
   }

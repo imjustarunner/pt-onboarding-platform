@@ -23,12 +23,7 @@ export function isBackgroundCheckEncryptionConfigured() {
   return isGuardianIntakeEncryptionConfigured();
 }
 
-export async function saveBackgroundCheckAuthorization({
-  userId,
-  agencyId,
-  payload,
-  signerName
-}) {
+export function prepareBackgroundCheckAuthorization({ payload, signerName }) {
   if (!isGuardianIntakeEncryptionConfigured()) {
     const err = new Error('Background check encryption is not configured');
     err.status = 503;
@@ -39,12 +34,26 @@ export async function saveBackgroundCheckAuthorization({
   }
   const ssn = String(payload?.ssn || '').replace(/\D/g, '');
   const dl = String(payload?.driversLicense || payload?.dlNumber || '').trim();
+  const address = payload?.homeAddress;
+  const homeAddress = address && typeof address === 'object' && !Array.isArray(address) ? {
+    street: String(address.street || '').trim().slice(0, 255),
+    line2: String(address.line2 || '').trim().slice(0, 255),
+    city: String(address.city || '').trim().slice(0, 100),
+    state: String(address.state || '').trim().toUpperCase().slice(0, 2),
+    postalCode: String(address.postalCode || '').trim().slice(0, 15)
+  } : null;
+  if (homeAddress && (!homeAddress.street || !homeAddress.city || !/^[A-Z]{2}$/.test(homeAddress.state) || !/^\d{5}(?:-\d{4})?$/.test(homeAddress.postalCode))) {
+    throw Object.assign(new Error('Enter the street, city, two-letter state, and ZIP code for your current address.'), { status: 400 });
+  }
   const toStore = {
-    legalName: String(payload?.legalName || signerName || '').trim(),
+    legalName: String(payload?.legalName || signerName || '').trim().slice(0, 255),
     dateOfBirth: String(payload?.dateOfBirth || '').trim(),
     ssn,
     driversLicense: dl,
-    currentAddress: String(payload?.currentAddress || '').trim(),
+    currentAddress: homeAddress
+      ? [homeAddress.street, homeAddress.line2, homeAddress.city, `${homeAddress.state} ${homeAddress.postalCode}`].filter(Boolean).join(', ')
+      : String(payload?.currentAddress || '').trim(),
+    ...(homeAddress ? { homeAddress } : {}),
     previousAddresses: String(payload?.previousAddresses || '').trim(),
     aliases: String(payload?.aliases || '').trim(),
     otherNames: String(payload?.otherNames || '').trim(),
@@ -53,7 +62,16 @@ export async function saveBackgroundCheckAuthorization({
   const enc = encryptGuardianIntake(JSON.stringify(toStore));
   const ssnLast4 = last4(ssn);
   const dlLast4 = last4(dl);
-  await pool.execute(
+  const signedBy = toStore.legalName;
+  return {
+    encrypted: enc, homeAddress, profile: { full_legal_name: toStore.legalName, date_of_birth: toStore.dateOfBirth, mailing_address: toStore.currentAddress },
+    summary: { signed: true, ssnLast4, dlLast4, ssnMasked: mask(ssn), dlMasked: mask(dl), signerName: signedBy }
+  };
+}
+
+export async function saveBackgroundCheckAuthorization({ userId, agencyId, prepared }, db = pool) {
+  const { encrypted: enc, summary } = prepared;
+  await db.execute(
     `INSERT INTO hiring_background_check_authorizations (
       user_id, agency_id, ciphertext_b64, iv_b64, auth_tag_b64, key_id,
       ssn_last4, dl_last4, signed_at, signer_name
@@ -74,19 +92,12 @@ export async function saveBackgroundCheckAuthorization({
       enc.ivB64,
       enc.authTagB64,
       enc.keyId,
-      ssnLast4,
-      dlLast4,
-      String(signerName || toStore.legalName || '').trim() || null
+      summary.ssnLast4,
+      summary.dlLast4,
+      summary.signerName || null
     ]
   );
-  return {
-    signed: true,
-    ssnLast4,
-    dlLast4,
-    ssnMasked: mask(ssn),
-    dlMasked: mask(dl),
-    signerName: String(signerName || toStore.legalName || '').trim() || null
-  };
+  return summary;
 }
 
 export async function getBackgroundCheckAuthorizationSummary(userId, agencyId) {

@@ -91,6 +91,44 @@ describe('candidate process interface', () => {
     expect(http.get).not.toHaveBeenCalled();
     expect(http.post).not.toHaveBeenCalled();
   });
+  it('connects the prior-name label and uses the scoped address picker for the current home address', async () => {
+    const data = state();
+    data.candidate.status = 'PREHIRE_OPEN';
+    data.backgroundCheck = { signed: false };
+    data.journey = {};
+    data.workflow.homeAddress = { street: '123 Example St', city: 'Denver', state: 'CO', postalCode: '80201' };
+    data.workflow.steps.pre_hire = [{ key: 'background', kind: 'background', title: 'Background check authorization' }];
+    http.get.mockResolvedValue({ data });
+    const bound = vi.fn();
+    wrapper = mount(CandidatePreHirePortal, { global: { directives: { 'address-autocomplete': { mounted: (_element, binding) => bound(binding.value) } } } });
+    await flushPromises();
+    await wrapper.find('.hire-nav nav').findAll('button').find(button => button.text().includes('Pre-Hire')).trigger('click');
+    expect(wrapper.get('label[for="prehire-prior-names"]').get('input').attributes('id')).toBe('prehire-prior-names');
+    expect(wrapper.get('#prehire-home-city').element.value).toBe('Denver');
+    expect(bound).toHaveBeenCalledWith(expect.objectContaining({ publicContext: { kind: 'prehire', token: 'test-token' },
+      fields: { street: 'currentAddress', city: 'addressCity', state: 'addressState', postalCode: 'addressZip' } }));
+  });
+  it('requires confirmation of the agreement credentials before completing pre-employment information', async () => {
+    const data = state();
+    data.candidate.status = 'PREHIRE_OPEN';
+    data.journey = {};
+    data.workflow.agreementCredential = 'MA, LPC';
+    data.workflow.profile = { personal_email: 'elena@example.org', provider_credential: 'MA, LPC' };
+    data.workflow.profileFields = [{ key: 'personal_email', label: 'Personal email', type: 'email' }, { key: 'provider_credential', label: 'Credentials', type: 'credentials' }];
+    data.workflow.steps.pre_hire = [{ key: 'profile', kind: 'profile', title: 'Pre-employment information' }];
+    await open(data);
+    await wrapper.find('.hire-nav nav').findAll('button').find(button => button.text().includes('Pre-Hire')).trigger('click');
+    const form = wrapper.get('.profile-grid').element.closest('form');
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await flushPromises();
+    expect(wrapper.text()).toContain('Confirm the credentials from your employment agreement');
+    expect(http.post).not.toHaveBeenCalled();
+    await wrapper.get('.credential-confirmation input[value="confirm"]').setValue();
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await flushPromises();
+    expect(http.post).toHaveBeenCalledWith('/prehire-portal/test-token/workflow/profile',
+      expect.objectContaining({ credentialReviewed: true, complete: true, values: expect.objectContaining({ provider_credential: 'MA, LPC' }) }));
+  });
   it('renders the job description content and acknowledgement inside the step', async () => {
     const data = state(); data.candidate.status = 'PREHIRE_OPEN'; data.journey = {}; data.jdAcknowledged = false;
     data.jobDescription = { title: 'Counselor', descriptionText: 'Provide compassionate care in schools.' };

@@ -1,22 +1,28 @@
 import {validateCredentials} from './credentialDisplay.js';
 import { builtInHireDocument } from '../../../frontend/src/navigation/hireDocuments.js';
 export const PREEMPLOYMENT_FIELDS = [
-  ['personal_email', 'Email', 'email', true],
-  ['permanent_personal_email', 'Permanent personal email (if different)', 'email'],
+  ['personal_email', 'Personal email', 'email', true],
   ['full_legal_name', 'Full legal name', 'text', true],
-  ['prior_names', 'Prior names', 'textarea'],
   ['preferred_name', 'Preferred name', 'text'],
+  ['preferred_signature_name', 'Name for your typed signature', 'text'],
   ['provider_credential', 'Credentials', 'credentials'],
   ['date_of_birth', 'Date of birth', 'date', true],
   ['state_of_birth', 'State of birth', 'text'],
-  ['mailing_address', 'Mailing address', 'textarea'],
   ['cell_number', 'Cell phone number', 'phone'],
-  ['previous_addresses', 'Previous addresses', 'textarea'],
   ['education_information', 'Education and specializations', 'textarea']
 ].map(([key, label, type, required = false]) => ({ key, label, type, required }));
 
+export const BACKGROUND_PROFILE_FIELDS = [
+  ['full_legal_name', 'Full legal name', 'text'],
+  ['date_of_birth', 'Date of birth', 'date'],
+  ['mailing_address', 'Mailing address', 'textarea'],
+  ['previous_addresses', 'Previous addresses', 'textarea'],
+  ['prior_names', 'Prior names', 'textarea']
+].map(([key, label, type]) => ({ key, label, type }));
+
 export const PREEMPLOYMENT_KEYS = new Set(PREEMPLOYMENT_FIELDS.map((f) => f.key).concat([
-  'legal_name', 'birthdate', 'dob', 'prior_name', 'previous_names', 'personal_phone',
+  ...BACKGROUND_PROFILE_FIELDS.map(field => field.key),
+  'permanent_personal_email', 'legal_name', 'birthdate', 'dob', 'prior_name', 'previous_names', 'personal_phone',
   'professional_headshot', 'headshot', 'resume', 'preferred_email_format', 'work_location'
 ]));
 export const jsonObject = (value) => {
@@ -60,11 +66,11 @@ export function composeWorkflow(agency, job, person) {
   const excluded = new Set(layers.flatMap(l => sanitizeWorkflow(l).excludedResourceIds));
   return sanitizeWorkflow({ ...merged, excludedResourceIds: [...excluded], resources: [...resources.values()].filter(r => !excluded.has(r.id)) });
 }
-export function validatePreemployment(input, complete = false) {
+export function validatePreemployment(input, complete = false, agreementCredential = '') {
   const data = {};
   for (const f of PREEMPLOYMENT_FIELDS) {
     data[f.key] = String(input?.[f.key] || '').trim().slice(0, f.type === 'textarea' ? 8000 : 255);
-    if (f.key === 'provider_credential') data[f.key] = validateCredentials(data[f.key]);
+    if (f.key === 'provider_credential' && data[f.key] !== agreementCredential) data[f.key] = validateCredentials(data[f.key]);
     if (complete && f.required && !data[f.key]) throw Object.assign(new Error(`${f.label} is required.`), { status: 400 });
     if (data[f.key] && f.type === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data[f.key])) throw Object.assign(new Error(`Enter a valid ${f.label.toLowerCase()}.`), { status: 400 });
     if (data[f.key] && f.type === 'date') {

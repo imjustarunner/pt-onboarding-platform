@@ -33,15 +33,26 @@ export async function buildSignedReceipt({ title, body, signerName, signatureDat
   return Buffer.from(await pdf.save());
 }
 
-export async function savePrehireSignedReceipt({ userId, agencyId, itemKey, title, docType, body, signerName, signatureData, sourcePath = null, sourceName = null, source = null, documentAnnotations = [] }) {
+export async function savePrehireSignedReceipt({ userId, agencyId, itemKey, title, docType, body, signerName, signatureData, sourcePath = null, sourceName = null, source = null, documentAnnotations = [], beforeRetain = null }) {
   source = sourcePath ? await StorageService.readObject(sourcePath) : source;
   const pdf = await buildSignedReceipt({ title, body, signerName, signatureData, source, documentAnnotations, sourceName: sourceName || 'original-document' });
   const fileName = `prehire-signed-${userId}-${randomUUID()}.pdf`;
-  const saved = await StorageService.saveAdminDoc(pdf, fileName, 'application/pdf');
   const db = await pool.getConnection();
   try {
     await db.beginTransaction();
-    await db.execute('SELECT id FROM users WHERE id = ? FOR UPDATE', [userId]);
+    const [[user]] = await db.execute('SELECT status FROM users WHERE id = ? FOR UPDATE', [userId]);
+    const [[journey]] = await db.execute('SELECT prehire_completed_at FROM hire_journeys WHERE user_id = ?', [userId]);
+    const [[existing]] = await db.execute(`SELECT submission_admin_doc_id FROM hiring_prehire_checklist_items
+      WHERE user_id = ? AND agency_id = ? AND item_key = ? AND completed_on IS NOT NULL`, [userId, agencyId, itemKey]);
+    if (existing?.submission_admin_doc_id) {
+      await db.commit();
+      return existing.submission_admin_doc_id;
+    }
+    if (!['PROSPECTIVE', 'PENDING_SETUP', 'PREHIRE_OPEN'].includes(user?.status) || journey?.prehire_completed_at) {
+      throw Object.assign(new Error('Your pre-hire submissions are closed. Contact People Operations for corrections.'), { status: 409 });
+    }
+    if (beforeRetain) await beforeRetain(db);
+    const saved = await StorageService.saveAdminDoc(pdf, fileName, 'application/pdf');
     const [document]=await db.execute(
       `INSERT INTO user_admin_docs (user_id, title, doc_type, note_text, storage_path, original_name, mime_type, created_by_user_id, is_legal_hold)
        VALUES (?, ?, ?, ?, ?, ?, 'application/pdf', ?, 1)`,
@@ -53,6 +64,7 @@ export async function savePrehireSignedReceipt({ userId, agencyId, itemKey, titl
       [userId, agencyId, itemKey, title, `Signed copy retained: ${fileName}`, document.insertId]);
     await queuePeopleOperationsSubmission({agencyId,userId,kind:'receipt',id:document.insertId},db);
     await db.commit();
+    return document.insertId;
   } catch (e) { await db.rollback(); throw e; }
   finally { db.release(); }
 }
