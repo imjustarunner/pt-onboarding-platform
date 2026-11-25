@@ -70,3 +70,11 @@ describe('authoritative existing chart diagnosis reference for H-code Narriva',(
   rows[0].is_active=0;expect((await load()).sourceHash).not.toBe(second.sourceHash);
  });
 });
+
+it('keeps the review source stable across session timestamps but invalidates actual encounter changes',async()=>{
+ const session={id:20,agency_id:2,client_id:10,service_code:'H0004',duration_minutes:30,updated_at:'2026-11-24T20:00:00Z'};
+ m.clinical.mockImplementation(async sql=>sql.includes('FROM clinical_sessions')?[[{...session}]]:sql.includes('FROM clinical_diagnoses')?[structuredClone(rows)]:[[]]);
+ const first=await load();session.updated_at='2026-11-24T20:00:30Z';
+ expect((await load()).sourceHash).toBe(first.sourceHash);
+ session.duration_minutes=45;expect((await load()).sourceHash).not.toBe(first.sourceHash);
+});

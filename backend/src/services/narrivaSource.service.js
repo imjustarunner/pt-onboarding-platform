@@ -210,8 +210,10 @@ export async function loadNarrivaSource(user,{agencyId,draftId,noteId,phase='out
  }
  const hashMeta={...meta,narrivaContext:{...meta.narrivaContext}};
  delete hashMeta.narrivaContext.riskAssessmentRequired;
+ // Calendar synchronization and autosave can touch row timestamps without changing
+ // the encounter evidence. Keep clinical fields in the hash, not persistence clocks.
  const sourceHash=narrivaSourceHash({...(phase==='pre_generation'?{phase,planReview}:{}),narrative,inputText,meta:hashMeta,service:local.service,encounter:local.encounter,clinical:{...local.clinical,riskRequiredFromPriorReview:undefined},
-  session,assessmentManifest,chartDiagnosisEvidence,confirmedClinicalContext:clinicalContext,document:reviewDocument?.content || null,providerQualifications:[provider?.credential,provider?.role],rules:NARRIVA_RULES_VERSION});
+  session:{...session,created_at:undefined,updated_at:undefined},assessmentManifest,chartDiagnosisEvidence,confirmedClinicalContext:clinicalContext,document:reviewDocument?.content || null,providerQualifications:[provider?.credential,provider?.role],rules:NARRIVA_RULES_VERSION});
  return {agencyId,draftId:positiveId(draftId),noteId:positiveId(noteId),phase,planReview,source,meta,session,provider,client,narrative,sectionContent:output.sections,assessmentManifest,sourceHash,inputText,modelSessionNarrative,confirmedClinicalContext:clinicalContext,...local,
   identifiers:[client.first_name,client.last_name,client.full_name,client.initials,client.email,client.contact_email,client.phone_number,client.contact_phone,...guardians.flatMap(g=>[g.first_name,g.last_name,g.email,g.phone])].filter(Boolean)};
 }

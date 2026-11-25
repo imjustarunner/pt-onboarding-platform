@@ -86,7 +86,7 @@ describe('grounded quality score and independent mandatory gates',()=>{
   expect(result.scoring.criteria).toHaveLength(7);
   expect(result.scoring.criteria.find(c=>c.id==='assessment_integration')).toMatchObject({status:'not_applicable',earned:0,possible:0});
   expect(result.scoring.disclaimer).toContain('not a guarantee');
-  const {prompt}=m.model.mock.calls[0][0];expect(prompt).toContain('exact selected service definition');expect(prompt).toContain('Author guidance');expect(prompt).toContain('never Session Narrative input');
+  const {prompt}=m.model.mock.calls[0][0];expect(prompt).toContain('exact selected service definition');expect(prompt).toContain('Author guidance');expect(prompt).toContain('Never quote Session Narrative input');
  });
  it('does not accept caller/model percentages or treat all five passed panels as sufficient',async()=>{
   facts.qualityEvidence.goal_linkage.supported=null;facts.qualityEvidence.follow_up_specificity.supported=false;facts.score=100;facts.scoring={score:100,passed:true};
@@ -178,10 +178,10 @@ describe('Narriva pre-generation review', () => {
     for(let i=0;i<4;i++)await drain();
     return readNarrivaReview(clinician,result.id,2);
   }
-  it('checks clinician evidence before generation without awarding a writing-quality score or Quick Sign', async()=>{
+  it('checks clinician evidence and the written draft quality without granting supervisor actions', async()=>{
     for(const value of Object.values(facts.qualityEvidence))value.supported=false;
     const review=await preflight();
-    expect(review).toMatchObject({phase:'pre_generation',status:'passed',quickSignEligible:false});
+    expect(review).toMatchObject({phase:'pre_generation',status:'passed',quickSignEligible:false,scoring:{score:0}});
     expect(m.model.mock.calls[0][0]).toMatchObject({model:'gemini-4-hydrogen',thinkingLevel:'LOW',vertexLocation:'us',allowModelFallback:false});
     expect(m.model.mock.calls.at(-1)[0].prompt).toContain('pre-generation check');
     await expect(assertNarrivaPreGeneration({user:clinician,body:{preflightReviewId:review.id}},{agencyId:2,clientId:10,draftId:42,clinicalSessionId:20,inputText:source.inputText})).resolves.toMatchObject({reviewId:review.id,keptAsIs:false});
@@ -205,6 +205,37 @@ describe('Narriva pre-generation review', () => {
     const verified=await assertNarrivaPreGeneration({user:clinician,body:{preflightReviewId:review.id}},{agencyId:2,clientId:10,draftId:42,clinicalSessionId:20,inputText:source.inputText});
     expect(verified.workingDraft).toBe(workingDraft);
     expect(verified.reviewedWriter).toMatchObject({model:'reviewed-writer',guidanceHash:expect.any(String)});
+  });
+  it('scores exact draft excerpts and retains the preview through completion and regeneration',async()=>{
+    const text='Caregiver described difficulties with school work and home routines. Further diagnostic assessment will clarify symptoms and recommendations.';
+    source.service.code='90791';source.meta.toolId='clinical_90791_intake_plan';source.encounter.clientPresent=false;facts.clientPresent=false;
+    for(const item of Object.values(facts.qualityEvidence))Object.assign(item,{supported:true,evidence:[text]});
+    facts.assessmentMentioned=false;
+    m.model.mockImplementation(async({prompt})=>prompt.includes('Return ONLY one JSON object')?{text:JSON.stringify(facts),modelName:'checker'}:{text,modelName:'writer',finishReason:'STOP'});
+    for(let attempt=0;attempt<2;attempt++){
+      const review=await preflight();
+      expect(review).toMatchObject({status:'passed',draftPreview:text,scoring:{score:100,earned:80,possible:80}});
+      expect(review.scoring.criteria.find(c=>c.id==='response_specificity').status).toBe('not_applicable');
+      expect(m.model.mock.calls.at(-1)[0].prompt).toContain('quote only the private working draft');
+    }
+  });
+  it('does not award draft-quality points for excerpts found only in source history',async()=>{
+    m.model.mockResolvedValueOnce({text:'Pending assessment of the available report.',modelName:'writer',finishReason:'STOP'});
+    const review=await preflight();
+    expect(review.scoring).toMatchObject({score:0,earned:0});
+    expect(review.scoring.criteria.every(c=>c.status==='not_applicable' || c.status==='missing')).toBe(true);
+  });
+  it('does not misreport incomplete draft quality evidence as a zero-quality clinical note',async()=>{
+    delete facts.qualityEvidence;
+    const review=await preflight();
+    expect(review.status).toBe('unavailable');expect(review.scoring.score).toBeNull();
+  });
+  it('preserves the authorized author preview on a real source edit while keeping finalization blocked',async()=>{
+    const review=await preflight();
+    source.inputText+=' New information from the caregiver.';source.narrative=source.inputText;
+    const changed=await readNarrivaReview(clinician,review.id,2);
+    expect(changed.status).toBe('stale');expect(changed.draftPreview).toBe(review.draftPreview);
+    await expect(assertNarrivaPreGeneration({user:clinician,body:{preflightReviewId:review.id}},{agencyId:2,clientId:10,draftId:42,clinicalSessionId:20,inputText:source.inputText})).rejects.toMatchObject({status:409});
   });
   it('publishes actual review stages while the draft is available only through an authorized read',async()=>{
     let finish;

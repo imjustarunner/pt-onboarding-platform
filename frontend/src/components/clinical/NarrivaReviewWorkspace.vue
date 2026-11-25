@@ -31,7 +31,7 @@ const instrumentLabel=value=>({phq9:'PHQ-9',phqa:'PHQ-A',gad7:'GAD-7',psc17:'PSC
     <div class="narriva-review-columns" :class="{'has-preview':preview}">
       <article v-if="preview" class="narriva-draft-preview" aria-label="Draft under review">
         <header><h2>{{ review?.status === 'stale' ? 'Previous draft' : 'Draft under review' }}</h2><p>{{ review?.status === 'stale' ? 'Your source content changed. Run checks again to update the draft.' : 'Review this wording alongside the findings. Confirmed additions will be used to update the final note.' }}</p></header>
-        <p v-if="review?.manualEdited" class="narriva-edit-notice">Manually edited · retained for compliance review · Quick Sign unavailable</p>
+        <p v-if="review?.manualEdited" class="narriva-edit-notice">Manually edited · retained for compliance review</p>
         <button v-if="!editing" type="button" :disabled="busy || review?.status === 'stale'" @click="startEdit">Edit draft</button>
         <p v-if="editing" class="narriva-edit-notice">Saving your changes rechecks this draft and records manual editing for compliance review.</p>
         <section v-for="(text,title) in sections" :key="title"><h3>{{ title }}</h3><textarea v-if="editing" class="narriva-draft-editor" v-model="edited[title]" :aria-label="title" @input="grow" /><p v-else>{{ text }}</p></section>

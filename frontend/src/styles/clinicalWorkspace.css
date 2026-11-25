@@ -46,3 +46,7 @@
 .auricwell-surface .na-app .na-start h1 { color:#213449; }
 
 .auricwell-surface.modal--new-request { --nr-purple:#2467a7;--nr-purple-deep:#1b4e7e;--nr-teal:#2467a7;--nr-cyan:#2467a7;--nr-ink:#213449; }
+
+.clinical-workspace__tagline { margin:0; flex:1 1 280px; color:#60748d; font-size:14px; line-height:1.5; }
+.clinical-workspace__tagline em { color:#205b91; }
+@media(max-width:700px){.clinical-workspace__tagline{flex-basis:100%;font-size:12px;order:2}.clinical-workspace__actions{order:3}}

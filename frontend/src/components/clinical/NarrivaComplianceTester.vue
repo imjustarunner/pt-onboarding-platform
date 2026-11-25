@@ -1,6 +1,6 @@
 <template>
   <section class="nt" aria-label="Standalone compliance tester">
-    <div class="nt-intro"><h2>Try Narriva Compliance</h2><p>Paste a de-identified note and choose the facts for your test. You’ll see the same five checks, quality score and findings used in Note Workspace.</p><p class="nt-notice">Test only. Nothing is attached to a person or saved as a note, chart review or agency report. A test pass cannot approve a note or enable Quick Sign.</p></div>
+    <div class="nt-intro"><h2>Try Narriva Compliance</h2><p>Paste a de-identified note and choose the facts for your test. You’ll see the same five checks, quality score and findings used in Note Workspace.</p><p class="nt-notice">Test only. Nothing is attached to a person or saved as a note, chart review or agency report. A test pass cannot approve a chart note.</p></div>
     <p v-if="optionsError" role="alert" class="nt-error">{{ optionsError }} <button type="button" @click="loadOptions">Try again</button></p>
     <form @submit.prevent="run">
       <div class="nt-examples"><span>Start with your own note, or load a fictional example:</span><button type="button" :disabled="busy" @click="example(true)">Complete example</button><button type="button" :disabled="busy" @click="example(false)">Incomplete example</button></div>

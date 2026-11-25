@@ -34,7 +34,7 @@ describe('Narriva writer choices and evidence', () => {
   });
   it('requires all server check results before displaying verification and Quick Sign eligibility', async () => {
     const w=mount(NarrivaCompliancePanel,{props:{review:passed()}});
-    expect(w.find('[alt="Narriva Quick Sign Approved"]').exists()).toBe(true);
+    expect(w.find('[alt="Narriva Quick Sign Approved"]').exists()).toBe(false);
     const incomplete=passed();incomplete.checks[0].status='action_required';
     await w.setProps({review:incomplete});expect(w.find('[alt="Narriva Quick Sign Approved"]').exists()).toBe(false);
     expect(w.find('[alt="Not verified"]').exists()).toBe(true);w.unmount();
@@ -101,7 +101,7 @@ it('observes an in-progress submission review through read-only polling and stop
 });
 
 it('shows the H0004 billing advisory alongside passed clinical checks without implying payment approval',()=>{
- const review=passed();review.checks[1].advisories=[{id:'service_code:billing_duration_review',category:'billing_review',blocksClaims:true,message:'Actual68-minute H0004 requires billing review before any claim.'}];const w=mount(NarrivaCompliancePanel,{props:{review}});expect(w.get('[aria-label="Billing review notices"]').text()).toContain('Actual68-minute');expect(w.text()).toContain('Clinical signing does not approve a claim or payment.');expect(w.find('[alt="Narriva Quick Sign Approved"]').exists()).toBe(true);expect(w.find('[aria-label="Billing review notices"] button').exists()).toBe(false);w.unmount();
+ const review=passed();review.checks[1].advisories=[{id:'service_code:billing_duration_review',category:'billing_review',blocksClaims:true,message:'Actual68-minute H0004 requires billing review before any claim.'}];const w=mount(NarrivaCompliancePanel,{props:{review}});expect(w.get('[aria-label="Review notices"]').text()).toContain('Actual68-minute');expect(w.text()).toContain('Clinical signing does not approve a claim or payment.');expect(w.find('[alt="Narriva Quick Sign Approved"]').exists()).toBe(false);expect(w.find('[aria-label="Review notices"] button').exists()).toBe(false);w.unmount();
 });
 it('preserves a saved review through a session lock and resumes its GET after normal Unlock without another POST',async()=>{
  vi.useFakeTimers();localStorage.setItem('sessionId','same-login');
@@ -119,4 +119,20 @@ it.each(['note','agency','login'])('does not resume an old locked review after i
  const first=state.observeReview({id:24,status:'running'});await vi.advanceTimersByTimeAsync(20);await first;expect(state.paused.value).toBe(true);
  if(change==='note')state.invalidate();else if(change==='agency')aid.value=451;else localStorage.setItem('sessionId','new-login');await flushPromises();
  window.dispatchEvent(new Event('pt:session-resumed'));await vi.advanceTimersByTimeAsync(40);expect(api.get).toHaveBeenCalledTimes(1);expect(state.review.value).toBeNull();scope.stop();localStorage.removeItem('sessionId');
+});
+
+it('shows Quick Sign messaging only in an explicit supervisor review',async()=>{
+ const w=mount(NarrivaCompliancePanel,{props:{review:passed()}});
+ expect(w.text()).not.toContain('Quick Sign');expect(w.find('[alt="Narriva Quick Sign Approved"]').exists()).toBe(false);
+ await w.setProps({supervisorView:true});expect(w.find('[alt="Narriva Quick Sign Approved"]').exists()).toBe(true);w.unmount();
+});
+it('shows a stale result as needing review without claiming the changed draft scored zero',()=>{
+ const w=mount(NarrivaCompliancePanel,{props:{review:{...passed(),status:'stale',scoring:{...passed().scoring,score:0}}}});
+ expect(w.text()).toContain('Source changed');expect(w.text()).not.toContain('0%');expect(w.text()).not.toContain('Quick Sign');w.unmount();
+});
+
+it('distinguishes passed clinical checks from low draft quality before finalization',()=>{
+ const w=mount(NarrivaCompliancePanel,{props:{preGeneration:true,review:{...passed(),phase:'pre_generation',scoring:{...passed().scoring,score:50,passed:false,qualityPassed:false}}}});
+ expect(w.get('.narriva-score__summary').text()).toContain('50%');expect(w.get('.narriva-score__summary').text()).toContain('Does not pass');
+ expect(w.find('.narriva-score--passed').exists()).toBe(false);expect(w.text()).not.toContain('Quick Sign');w.unmount();
 });

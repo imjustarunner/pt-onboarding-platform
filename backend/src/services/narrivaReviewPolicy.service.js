@@ -1,7 +1,7 @@
 import {clinicalServiceRequirements} from '../../../frontend/src/utils/clinicalEncounterRequirements.js';
 import crypto from 'node:crypto';
 
-export const NARRIVA_RULES_VERSION='2026-11-24.3';
+export const NARRIVA_RULES_VERSION='2026-11-24.4';
 export const NARRIVA_SCORE_THRESHOLD=70;
 export const NARRIVA_QUALITY_CRITERIA=[
  {id:'intervention_specificity',label:'Specific service actions and interventions',points:20,instruction:'Identifies the actual service action or intervention and how it was applied in this encounter; a generic service label alone is insufficient.'},

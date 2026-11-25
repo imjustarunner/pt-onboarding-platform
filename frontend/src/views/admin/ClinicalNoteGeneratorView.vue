@@ -1,5 +1,5 @@
 <template>
-  <ClinicalWorkspaceFrame :enabled="canUseTool && clinicalWorkspaceBranding" :immersive="!isEmbedded" :compact="isEmbedded" :show-back="!isEmbedded" :tenant-id="supervisorReviewItem?.agencyId || noteAidAgencyId || currentAgencyId" :context-label="noteWorkspaceLabel" return-label="Back to app">
+  <ClinicalWorkspaceFrame :enabled="canUseTool && clinicalWorkspaceBranding" :immersive="!isEmbedded" :compact="isEmbedded" :show-back="!isEmbedded" :tenant-id="supervisorReviewItem?.agencyId || noteAidAgencyId || currentAgencyId" :context-label="noteWorkspaceLabel" :tagline="!isEmbedded" return-label="Back to app">
   <div class="na-app" :class="{ 'na-app--embedded': isEmbedded }">
     <p v-if="contextError" role="status" class="na-status">{{ contextError }}</p>
     <header v-if="!isEmbedded" v-show="!supervisorReviewItem" class="na-topbar">
@@ -10,7 +10,6 @@
           <div class="na-brand-sub">Powered by Narriva</div>
         </div>
       </div>
-      <p class="na-tagline">Spend less time on notes. <em>More time with your clients.</em></p>
       <div class="na-topbar-actions">
       <router-link class="na-archive-btn na-nav-link" :to="orgTo('/dashboard')">My Dashboard</router-link>
       <router-link class="na-archive-btn na-nav-link" :to="orgTo('/tasks')">Tasks</router-link>
@@ -1060,7 +1059,6 @@
         <section v-if="!signedNoteViewerId && !chartNoteReadOnly && !isClientChartAid && !displayPanels.length && !narrivaReview?.draftPreview && (draftId || inputText)" class="na-sign-attest" aria-label="Signing status">
           <p role="status">Signing unavailable: create or restore the note text, review it, and complete the required checks and attestations. Your saved narrative remains a draft.</p>
           <p v-if="approvalError">{{ approvalError }}</p>
-          <p>Quick Sign is unavailable without a passing review of the current note.</p>
           <button type="button" class="na-btn-primary" disabled>Sign</button>
         </section>
         <div v-if="!signedNoteViewerId && !chartNoteReadOnly && !isClientChartAid && effectiveClientId && !showNarrivaAssessmentEvidence && !narrivaAssessmentEvidence.length" class="na-assessment-entry">
@@ -10576,7 +10574,7 @@ onBeforeUnmount(() => {
 
 .na-topbar {
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 16px;
   padding: 14px 20px;
@@ -10591,9 +10589,9 @@ onBeforeUnmount(() => {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: 8px;
-  grid-column: 3;
+  grid-column: 2;
 }
 
 .na-topbar-counts {

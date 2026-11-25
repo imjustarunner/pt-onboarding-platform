@@ -9,6 +9,7 @@
         <img v-if="!productLogoFailed" :src="AURICWELL_MARK_URL" alt="" @error="productLogoFailed = true" />
         <div><strong>AuricWell</strong><span>Clinical workspace</span></div>
       </div>
+      <p v-if="tagline" class="clinical-workspace__tagline">Spend less time on notes. <em>More time with your clients.</em></p>
       <nav class="clinical-workspace__actions" aria-label="Workspace view">
         <div v-if="switchable" class="clinical-workspace__switch" role="group" aria-label="Client workspace view">
           <button type="button" :aria-pressed="!clinical" @click="$emit('update:mode','overview')">{{ overviewLabel }}</button>
@@ -30,7 +31,7 @@ import { clinicalReturnPath } from '../../utils/clinicalWorkspace';
 import '../../styles/clinicalWorkspace.css';
 const props = defineProps({
   enabled: { type: Boolean, default: true }, mode: { type: String, default: 'clinical' },
-  hideHeader: Boolean, switchable: Boolean, immersive: Boolean, compact: Boolean,
+  hideHeader: Boolean, tagline: Boolean, switchable: Boolean, immersive: Boolean, compact: Boolean,
   overviewLabel: { type: String, default: 'Agency view' }, clinicalLabel: { type: String, default: 'AuricWell EHR' },
   tenantId: { type: [Number, String], default: null }, tenantName: { type: String, default: '' }, tenantLogo: { type: String, default: '' },
   contextLabel: { type: String, default: 'Client record' }, returnLabel: { type: String, default: '' },

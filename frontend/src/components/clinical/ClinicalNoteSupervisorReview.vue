@@ -27,7 +27,7 @@
       <InternalDiagnosticCriteriaReview :agency-id="agencyId" :client-id="note.clientId" :note-id="noteId" />
       <div ref="body" class="review-body">
         <p v-if="notice" class="review-notice" role="status">{{ notice }}</p>
-        <NarrivaCompliancePanel v-if="narrivaReview || narrivaBusy || narrivaError" :review="narrivaReview" :busy="narrivaBusy" :error="narrivaError" read-only />
+        <NarrivaCompliancePanel v-if="narrivaReview || narrivaBusy || narrivaError" supervisor-view :review="narrivaReview" :busy="narrivaBusy" :error="narrivaError" read-only />
         <p class="muted">{{ narrivaReview ? "Saved submission review · supervisor approval does not rerun Narriva." : "No Narriva submission review is on file. Use ordinary supervisor review; Quick Sign is unavailable." }}</p>
         <ClinicalNoteVersionHistory :note-id="noteId" :agency-id="agencyId" :legacy-pending-service-details="note.pendingServiceDetails" :legacy-amendment="legacyPendingAmendment" prefer-pending @loaded="onVersionsLoaded" @changed="onVersionChanged" @editing="amendmentEditing = $event" />
         <section v-if="openRequests.length" class="request-history" aria-label="Supervisor requests">
