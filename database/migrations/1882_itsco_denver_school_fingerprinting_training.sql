@@ -41,28 +41,36 @@ SELECT @fingerprinting_module_id, 'text', 'Order and attend your fingerprinting 
        JSON_OBJECT('content', '<p>Use this guide when People Operations directs you to order a physical fingerprint card for an ITSCO Denver school-based counseling assignment. Follow the instructions for your assignment if People Operations gives you a different process.</p>
 <ol>
   <li>
-    <h3>Sign in to Cabiond</h3>
-    <p>Open the <a href="https://abi.cabiond.com/login" target="_blank" rel="noopener noreferrer">Cabiond fingerprinting portal</a>. If this is your first time, choose <strong>Create an Account</strong> at the top right. Otherwise, enter your username and password and choose <strong>Sign In</strong>.</p>
+    <h3>Open Cabiond</h3>
+    <p>Open the <a href="https://abi.cabiond.com/login" target="_blank" rel="noopener noreferrer">Cabiond fingerprinting portal</a>.</p>
   </li>
   <li>
-    <h3>Start an order and choose a location</h3>
-    <p>In <strong>Order History</strong>, choose <strong>Place New Order</strong>. Under <strong>Order Options</strong>, choose <strong>Fingerprint Location</strong>. Search by ZIP code, select a convenient site, and choose <strong>Next</strong>.</p>
+    <h3>Create an account if you need one</h3>
+    <p>Choose <strong>Create an Account</strong> at the top right and complete registration.</p>
   </li>
   <li>
-    <h3>Book your appointment</h3>
-    <p>On <strong>Schedule Appointment</strong>, pick an available date and time for the site you selected, then continue.</p>
+    <h3>Sign in to your account</h3>
+    <p>Enter your username and password and choose <strong>Sign In</strong>.</p>
   </li>
   <li>
-    <h3>Answer the billing code question</h3>
-    <p>Choose <strong>No</strong> under <strong>Do you have a Billing Code?</strong> unless People Operations gave you a code for this order.</p>
+    <h3>Place a new order</h3>
+    <p>In <strong>Order History</strong>, choose <strong>Place New Order</strong>.</p>
   </li>
   <li>
-    <h3>Choose the fingerprint card service</h3>
-    <p>Under <strong>Service Types</strong>, select <strong>Fingerprinting Cards</strong>. For the reason, choose the option stating that your employer or agency requested a fingerprint card for a non-CBI purpose. Enter <strong>1</strong> for the number of copies.</p>
+    <h3>Choose the location closest to home</h3>
+    <p>Under <strong>Order Options</strong>, choose <strong>Fingerprint Location</strong>. Search by your home ZIP code, select the closest site to your home, and choose <strong>Next</strong>. When Cabiond opens <strong>Schedule Appointment</strong>, pick an available date and time to continue.</p>
   </li>
   <li>
-    <h3>Enter your information and the shipping address</h3>
-    <p>Complete the requested personal information in Cabiond. In <strong>Shipping Address</strong>, enter the following unless People Operations gives you an updated address.</p>
+    <h3>Select No for the billing code</h3>
+    <p>Under <strong>Do you have a Billing Code?</strong>, choose <strong>No</strong>.</p>
+  </li>
+  <li>
+    <h3>Order one fingerprint card</h3>
+    <p>Under <strong>Service Types</strong>, select <strong>Fingerprinting Cards</strong>. For the reason, choose <strong>My employer/agency requested a fingerprint card for non-CBI</strong>. Enter <strong>1</strong> for the number of copies.</p>
+  </li>
+  <li>
+    <h3>Ship the card to ITSCO</h3>
+    <p>Complete the requested personal information in Cabiond. In <strong>Shipping Address</strong>, enter the following.</p>
     <ul>
       <li><strong>Company Name</strong> ITSCO</li>
       <li><strong>Attention To</strong> Rachel Finch</li>
@@ -70,19 +78,12 @@ SELECT @fingerprinting_module_id, 'text', 'Order and attend your fingerprinting 
       <li><strong>City, State, ZIP Code</strong> Colorado Springs, CO 80919</li>
       <li><strong>Country</strong> United States of America</li>
     </ul>
-    <p>Under <strong>Shipping Options</strong>, choose <strong>First Class Mail (Free)</strong> and continue.</p>
+    <p>Choose <strong>First Class Mail (Free)</strong>. Get Rachel Finch’s approval before choosing faster shipping.</p>
   </li>
   <li>
-    <h3>Complete fingerprint information and review the order</h3>
-    <p>Fill in the requested fields under <strong>Fingerprint Information</strong>. On <strong>Review Order</strong>, check the appointment location, date, and time, the service and card quantity, the shipping address, and the total. Ask People Operations before submitting if a required field or payment instruction is unclear.</p>
-  </li>
-  <li>
-    <h3>Submit and save the confirmation</h3>
-    <p>Complete <strong>Payment Details</strong> as directed for your assignment. Save your <strong>Order Confirmation</strong> and appointment details. To reschedule, sign in to Cabiond and use <strong>Change Appointment</strong> in <strong>Appointment Details</strong>.</p>
-  </li>
-  <li>
-    <h3>Attend your appointment</h3>
-    <p>Go to the location on your confirmation with a government-issued photo ID. Keep your confirmation for your records and check with People Operations for the next step in your school clearance. <a href="https://coloradofingerprinting.com/faqs/" target="_blank" rel="noopener noreferrer">Colorado Fingerprinting appointment and ID information</a></p>
+    <h3>Complete your appointment and notify Rachel Finch</h3>
+    <p>Finish <strong>Fingerprint Information</strong>, review your appointment and order details, and follow the payment instructions for your assignment. Save your <strong>Order Confirmation</strong>. If you need a different date or time, use <strong>Change Appointment</strong> in <strong>Appointment Details</strong>.</p>
+    <p>Bring a government-issued photo ID to the appointment. After fingerprinting is complete, notify Rachel Finch and send her any confirmation you received. <a href="https://coloradofingerprinting.com/faqs/" target="_blank" rel="noopener noreferrer">Colorado Fingerprinting appointment and ID information</a></p>
   </li>
 </ol>'), 0
 WHERE @fingerprinting_module_id IS NOT NULL
