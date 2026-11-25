@@ -43,3 +43,12 @@ it('can cancel a waiver without recording any decision',async()=>{
 it('explains when payment inclusion is confirmed but the exact amount remains unresolved',async()=>{
  api.get.mockResolvedValue({data:{...quote(),original:{...quote().original,paymentConfirmed:true,amountConfirmed:false,total:null},canPostAdjustment:false}});const w=mountReview();await flushPromises();expect(w.text()).toContain('Payment inclusion confirmed');w.unmount();
 });
+
+it('shows both report names and requires same-service confirmation before recording unchanged pay',async()=>{
+ api.get.mockResolvedValue({data:{...quote(),identityReview:{originalClient:'Alexandra',reportedClient:'Alexandria',requiresConfirmation:true},canConfirmNoChange:true,canPostAdjustment:false,adjustmentType:'none',adjustmentAmount:0,reductionAmount:0,additionalPayAmount:0}});
+ api.post.mockResolvedValue({data:{resolutionId:9}});
+ const w=mountReview();await flushPromises();expect(w.text()).toContain('Alexandra');expect(w.text()).toContain('Alexandria');
+ const button=()=>w.findAll('button').find(b=>b.text()==='Confirm reviewed — no pay change');expect(button().element.disabled).toBe(true);expect(api.post).not.toHaveBeenCalled();
+ await w.get('input[type=checkbox]').setValue(true);expect(button().element.disabled).toBe(false);await button().trigger('click');await flushPromises();
+ expect(api.post).toHaveBeenCalledWith('/payroll/periods/12/correction-review/resolve',expect.objectContaining({resolution:'no_change',identityConfirmed:true,confirmed:true,reviewToken:'signed-review'}));expect(w.emitted('posted')).toBeTruthy();w.unmount();
+});

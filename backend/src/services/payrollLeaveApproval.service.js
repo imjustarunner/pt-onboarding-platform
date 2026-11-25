@@ -1,9 +1,9 @@
 import pool from '../config/database.js';
 import {currentEligibleSickRate} from './sickLeaveRate.service.js';
 import {loadUserPaySystemContext} from './paySystem.service.js';
-import {LEAVE_BALANCE_COLUMNS,validateLeaveItems,leaveLabel} from '../utils/supplementalLeave.js';
+import {LEAVE_BALANCE_COLUMNS,validateLeaveItems,leaveLabel,splitLeaveItems} from '../utils/supplementalLeave.js';
 /** Approval, deduction and taxable payroll pay are one transaction. No partial approval on failure. */
-export async function approveLeaveAtomically({agencyId,requestId,actorId,targetPayrollPeriodId,overrideBalance=false,policy,defaultPayRate,db:providedDb=null,automatic=false}) {
+export async function approveLeaveAtomically({agencyId,requestId,actorId,targetPayrollPeriodId,approvalHours=null,overrideBalance=false,policy,defaultPayRate,db:providedDb=null,automatic=false}) {
  const db=providedDb||await pool.getConnection();
  try{
   if(!providedDb)await db.beginTransaction();
@@ -25,7 +25,10 @@ export async function approveLeaveAtomically({agencyId,requestId,actorId,targetP
   if(bucket==='training'&&(!req.training_description?.trim()||!req.proof_file_path))throw Error('Training description and documentation are required');
   if(bucket==='school_support'&&!policy.schoolSupportEnabled)throw Error('School support leave is not enabled');
   const [rawItems]=await db.execute('SELECT * FROM payroll_pto_request_items WHERE request_id=? ORDER BY request_date,id FOR UPDATE',[requestId]);
-  const items=validateLeaveItems(rawItems),total=items.reduce((n,i)=>n+i.hours,0);
+  const split=splitLeaveItems(validateLeaveItems(rawItems),approvalHours);
+  const items=split.approved,total=split.approvedHours;
+  if(split.remaining.length && (req.source_appointment_id || automatic))throw Object.assign(new Error('This automatic cancellation benefit must be approved in full.'),{status:400});
+  if(split.remaining.length && !targetPayrollPeriodId)throw Object.assign(new Error('Choose a payroll period for this partial approval.'),{status:400});
   if(req.source_appointment_id&&(items.length!==1||total>1||Math.abs(total-Number(req.total_hours))>1e-8))throw Error('A cancellation benefit must use the signed amount of up to one support activity hour');
   if((!overrideBalance||req.source_appointment_id)&&total>Number(acct[column])+1e-8)throw Error('Insufficient leave balance');
   const payments=new Map(),rates=[];
@@ -38,7 +41,7 @@ export async function approveLeaveAtomically({agencyId,requestId,actorId,targetP
     const ctx=await loadUserPaySystemContext({agencyId,userId:req.user_id,periodEnd:item.date});
     rate=Number(ctx.enabled?(ctx.status?.useReducedRates ? ctx.rateProfile?.supportActivityRateProbation ?? ctx.rateProfile?.supportActivityRate : ctx.rateProfile?.supportActivityRate):policy.schoolSupportHourlyRate);
    }else rate=await currentEligibleSickRate({agencyId,userId:req.user_id,asOfDate:item.date,fallbackRate:acct.pto_pay_rate??defaultPayRate});
-   if(!Number.isFinite(rate)||rate<=0)throw Error('Confirm a positive leave payment rate before approval');
+   if(!Number.isFinite(rate)||rate<=0)throw Object.assign(new Error('Confirm a positive leave payment rate before approval. Set the PTO pay rate in the employee’s Payroll tab → PTO (Sick + Training).'),{status:409,code:'LEAVE_PAYMENT_RATE_REQUIRED'});
    rates.push({...item,rate,payrollPeriodId:period.id});
    const payment=payments.get(period.id)||{hours:0,amount:0};payment.hours+=item.hours;payment.amount+=item.hours*rate;payments.set(period.id,payment);
   }
@@ -57,7 +60,27 @@ export async function approveLeaveAtomically({agencyId,requestId,actorId,targetP
   }
   for(const item of rates)await db.execute("INSERT INTO payroll_pto_ledger(agency_id,user_id,entry_type,pto_bucket,hours_delta,effective_date,payroll_period_id,request_id,note,created_by_user_id) VALUES(?,?,'usage',?,?,?,?,?,?,?)",[agencyId,req.user_id,bucket,-item.hours,item.date,item.payrollPeriodId,requestId,`${leaveLabel(bucket)} ${automatic?'automatically applied (temporary self-service)':'approved'} at $${item.rate.toFixed(2)}/hour`,actorId]);
   await db.execute(`UPDATE payroll_pto_accounts SET ${column}=${column}-?,updated_by_user_id=? WHERE agency_id=? AND user_id=?`,[total,actorId,agencyId,req.user_id]);
+  let remainderRequestId=null;
+  if(split.remaining.length) {
+   // The request/account locks, pay, usage ledger and both dated portions share
+   // one commit. Failed approval never leaves a split or a deducted balance.
+   const remainderNote=`Remaining ${split.remainingHours} hours from request #${requestId} (${split.totalHours} hours originally requested); ${total} hours approved in payroll #${rates[0].payrollPeriodId}. Training cost, if any, is recorded on the original request.`;
+   const [created]=await db.execute(`INSERT INTO payroll_pto_requests
+    (agency_id,user_id,submitted_by_user_id,status,request_type,notes,training_description,proof_file_path,proof_original_name,proof_mime_type,proof_size_bytes,policy_warnings_json,policy_ack_json,total_hours)
+    SELECT agency_id,user_id,?,'submitted',request_type,CONCAT(COALESCE(notes,''),'\n',?),training_description,proof_file_path,proof_original_name,proof_mime_type,proof_size_bytes,policy_warnings_json,policy_ack_json,?
+    FROM payroll_pto_requests WHERE id=? AND agency_id=?`,[actorId,remainderNote,split.remainingHours,requestId,agencyId]);
+   remainderRequestId=created.insertId;
+   if(!remainderRequestId)throw Error('The remaining leave request could not be saved.');
+   for(const item of split.remaining)await db.execute('INSERT INTO payroll_pto_request_items(request_id,agency_id,request_date,hours) VALUES(?,?,?,?)',[remainderRequestId,agencyId,item.date,item.hours]);
+   await db.execute('DELETE FROM payroll_pto_request_items WHERE request_id=? AND agency_id=?',[requestId,agencyId]);
+   for(const item of items)await db.execute('INSERT INTO payroll_pto_request_items(request_id,agency_id,request_date,hours) VALUES(?,?,?,?)',[requestId,agencyId,item.date,item.hours]);
+   await db.execute("UPDATE payroll_pto_requests SET total_hours=?,notes=CONCAT(COALESCE(notes,''),'\n',?) WHERE id=? AND agency_id=?",[total,`Partial approval of ${total} of ${split.totalHours} original hours; ${split.remainingHours} hours remain pending in request #${remainderRequestId}.`,requestId,agencyId]);
+   for(const pid of payments.keys()) {
+    await db.execute('DELETE FROM payroll_summaries WHERE payroll_period_id=? AND agency_id=?',[pid,agencyId]);
+    await db.execute("UPDATE payroll_periods SET status='staged',ran_at=NULL,ran_by_user_id=NULL WHERE id=? AND agency_id=?",[pid,agencyId]);
+   }
+  }
   await db.execute("UPDATE payroll_pto_requests SET status='approved',approved_by_user_id=?,approved_at=NOW(),approved_payroll_period_id=?,approved_rates_json=?,rejected_by_user_id=NULL,rejected_at=NULL,rejection_reason=NULL WHERE id=? AND agency_id=?",[actorId,rates[0].payrollPeriodId,JSON.stringify(rates),requestId,agencyId]);
-  if(!providedDb)await db.commit();return {ok:true,affectedPayrollPeriodIds:[...payments.keys()],skippedDates:[],failedPeriods:[],rates};
+  if(!providedDb)await db.commit();return {ok:true,affectedPayrollPeriodIds:[...payments.keys()],skippedDates:[],failedPeriods:[],rates,approvedHours:total,remainingHours:split.remainingHours,remainderRequestId};
  }catch(e){if(!providedDb)await db.rollback();throw e;}finally{if(!providedDb)db.release();}
 }

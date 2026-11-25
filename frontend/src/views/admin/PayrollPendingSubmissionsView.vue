@@ -132,7 +132,7 @@
                   'row-highlight': focusUserId && Number(r.user_id) === focusUserId
                 }"
               >
-                <td>{{ nameForUserId(r.user_id) }}</td>
+                <td>{{ nameForUserId(r.user_id) }}<div v-if="r.status === 'submitted'"><a :href="ptoRateSettingsPath(r)" target="_blank" rel="noopener noreferrer">PTO rate settings ↗</a></div></td>
                 <td>{{ reportViewerDateTime(r.created_at) }}</td>
                 <td>{{ submitterLabel(r) }}</td>
                 <td>{{ r.request_type==='school_support' ? 'School Support Hours' : String(r.request_type || '').toLowerCase() === 'training' ? 'Training PTO' : 'Sick Leave' }}<div v-if="r.request_type === 'training'" class="muted">{{ r.training_description }}<span v-if="r.training_cost != null"> · Reported cost: ${{ Number(r.training_cost).toFixed(2) }}</span></div></td>
@@ -156,6 +156,7 @@
                         {{ periodRangeLabel(p) }}{{ isPeriodLocked(p) ? ' (locked)' : '' }}
                       </option>
                     </select>
+                    <PtoApprovalHours v-model="ptoApprovalHoursById[r.id]" :total-hours="Number(r.total_hours)" :person-label="nameForUserId(r.user_id)" :disabled="busyId === `pto-${r.id}`" :allow-partial="!r.source_appointment_id" />
                   </template>
                   <span v-else-if="r.approved_period_start" class="muted" style="font-size:12px;">
                     {{ String(r.approved_period_start).slice(0,10) }} – {{ String(r.approved_period_end || '').slice(0,10) }}
@@ -921,6 +922,7 @@
 
 <script setup>
 import { usePayrollClaimReview, claimKey } from '../../composables/usePayrollClaimReview';
+import PtoApprovalHours from '../../components/payroll/PtoApprovalHours.vue';
 import FundThredPayrollBrand from '../../components/payroll/FundThredPayrollBrand.vue';
 import { useFundThredBranding } from '../../composables/useFundThredBranding';
 import { payrollPeriodChoices, scheduledPayrollPeriods, payrollPeriodLocked, payrollToday } from '../../utils/payrollPeriodChoices';
@@ -972,6 +974,7 @@ const focusUserId = ref(null);
 const ptoRequests = ref([]);
 const ptoStatusFilter = ref(['submitted']);
 const ptoTargetById = reactive({});
+const ptoApprovalHoursById = reactive({});
 const ptoBalancesByUserId = ref({});
 
 const timeClaims = ref([]);
@@ -1534,10 +1537,12 @@ const ptoDefaultTarget = (r) => {
   return Number(defaultTargetPeriodId.value || 0) || null;
 };
 
+const ptoRateSettingsPath = r => `${route.params?.organizationSlug ? '/' + route.params.organizationSlug : ''}/admin/users/${Number(r.user_id)}?tab=payroll`;
+
 const ptoBalancePreview = (r) => {
   const uid = Number(r?.user_id || 0);
   const b = ptoBalancesByUserId.value?.[uid] || { sickHours: 0, trainingHours: 0 };
-  const hours = Number(r?.total_hours || 0);
+  const hours = Number(ptoApprovalHoursById[r.id] ?? r.total_hours ?? 0);
   const bucket = r?.request_type==='school_support'?'school_support':String(r?.request_type || '').toLowerCase() === 'training' ? 'training' : 'sick';
   const start = Number(b[bucket==='school_support'?'schoolSupportHours':bucket==='training'?'trainingHours':'sickHours']||0);
   return { start, next: start - (Number.isFinite(hours) ? hours : 0) };
@@ -1631,6 +1636,7 @@ const loadPto = async () => {
   if (agencyId.value !== requestedAgencyId) return;
   ptoRequests.value = (resp.data || []).filter((r) => !!r && typeof r === 'object');
   for (const r of ptoRequests.value) {
+    if (ptoApprovalHoursById[r.id] == null || Number(ptoApprovalHoursById[r.id]) > Number(r.total_hours)) ptoApprovalHoursById[r.id] = Number(r.total_hours);
     if (!isValidOpenPeriod(ptoTargetById[r.id])) ptoTargetById[r.id] = ptoDefaultTarget(r);
   }
   const ids = Array.from(new Set(ptoRequests.value.map((x) => Number(x?.user_id || 0)).filter((n) => n > 0)));
@@ -1965,6 +1971,11 @@ const withBusy = async (id, fn, reloadFn) => {
 };
 
 const approvePto = (r) => {
+  const approvalHours = Number(ptoApprovalHoursById[r.id] ?? r.total_hours);
+  if (!Number.isFinite(approvalHours) || approvalHours <= 0 || approvalHours > Number(r.total_hours)) {
+    actionError.value = 'Choose approval hours greater than zero and no more than the requested hours.';
+    return;
+  }
   const targetPayrollPeriodId = Number(ptoTargetById[r.id] || 0);
   if (!isValidOpenPeriod(targetPayrollPeriodId)) {
     actionError.value = 'Choose an open target pay period for this PTO request.';
@@ -1976,6 +1987,7 @@ const approvePto = (r) => {
       api.patch(`/payroll/pto-requests/${r.id}`, {
         action: 'approve',
         targetPayrollPeriodId,
+        approvalHours,
         ...override
       }),
     async () => {
@@ -2324,7 +2336,7 @@ watch(agencyId, async (id, prev) => {
   approvedTimeClaims.value = [];
   approvedMileageClaims.value = [];
   eventTimeSubmissions.value = [];
-  for (const map of [claimTargetByKey, ptoTargetById, timeBucketById, timeHoursOverrideById, approvedTimeEdits, approvedMileageEdits, mileageTierById, eventTimeTargetPeriodByPunchId]) {
+  for (const map of [claimTargetByKey, ptoTargetById, ptoApprovalHoursById, timeBucketById, timeHoursOverrideById, approvedTimeEdits, approvedMileageEdits, mileageTierById, eventTimeTargetPeriodByPunchId]) {
     for (const key of Object.keys(map)) delete map[key];
   }
   if (id) await reloadAll();

@@ -147,3 +147,32 @@ it('saves an explicit no-change review and does not use a waiver for it',async()
  db.exec('INSERT INTO payroll_service_code_rules VALUES(2,\'90834\',1,1,\'direct\',\'credit\')');const r=await review();expect(r.adjustmentAmount).toBe(0);expect(r.canConfirmNoChange).toBe(true);
  await resolvePayrollCorrection({...args,reviewToken:r.reviewToken,actorUserId:501,resolution:'no_change',confirmed:true},async()=>conn);expect(db.prepare('SELECT resolution FROM payroll_correction_resolutions').get().resolution).toBe('no_change');
 });
+
+it('reviews a unique client-name-only change without recalculating historical pay and requires an explicit same-service confirmation',async()=>{
+ db.exec("UPDATE payroll_import_rows SET service_code='90837',unit_count=1,patient_first_name='Corrected client' WHERE id=2");
+ const r=await review();expect(r.identityReview).toEqual({originalClient:'Test client',reportedClient:'Corrected client',requiresConfirmation:true});
+ expect(r).toMatchObject({adjustmentAmount:0,canConfirmNoChange:true,canPostAdjustment:false,canWaive:false});expect(r.original.total).toBe(30);expect(r.corrected.total).toBe(30);
+ const resolution={...args,reviewToken:r.reviewToken,actorUserId:501,resolution:'no_change',confirmed:true};
+ await expect(resolvePayrollCorrection(resolution,async()=>conn)).rejects.toMatchObject({status:400,message:expect.stringContaining('same service')});
+ await resolvePayrollCorrection({...resolution,identityConfirmed:true},async()=>conn);
+ const saved=db.prepare('SELECT * FROM payroll_correction_resolutions').get();expect(JSON.parse(saved.review_json).identityReview.reportedClient).toBe('Corrected client');
+ expect(db.prepare('SELECT COUNT(*) n FROM payroll_manual_pay_lines').get().n).toBe(0);expect(db.prepare('SELECT status FROM payroll_periods WHERE id=11').get().status).toBe('posted');
+});
+it('cannot use a name change to authorize a financial correction or pair ambiguous sessions',async()=>{
+ db.exec("UPDATE payroll_import_rows SET service_code='90837',unit_count=1,patient_first_name='Corrected client' WHERE id=2");
+ const r=await review();await expect(post(r.reviewToken)).rejects.toMatchObject({status:409});
+ db.exec("INSERT INTO payroll_import_rows SELECT 3,agency_id,payroll_period_id,101,user_id,provider_name,'Another client',service_date,service_code,note_status,draft_payable,unit_count,'another' FROM payroll_import_rows WHERE id=1");
+ await expect(review()).rejects.toMatchObject({status:400,message:expect.stringContaining('More than one')});
+ expect(db.prepare('SELECT COUNT(*) n FROM payroll_manual_pay_lines').get().n).toBe(0);
+});
+it('does not pair a name change when either client already has an exact session in the opposite report',async()=>{
+ db.exec("UPDATE payroll_import_rows SET service_code='90837',unit_count=1,patient_first_name='Corrected client' WHERE id=2");
+ db.exec("INSERT INTO payroll_import_rows SELECT 3,agency_id,payroll_period_id,101,user_id,provider_name,patient_first_name,service_date,service_code,note_status,draft_payable,unit_count,'already-existed' FROM payroll_import_rows WHERE id=2");
+ await expect(review()).rejects.toMatchObject({status:400});
+});
+it('invalidates a name-review token when the source name changes again',async()=>{
+ db.exec("UPDATE payroll_import_rows SET service_code='90837',unit_count=1,patient_first_name='Corrected client' WHERE id=2");const r=await review();
+ db.exec("UPDATE payroll_import_rows SET patient_first_name='Another spelling' WHERE id=2");
+ await expect(resolvePayrollCorrection({...args,reviewToken:r.reviewToken,actorUserId:501,resolution:'no_change',confirmed:true,identityConfirmed:true},async()=>conn)).rejects.toMatchObject({status:409});
+ expect(db.prepare('SELECT COUNT(*) n FROM payroll_correction_resolutions').get().n).toBe(0);
+});

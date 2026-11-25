@@ -10,7 +10,7 @@ const identity = row => [Number(row?.user_id || 0) || norm(row?.provider_name), 
 
 export function catchupIsPayableAddition(row) {
   if (!(Number(row?.user_id) > 0) || !(Number(row?.to_units) > 0)) return false;
-  if (['overpaid_deleted', 'removed', 'location_changed', 'service_code_changed', 'code_change', 'ambiguous_correction'].includes(type(row))) return false;
+  if (['overpaid_deleted', 'removed', 'location_changed', 'service_code_changed', 'code_change', 'ambiguous_correction', 'identity_changed'].includes(type(row))) return false;
   return payableStatuses.has(status(row?.to_status)) && !payableStatuses.has(status(row?.from_status));
 }
 
@@ -75,7 +75,7 @@ export function appliedCatchupKeys(staging) {
 export function catchupPayrollRank(row, added = false) {
   if (added) return 9;
   if (catchupIsPayableAddition(row)) return status(row.to_status) === 'FINALIZED' ? 0 : 1;
-  if (['service_code_changed','code_change','unit_change'].includes(type(row))) return 2;
+  if (['service_code_changed','code_change','unit_change','identity_changed'].includes(type(row))) return 2;
   if (type(row) === 'overpaid_deleted') return 3;
   return 4;
 }

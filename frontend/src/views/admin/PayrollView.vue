@@ -3231,6 +3231,7 @@
                             <option :value="null" disabled>— choose period —</option>
                             <option v-for="p in periodsForSelect" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
                           </select>
+                          <PtoApprovalHours v-model="ptoApprovalHoursById[r.id]" :total-hours="Number(r.total_hours)" :person-label="nameForUserId(r.user_id)" :disabled="approvingPtoRequestId === r.id" :allow-partial="!r.source_appointment_id" />
                         </template>
                         <span v-else-if="r.approved_period_start" class="muted" style="font-size: 12px;">
                           {{ String(r.approved_period_start || '').slice(0,10) }} – {{ String(r.approved_period_end || '').slice(0,10) }}
@@ -6551,6 +6552,7 @@
 </template>
 
 <script setup>
+import PtoApprovalHours from '../../components/payroll/PtoApprovalHours.vue';
 import FundThredPayrollBrand from '../../components/payroll/FundThredPayrollBrand.vue';
 import { useFundThredBranding } from '../../composables/useFundThredBranding';
 import { payrollPeriodChoices } from '../../utils/payrollPeriodChoices';
@@ -7108,6 +7110,7 @@ const pendingPtoError = ref('');
 const approvingPtoRequestId = ref(null);
 const ptoBalancesByUserId = ref({}); // userId -> { sickHours, trainingHours }
 const ptoTargetPeriodByRequestId = ref({});
+const ptoApprovalHoursById = ref({});
 const pendingPtoMode = ref('period'); // 'period' | 'all'
 // Status filter chips — default to showing only pending (submitted) requests.
 const ptoStatusFilter = ref(['submitted']);
@@ -9656,7 +9659,7 @@ const reloadPendingPtoRequests = async () => {
 const ptoBalancePreviewForRequest = (r) => {
   const uid = Number(r?.user_id || 0);
   const b = ptoBalancesByUserId.value?.[uid] || { sickHours: 0, trainingHours: 0 };
-  const hours = Number(r?.total_hours || 0);
+  const hours = Number(ptoApprovalHoursById.value[r.id] ?? r.total_hours ?? 0);
   const bucket = r?.request_type==='school_support'?'school_support':String(r?.request_type || '').toLowerCase() === 'training' ? 'training' : 'sick';
   const start = Number(b[bucket==='school_support'?'schoolSupportHours':bucket==='training'?'trainingHours':'sickHours']||0);
   const requested = Number.isFinite(hours) ? hours : 0;
@@ -9666,6 +9669,11 @@ const ptoBalancePreviewForRequest = (r) => {
 
 const approvePtoRequest = async (r) => {
   if (!r?.id) return;
+  const approvalHours = Number(ptoApprovalHoursById.value[r.id] ?? r.total_hours);
+  if (!Number.isFinite(approvalHours) || approvalHours <= 0 || approvalHours > Number(r.total_hours)) {
+    pendingPtoError.value = 'Choose approval hours greater than zero and no more than the requested hours.';
+    return;
+  }
   const targetPayrollPeriodId = Number(ptoTargetPeriodByRequestId.value?.[r.id] || 0);
   if (!Number.isFinite(targetPayrollPeriodId) || targetPayrollPeriodId <= 0) {
     pendingPtoError.value = 'Choose a target pay period for this PTO request.';
@@ -9679,7 +9687,7 @@ const approvePtoRequest = async (r) => {
     approvingPtoRequestId.value = r.id;
     pendingPtoError.value = '';
     try {
-      await api.patch(`/payroll/pto-requests/${r.id}`, { action: 'approve', targetPayrollPeriodId });
+      await api.patch(`/payroll/pto-requests/${r.id}`, { action: 'approve', approvalHours, targetPayrollPeriodId });
     } catch (e) {
       const status = e.response?.status || 0;
       const msg = e.response?.data?.error?.message || e.message || '';
@@ -9692,13 +9700,13 @@ const approvePtoRequest = async (r) => {
           `${msg}\n\nApprove anyway using an admin override? (This can result in a negative PTO balance.)`
         );
         if (!ok) throw e;
-        await api.patch(`/payroll/pto-requests/${r.id}`, { action: 'approve', targetPayrollPeriodId, overrideBalance: true });
+        await api.patch(`/payroll/pto-requests/${r.id}`, { action: 'approve', approvalHours, targetPayrollPeriodId, overrideBalance: true });
       } else if ((status === 409 || status === 500) && looksLikeDeadline) {
         const ok = window.confirm(
           `${msg || 'This request was submitted after the cutoff for the intended pay period.'}\n\nApprove anyway using an admin override?`
         );
         if (!ok) throw e;
-        await api.patch(`/payroll/pto-requests/${r.id}`, { action: 'approve', targetPayrollPeriodId, overrideDeadline: true });
+        await api.patch(`/payroll/pto-requests/${r.id}`, { action: 'approve', approvalHours, targetPayrollPeriodId, overrideDeadline: true });
       } else {
         throw e;
       }

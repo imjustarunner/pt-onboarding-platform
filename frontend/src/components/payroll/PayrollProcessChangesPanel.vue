@@ -230,7 +230,7 @@ const appliedKeys = ref(new Set());
 const reviewChange = ref(null);
 const resolutions = ref([]);
 const resolutionFor = c => resolutions.value.find(r => Number(r.source_payroll_period_id) === Number(c.sourcePayrollPeriodId) && Number(r.baseline_row_id) === Number(c.metadata_json?.baselineRowId));
-const isCorrection = c => ['service_code_changed','code_change','unit_change','ambiguous_correction','overpaid_deleted'].includes(String(c?.changeType || '').toLowerCase());
+const isCorrection = c => ['service_code_changed','code_change','unit_change','ambiguous_correction','identity_changed','overpaid_deleted'].includes(String(c?.changeType || '').toLowerCase());
 const onReductionPosted = async () => { reviewChange.value = null; await reloadAll(); emit('applied'); };
 let requestVersion = 0;
 
@@ -259,6 +259,7 @@ const changeTypeLabel = (type) => {
   if (t === 'removed') return 'Removed in selected run';
   if (t === 'location_changed') return 'Place of service changed';
   if (t === 'service_code_changed') return 'Service code changed';
+  if (t === 'identity_changed') return 'Client name changed — confirm same service';
   if (t === 'ambiguous_correction') return 'Possible correction — review source sessions';
   if (t === 'overpaid_deleted') return 'Previously paid row removed — review';
   return type || 'Changed';
@@ -307,6 +308,7 @@ const payableTypeBadge = (c) => {
   if (changeType === 'location_changed') return 'Review location';
   if (changeType === 'service_code_changed' || changeType === 'code_change') return 'Review code';
   if (changeType === 'unit_change') return 'Review units';
+  if (changeType === 'identity_changed') return 'Review name';
   if (changeType === 'ambiguous_correction') return 'Review correction';
   const to = String(c?.to_status || '').toUpperCase();
   if (to === 'DRAFT_PAID') return 'Ready to add · payable draft';
@@ -765,7 +767,7 @@ const buildSection = async ({
   const changes = pairCatchupCorrections(audit.changes || []).map(c => ({...c,sourcePayrollPeriodId:periodId}));
   const compareRows = audit.compareRows || [];
   const actionable = changes.filter(c => canAddAsCarryover(c) || canAddAsReduction(c)
-    || ['service_code_changed','code_change','ambiguous_correction'].includes(String(c.changeType || '').toLowerCase())
+    || ['service_code_changed','code_change','ambiguous_correction','identity_changed'].includes(String(c.changeType || '').toLowerCase())
     || (c.changeType === 'unit_change' && ['FINALIZED','DRAFT_PAID'].includes(String(c.from_status || '').toUpperCase())));
   const persistentNoNotes = buildPersistentNoNotes(baselineRows, compareRows);
 

@@ -129,3 +129,10 @@ it('restores an audited waiver and allows Continue without adding any pay',async
  changes=[change({changeType:'code_change',from_status:'DRAFT_PAID',from_service_code:'H0032',metadata_json:{baselineRowId:1,compareRowId:2}})];resolutions=[{id:9,source_payroll_period_id:11,baseline_row_id:1,resolution:'waived',first_name:'Payroll',last_name:'Reviewer',reason:'Approved waiver',created_at:'2026-11-11'}];
  const w=mount(Panel,{props});await flushPromises();expect(w.text()).toContain('Correction waived');expect(readiness(w)).toMatchObject({ready:true,pendingCount:0});expect(api.post).not.toHaveBeenCalled();w.unmount();
 });
+
+it('requires review for a name-only change and clears the blocker only after a saved decision',async()=>{
+ changes=[change({changeType:'identity_changed',from_status:'FINALIZED',to_status:'FINALIZED',metadata_json:{baselineRowId:1,compareRowId:2}})];
+ let w=mount(Panel,{props});await flushPromises();expect(w.text()).toContain('Client name changed');expect(button(w,'Review name')).toBeTruthy();expect(readiness(w)).toMatchObject({ready:false,pendingCount:1});expect(catchupIsPayableAddition(changes[0])).toBe(false);w.unmount();
+ resolutions=[{source_payroll_period_id:11,baseline_row_id:1,resolution:'no_change',reviewed_by_user_id:9,first_name:'Reviewer'}];
+ w=mount(Panel,{props});await flushPromises();expect(w.text()).toContain('Reviewed — no pay change');expect(readiness(w)).toMatchObject({ready:true,pendingCount:0});expect(api.post).not.toHaveBeenCalled();w.unmount();
+});
