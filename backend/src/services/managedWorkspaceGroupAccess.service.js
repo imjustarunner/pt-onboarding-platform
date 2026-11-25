@@ -1,6 +1,7 @@
 import pool from '../config/database.js';
 import { activeManagedStaff, managedDomain } from './managedWorkspaceGroupPolicy.js';
 import { DEPARTMENTAL_GROUPS, assertDepartmentalGroupAccess } from './departmentalGroupAccess.service.js';
+import { isFoundersGroup } from './foundersGroupPolicy.js';
 const emails = value => (Array.isArray(value) ? value : [value]).flatMap(v => String(v || '').match(/[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9.-]+\.[a-z]{2,}/gi) || []).map(e => e.toLowerCase());
 const json = value => typeof value === 'string' ? JSON.parse(value || '[]') : value || [];
 async function findGroups(where, params) {
@@ -37,7 +38,7 @@ export async function managedGroupEnvelope({to,cc=null,bcc=null,actorUserId}) {
   const targets=[...new Set([...emails(to),...emails(cc),...emails(bcc)])];
   if(!targets.length)return {to,cc,bcc};
   const placeholders=targets.map(()=>'?').join(',');
-  const groups=(await findGroups(`LOWER(g.email) IN (${placeholders}) OR (g.group_key='spanish' AND REPLACE(LOWER(g.email),'spanish@','espanol@') IN (${placeholders}))`,[...targets,...targets])).filter(group=>!DEPARTMENTAL_GROUPS[group.group_key]);
+  const groups=(await findGroups(`LOWER(g.email) IN (${placeholders}) OR (g.group_key='spanish' AND REPLACE(LOWER(g.email),'spanish@','espanol@') IN (${placeholders}))`,[...targets,...targets])).filter(group=>!DEPARTMENTAL_GROUPS[group.group_key] && !isFoundersGroup(group));
   if(!groups.length)return {to,cc,bcc};
   const expanded=new Set(),groupEmails=new Set();
   for(const group of groups) {

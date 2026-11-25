@@ -8,6 +8,8 @@ import pool from '../config/database.js';
 import GoogleWorkspaceEmailService from './googleWorkspaceEmail.service.js';
 import { HOGWARTS_TEST_INBOX } from '../utils/hogwartsTestEmail.js';
 
+import { hiringInviteReceiptTemplate } from './hiringInviteMailPolicy.js';
+
 export const AUTOMATION_OPS_ALERT_TEMPLATE = 'automation_ops_alert';
 
 function escapeHtml(value) {
@@ -102,6 +104,11 @@ export async function notifyTestingInboxOfHeldEmail({
 } = {}) {
   try {
     const tpl = String(templateType || '').trim().toLowerCase();
+    // Invitation bodies and custom subjects can contain candidate credentials.
+    if (hiringInviteReceiptTemplate(tpl)) {
+      subject = 'Candidate portal invitation';
+      bodyPreview = null;
+    }
     if (tpl === AUTOMATION_OPS_ALERT_TEMPLATE) return { skipped: true, reason: 'ops_alert' };
     if (metadata?.opsAlert === true) return { skipped: true, reason: 'ops_alert' };
     // Successful demo redirects are intentional sends — not holds.

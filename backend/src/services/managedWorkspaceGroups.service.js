@@ -10,6 +10,8 @@ import { withMessagingJobLock } from './messagingJobLock.service.js';
 import { ensureDepartmentalSenderReady } from './departmentalSenderReadiness.service.js';
 import { scopeDepartmentalStaff } from './departmentalGroupAccess.service.js';
 
+import { FOUNDERS_GROUP_KEY } from './foundersGroupPolicy.js';
+
 const normalize = value => String(value || '').trim().toLowerCase();
 const relay = 'ai@plottwistco.com';
 const status = e => Number(e?.code || e?.response?.status);
@@ -194,9 +196,8 @@ export async function reconcileManagedWorkspaceGroups({ apply=false, agencyIds=n
         if(!plans.some(p=>['interns','unlicensed','prelicensed','licensed'].includes(p.key) && p.userIds.includes(Number(row.id))) && ['provider','provider_plus','intern','intern_plus'].includes(row.role)) report.unclassified.push(row.id);
       }
       for(const plan of plans) {
-        // People Operations remains outside this rollout, including any older
-        // manually managed entry. Do not change its membership or delivery.
-        if (['po','people_operations','peopleoperations'].includes(plan.key)) continue;
+        // People Operations and Founders are maintained outside staff-group sync.
+        if (['po','people_operations','peopleoperations',FOUNDERS_GROUP_KEY].includes(plan.key)) continue;
         if(plan.ticketed && (!configuredDepartments.get(plan.key)?.endsWith(`@${report.domain}`)))continue;
         if(!plan.ticketed && enrolledOnly && !explicitlyEnrolled(agency))continue;
         if(!plan.ticketed && !managedDomain(agency))continue;

@@ -2,6 +2,7 @@ import { maybeDecryptNotePayload } from './clinicalNoteCrypto.service.js';
 import EmailService from './email.service.js';
 import UserCommunication from '../models/UserCommunication.model.js';
 import {sendEmailFromIdentity} from './unifiedEmail/unifiedEmailSender.service.js';
+import { hiringInviteReceiptTemplate, hiringInviteTemplateForReceipt } from './hiringInviteMailPolicy.js';
 
 export async function communicationRecordAttachments(comm,meta,userId){
   if(comm.template_type==='payroll_posted_reconciliation'){
@@ -44,6 +45,21 @@ export async function sendCommunicationRecord(comm,meta,userId,{attachments=null
       return sendEnrollmentPortalEmail({...message,agencyId:comm.agency_id,enrollmentChannel:'tutoring',locale:link.language_code||'en'});
     }
   }
+  const inviteTemplate = hiringInviteTemplateForReceipt(comm.template_type);
+  if (inviteTemplate) {
+    const { sendHiringInviteReceipt } = await import('./hiringInviteDelivery.service.js');
+    return sendHiringInviteReceipt({
+      agencyId: comm.agency_id, userId: comm.user_id, templateType: inviteTemplate,
+      generatedByUserId: userId, source: 'manual', existingCommunicationId: comm.id
+    });
+  }
+  if (hiringInviteReceiptTemplate(comm.template_type)) {
+    const { hiringInviteRetryRouting } = await import('./hiringInviteDelivery.service.js');
+    const routing = await hiringInviteRetryRouting(comm.agency_id, comm.user_id, comm.recipient_address);
+    return sendEmailFromIdentity({
+      ...message, cc: null, senderIdentityId: routing.senderIdentityId, replyToOverride: routing.peopleOperationsEmail
+    });
+  }
   if(senderIdentityId)return sendEmailFromIdentity({...message,senderIdentityId,
     fromDisplayNameOverride:meta.fromDisplayName||meta.fromName||null,
     internetMessageIdOverride:meta.internetMessageIdOverride||null,replyToOverride:meta.replyTo||null});
@@ -58,5 +74,14 @@ export async function recordCommunicationSent(comm,meta,result,actorUserId,{appr
   const sentMeta={...meta,...(approved?{approvedByUserId:actorUserId,approvedAt:at}:{retriedByUserId:actorUserId,retriedAt:at}),...(result.threadId?{threadId:result.threadId}:{}),...(result.relay?{relay:result.relay,internetMessageId:result.internetMessageId||result.relay.messageId}:{})};
   for(const key of ['privateDocumentEnvelope','qualityFlags','qualityBlockedAt','failedListRemovedAt','failedListRemovedByUserId'])delete sentMeta[key];
   // The fourth model argument is a delivery timestamp, never Gmail's thread ID.
-  return UserCommunication.updateDeliveryStatus(comm.id,'sent',providerMessageId,null,null,sentMeta);
+  const updated = await UserCommunication.updateDeliveryStatus(comm.id,'sent',providerMessageId,null,null,sentMeta);
+  if (updated && !result.redirected && hiringInviteReceiptTemplate(comm.template_type)) {
+    const { copySuccessfulHiringInvite } = await import('./hiringInviteDelivery.service.js');
+    const peopleOperationsCopy = await copySuccessfulHiringInvite({
+      agencyId: comm.agency_id, userId: comm.user_id, templateType: comm.template_type,
+      generatedByUserId: actorUserId, source: 'manual'
+    });
+    return { ...updated, peopleOperationsCopy };
+  }
+  return updated;
 }

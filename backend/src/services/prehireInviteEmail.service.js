@@ -7,12 +7,12 @@ import pool from '../config/database.js';
 import {queueHiringNotification,hiringNotificationSnapshot} from './hiringNotification.service.js';
 import {createHash} from 'node:crypto';
 import User from '../models/User.model.js';
-import { resolveHiringReferenceReplyTo } from './hiringReferenceIdentity.service.js';
 import { referenceEmailFrame } from './hiringReferenceEmail.service.js';
-import { sendNotificationEmail } from './unifiedEmail/unifiedEmailSender.service.js';
-import { HOGWARTS_TEST_INBOX } from '../utils/hogwartsTestEmail.js';
+import { PREHIRE_PORTAL_ACCESS_TRIGGER } from './hiringInviteMailPolicy.js';
+import { resolveHiringInviteRouting, sendHiringPortalInvitation } from './hiringInviteDelivery.service.js';
 
-export const PREHIRE_PORTAL_ACCESS_TRIGGER = 'pre_hire_admin_review_access';
+export { PREHIRE_PORTAL_ACCESS_TRIGGER };
+export { hiringInviteDelivery as prehireInviteDelivery } from './hiringInviteDelivery.service.js';
 
 function escHtml(str) {
   return String(str || '')
@@ -39,18 +39,6 @@ function parseObject(raw) {
   if (!raw) return {};
   if (typeof raw === 'object') return raw;
   try { return JSON.parse(raw); } catch { return {}; }
-}
-
-export function prehireInviteDelivery(result, recipientEmail) {
-  const status = result?.pendingApproval || result?.queued ? 'pending'
-    : result?.skipped || result?.blocked || result?.failed ? 'failed'
-      : result?.id ? 'sent' : 'failed';
-  return {
-    ...result,
-    status,
-    recipientEmail,
-    deliveredTo: status === 'sent' ? (result.redirected ? HOGWARTS_TEST_INBOX : recipientEmail) : null
-  };
 }
 
 export function formatOfferDate(value) {
@@ -157,7 +145,7 @@ async function prepareInvitation({
   }
 
   const [agencyRows] = await pool.execute(
-    `SELECT prehire_settings, name, official_name, logo_url, logo_path, color_palette, careers_page_json
+    `SELECT prehire_settings, slug, name, official_name, logo_url, logo_path, color_palette, careers_page_json
      FROM agencies WHERE id = ? LIMIT 1`,
     [agencyId]
   );
@@ -239,33 +227,35 @@ async function prepareInvitation({
   if (!text.includes(portalLink)) text += `\n\nYour private pre-hire portal: ${portalLink}`;
   if (customBodyTrim) html += `<p><a href="${escHtml(portalLink)}" style="background:#143e33;color:white;padding:12px 24px;border-radius:8px;display:inline-block;text-decoration:none">Open your private pre-hire portal</a></p><p>This private link is valid for 7 days. Contact People Operations if you need a new link.</p>`;
 
-  const peopleOperationsEmail = String(await resolveHiringReferenceReplyTo(agencyId).catch(() => null) || '').trim();
+  const routing = await resolveHiringInviteRouting(agencyId, agencyRow);
   return {
-    user, agency: agencyRow, jobTitle, recipientEmail, subject, text,
-    html: referenceEmailFrame({ agency: agencyRow, heading: 'Your pre-hire invitation', body: html, marketing: false }),
-    peopleOperationsEmail: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(peopleOperationsEmail) && peopleOperationsEmail.toLowerCase() !== recipientEmail.toLowerCase() ? peopleOperationsEmail : null
+    user, recipientEmail, subject, text, routing,
+    html: referenceEmailFrame({ agency: agencyRow, heading: 'Your pre-hire invitation', body: html, marketing: false })
   };
 }
 
 export async function previewPrehireInviteEmail(input) {
   const draft = await prepareInvitation({ ...input, portalLink: 'https://preview.invalid/pre-hire' });
-  const { recipientEmail, peopleOperationsEmail, subject, html } = draft;
-  return { recipientEmail, peopleOperationsEmail, subject, html };
+  const { recipientEmail, routing, subject, html } = draft;
+  return {
+    recipientEmail, subject, html,
+    peopleOperationsEmail: routing?.peopleOperationsEmail || null,
+    foundersEmail: routing?.foundersEmail || null
+  };
 }
 
 export async function sendPrehirePortalInviteEmail({ generatedByUserId = null, source = 'auto', ...input }) {
   const draft = await prepareInvitation(input);
   if (draft.skipped) return draft;
   const { agencyId, candidateUserId, portalLink } = input;
-  const { user, agency, recipientEmail, subject, text, html, jobTitle, peopleOperationsEmail } = draft;
+  const { user, recipientEmail, subject, text, html, routing } = draft;
   await queueHiringNotification({userId:candidateUserId,agencyId,type:'prehire_invite',
     key:`prehire_invite:${createHash('sha256').update(portalLink).digest('hex')}`,emailAlreadyHandled:true});
   const notificationSnapshot=await hiringNotificationSnapshot(candidateUserId,agencyId,user.status);
   await pool.execute('UPDATE hire_communication_preferences SET observed_snapshot=COALESCE(observed_snapshot,CAST(? AS JSON)) WHERE user_id=? AND agency_id=?',
     [JSON.stringify(notificationSnapshot),candidateUserId,agencyId]);
-  const result = await sendNotificationEmail({
+  return sendHiringPortalInvitation({
     agencyId,
-    triggerKey: PREHIRE_PORTAL_ACCESS_TRIGGER,
     to: recipientEmail,
     subject,
     useProvidedSubject: true,
@@ -275,26 +265,5 @@ export async function sendPrehirePortalInviteEmail({ generatedByUserId = null, s
     generatedByUserId,
     templateType: PREHIRE_PORTAL_ACCESS_TRIGGER,
     source
-  });
-  // Keep one audited delivery path. A held/blocked send is never a successful send.
-  const delivery = prehireInviteDelivery(result, recipientEmail);
-  if (delivery.status !== 'sent' || result.redirected) return delivery;
-  if (!peopleOperationsEmail) return { ...delivery, peopleOperationsCopy: { status: 'skipped', reason: 'no_people_operations_address' } };
-  // The candidate portal link is a bearer credential. The staff copy is built
-  // independently from candidate-facing subject, body, note and link.
-  const candidateName = [user.first_name, user.last_name].filter(Boolean).join(' ');
-  const receiptText = `${candidateName} (${recipientEmail}) was sent a pre-hire invitation${jobTitle ? ` for ${jobTitle}` : ''}.`;
-  let peopleOperationsCopy;
-  try {
-    const copy = await sendNotificationEmail({
-      agencyId, triggerKey: PREHIRE_PORTAL_ACCESS_TRIGGER, to: peopleOperationsEmail,
-      subject: 'Pre-hire invitation sent', useProvidedSubject: true, text: receiptText,
-      html: referenceEmailFrame({ agency, heading: 'Pre-hire invitation sent', body: textToHtml(receiptText), marketing: false }),
-      userId: candidateUserId, generatedByUserId, templateType: PREHIRE_PORTAL_ACCESS_TRIGGER, source
-    });
-    peopleOperationsCopy = prehireInviteDelivery(copy, peopleOperationsEmail);
-  } catch {
-    peopleOperationsCopy = { status: 'failed', recipientEmail: peopleOperationsEmail };
-  }
-  return { ...delivery, peopleOperationsCopy };
+  }, { user, routing });
 }

@@ -260,7 +260,7 @@
           <label>Subject <input v-model="inviteMessage.subject" type="text" maxlength="240" placeholder="Use the default subject" /></label>
           <label>Message <textarea v-model="inviteMessage.body" rows="5" maxlength="12000" placeholder="Use the default invitation message" /></label>
           <label>Personal note <textarea v-model="inviteMessage.note" rows="3" maxlength="4000" placeholder="Optional" /></label>
-          <p class="muted small">The invitation includes the offer details, checklist, and private portal link. People Operations receives a separate delivery receipt.</p>
+          <p class="muted small">The invitation includes the offer details, checklist, and private portal link. People Operations sends the invitation and receives replies. The staff receipt omits the private link and personal note.</p>
           <button class="btn btn-secondary" type="button" :disabled="emailPreviewLoading" @click="openEmailPreview">Preview HTML email</button>
           <p v-if="emailPreviewError" class="error" role="alert">{{ emailPreviewError }}</p>
         </fieldset>
@@ -275,7 +275,14 @@
       <dialog ref="emailPreviewDialog" class="sph-preview-dialog sph-email-dialog" aria-label="Invitation email preview">
         <header><strong>Invitation email preview</strong><button class="btn btn-secondary" type="button" @click="emailPreviewDialog.close()">Close</button></header>
         <template v-if="emailPreview">
-          <dl><dt>To</dt><dd>{{ emailPreview.recipientEmail }}</dd><dt>People Operations receipt</dt><dd>{{ emailPreview.peopleOperationsEmail || 'No People Operations email is configured' }}</dd><dt>Subject</dt><dd>{{ emailPreview.subject }}</dd></dl>
+          <dl>
+            <dt>From and reply to</dt><dd>{{ emailPreview.peopleOperationsEmail || 'Configure the People Operations sender' }}</dd>
+            <dt>To</dt><dd>{{ emailPreview.recipientEmail }}</dd>
+            <dt>Subject</dt><dd>{{ emailPreview.subject }}</dd>
+            <template v-if="emailPreview.peopleOperationsEmail">
+              <dt>Staff receipt</dt><dd>{{ emailPreview.peopleOperationsEmail }}<template v-if="emailPreview.foundersEmail"> · Bcc {{ emailPreview.foundersEmail }}</template></dd>
+            </template>
+          </dl>
           <iframe title="Branded invitation email" sandbox="" :srcdoc="emailPreview.html" />
         </template>
       </dialog>
@@ -289,8 +296,8 @@
         </button>
       </div>
       <p v-if="continueBlocker || setupStep === 5 && !tokenLink && sendBlocker" id="prehire-continue-reason" class="sph-warn" role="status">{{ continueBlocker || sendBlocker }}</p>
-      <p v-if="emailDelivery?.peopleOperationsCopy?.status === 'sent'" role="status">People Operations receipt sent to {{ emailDelivery.peopleOperationsCopy.recipientEmail }}.</p>
-      <p v-else-if="emailDelivery?.peopleOperationsCopy" role="status" class="sph-warn">{{ emailDelivery.peopleOperationsCopy.reason === 'no_people_operations_address' ? 'Set a People Operations email in the agency settings to receive invitation receipts.' : 'People Operations receipt delivery: ' + emailDelivery.peopleOperationsCopy.status + '.' }}</p>
+      <p v-if="emailDelivery?.peopleOperationsCopy?.status === 'sent'" role="status">Staff receipt sent to {{ emailDelivery.peopleOperationsCopy.deliveredTo }}<template v-if="emailDelivery.peopleOperationsCopy.foundersEmail"> with Founders blind-copied</template>.</p>
+      <p v-else-if="emailDelivery?.peopleOperationsCopy" role="status" class="sph-warn">{{ emailDelivery.peopleOperationsCopy.reason === 'no_people_operations_sender' ? 'Set a People Operations email in the agency settings to receive invitation receipts.' : 'People Operations receipt delivery: ' + emailDelivery.peopleOperationsCopy.status + '.' }}</p>
       <p v-if="tokenLink" role="status" :class="emailDelivery?.status === 'sent' ? 'sph-ok' : 'sph-warn'">{{ prehireInviteDeliveryMessage(emailDelivery) }}</p>
       <p v-if="tokenLink" class="sph-ok">
         Portal link created:

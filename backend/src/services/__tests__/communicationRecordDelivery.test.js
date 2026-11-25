@@ -1,5 +1,5 @@
 import {beforeEach,expect,it,vi} from 'vitest';
-const m=vi.hoisted(()=>({identity:vi.fn(),legacy:vi.fn(),attachments:vi.fn(),payrollAttachments:vi.fn(),update:vi.fn(),link:vi.fn(),enrollment:vi.fn()}));
+const m=vi.hoisted(()=>({identity:vi.fn(),legacy:vi.fn(),attachments:vi.fn(),payrollAttachments:vi.fn(),update:vi.fn(),link:vi.fn(),enrollment:vi.fn(),inviteRouting:vi.fn(),inviteCopy:vi.fn(),inviteReceipt:vi.fn()}));
 vi.mock('../../models/IntakeLink.model.js',()=>({default:{findById:m.link}}));
 vi.mock('../enrollmentPortalEmail.service.js',()=>({sendEnrollmentPortalEmail:m.enrollment}));
 vi.mock('../email.service.js',()=>({default:{sendEmail:m.legacy}}));
@@ -7,6 +7,9 @@ vi.mock('../unifiedEmail/unifiedEmailSender.service.js',()=>({sendEmailFromIdent
 vi.mock('../../models/UserCommunication.model.js',()=>({default:{updateDeliveryStatus:m.update}}));
 vi.mock('../familyLedger/receiptDeliveryRetry.js',()=>({receiptRetryAttachments:m.attachments}));
 vi.mock('../payrollReportEmail.service.js',()=>({default:{retryAttachments:m.payrollAttachments}}));
+vi.mock('../hiringInviteDelivery.service.js', () => ({
+  hiringInviteRetryRouting: m.inviteRouting, copySuccessfulHiringInvite: m.inviteCopy, sendHiringInviteReceipt: m.inviteReceipt
+}));
 import {sendCommunicationRecord,recordCommunicationSent,communicationRecordAttachments} from '../communicationRecordDelivery.service.js';
 import {validateOutboundEmailQuality} from '../outboundEmailQuality.service.js';
 const comm={id:100,agency_id:2,user_id:5,client_id:8,recipient_address:'payer@example.com',subject:'Receipt R-2-91',body:'<p>Your receipt is attached.</p>',template_type:'family_payment_receipt'};
@@ -43,4 +46,37 @@ it('recovers a failed tutoring receipt through its exact enrollment sender witho
  expect(m.enrollment).toHaveBeenCalledWith(expect.objectContaining({existingCommunicationId:6349,agencyId:453,enrollmentChannel:'tutoring'}));expect(m.legacy).not.toHaveBeenCalled();
  m.link.mockResolvedValue({organization_id:6,master_channel:'tutoring'});
  await expect(sendCommunicationRecord(failed,{intakeLinkId:355},1435)).rejects.toMatchObject({status:403});
+});
+
+it('rechecks the candidate and uses the current People Operations identity for a queued invite', async () => {
+  const invite = { ...comm, template_type: 'pre_hire_admin_review_access' };
+  m.inviteRouting.mockResolvedValue({ senderIdentityId: 18, peopleOperationsEmail: 'po@tenant.test' });
+  await sendCommunicationRecord(invite, { senderIdentityId: 7, cc: 'stale@tenant.test' }, 501);
+  expect(m.inviteRouting).toHaveBeenCalledWith(invite.agency_id, invite.user_id, invite.recipient_address);
+  expect(m.identity).toHaveBeenCalledWith(expect.objectContaining({
+    senderIdentityId: 18, to: invite.recipient_address, cc: null, replyToOverride: 'po@tenant.test'
+  }));
+});
+
+it('sends the staff copy after an approved invitation has been recorded as sent', async () => {
+  const invite = { ...comm, template_type: 'onboarding_portal_invite' };
+  m.update.mockResolvedValue({ id: 100, delivery_status: 'sent' });
+  m.inviteCopy.mockResolvedValue({ status: 'sent', foundersEmail: 'founders@tenant.test' });
+  const result = await recordCommunicationSent(invite, {}, { id: 'gmail-91' }, 501, { approved: true });
+  expect(result).toMatchObject({ delivery_status: 'sent', peopleOperationsCopy: { status: 'sent' } });
+  expect(m.inviteCopy).toHaveBeenCalledWith({
+    agencyId: invite.agency_id, userId: invite.user_id, templateType: invite.template_type,
+    generatedByUserId: 501, source: 'manual'
+  });
+  await recordCommunicationSent(invite, {}, { id: 'gmail-test', redirected: true }, 501);
+  expect(m.inviteCopy).toHaveBeenCalledTimes(1);
+});
+
+it('rebuilds a staff receipt on retry using the current route and generated body', async () => {
+  await sendCommunicationRecord({ ...comm, template_type: 'onboarding_invitation_receipt' }, { cc: 'stale@tenant.test' }, 501);
+  expect(m.inviteReceipt).toHaveBeenCalledWith({
+    agencyId: comm.agency_id, userId: comm.user_id, templateType: 'onboarding_portal_invite',
+    generatedByUserId: 501, source: 'manual', existingCommunicationId: comm.id
+  });
+  expect(m.identity).not.toHaveBeenCalled();
 });
