@@ -1,7 +1,8 @@
+vi.mock('../noteAidIntakeSources.service.js',()=>({buildClinicalIntakeSourceContext:m.intake}));
 vi.mock('../narrivaPlatformSettings.service.js',()=>({loadNarrivaSettings:async()=>({version:0,configuration:{}}),applyNarrivaWritingGuidance:async({prompt})=>({prompt,settingsVersion:0})}));
 import {buildAllNormalMse} from '../../../../frontend/src/utils/noteAidMseCatalog.js';
 import {beforeEach,describe,it,expect,vi} from 'vitest';
-const m=vi.hoisted(()=>({execute:vi.fn(),bound:vi.fn(),load:vi.fn(),agency:vi.fn(),model:vi.fn(),policy:vi.fn(),audit:vi.fn(),knowledge:vi.fn(),requireAgency:vi.fn(),guidance:vi.fn()}));
+const m=vi.hoisted(()=>({execute:vi.fn(),bound:vi.fn(),load:vi.fn(),agency:vi.fn(),model:vi.fn(),policy:vi.fn(),audit:vi.fn(),knowledge:vi.fn(),requireAgency:vi.fn(),guidance:vi.fn(),intake:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute},onTableWrite:()=>()=>{}}));
 vi.mock('../../models/Agency.model.js',()=>({default:{findById:m.agency}}));
 vi.mock('../clinicalNoteCrypto.service.js',()=>({maybeEncryptNotePayload:s=>'sealed:'+s,maybeDecryptNotePayload:s=>s?.startsWith('sealed:')?s.slice(7):s}));
@@ -24,7 +25,7 @@ const req=(user=supervisor,extra={})=>({user,body:{agencyId:2,noteId:25,...extra
 const drain=()=>new Promise(resolve=>setImmediate(resolve));
 async function completedReview(extra={}){const review=await createNarrivaReview(req(supervisor,extra));for(let i=0;i<3;i++)await drain();return readNarrivaReview(supervisor,review.id,2);}
 beforeEach(()=>{
- vi.clearAllMocks();m.bound.mockResolvedValue(null);rows=new Map();features={};riskRequired=false;referenceVersion=1;requiredReferenceComplete=true;supportCoverageComplete=true;
+ vi.clearAllMocks();m.intake.mockResolvedValue({contextText:'SYNTHETIC completed enrollment clinical answers',sources:[{submissionId:1,questionCount:8}],instruments:[]});m.bound.mockResolvedValue(null);rows=new Map();features={};riskRequired=false;referenceVersion=1;requiredReferenceComplete=true;supportCoverageComplete=true;
  source={agencyId:2,noteId:25,draftId:null,source:{id:25,agency_id:2,client_id:10,clinical_session_id:20,created_by_user_id:7,provider_signed_by_user_id:7,provider_signed_at:'2026-11-06T10:00:00Z',supervisor_cosigned_at:null,clinical_version_pending_id:null},
   meta:{toolId:'clinical_psychotherapy_note'},narrative:'Client reported anxiety impairing school attendance. Provider modeled paced breathing and practiced two rounds with Client. The breathing intervention addressed panic during school transitions. Client reported less tension after the breathing practice. Client completed the second round without prompts after three prompts initially. This practiced the existing coping goal of using one skill during school transitions. Client will practice this breathing skill before the next school transition.',inputText:'Factual Session Narrative.',
   client:{id:10,full_name:'Private Client',first_name:'Private',last_name:'Client',initials:'PC',email:'private@example.com'},provider:{first_name:'Private',last_name:'Provider'},identifiers:['Private Client','private@example.com'],
@@ -41,6 +42,7 @@ beforeEach(()=>{
   if(sql.startsWith('UPDATE narriva_reviews')){const row=rows.get(args[4]);Object.assign(row,{status:args[0],result_encrypted:args[1],risk_assessment_required:Math.max(row.risk_assessment_required||0,args[2]),completed_at:args[3]});return [{affectedRows:1}];}
   if(sql.startsWith('SELECT result_encrypted FROM narriva_reviews'))return [[...rows.values()].filter(row=>row.agency_id===args[0] && row.actor_user_id===args[1] && row.clinical_session_id===args[2] && row.draft_id===args[3] && !row.clinical_note_id && row.id<args[4] && row.completed_at).reverse().slice(0,4)];
   if(sql.includes('ORDER BY id DESC LIMIT 50'))return [[...rows.values()].filter(row=>Number(row.agency_id)===Number(args[0]) && Number(row.actor_user_id)===Number(args[1]) && Number(row.draft_id)===Number(args[2]) && Number(row.clinical_session_id)===Number(args[3])).sort((a,b)=>b.id-a.id)];
+  if(sql.startsWith('SELECT id,result_encrypted FROM narriva_reviews')){const row=rows.get(Number(args[0]));return [[row].filter(row=>row && row.status==='running' && Number(row.agency_id)===Number(args[1]) && Number(row.actor_user_id)===Number(args[2]))];}
   if(sql.startsWith('SELECT * FROM narriva_reviews'))return [[rows.get(Number(args[0]))].filter(Boolean)];
   return [[]];
  });
@@ -184,7 +186,7 @@ describe('Narriva pre-generation review', () => {
     expect(m.model.mock.calls[0][0].prompt).toContain('pre-generation check');
     await expect(assertNarrivaPreGeneration({user:clinician,body:{preflightReviewId:review.id}},{agencyId:2,clientId:10,draftId:42,clinicalSessionId:20,inputText:source.inputText})).resolves.toMatchObject({reviewId:review.id,keptAsIs:false});
   });
-  it('checks a private draft grounded in current ratings and never returns that draft to the reviewer',async()=>{
+  it('shows the checked draft to its author alongside current ratings',async()=>{
     const workingDraft='Private provisional wording for a synthetic session.';
     source.planReview={eligible:true,missing:[],objectives:[{goal:'Increase independence',objective:'Use the practiced strategy',rating:4,target:8}]};
     facts.draftReadyForDisplay=true;
@@ -198,10 +200,43 @@ describe('Narriva pre-generation review', () => {
     expect(writing).toContain('"rating":4');
     expect(checking).toContain(workingDraft);
     expect(checking).toContain('Unsupported assertions in the draft do not count');
-    expect(JSON.stringify(review)).not.toContain(workingDraft);
+    expect(review.draftPreview).toBe(workingDraft);
+    expect(review.workingDraft).toBeUndefined();
     const verified=await assertNarrivaPreGeneration({user:clinician,body:{preflightReviewId:review.id}},{agencyId:2,clientId:10,draftId:42,clinicalSessionId:20,inputText:source.inputText});
     expect(verified.workingDraft).toBe(workingDraft);
     expect(verified.reviewedWriter).toMatchObject({model:'reviewed-writer',guidanceHash:expect.any(String)});
+  });
+  it('publishes actual review stages while the draft is available only through an authorized read',async()=>{
+    let finish;
+    m.model.mockResolvedValueOnce({text:'Subjective: Synthetic source facts.\nPlan: Continue documented work.',modelName:'writer',finishReason:'STOP'})
+      .mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));
+    const review=await preflight();
+    expect(review.status).toBe('running');
+    expect(review.stage).toBe('checking');
+    expect(review.draftPreview).toContain('Synthetic source facts');
+    const heartbeat=await readNarrivaReview(clinician,review.id,2,{poll:true});
+    expect(heartbeat).toMatchObject({status:'running',heartbeat:true,stage:'checking',previewAvailable:true});
+    expect(heartbeat.draftPreview).toBeUndefined();
+    finish({text:JSON.stringify(facts),modelName:'checker'});await drain();await drain();
+    expect((await readNarrivaReview(clinician,review.id,2)).status).toBe('passed');
+  });
+  it('uses completed enrollment in both intake calls and excludes psychotherapy-only requirements',async()=>{
+    source.service.code='90791';
+    source.meta.toolId='clinical_90791_intake_plan';
+    source.clinical.hasDiagnosis=false;source.clinical.hasJustification=false;source.clinical.hasPresentingProblem=false;
+    facts.engagementDocumented=null;facts.progressDocumented=null;facts.goalsDocumented=null;facts.responseDocumented=null;
+    m.model.mockResolvedValueOnce({text:'Presenting Problem: Synthetic caregiver report of academic difficulty.\nPlan: Further differential assessment.',modelName:'reviewed-writer',finishReason:'STOP'});
+    const review=await preflight();
+    expect(review.status).toBe('passed');
+    expect(m.intake).toHaveBeenCalledWith({agencyId:2,clientId:10});
+    for(const [call] of m.model.mock.calls)expect(call.prompt).toContain('SYNTHETIC completed enrollment clinical answers');
+    expect(review.enrollmentSources).toEqual({submissions:1,clinicalAnswers:8,instruments:[]});
+    expect(review.draftPreview).toContain('Synthetic caregiver report');
+    expect(review.checks.flatMap(c=>c.findings)).toEqual([]);
+    const before=m.model.mock.calls.length;
+    const bypassSource=await readNarrivaReview(supervisor,review.id,2);
+    expect(bypassSource.draftPreview).toBeUndefined();
+    expect(m.model.mock.calls.length).toBe(before);
   });
   it('returns the objective prompt before starting a writing or compliance job',async()=>{
     source.planReview={eligible:true,missing:[52],objectives:[]};

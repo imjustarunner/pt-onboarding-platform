@@ -81,12 +81,14 @@ export function narrivaLocalContext({source,meta,session={},provider={},serviceR
  const h4BillingReview=(documentationCode || code)==='H0004'&&billing.requiresReview===true&&billing.reviewCode==='H0004_DURATION_OVER_LIMIT';
  const participantText=[context.participants || meta.participants || '',context.participantsDetail || ''].filter(Boolean).join(' ').trim();
  const participantLower=participantText.toLowerCase();
- const modality=String(narriva.modality || context.modality || meta.modality || session.modality || '').trim();
- const pos=String(context.placeOfService || meta.placeOfService || session.place_of_service || '');
+ let modality=String(narriva.modality || context.modality || meta.modality || session.modality || '').trim();
+ const pos=String(context.placeOfService || meta.placeOfService || session.place_of_service || '').padStart(2,'0');
+ // Older booked encounters retain a telehealth POS without a separate modality.
+ if(!modality && ['02','10'].includes(pos))modality='telehealth';
  const allowedPos=typeof rule.allowed_place_of_service_json==='string'?parse(rule.allowed_place_of_service_json):rule.allowedPlaceOfService || rule.allowed_place_of_service_json;
  const validMethod=['in_person','video','phone','in-person','telehealth','virtual'].includes(modality.toLowerCase());
  const remoteMethod=['video','phone','telehealth','virtual'].includes(modality.toLowerCase());
- const modalityAllowed=validMethod && (!Array.isArray(allowedPos) || !allowedPos.length || allowedPos.includes(pos)) && (remoteMethod?['02','10'].includes(pos):!['02','10'].includes(pos));
+ const modalityAllowed=validMethod && (!Array.isArray(allowedPos) || !allowedPos.length || allowedPos.map(value=>String(value).padStart(2,'0')).includes(pos)) && (remoteMethod?['02','10'].includes(pos):!['02','10'].includes(pos));
  const rawDiagnoses=[chart.diagnoses,chart.intakeDiagnoses,meta.diagnoses].find(value=>Array.isArray(value) && value.some(diagnosisCode)) || [];
  const diagnoses=Array.isArray(rawDiagnoses)?rawDiagnoses:[];
  return {

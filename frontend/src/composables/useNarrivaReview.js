@@ -27,7 +27,15 @@ export function useNarrivaReview({ agencyId, apiClient, base = '/narriva', pollM
       const result=await apiClient.get(`${base}/reviews/${review.value.id}`,{params:{agencyId:Number(unref(agencyId)),poll:1},skipGlobalLoading:true});
       if(current!==generation)return null;
       if(!result.data?.review?.id)throw new Error('Missing review');
-      if(!result.data.review.heartbeat)review.value=result.data.review;
+      if(result.data.review.heartbeat){
+        review.value={...review.value,stage:result.data.review.stage,phase:result.data.review.phase || review.value.phase,enrollmentSources:result.data.review.enrollmentSources || review.value.enrollmentSources};
+        if(result.data.review.previewAvailable && !review.value.draftPreview){
+          const preview=await apiClient.get(`${base}/reviews/${review.value.id}`,{params:{agencyId:Number(unref(agencyId))},skipGlobalLoading:true});
+          if(current!==generation)return null;
+          if(preview.data?.review?.id)review.value=preview.data.review;
+        }
+      }
+      else review.value=result.data.review;
     }
     return review.value;
   }

@@ -23,4 +23,13 @@ describe('one encounter location selector',()=>{
   await choose(w,'__telehealth_video__');expect(w.emitted('update:modelValue').at(-1)[0].billingOfficeLocationId).toBe(2);
   await choose(w,'10','Client’s location during telehealth');expect(w.emitted('update:modelValue').at(-1)[0]).toMatchObject({billingOfficeLocationId:2,serviceLocationId:3});w.unmount();
  });
+ it('restores legacy remote POS details and exposes the location field without inventing video delivery',async()=>{
+  const w=mount(Picker,{props:{choices,modelValue:{locationLabel:'Online — client away from home',placeOfService:'02',clientLocationDescription:'Private room at school'}}});
+  expect(w.get('select[aria-label="Location"]').element.value).toBe('__telehealth_unspecified__');
+  expect(w.get('input').element.value).toBe('Private room at school');
+  await choose(w,'__telehealth_video__');
+  expect(w.emitted('update:modelValue').at(-1)[0]).toMatchObject({modality:'video',placeOfService:'02',clientLocationDescription:'Private room at school'});
+  w.unmount();
+ });
+
 });

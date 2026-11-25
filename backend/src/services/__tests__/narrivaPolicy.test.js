@@ -1,6 +1,6 @@
 import { mergeSessionDiagnosis } from '../../../../frontend/src/utils/narrivaClinicalContext.js';
 import {describe,it,expect} from 'vitest';
-import {deriveNarrivaCheck,emptyNarrivaChecks,bypassNarrivaFinding,narrivaSourceHash,narrivaOverall} from '../narrivaReviewPolicy.service.js';
+import {deriveNarrivaScoring,NARRIVA_QUALITY_CRITERIA,deriveNarrivaCheck,emptyNarrivaChecks,bypassNarrivaFinding,narrivaSourceHash,narrivaOverall} from '../narrivaReviewPolicy.service.js';
 import {narrivaLocalContext} from '../narrivaSource.service.js';
 import {containsNarrivaIdentifiers,requireNarrivaIdentifierCorrection} from '../narrivaInputPrivacy.service.js';
 import {completeNarrivaRiskAssessment} from '../narrivaRiskAssessment.service.js';
@@ -13,6 +13,33 @@ describe('Narriva exact-content evidence policy',()=>{
   const checks=emptyNarrivaChecks().map(c=>deriveNarrivaCheck(c.id,good()));
   expect(checks.map(c=>c.id)).toEqual(['risk_safety','service_code','encounter_consent','necessity_interventions','participation_plan']);
   expect(narrivaOverall(checks)).toBe('passed');expect(checks[0].riskAssessmentRequired).toBe(false);
+ });
+
+ it('recognizes a legacy telehealth POS with no separately saved method',()=>{
+  const local=narrivaLocalContext({source:{service_code:'90791',date_of_service:'2026-09-05'},meta:{sessionContext:{durationMinutes:30,startTimeLocal:'14:30',endTimeLocal:'15:00',placeOfService:'02',locationLabel:'Online — client away from home'}},serviceRule:{is_active:1,allowed_place_of_service_json:'["02","10","11"]'},provider:{role:'provider',credential:'LPC'}});
+  expect(local.encounter.modality).toBe('telehealth');
+  expect(local.service.modalityAllowed).toBe(true);
+  const check=deriveNarrivaCheck('encounter_consent',{...local,facts:{}},{preGeneration:true});
+  expect(check.findings.some(f=>f.id==='encounter_consent:method')).toBe(false);
+  expect(check.findings.some(f=>f.id==='encounter_consent:client_location')).toBe(true);
+ });
+ it.each(['90791','H0031'])('uses intake expectations for %s while requiring the documented assessment and recommendations',code=>{
+  const input=good();input.service.code=code;
+  input.clinical.hasDiagnosis=false;input.clinical.hasJustification=false;input.clinical.hasPresentingProblem=false;
+  input.facts.engagementDocumented=null;input.facts.progressDocumented=null;input.facts.goalsDocumented=null;input.facts.responseDocumented=null;
+  const checks=emptyNarrivaChecks().map(c=>deriveNarrivaCheck(c.id,input,{preGeneration:true}));
+  expect(narrivaOverall(checks)).toBe('passed');
+  input.facts.followUpDocumented=null;
+  expect(deriveNarrivaCheck('participation_plan',input,{preGeneration:true}).findings.map(f=>f.id)).toEqual(['participation_plan:followUpDocumented']);
+ });
+ it('excludes intake participation from the available quality points',()=>{
+  const narrative='Synthetic collateral history describes ongoing academic impairment and a plan for diagnostic clarification.';
+  const evidence=Object.fromEntries(NARRIVA_QUALITY_CRITERIA.map(item=>[item.id,{supported:true,evidence:[narrative]}]));
+  evidence.response_specificity={supported:null,evidence:[]};
+  const scored=deriveNarrivaScoring({serviceCode:'90791',narrative,assessmentMentioned:false,qualityEvidence:evidence});
+  expect(scored.criteria.find(item=>item.id==='response_specificity')).toMatchObject({possible:0,earned:0,status:'not_applicable'});
+  expect(scored.possible).toBe(80);
+  expect(scored.score).toBe(100);
  });
  it.each(['currentRisk','riskUncertain'])('requires risk follow-up or an audited provider Keep-as-is decision for %s',key=>{
   const input=good();input.facts[key]=true;const result=deriveNarrivaCheck('risk_safety',input);

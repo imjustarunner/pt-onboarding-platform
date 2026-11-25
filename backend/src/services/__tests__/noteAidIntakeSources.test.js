@@ -50,4 +50,24 @@ describe('enrollment and assessment source context',()=>{
   expect(applyIntakeIdentifyingAge({Identification:'Client presented for evaluation.'},94).Identification).toContain('94 years');
  });
 
+ it('carries a completed enrollment interview and screener through the real question renderer',async()=>{
+  const responses={presenting_concern:'Synthetic difficulty completing schoolwork.',family_history:'Synthetic caregiver reports ongoing behavioral concerns.',client_first:'IDENTITY_EXCLUDED'};
+  for(let item=1;item<=9;item++)responses['phq9_'+item]=item===9?0:1;
+  const link={organization_id:2,intake_steps:[{type:'clinical_questions',label:'Clinical interview',fields:[
+    {key:'presenting_concern',label:'Presenting concern',type:'text'},
+    {key:'family_history',label:'Family history',type:'text'},
+    {key:'client_first',label:'First name',type:'text'},
+    ...Array.from({length:9},(_,i)=>({key:'phq9_'+(i+1),label:'PHQ-9 item '+(i+1),type:'select',instrument:'phq9'}))
+  ]}]};
+  const result=await buildClinicalIntakeSourceContext({agencyId:2,clientId:10},{
+    loadSubmissions:async()=>[{id:7,status:'submitted',intake_link_id:6,intake_data:{responses:{submission:{clinicalResponses:responses}}}}],
+    findLink:async()=>link
+  });
+  expect(result.contextText).toContain(responses.presenting_concern);
+  expect(result.contextText).toContain(responses.family_history);
+  expect(result.contextText).not.toContain('IDENTITY_EXCLUDED');
+  expect(result.sources[0].questionCount).toBeGreaterThanOrEqual(2);
+  expect(result.instruments[0]).toMatchObject({instrumentKey:'phq9',complete:true,total:8});
+ });
+
 });

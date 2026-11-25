@@ -1,8 +1,10 @@
+vi.mock('../noteAidIntakeSources.service.js',()=>({buildClinicalIntakeSourceContext:m.intake}));
+vi.mock('../narrivaAccess.service.js',async original=>({...await original(),requireNarrivaClient:vi.fn()}));
 vi.mock('../narrivaPlatformSettings.service.js',()=>({loadNarrivaSettings:async()=>({version:1,configuration:{mappings:{'97535':'clinical_code_decider'},generators:{}}}),applyNarrivaWritingGuidance:async({prompt})=>({prompt,settingsVersion:1})}));
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const m=vi.hoisted(()=>({execute:vi.fn(),agency:vi.fn(),agencies:vi.fn(),care:vi.fn(),client:vi.fn(),guardians:vi.fn(),
-  context:vi.fn(),findDraft:vi.fn(),createDraft:vi.fn(),updateDraft:vi.fn(),knowledge:vi.fn(),model:vi.fn(),custom:vi.fn(),customAccess:vi.fn(),audit:vi.fn(),payerEligibility:vi.fn()}));
+  context:vi.fn(),findDraft:vi.fn(),createDraft:vi.fn(),updateDraft:vi.fn(),knowledge:vi.fn(),model:vi.fn(),custom:vi.fn(),customAccess:vi.fn(),audit:vi.fn(),payerEligibility:vi.fn(),intake:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute},onTableWrite:()=>()=>{}}));
 vi.mock('../../config/clinicalDatabase.js',()=>({default:{execute:vi.fn()}}));
 vi.mock('../../models/Agency.model.js',()=>({default:{findById:m.agency}}));
@@ -35,6 +37,8 @@ vi.mock('../narrivaReview.service.js',()=>({assertNarrivaPreGeneration:vi.fn(asy
 // The controller, shared guidance packer, exact service reference, authoring tool,
 // credential checks, prompt builder, section parser and encryption remain real.
 // Only external AI and the authorized database/storage boundaries are synthetic.
+import {INTAKE_SECTION_TITLES} from '../../config/clinicalNotePlanOutput.js';
+import {narrivaSourceHash} from '../narrivaReviewPolicy.service.js';
 import {assertNarrivaPreGeneration} from '../narrivaReview.service.js';
 import { generateClinicalNote } from '../../controllers/clinicalNoteGenerator.controller.js';
 import { getClinicalServiceReference } from '../clinicalServiceReference.service.js';
@@ -48,7 +52,7 @@ const response=()=>({status:vi.fn().mockReturnThis(),json:vi.fn()});
 const invoke=async body=>{const req=request(body),res=response(),next=vi.fn();await generateClinicalNote(req,res,next);return {req,res,next};};
 let saved,care;
 beforeEach(()=>{
- vi.clearAllMocks();m.payerEligibility.mockImplementation(async({codes})=>({serviceCodes:codes || []}));vi.stubEnv('JWT_SECRET','synthetic-receipt-test-only');vi.stubEnv('CLIENT_CHAT_ENCRYPTION_KEY_BASE64',Buffer.alloc(32,7).toString('base64'));
+ vi.clearAllMocks();m.intake.mockResolvedValue({contextText:'Synthetic enrollment context',sources:[],instruments:[]});m.payerEligibility.mockImplementation(async({codes})=>({serviceCodes:codes || []}));vi.stubEnv('JWT_SECRET','synthetic-receipt-test-only');vi.stubEnv('CLIENT_CHAT_ENCRYPTION_KEY_BASE64',Buffer.alloc(32,7).toString('base64'));
  saved={id:55,user_id:7,agency_id:2,client_id:10,clinical_session_id:20,service_code:'H0004',input_text:'Original saved Session Narrative.',output_json:JSON.stringify({sections:{Subjective:'Original saved note.'},meta:{serviceCode:'H0004'}})};
  care={credential:'BA',credentialTier:'bachelors',agencyRole:'provider',canProvideCare:true};
  m.care.mockImplementation(async()=>care);m.agencies.mockResolvedValue([{id:2}]);
@@ -61,7 +65,7 @@ beforeEach(()=>{
  m.knowledge.mockResolvedValue({text:ownerGuide+'\n'+ownerExample,complete:true,documents:[{id:'owner-guide',contentHash:'guide-v1',role:'authored_training'},{id:'owner-example',contentHash:'example-v1',role:'approved_example'}],coverage:{complete:true}});
  m.custom.mockResolvedValue(null);m.customAccess.mockResolvedValue(true);
  m.model.mockResolvedValue({text:'Subjective:\nClient described tension during school transitions.\nObjective:\nClient practiced paced breathing.\nInterventions:\nPaced Breathing, Skills Practice\nPlan:\nClient will practice the breathing skill before the next school transition.',modelName:'synthetic-only',latencyMs:2,finishReason:'STOP'});
- m.execute.mockImplementation(async sql=>{if(sql.includes('SELECT DISTINCT service_code'))return [[{service_code:'H0004'},{service_code:'H2011'},{service_code:'90837'},{service_code:'97535'}]];throw new Error('Unexpected database access in generation test');});
+ m.execute.mockImplementation(async sql=>{if(sql.includes('SELECT DISTINCT service_code'))return [[{service_code:'H0004'},{service_code:'H2011'},{service_code:'90837'},{service_code:'97535'},{service_code:'90791'}]];throw new Error('Unexpected database access in generation test');});
 });
 afterEach(()=>vi.unstubAllEnvs());
 
@@ -119,6 +123,23 @@ describe('actual clinical generator shared service guidance boundary',()=>{
   expect(next).not.toHaveBeenCalled();expect(res.status).not.toHaveBeenCalled();
   expect(m.model).toHaveBeenCalledTimes(extra?1:0);
   if(!extra)expect(res.json.mock.calls[0][0].outputJson).toMatchObject({sections:{Subjective:'Checked session wording.'},meta:{model:'reviewed-model'}});
+ });
+ it.each([false,true])('reuses the reviewed intake only with the same completed enrollment answers (%s)',async(changed)=>{
+  care={credential:'LPC',credentialTier:'intern_plus',agencyRole:'provider',canProvideCare:true};
+  const draft=INTAKE_SECTION_TITLES.map(title=>title+': Synthetic assessment documentation for '+title+'.').join('\n');
+  vi.mocked(assertNarrivaPreGeneration).mockImplementationOnce(async(_req,{currentGuidance})=>({
+   reviewId:81,workingDraft:draft,intakeSourceHash:narrivaSourceHash(changed?'Previous answers':'Synthetic enrollment context'),
+   reviewedWriter:{toolId:currentGuidance.mappedGeneratorId,guidanceHash:currentGuidance.guidanceHash,model:'reviewed-model',latencyMs:4000}
+  }));
+  const {res,next}=await invoke({serviceCode:'90791',toolId:'clinical_90791_intake_plan',preflightReviewId:81});
+  expect(next).not.toHaveBeenCalled();
+  expect(m.model).not.toHaveBeenCalled();
+  if(changed)expect(res.status).toHaveBeenCalledWith(409);
+  else {
+   expect(res.json.mock.calls[0][0]?.error).toBeUndefined();
+   expect(res.status).not.toHaveBeenCalled();
+   expect(res.json.mock.calls[0][0].outputJson.sections['Presenting Problem']).toContain('Synthetic assessment documentation');
+  }
  });
  it('blocks a payer-disallowed insured service before generation or draft mutation',async()=>{
   m.payerEligibility.mockResolvedValue({serviceCodes:[],message:'Service not enabled for this coverage'});

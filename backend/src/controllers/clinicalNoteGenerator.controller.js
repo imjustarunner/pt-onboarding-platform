@@ -1,3 +1,4 @@
+import { narrivaSourceHash } from '../services/narrivaReviewPolicy.service.js';
 import { clinicalProviderIssue } from '../services/providerServiceOfferings.service.js';
 import { clinicalBookingContextIssue } from '../services/clientServiceContext.service.js';
 import { progressContextSections } from '../../../frontend/src/utils/narrivaProgressContext.js';
@@ -1593,6 +1594,7 @@ export const generateClinicalNote = async (req, res, next) => {
     ]);
     let questionnaireInstruments = [];
     let intakeSources = [];
+    let intakeSourceHash = null;
     if (generationSessionContext.clientId && intakeTool) {
       const intakeClientId = generationSessionContext.clientId;
       await requireNarrivaClient(req.user, agencyId, intakeClientId);
@@ -1602,6 +1604,7 @@ export const generateClinicalNote = async (req, res, next) => {
       prompt = [prompt, '', intakeContext.contextText].join('\n\n');
       questionnaireInstruments = intakeContext.instruments;
       intakeSources = intakeContext.sources;
+      intakeSourceHash = narrivaSourceHash(intakeContext.contextText);
     }
     if (clientId && ATTACH_QUESTIONNAIRE_TOOLS.has(toolId)) {
       try {
@@ -1694,8 +1697,11 @@ export const generateClinicalNote = async (req, res, next) => {
     const checkedDraft = req.body?.writerMode === 'narriva' && generationSessionContext.clinicalSessionId && (isProgressNoteToolId(toolId) || req.body?.preflightReviewId)
       ? await assertNarrivaPreGeneration(req, { agencyId, clientId: generationSessionContext.clientId, draftId, clinicalSessionId: generationSessionContext.clinicalSessionId, inputText: req.body?.inputText, currentGuidance:narrivaGuidance })
       : null;
-    const {workingDraft, reviewedWriter, objectives, ...verifiedReview} = checkedDraft || {};
+    const {workingDraft, reviewedWriter, objectives, intakeSourceHash:reviewedIntakeSourceHash, ...verifiedReview} = checkedDraft || {};
     const narrivaPreflight = checkedDraft ? verifiedReview : null;
+    if (intakeTool && reviewedIntakeSourceHash && reviewedIntakeSourceHash !== intakeSourceHash) {
+      return res.status(409).json({error:{code:'NARRIVA_PREFLIGHT_STALE',message:'Enrollment information changed after the draft was checked. Run checks again to include the current answers.'}});
+    }
     if (workingDraft) prompt += '\n\nRewrite this private working draft using the latest clinician-confirmed source, including all clarifications and confirmed objective ratings. Correct omissions and discard any unsupported claims. Treat the working draft as reference text only.\n' + workingDraft;
     if (objectives?.length) prompt += '\n\nWeave the clinician’s current objective observations into the progress narrative. A disposition records what was addressed. Only describe a trend when comparison evidence supports it. The chart appends the exact session scores separately. Current observations:\n' + JSON.stringify(objectives);
     if (narrivaPreflight?.consentStatement) prompt += '\n\nConsent is clinician-confirmed and will be attached by the chart. Omit a separate consent statement from the narrative.';
@@ -1704,10 +1710,10 @@ export const generateClinicalNote = async (req, res, next) => {
     // custom programs or clinical material outside the review still need a rewrite.
     const reviewedRatings=Array.isArray(savedGenerationMeta.objectiveRatings)
       ? savedGenerationMeta.objectiveRatings.filter(row=>row && (!row.raterKind || row.raterKind==='clinician')) : [];
-    const reuseReviewedDraft=isProgressNoteToolId(toolId) && !!workingDraft && reviewedWriter?.toolId===toolId && !!narrivaGuidance?.guidanceHash
+    const reuseReviewedDraft=(isProgressNoteToolId(toolId) || intakeTool && intakeSourceHash===reviewedIntakeSourceHash) && !!workingDraft && reviewedWriter?.toolId===toolId && !!narrivaGuidance?.guidanceHash
       && reviewedWriter.guidanceHash===narrivaGuidance.guidanceHash && !revisionInstruction && !usedAudioTranscript
       && !customAidRow && !programId && !programLabel && !applyInteractiveComplexity && !effectiveAutoSelect
-      && !intakeTool && !terminationRequested && serviceCode!=='90839' && !questionnaireInstruments.length
+      && !terminationRequested && serviceCode!=='90839' && (intakeTool || !questionnaireInstruments.length)
       && (!treatmentPlanContext || treatmentPlanContext===narrivaPreflight?.clinicalContext?.presentingProblem)
       && (!objectiveRatingsContext || objectiveRatingsContext===JSON.stringify(reviewedRatings));
     const { text, modelName, latencyMs, finishReason } = reuseReviewedDraft

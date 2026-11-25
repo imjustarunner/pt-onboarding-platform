@@ -1028,8 +1028,8 @@
         </section>
 
         <p v-if="!needsActualProgressSession && !signedNoteViewerId && !isClientChartAid && !narrivaComplianceRequired && (inputText || displayPanels.length)" class="na-field-hint" role="status">Unlinked writing aid. You can generate, edit, save and copy this note. Narriva Compliance does not run on unlinked notes.</p>
-        <NarrivaReviewProgress v-if="noteWriterMode === 'narriva' && narrivaChecksSubmitted && narrivaReviewPhase==='pre_generation' && (preparingNarrivaCheck || narrivaReviewBusy)" />
-        <NarrivaCompliancePanel v-else-if="noteWriterMode === 'narriva' && narrivaComplianceRequired && !signedNoteViewerId && !isClientChartAid && (narrivaChecksSubmitted || narrivaReview?.id)" :review="narrivaReview" :pre-generation="narrivaReviewPhase === 'pre_generation'" :risk-assessment-required="narrivaRiskRequired" :busy="narrivaReviewBusy" :error="narrivaReviewError" @retry="runNarrivaChecks" @resolve="resolveNarrivaFinding" @action="onNarrivaFindingAction">
+        <NarrivaReviewWorkspace v-if="noteWriterMode === 'narriva' && narrivaComplianceRequired && !signedNoteViewerId && !isClientChartAid && (narrivaChecksSubmitted || narrivaReview?.id)" :review="narrivaReview" :busy="preparingNarrivaCheck || narrivaReviewBusy" :pre-generation="narrivaReviewPhase === 'pre_generation'">
+        <NarrivaCompliancePanel v-if="!preparingNarrivaCheck && !narrivaReviewBusy && noteWriterMode === 'narriva' && narrivaComplianceRequired && !signedNoteViewerId && !isClientChartAid && (narrivaChecksSubmitted || narrivaReview?.id)" :review="narrivaReview" :pre-generation="narrivaReviewPhase === 'pre_generation'" :risk-assessment-required="narrivaRiskRequired" :busy="narrivaReviewBusy" :error="narrivaReviewError" @retry="runNarrivaChecks" @resolve="resolveNarrivaFinding" @action="onNarrivaFindingAction">
           <template #finding="{ checkId, finding }">
             <NarrivaAssessmentEvidence v-if="!finding.bypassed && finding.action === 'assessment'" v-model="narrivaAssessmentEvidence" :agency-id="noteAidAgencyId || currentAgencyId" :client-id="effectiveClientId" :clinical-session-id="sessionClinicalSessionId" :draft-id="draftId" :api-client="api" />
             <NarrivaInlineFinding v-else-if="!finding.bypassed" :check-id="checkId" :finding="finding" :context="narrivaInlineContext" :location-choices="sessionLocationChoices" :service-choices="rawEligibleServiceCodes" :disabled="narrivaReviewBusy" @apply="applyNarrivaInlineUpdate" />
@@ -1045,7 +1045,8 @@
             <button class="na-generate" type="button" :disabled="!narrivaPreflightReady || generateDisabled" @click="generateNote">{{ generating ? 'Generating…' : 'Generate note' }}</button>
           </template>
         </NarrivaCompliancePanel>
-        <section v-if="!signedNoteViewerId && !chartNoteReadOnly && !isClientChartAid && !displayPanels.length && (draftId || inputText)" class="na-sign-attest" aria-label="Signing status">
+        </NarrivaReviewWorkspace>
+        <section v-if="!signedNoteViewerId && !chartNoteReadOnly && !isClientChartAid && !displayPanels.length && !narrivaReview?.draftPreview && (draftId || inputText)" class="na-sign-attest" aria-label="Signing status">
           <p role="status">Signing unavailable: create or restore the note text, review it, and complete the required checks and attestations. Your saved narrative remains a draft.</p>
           <p v-if="approvalError">{{ approvalError }}</p>
           <p>Quick Sign is unavailable without a passing review of the current note.</p>
@@ -1623,7 +1624,7 @@ import NoteAidTerminationOutcomes from '../../components/clinical/NoteAidTermina
 import NoteAidStartPage from '../../components/clinical/NoteAidStartPage.vue';
 import NoteAidQuickSessionBar from '../../components/clinical/NoteAidQuickSessionBar.vue';
 import NoteAidClientPicker from '../../components/clinical/NoteAidClientPicker.vue';
-import NarrivaReviewProgress from '../../components/clinical/NarrivaReviewProgress.vue';
+import NarrivaReviewWorkspace from '../../components/clinical/NarrivaReviewWorkspace.vue';
 import NarrivaSessionConfirmations from '../../components/clinical/NarrivaSessionConfirmations.vue';
 import { planObjectiveReview, objectiveReviewMessage } from '../../utils/narrivaObjectiveReview.js';
 import NoteAidObjectiveRatings from '../../components/clinical/NoteAidObjectiveRatings.vue';
@@ -3444,7 +3445,7 @@ async function runNarrivaChecks({ phase = narrivaReviewPhase.value } = {}) {
   try {
     if (phase==='pre_generation') {
       await nextTick();
-      document.querySelector('.narriva-review-progress')?.scrollIntoView?.({block:'center'});
+      document.querySelector('.narriva-review-workspace')?.scrollIntoView?.({block:'center'});
     }
     cancelPendingAutosave();
     const sourceClient = effectiveClientId.value, sourceDraft = draftId.value;
