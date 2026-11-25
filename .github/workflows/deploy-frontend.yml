@@ -9,6 +9,7 @@ on:
       # Frontend readiness binds to a backend release commit. Deploy both
       # sides for backend-only changes so ordinary pushes keep build IDs paired.
       - 'backend/**'
+      - 'database/migrations/**'
       - 'database/clinical_migrations/**'
       - 'scripts/check-school-demo-release.test.mjs'
       - 'scripts/check-production-release*.mjs'

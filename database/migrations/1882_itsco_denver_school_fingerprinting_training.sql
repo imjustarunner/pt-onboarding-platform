@@ -21,14 +21,17 @@ SELECT @fingerprinting_agency_id, @fingerprinting_title, @fingerprinting_descrip
 WHERE @fingerprinting_agency_id IS NOT NULL
   AND NOT EXISTS (
     SELECT 1 FROM modules
-    WHERE agency_id = @fingerprinting_agency_id AND title = @fingerprinting_title
+    WHERE agency_id = @fingerprinting_agency_id
+      AND title = CONVERT(@fingerprinting_title USING utf8mb4) COLLATE utf8mb4_unicode_ci
   );
 
 SET @fingerprinting_module_id = (
   SELECT id
   FROM modules
-  WHERE agency_id = @fingerprinting_agency_id AND title = @fingerprinting_title
-    AND description = @fingerprinting_description AND assignment_level = 'agency'
+  WHERE agency_id = @fingerprinting_agency_id
+    AND title = CONVERT(@fingerprinting_title USING utf8mb4) COLLATE utf8mb4_unicode_ci
+    AND description = CONVERT(@fingerprinting_description USING utf8mb4) COLLATE utf8mb4_unicode_ci
+    AND assignment_level = 'agency'
     AND is_active = TRUE AND publish_status = 'published'
     AND COALESCE(is_archived, FALSE) = FALSE
     AND COALESCE(is_always_accessible, FALSE) = FALSE
