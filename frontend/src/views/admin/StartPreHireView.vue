@@ -34,7 +34,9 @@
         </fieldset>
         <p v-if="portalWorkflow.supervisorRole && (!portalWorkflow.supervisorTemplateId || !portalWorkflow.supervisorClause)" role="alert" class="sph-warn">Configure the approved supervisory clause and acknowledgment in hiring settings before sending.</p>
         <label>Who will supervise this hire?<select v-model="portalWorkflow.supervisorUserId"><option :value="null">Not assigned yet</option><option v-for="u in staffUsers.filter(u => Number(u.id) !== Number(userId) && isSupervisor(u))" :key="u.id" :value="u.id">{{ u.first_name }} {{ u.last_name }}</option></select></label>
-        <p class="muted">Assigning this person’s supervisor does not give the new hire supervisory duties.</p>
+        <label v-if="contractTenant === 'itsco'">Will this provider deliver services in Spanish?
+          <select v-model="portalWorkflow.spanishProvider"><option :value="undefined">Choose when confirmed</option><option :value="true">Yes, approved to provide services in Spanish</option><option :value="false">No Spanish-language assignment</option></select>
+        </label>
       </section>
 
       <section v-show="setupStep === 2" id="prehire-workflow" class="sph-card" tabindex="-1">
@@ -48,15 +50,7 @@
         <p class="sph-handbook-note">The internal workplace handbook is available as a reference in pre-hire. Its review and signature belong to onboarding. <a :href="handbookPath" target="_blank" rel="noopener">Open internal handbook ↗</a></p>
       </section>
 
-      <section v-show="setupStep === 3" class="sph-card">
-        <h2>Review each candidate step</h2>
-        <p class="muted">Walk through each item, open its document, and review how the candidate completes it. These reviews confirm your setup; the candidate completes and signs their own work after receiving the invitation.</p>
-        <HireStepReview :steps="candidateSteps" :agency-id="agencyId" :job-id="jobId" @reviewed="stepsReviewed = $event" @agreement="setupStep = 4">
-          <template #job-description><JobDescriptionSections v-if="detail?.jobDescription?.descriptionSections" :sections="detail.jobDescription.descriptionSections" :title="jobTitle" compact /><p v-else class="sph-description">{{ detail?.jobDescription?.description_text || detail?.jobDescription?.descriptionText }}</p></template>
-        </HireStepReview>
-      </section>
-
-      <section v-show="setupStep === 4" class="sph-card">
+      <section v-show="setupStep === 3" id="prehire-agreement" tabindex="-1" class="sph-card">
         <h2>Agreement and cosigners</h2>
         <p class="muted">Review the person’s information and compensation, then generate the agreement they will receive.</p>
         <p><a :href="contractsPath" target="_blank" rel="noopener">Manage standard agreement terms and pay settings ↗</a> <button type="button" @click="refreshContractLibrary">Refresh contract settings</button></p>
@@ -85,9 +79,11 @@
             <input v-model="includeSupervisor" type="checkbox" />
             Include supervisor on the employment agreement
           </label>
-          <label v-if="contractTenant!=='nlu' && includeSupervisor">Supervisor(s) <input v-model="contract.supervisor" type="text" /></label>
+          <label v-if="contractTenant!=='nlu' && effectiveIncludeSupervisor">Assigned clinical supervisor
+            <select v-model="portalWorkflow.supervisorUserId"><option :value="null">Choose a supervisor</option><option v-for="u in eligibleSupervisors" :key="u.id" :value="u.id">{{ u.first_name }} {{ u.last_name }}</option></select>
+          </label>
           <label v-if="!agreementBuilder || agreementVariant === 'provider'">License required by <input v-model="contract.licenseBy" type="date" /></label>
-          <label>Min hours / week <input v-model="contract.minHours" type="number" min="0" step="any" /><span v-if="contract.minHours !== '' && Number.isFinite(Number(contract.minHours)) && Number(contract.minHours) >= 0" class="muted small">Required available-to-book time: {{ Math.ceil(Number(contract.minHours) * 1.25) }} hours / week. Expected to schedule: {{ Math.ceil(Number(contract.minHours) * 1.25) }} hours / week (25% more, rounded up, to account for no-shows and rescheduling).</span></label>
+          <label>Minimum direct service hours per week <input v-model="contract.minHours" type="number" min="0" step="any" /><span v-if="contract.minHours !== '' && Number.isFinite(Number(contract.minHours)) && Number(contract.minHours) >= 0" class="muted small">Required available-to-book time: {{ Math.ceil(Number(contract.minHours) * 1.25) }} hours / week. Expected to schedule: {{ Math.ceil(Number(contract.minHours) * 1.25) }} hours / week (25% more, rounded up, to account for no-shows and rescheduling).</span></label>
           <label v-if="!usesIndividualAgreement">Pay category
             <select id="prehire-category" v-model="contract.compensationCategory">
               <option value="">Choose a category</option>
@@ -120,17 +116,17 @@
         </template>
         <p v-if="inferredPayLabel" class="muted small">Inferred: {{ inferredPayLabel }}</p>
         <div v-if="contractTenant==='nlu' && nluProgramRates.length" class="sph-program-rates"><table><caption>Separate program compensation — when assigned and authorized</caption><thead><tr><th>Service</th><th>Regular rate / hour-equivalent</th><th>Rate with selected probation choice</th><th>Automatic indirect time</th></tr></thead><tbody><tr v-for="row in nluProgramRates" :key="row.service"><th>{{row.service==='h2014'?'H2014 — Therapy + Tutoring':'Homework Help'}}</th><td>{{money(row.rate)}}</td><td>{{money(row.selectedRate)}}</td><td>{{row.indirectMinutesPerHour}} minutes per direct hour</td></tr></tbody></table></div>
-        <ContractExpectationsEditor id="prehire-services" tabindex="-1" v-if="contractTenant" :category-placement="contractTenant==='nlu'" :compensation-level="contract.compensationLevel" :pay-profile="selectedCompensation?.paySystem" :supervisor-options="eligibleSupervisors" v-model:supervisor-user-id="portalWorkflow.supervisorUserId" :show-core-fields="false" v-model="individualExpectations" :individual-agreement-mode="contractTenant==='isi'" :service-role-options="contractServiceRoleOptions" :service-role-source="wizardTokens.CONTRACT_SERVICE_ROLE_SOURCE" :compensation-category="contract.compensationCategory" :service-compensation="serviceCompensation" title="Assigned services and compensation" description="Review the job-based role selections and each service’s approved pay and authorization terms before preparing the agreement." />
+        <ContractExpectationsEditor id="prehire-services" tabindex="-1" v-if="contractTenant" :category-placement="contractTenant==='nlu'" :compensation-level="contract.compensationLevel" :pay-profile="selectedCompensation?.paySystem" :supervisor-options="eligibleSupervisors" v-model:supervisor-user-id="portalWorkflow.supervisorUserId" :show-core-fields="false" :guided-setup="contractTenant === 'itsco'" v-model="individualExpectations" :individual-agreement-mode="contractTenant==='isi'" :service-role-options="contractServiceRoleOptions" :service-role-source="wizardTokens.CONTRACT_SERVICE_ROLE_SOURCE" :compensation-category="contract.compensationCategory" :service-compensation="serviceCompensation" title="Assigned services and compensation" description="Review the job-based role selections and each service’s approved pay and authorization terms before preparing the agreement." />
         <details v-if="contractTenant==='nlu' && (Number(contract.compensationCategory)>=3 || contractOverrides.NLU_CATEGORY_PLACEMENT_EXCEPTION_REFERENCE)"><summary>Existing individual placement notes — optional</summary><label>Existing placement reference<input v-model="contractOverrides.NLU_CATEGORY_PLACEMENT_EXCEPTION_REFERENCE" placeholder="Preserve any recorded individual placement notes" /></label><p class="muted">The selected pay category and level determine compensation. Credential suggestions do not replace that selection or grant clinical authority.</p></details>
         <h3>Contract details</h3>
-        <p class="muted">Employer name and address come from the agency profile. Job title and role label come from the job posting. Review these values and complete anything missing before previewing.</p>
+        <p class="muted">Check the employment title, credentials and assigned location before previewing.</p>
         <div class="sph-grid">
           <template v-for="field in visibleContractFields" :key="field.key">
             <ContractServiceFocusSelect v-if="field.key === 'SERVICE_FOCUS'" v-model="contractOverrides.SERVICE_FOCUS" :options="serviceFocusOptions" />
-            <div v-else-if="field.key === 'LICENSE_TYPE'" id="prehire-credentials" tabindex="-1"><span>{{ field.label }}</span><CredentialPicker v-model="contractCredential" /><span class="muted">Uses the app’s credential list. Select the recorded degree and any license or candidate registration.</span></div>
+            <div v-else-if="field.key === 'LICENSE_TYPE'" id="prehire-credentials" tabindex="-1"><span>{{ field.label }}</span><CredentialPicker v-model="contractCredential" /><span class="muted">{{ wizardTokens.CREDENTIAL_SOURCE === 'resume' ? "Suggested from the résumé. Confirm the degree and any license or candidate registration." : "Confirm the recorded degree and any license or candidate registration." }}</span></div>
             <label v-else>{{ field.label }}<input v-model="contractOverrides[field.key]" :readonly="['COMPANY_ADDRESS', 'ASSIGNED_OFFICE_NAME', 'ASSIGNED_OFFICE_ADDRESS'].includes(field.key) || (agreementBuilder && field.key === 'ROLE_LABEL')" /></label>
           </template>
-          <label v-if="showSchoolDays">Expected school days / week <input id="prehire-school-days" v-model="contract.minDays" type="number" min="1" max="7" step="1" /><span class="muted small">Expected days present in the school. Each school day is approximately 8:00 a.m.–3:00 p.m., with roughly seven clients. Applies when school is all or part of the service focus.</span></label>
+          <label v-if="showSchoolDays">Expected school days / week <input id="prehire-school-days" v-model="contract.minDays" type="number" min="1" max="7" step="1" /><span class="muted small">Enter the agreed number of school days for this hire.</span></label>
           <label v-if="agreementBuilder && agreementVariant === 'student'">University / training institution<input v-model="contractOverrides.UNIVERSITY_NAME" /></label>
           <label v-if="agreementBuilder && agreementVariant === 'student'">Starting training phase<select v-model="contractOverrides.TRAINING_START_PHASE"><option value="practicum">Practicum → internship</option><option value="internship">Direct-entry internship</option></select><span class="muted">One agreement covers both phases. Practicum continues into internship unless either party gives written notice of non-continuation, subject to academic requirements and the practicum review.</span></label>
         </div>
@@ -171,7 +167,7 @@
           <a :href="docSource(doc) === 'Agency default' ? settingsPath : careersEditPath" target="_blank" rel="noopener">View or edit source settings ↗</a>
         </article>
         <p class="muted small">Documents written or uploaded in job settings are saved with that setup. They appear in the Documents Library only when they use a library template. Reusable templates can also be assigned during onboarding and other document workflows.</p>
-        <HireWorkflowEditor v-model="portalWorkflow" :templates="packetDocumentTemplates" :agency-id="agencyId" phase="pre_hire" heading="Add a step for this person" description="Add only what this hire needs before onboarding. Each item below explains what the candidate does and what the app saves." />
+        <HireWorkflowEditor v-model="portalWorkflow" :templates="packetDocumentTemplates.filter(availableHiringTemplate)" :agency-id="agencyId" phase="pre_hire" heading="Add a step for this person" description="Add only what this hire needs before onboarding. Each item below explains what the candidate does and what the app saves." />
         <div class="sph-upload">
           <label>Upload additional files (stored on the employee file)
             <input type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,application/pdf,image/*" @change="onExtraFiles" />
@@ -193,7 +189,7 @@
         </div>
       </section>
 
-      <section v-show="setupStep === 4" class="sph-card">
+      <section v-show="setupStep === 3" class="sph-card">
         <h2>Contract cosigners</h2>
         <p class="muted">Each selected employee countersigns this employment contract after the candidate signs.</p>
         <div v-if="!signerAssignments.length" class="muted small" style="margin-bottom:10px;">
@@ -217,6 +213,14 @@
         </label>
       </section>
 
+      <section v-show="setupStep === 4" class="sph-card">
+        <h2>Review each candidate step</h2>
+        <p class="muted">Walk through each item, open its document, and review how the candidate completes it. These reviews confirm your setup; the candidate completes and signs their own work after receiving the invitation.</p>
+        <HireStepReview :steps="candidateSteps" :agency-id="agencyId" :job-id="jobId" @reviewed="stepsReviewed = $event" @agreement="openAgreementPreview">
+          <template #job-description><JobDescriptionSections v-if="detail?.jobDescription?.descriptionSections" :sections="detail.jobDescription.descriptionSections" :title="jobTitle" compact /><p v-else class="sph-description">{{ detail?.jobDescription?.description_text || detail?.jobDescription?.descriptionText }}</p></template>
+        </HireStepReview>
+      </section>
+
       <section v-show="setupStep === 5" class="sph-card">
         <h2>Review {{ candidateName }}’s pre-hire experience</h2>
         <p>The invitation goes to <strong>{{ candidateEmail }}</strong>. Their portal includes:</p>
@@ -236,7 +240,7 @@
       <p v-if="contractWarning" class="sph-warn">{{ contractWarning }}</p>
       <div class="sph-actions">
         <button type="button" class="btn btn-secondary" @click="setupStep ? setupStep-- : goBack()">{{ setupStep ? 'Back' : 'Cancel' }}</button>
-        <button v-if="setupStep < setupSteps.length - 1" type="button" class="btn btn-primary"  :disabled="(setupStep === 3 && !stepsReviewed) || (setupStep === 4 && !probationChosen)" @click="setupStep++">Continue →</button>
+        <button v-if="setupStep < setupSteps.length - 1" type="button" class="btn btn-primary"  :disabled="(setupStep === 3 && (!contractReviewed || !previewMatches || !probationChosen)) || (setupStep === 4 && !stepsReviewed)" @click="setupStep++">Continue →</button>
         <button type="button" v-if="setupStep === 5" class="btn btn-primary" :disabled="sending || (!tokenLink && !readyToSend)" @click="tokenLink ? resendInvitation() : initiate()">
           {{ sending ? 'Sending invitation…' : tokenLink ? 'Email portal link again' : 'Prepare and send pre-hire invitation' }}
         </button>
@@ -257,7 +261,7 @@ import CredentialPicker from '../../components/CredentialPicker.vue';
 import { isSupervisor } from '../../utils/helpers.js';
 import HireSetupDocumentPreview from '../../components/hiring/HireSetupDocumentPreview.vue';
 import HireStepReview from '../../components/hiring/HireStepReview.vue';
-import { builtInHireDocument, hireResourceHelp } from '../../navigation/hireDocuments.js';
+import { availableHiringTemplate, builtInHireDocument, hireResourceHelp, standardPrehireSteps } from '../../navigation/hireDocuments.js';
 import ContractServiceFocusSelect from '../../components/hiring/ContractServiceFocusSelect.vue';
 import ContractProbationChoice from '../../components/hiring/ContractProbationChoice.vue';
 import {PROVIDER_DESIGNATION_LABELS} from '../../constants/providerDesignationLevels.js';
@@ -360,7 +364,7 @@ const meaningfulWorkflow = (value) => Object.fromEntries(Object.entries(value ||
 let baseWorkflow = {};
 let jobPrehirePackageId = null;
 function applyPacketTemplate() {
-  const personSupervision = Object.fromEntries(['supervisorRole', 'supervisorUserId'].filter(key => Object.hasOwn(portalWorkflow.value, key)).map(key => [key, portalWorkflow.value[key]]));
+  const personSupervision = Object.fromEntries(['supervisorRole', 'supervisorUserId', 'spanishProvider'].filter(key => Object.hasOwn(portalWorkflow.value, key)).map(key => [key, portalWorkflow.value[key]]));
   const preset = (settings.value.hire_packet_templates || []).find(p => p.id === packetTemplateId.value);
   const resources = new Map((baseWorkflow.resources || []).map(r => [r.id, r]));
   for (const r of preset?.workflow?.resources || []) resources.set(r.id, r);
@@ -381,7 +385,6 @@ const contract = reactive({
   startDate: '',
   executionDate: localDateToday(),
   expirationDate: '',
-  supervisor: '',
   licenseBy: '',
   minDays: '',
   minHours: '',
@@ -497,13 +500,13 @@ const load = async () => {
   error.value = '';
   try {
     const [cand, setRes, rolesRes, usersRes, wizardRes, packagesRes, documentsRes] = await Promise.all([
-      api.get(`/hiring/candidates/${userId.value}`, { params: { agencyId: agencyId.value } }),
-      api.get('/hiring/settings', { params: { agencyId: agencyId.value } }).catch(() => ({ data: {} })),
-      api.get('/hiring/signer-roles', { params: { agencyId: agencyId.value } }).catch(() => ({ data: [] })),
-      api.get('/users', { params: { agencyId: agencyId.value, staffOnly: true } }).catch(() => ({ data: [] })),
-      api.get(`/contracts/candidates/${userId.value}/wizard-context`, { params: { agencyId: agencyId.value } }),
-      api.get('/onboarding-packages', { params: { agencyId: agencyId.value } }),
-      api.get('/document-templates', { params: { agencyId: agencyId.value, limit: 1000 } })
+      api.get(`/hiring/candidates/${userId.value}`, { params: { agencyId: agencyId.value }, skipGlobalLoading: true }),
+      api.get('/hiring/settings', { params: { agencyId: agencyId.value }, skipGlobalLoading: true }).catch(() => ({ data: {} })),
+      api.get('/hiring/signer-roles', { params: { agencyId: agencyId.value }, skipGlobalLoading: true }).catch(() => ({ data: [] })),
+      api.get('/users', { params: { agencyId: agencyId.value, staffOnly: true }, skipGlobalLoading: true }).catch(() => ({ data: [] })),
+      api.get(`/contracts/candidates/${userId.value}/wizard-context`, { params: { agencyId: agencyId.value }, skipGlobalLoading: true }),
+      api.get('/onboarding-packages', { params: { agencyId: agencyId.value }, skipGlobalLoading: true }),
+      api.get('/document-templates', { params: { agencyId: agencyId.value, limit: 1000 }, skipGlobalLoading: true })
     ]);
     detail.value = cand.data;
     settings.value = setRes.data?.settings || setRes.data || {};
@@ -536,7 +539,7 @@ const load = async () => {
     applyOffice();
     officeSource.value = defaultOfficeSource;
     contractOverrides.JOB_TITLE = wizardTokens.value.JOB_TITLE || jobTitle.value;
-    currentPortalLink.value = (await api.get(`/hiring/candidates/${userId.value}/prehire-link`, { params: { agencyId: agencyId.value } }).catch(() => ({ data: {} }))).data?.portalLink || '';
+    currentPortalLink.value = (await api.get(`/hiring/candidates/${userId.value}/prehire-link`, { params: { agencyId: agencyId.value }, skipGlobalLoading: true }).catch(() => ({ data: {} }))).data?.portalLink || '';
     contractConfigs.value = Array.isArray(wizardRes.data?.configs) ? wizardRes.data.configs : [];
     contractConfigId.value = wizardRes.data?.suggested?.configId
       || settings.value.default_contract_config_id
@@ -545,7 +548,6 @@ const load = async () => {
     if (agreementBuilder.value) { agreementVariant.value = agreementBuilder.value.suggestedVariant; contractOverrides.TRAINING_START_PHASE = agreementBuilder.value.suggestedTrainingStartPhase || 'internship'; applyAgreementVariant(); }
     libraryContractTemplateId.value = settings.value.default_contract_template_id || null;
     if (wizardTokens.value.START_DATE) contract.startDate = String(wizardTokens.value.START_DATE).slice(0, 10);
-    if (wizardTokens.value.SUPERVISOR_NAME) contract.supervisor = wizardTokens.value.SUPERVISOR_NAME;
     if (wizardTokens.value.MIN_HOURS) contract.minHours = wizardTokens.value.MIN_HOURS;
     if (wizardTokens.value.MIN_DAYS_PER_WEEK) contract.minDays = wizardTokens.value.MIN_DAYS_PER_WEEK;
     const jd = cand.data?.jobDescription || {};
@@ -579,7 +581,8 @@ const load = async () => {
     if (cred) {
       try {
         const { data } = await api.get('/contracts/infer-compensation', {
-          params: { agencyId: agencyId.value, credential: cred, jobTitle: jobTitle.value }
+          params: { agencyId: agencyId.value, credential: cred, jobTitle: jobTitle.value },
+          skipGlobalLoading: true
         });
         inferredCategory.value = data.compensationCategory || null;
         inferredPayLabel.value = data.payCategoryLabel
@@ -649,7 +652,7 @@ const initiate = async () => {
         msgSubject: settings.value.invite_email_subject || null,
         msgBody: settings.value.invite_email_body || null
       },
-      { params: { agencyId: agencyId.value } }
+      { params: { agencyId: agencyId.value }, skipGlobalLoading: true }
     );
     emailDelivery.value = data?.email || null;
     tokenLink.value = data?.passwordlessTokenLink || '';
@@ -667,7 +670,7 @@ const resendInvitation = async () => {
   sending.value = true;
   sendError.value = '';
   try {
-    const { data } = await api.post(`/hiring/candidates/${userId.value}/email-prehire-link`, {}, { params: { agencyId: agencyId.value } });
+    const { data } = await api.post(`/hiring/candidates/${userId.value}/email-prehire-link`, {}, { params: { agencyId: agencyId.value }, skipGlobalLoading: true });
     emailDelivery.value = data?.email || null;
     tokenLink.value = data?.passwordlessTokenLink || tokenLink.value;
   } catch (e) {
@@ -675,7 +678,7 @@ const resendInvitation = async () => {
   } finally { sending.value = false; }
 };
 
-const setupSteps = ['Person & job', 'Role & supervision', 'Select materials', 'Review each step', 'Contract & cosigners', 'Review & invite'];
+const setupSteps = ['Person & job', 'Role & supervision', 'Select materials', 'Contract & cosigners', 'Review each step', 'Review & invite'];
 const setupStep = ref(0), currentPortalLink = ref('');
 let explicitSetupFocus = false;
 watch(setupStep, async () => {
@@ -686,15 +689,14 @@ watch(setupStep, async () => {
   const heading = section?.querySelector('h2');
   if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll: true }); heading.scrollIntoView?.({ block: 'start', behavior: 'instant' }); }
 });
-const contractFields = [{ key: 'COMPANY_NAME', label: 'Employer name' }, { key: 'COMPANY_ADDRESS', label: 'Employer address' }, { key: 'JOB_TITLE', label: 'Job title' }, { key: 'ROLE_LABEL', label: 'Role label' }, { key: 'SERVICE_FOCUS', label: 'Service focus' }, { key: 'LICENSE_TYPE', label: 'License / credential' }, { key: 'ASSIGNED_OFFICE_NAME', label: 'Assigned office' }, { key: 'ASSIGNED_OFFICE_ADDRESS', label: 'Office address' }];
+const contractFields = [{ key: 'COMPANY_NAME', label: 'Employer name' }, { key: 'COMPANY_ADDRESS', label: 'Employer address' }, { key: 'JOB_TITLE', label: 'Employment title' }, { key: 'ROLE_LABEL', label: 'Role label' }, { key: 'SERVICE_FOCUS', label: 'Service focus' }, { key: 'LICENSE_TYPE', label: 'License / credential' }, { key: 'ASSIGNED_OFFICE_NAME', label: 'Assigned office' }, { key: 'ASSIGNED_OFFICE_ADDRESS', label: 'Office address' }];
 const visibleContractFields = computed(()=>contractFields.filter(field=>contractTenant.value!=='isi'||field.key!=='SERVICE_FOCUS'));
 const contractOverrides = reactive({}), contractPreview = ref(null), contractReviewed = ref(false), previewBusy = ref(false), previewError = ref('');
 const showSchoolDays = computed(() => schoolDaysEnabled.value && /\bschools?\b/i.test(contractOverrides.SERVICE_FOCUS || ''));
 watch(showSchoolDays, visible => { if (!visible) contract.minDays = ''; });
 const contractsPath = computed(() => orgPath(`/admin/contracts?agencyId=${agencyId.value}&candidateUserId=${userId.value}&tab=library`));
 const eligibleSupervisors = computed(() => staffUsers.value.filter(u => Number(u.id) !== Number(userId.value) && isSupervisor(u)));
-const nluSupervisionIncluded = computed(() => individualExpectations.value.includeSupervision ?? (includeSupervisor.value || !!portalWorkflow.value.supervisorUserId));
-const effectiveIncludeSupervisor = computed(() => contractTenant.value==='nlu' ? nluSupervisionIncluded.value : includeSupervisor.value);
+const effectiveIncludeSupervisor = computed(() => individualExpectations.value.includeSupervision ?? (includeSupervisor.value || !!portalWorkflow.value.supervisorUserId));
 const handbookPath = computed(() => orgPath(`/workplace-handbook?agencyId=${agencyId.value}`));
 const jobId = computed(() => detail.value?.jobDescription?.id || detail.value?.profile?.job_description_id || null);
 const safeUrl = value => { try { const url = new URL(value); return url.protocol === 'https:' ? url.href : ''; } catch { return ''; } };
@@ -715,7 +717,7 @@ async function loadCollection() {
   const current = ++collectionRequest; packageDetails.value = null; collectionError.value = '';
   if (!prehirePackageId.value) return;
   try {
-    const { data } = await api.get(`/onboarding-packages/${prehirePackageId.value}`);
+    const { data } = await api.get(`/onboarding-packages/${prehirePackageId.value}`, { skipGlobalLoading: true });
     if (current === collectionRequest) packageDetails.value = data;
   } catch (e) { if (current === collectionRequest) collectionError.value = e.response?.data?.error?.message || 'Could not load the selected collection.'; }
 }
@@ -723,14 +725,14 @@ watch(prehirePackageId, loadCollection);
 const collectionDocuments = computed(() => (packageDetails.value?.documents || []).filter(d => !builtInHireDocument(d)));
 const stepsReviewed = ref(false);
 const candidateSteps = computed(() => {
-  const result = [
-    { key: 'background', title: 'Background check authorization', action: 'Complete and sign the secure form', instructions: 'The candidate enters their authorization details and signs in the portal. This is provided by the app; a second authorization document from a saved collection is not assigned.' },
-    { key: 'job-description', title: 'Job description', action: 'Review and sign', instructions: 'The candidate reads the job description from this posting and signs to confirm.' },
-    { key: 'agreement', title: 'Employment agreement', action: 'Review and sign', instructions: 'The candidate reviews the personalized agreement prepared in Contract & cosigners and signs it. Selected cosigners then receive their signing tasks.' },
-    { key: 'work-email', title: 'Choose a work username', action: 'Select an available username', instructions: 'The candidate reserves a username. People Operations prepares account access separately.' },
-    { key: 'profile', title: 'Pre-employment information', action: 'Complete the information form', instructions: 'The candidate enters legal name, contact details, education, credentials and other requested information. They can save progress and return later.' },
-    { key: 'headshot', title: 'Professional headshot', action: 'Upload a photo', instructions: 'The candidate uploads a JPEG, PNG or WebP photo up to 10 MB. The photo is saved to their hire record and profile.' }
-  ].map(item => ({ source: 'Provided by the app', required: true, ...item }));
+  const result = standardPrehireSteps.map(item => item.key === 'agreement'
+    ? {...item, agreementReady: contractReviewed.value && previewMatches.value}
+    : item);
+  for (const doc of availableJobDocs.value.filter(d => d.selected && !d.templateId)) {
+    result.push({ key: `doc-${doc.id}`, documentId: doc.bodyHtml || doc.filePath ? String(doc.id) : null, title: doc.title, source: docSource(doc),
+      required: !['reference', 'print_only'].includes(doc.kind), action: jobDocumentActionLabel(doc), instructions: documentAction(doc), url: safeUrl(doc.url),
+      unavailable: missingJobDocuments.value.includes(doc) });
+  }
   const templates = new Set();
   const addTemplate = (id, title, source, required = true) => {
     id = Number(id);
@@ -770,7 +772,7 @@ const contractTokens = computed(() => ({ ...wizardTokens.value, ...contractOverr
   COMPENSATION_CATEGORY: usesIndividualAgreement.value ? '' : contract.compensationCategory, COMPENSATION_LEVEL: usesIndividualAgreement.value ? '' : contract.compensationLevel,
   START_DATE: contract.startDate, EXECUTION_DATE: contract.executionDate, EXPIRATION_DATE: contract.expirationDate,
   CANDIDATE_NAME: candidateName.value, EMPLOYEE_FULL_NAME: candidateName.value,
-  SUPERVISOR_NAME: effectiveIncludeSupervisor.value ? (assignedSupervisorName.value || (contractTenant.value==='nlu'?'':contract.supervisor)) : '', INCLUDE_SUPERVISION: effectiveIncludeSupervisor.value ? '1' : '0',
+  SUPERVISOR_NAME: effectiveIncludeSupervisor.value ? assignedSupervisorName.value : '', INCLUDE_SUPERVISION: effectiveIncludeSupervisor.value ? '1' : '0',
   LICENSURE_DEADLINE: contract.licenseBy, MIN_DAYS_PER_WEEK: showSchoolDays.value ? contract.minDays : '', MIN_HOURS: contract.minHours,
   IS_SUPERVISOR: portalWorkflow.value.supervisorRole ? '1' : '0', SUPERVISOR_DUTIES: portalWorkflow.value.supervisorClause || '' }));
 const contractFieldKeys = computed(() => ['START_DATE', 'EXECUTION_DATE', 'EXPIRATION_DATE', 'SUPERVISOR_NAME', 'LICENSURE_DEADLINE', 'MIN_DAYS_PER_WEEK', 'MIN_HOURS', ...(agreementBuilder.value && agreementVariant.value === 'student' ? ['UNIVERSITY_NAME', 'UNIVERSITY', 'TRAINING_START_PHASE'] : []), ...contractFields.map(f => f.key)]);
@@ -804,7 +806,7 @@ async function resolveSetupIssue(message, tokenKey) {
   explicitSetupFocus = true;
   try {
     const legacySetupStep = destination.step ?? 2;
-    setupStep.value = [0, 2, 4, 5][legacySetupStep] ?? 4;
+    setupStep.value = [0, 2, 3, 5][legacySetupStep] ?? 3;
     await nextTick();
     const element=(tokenKey && document.getElementById(`prehire-field-${tokenKey}`)) || document.getElementById(destination.id);
     if (!element) return;
@@ -816,6 +818,11 @@ function reportPreviewError(message) {
   previewError.value=message;
   if(contractTenant.value==='nlu') void resolveSetupIssue(message);
 }
+async function openAgreementPreview() {
+  setupStep.value = 3;
+  await nextTick();
+  if (contractPreview.value && previewMatches.value) contractPreviewFrame.value?.scrollIntoView?.({ block: 'start' });
+}
 async function previewContract() {
   if(!probationChosen.value){reportPreviewError('Select Yes or No for new-hire probation and complete any required individual terms.');return;}
   if (!compensationChosen.value) { reportPreviewError(contractTenant.value==='nlu' ? (contract.compensationCategory?'Choose a pay level before previewing.':'Choose a pay category before previewing.') : 'Choose a pay category and level before previewing.'); return; }
@@ -823,16 +830,16 @@ async function previewContract() {
   if (!officeLocationId.value || !offices.value.some(office => Number(office.id) === Number(officeLocationId.value))) { reportPreviewError('Select the assigned office before previewing.'); return; }
   if (!contractOverrides.COMPANY_ADDRESS) { reportPreviewError('Set the agency’s place-of-business address in agency settings, then refresh contract settings.'); return; }
   if (showSchoolDays.value && (!Number.isInteger(Number(contract.minDays)) || Number(contract.minDays) < 1 || Number(contract.minDays) > 7)) { reportPreviewError('Enter expected school days per week (1–7).'); return; }
-  if(contractTenant.value==='nlu' && effectiveIncludeSupervisor.value && !eligibleSupervisors.value.some(u=>Number(u.id)===Number(portalWorkflow.value.supervisorUserId))){reportPreviewError('Choose an eligible assigned clinical supervisor, or select no clinical supervision for a nonclinical agreement.');return;}
+  if(effectiveIncludeSupervisor.value && !eligibleSupervisors.value.some(u=>Number(u.id)===Number(portalWorkflow.value.supervisorUserId))){reportPreviewError('Choose an eligible assigned clinical supervisor, or select no clinical supervision for a nonclinical agreement.');return;}
   previewBusy.value = true; previewError.value = ''; contractReviewed.value = false;
   const input = JSON.stringify(previewInput.value);
-  try { const { data } = await api.post(`/contracts/candidates/${userId.value}/preview`, JSON.parse(input), { params: { agencyId: agencyId.value } }); if (input === JSON.stringify(previewInput.value)) { contractPreview.value = data; lastPreviewInput.value = input; } }
+  try { const { data } = await api.post(`/contracts/candidates/${userId.value}/preview`, JSON.parse(input), { params: { agencyId: agencyId.value }, skipGlobalLoading: true }); if (input === JSON.stringify(previewInput.value)) { contractPreview.value = data; lastPreviewInput.value = input; } }
   catch (e) { reportPreviewError(e.response?.data?.error?.message || 'Could not prepare the contract preview.'); }
   finally { previewBusy.value = false; }
 }
 async function refreshContractLibrary() {
   try {
-    const { data } = await api.get(`/contracts/candidates/${userId.value}/wizard-context`, { params: { agencyId: agencyId.value } });
+    const { data } = await api.get(`/contracts/candidates/${userId.value}/wizard-context`, { params: { agencyId: agencyId.value }, skipGlobalLoading: true });
     contractConfigs.value = data.configs || []; compensationLevels.value = data.compensationLevels || []; offices.value = data.offices || [];
     compensationCategories.value = data.compensationCategories || compensationCategories.value;
     serviceCompensation.value = data.serviceCompensation || null;
@@ -849,7 +856,7 @@ async function refreshContractLibrary() {
 }
 watch(contractCredential, async credential => {
   if (loading.value || !credential) return;
-  try { const { data } = await api.get('/contracts/infer-compensation', { params: { agencyId: agencyId.value, credential, jobTitle: jobTitle.value } });
+  try { const { data } = await api.get('/contracts/infer-compensation', { params: { agencyId: agencyId.value, credential, jobTitle: jobTitle.value }, skipGlobalLoading: true });
     if (credential !== contractCredential.value) return;
     inferredCategory.value = data.compensationCategory; inferredPayLabel.value = data.payCategoryLabel;
     if(contractTenant.value!=='nlu' || !contract.compensationCategory){contract.compensationCategory = String(data.compensationCategory || ''); if(contractTenant.value!=='nlu')contract.compensationLevel = '';}
@@ -861,13 +868,13 @@ const draftState = computed(() => ({ contract: { ...contract }, contractOverride
   contractConfigId: contractConfigId.value, officeLocationId: officeLocationId.value, includeSupervisor: includeSupervisor.value,
   signerAssignments: signerAssignments.value, adhocSignerUserId: adhocSignerUserId.value,
   prehirePackageId: prehirePackageId.value, packetTemplateId: packetTemplateId.value,
-  portalWorkflow: portalWorkflow.value, jobDocs: jobDocs.value.map(({ id, selected }) => ({ id, selected })), extraFiles: extraFiles.value.map(({ id, name, title }) => ({ id, name, title })), setupVersion: 2, setupStep: setupStep.value }));
+  portalWorkflow: portalWorkflow.value, jobDocs: jobDocs.value.map(({ id, selected }) => ({ id, selected })), extraFiles: extraFiles.value.map(({ id, name, title }) => ({ id, name, title })), setupVersion: 3, setupStep: setupStep.value }));
 const savedDraft = ref('');
 let draftTimer, savingDraft;
 const draftDirty = computed(() => draftReady.value && JSON.stringify(draftState.value) !== savedDraft.value);
 const draftMessage = computed(() => draftSaveError.value || (uploadingFiles.value ? 'Saving attached files…' : draftSaving.value ? 'Saving progress…' : draftDirty.value ? 'Unsaved changes' : draftReady.value ? 'Progress saved. You can return to this candidate later.' : 'Loading saved progress…'));
 async function restoreDraft() {
-  const { data } = await api.get(`/hiring/candidates/${userId.value}/prehire-draft`, { params: { agencyId: agencyId.value } });
+  const { data } = await api.get(`/hiring/candidates/${userId.value}/prehire-draft`, { params: { agencyId: agencyId.value }, skipGlobalLoading: true });
   const agencyAddress = contractOverrides.COMPANY_ADDRESS;
   const d = data?.draft;
   draftRevision.value = Number(data?.revision || 0);
@@ -881,7 +888,11 @@ async function restoreDraft() {
     // The draft owns selections; current job/agency settings own document content.
     const savedSelections = new Map((d.jobDocs || []).map(doc => [String(doc.id), doc.selected !== false]));
     jobDocs.value = jobDocs.value.map(doc => ({ ...doc, selected: savedSelections.has(String(doc.id)) ? savedSelections.get(String(doc.id)) : doc.selected }));
-    setupStep.value = d.setupVersion === 2 ? Math.max(0, Math.min(5, Number(d.setupStep) || 0)) : [0, 2, 4, 5][Number(d.setupStep) || 0] || 0;
+    const savedStep = Number(d.setupStep) || 0;
+    if (d.setupVersion !== 3 && contractOverrides.JOB_TITLE === jobTitle.value) contractOverrides.JOB_TITLE = wizardTokens.value.JOB_TITLE || jobTitle.value;
+    setupStep.value = d.setupVersion === 3 ? Math.max(0, Math.min(5, savedStep))
+      : d.setupVersion === 2 ? [0, 1, 2, 4, 3, 5][savedStep] ?? 0
+      : [0, 2, 3, 5][savedStep] ?? 0;
     delete portalWorkflow.value.handbookUrl;
     portalWorkflow.value.resources = (portalWorkflow.value.resources || []).filter(r => !builtInHireDocument(r));
     if (agreementBuilder.value) applyAgreementVariant();
@@ -900,7 +911,7 @@ async function flushDraft() {
   if (!draftReady.value || JSON.stringify(draftState.value) === savedDraft.value) return;
   const snapshot = JSON.stringify(draftState.value);
   draftSaving.value = true; draftSaveError.value = '';
-  savingDraft = api.put(`/hiring/candidates/${userId.value}/prehire-draft`, { draft: JSON.parse(snapshot), revision: draftRevision.value }, { params: { agencyId: agencyId.value } })
+  savingDraft = api.put(`/hiring/candidates/${userId.value}/prehire-draft`, { draft: JSON.parse(snapshot), revision: draftRevision.value }, { params: { agencyId: agencyId.value }, skipGlobalLoading: true })
     .then(({ data }) => { draftRevision.value = data.revision; savedDraft.value = snapshot; })
     .catch(e => { draftSaveError.value = e.response?.data?.error?.message || 'Progress could not be saved. Retry before leaving this page.'; })
     .finally(() => { draftSaving.value = false; savingDraft = null; });

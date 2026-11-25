@@ -75,3 +75,13 @@ describe('job and all-jobs hire defaults', () => {
     expect(db.commit).not.toHaveBeenCalled();
   });
 });
+
+it('applies an inherited document removal only to the posting that saved the exclusion', async () => {
+  const { mergePrehireDocuments } = await import('../../utils/prehireConfigSanitize.js');
+  const document = {id:'identogo',kind:'reference',title:'IdentoGO',url:'https://example.org/colorado-springs'};
+  const defaults = {documents:[document]};
+  const denver = {excludedDocumentIds:[document.id]};
+  expect(mergePrehireDocuments(denver, defaults).documents).toEqual([]);
+  expect(mergePrehireDocuments({}, defaults).documents).toMatchObject([document]);
+  expect(defaults.documents).toEqual([document]);
+});

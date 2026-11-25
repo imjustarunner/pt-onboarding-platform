@@ -1,6 +1,7 @@
 import {describe,expect,it,vi} from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()}}));
-import {contractHandbookAnchor,linkContractHandbookHtml,readContractHandbookReference,portalContractHandbookAgency,annotateCompensationHandbookHtml} from '../contractHandbookReferences.service.js';
+import {currentOctoberPolicyData} from '../../content/currentOctober2026PolicyData.js';
+import {contractServiceRateSection,contractHandbookAnchor,linkContractHandbookHtml,readContractHandbookReference,portalContractHandbookAgency,annotateCompensationHandbookHtml} from '../contractHandbookReferences.service.js';
 const agency={id:6,slug:'nlu',name:'Next Level Up'};
 const sections=[{id:1,slug:'employee-contract-policy',title:'Employment agreements and handbook policies',parent_slug:null,body_html:'<p>Current employee policy.</p>'},{id:2,slug:'testing-services',title:'Testing',parent_slug:null,body_html:'<p>Approved Testing services.</p>'},{id:3,slug:'testing-code-examples-and-pay-buckets',title:'Testing code examples and pay buckets',parent_slug:'testing-services',body_html:'<p>Verified code references.</p>'}];
 const index={document_id:7,version_id:18,version_number:2,sections};
@@ -29,6 +30,31 @@ describe('versioned in-contract handbook references',()=>{
   expect(linked).not.toContain('psychological-testing-and-telephone-protocol');
   expect(linked).toContain('<a href="https://example.com">Workplace Handbook</a>');
   expect(linked).not.toMatch(/<a[^>]*>[^<]*<a/);expect(html).not.toContain('data-handbook');
+ });
+ it('links standard rates and actual work to separate published content without exposing Testing', async () => {
+  const source = currentOctoberPolicyData.sharedSections[0];
+  const publishedSections = [
+    ...sections,
+    {id:4,slug:source.slug,title:source.title,body_html:source.bodyHtml + '<h3>Testing code inventory and compensation basis</h3><table><tr><td>96116</td></tr></table>'},
+    {id:5,slug:'actual-work-time-support-and-corrections',title:'Actual work and timekeeping',body_html:'<p>Record all actual work.</p>'}
+  ];
+  const publishedIndex = {...index,sections:publishedSections};
+  const linked = linkContractHandbookHtml('<p>Clinical Session Rate appendix. Direct Care Rate appendix. Colorado Billing &amp; Compensation Appendix of the Workplace Handbook. Workplace Handbook.</p>', {
+    agency:{id:2,slug:'itsco'},index:publishedIndex,clauseKey:'COMP_FFS'
+  });
+  expect([...linked.matchAll(/data-handbook-section="([^"]+)"/g)].map(match => match[1])).toEqual([
+    'contract-clinical-session-rate','contract-direct-care-rate','actual-work-time-support-and-corrections'
+  ]);
+  const db = {execute:vi.fn(async sql => sql.includes('FROM workplace_handbook_documents') ? [[{...index,sections:undefined}]] :
+    sql.includes('FROM workplace_handbook_sections') ? [publishedSections] : [[{id:2,slug:'itsco',name:'ITSCO'}]])};
+  const result = await readContractHandbookReference({agencyId:2,slug:'contract-clinical-session-rate',versionId:18},db);
+  expect(result.section.bodyHtml).toContain('90834');
+  expect(result.section.bodyHtml).not.toContain('96116');
+  expect(result.section.bodyHtml).not.toContain('H0004');
+  const direct = contractServiceRateSection(publishedSections,'contract-direct-care-rate');
+  expect(direct.body_html).toContain('H0004');
+  expect(direct.body_html).not.toContain('96116');
+  expect(direct.body_html).not.toContain('90834');
  });
  it('escapes company slugs, labels and sections and keeps ordinary PDF-readable anchors',()=>{
   const linked=contractHandbookAnchor(agency,index,{slug:'testing-services',title:'Testing & consent'},'Workplace Handbook');

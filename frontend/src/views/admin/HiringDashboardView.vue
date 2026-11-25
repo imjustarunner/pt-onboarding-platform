@@ -1,5 +1,6 @@
 <template>
   <div class="hd-root container">
+    <PlotlineSignature context="Hiring workspace" product="PO" />
     <div class="hd-header">
       <div>
         <h2 class="hd-title">Welcome back{{ firstName ? `, ${firstName}` : '' }}</h2>
@@ -202,6 +203,7 @@
 </template>
 
 <script setup>
+import PlotlineSignature from '../../components/plotline/PlotlineSignature.vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
@@ -457,6 +459,7 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.hd-root > :deep(.plotline-signature) { justify-content:flex-start; padding-inline:0; }
 .hd-root {
   padding-bottom: 40px;
 }

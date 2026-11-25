@@ -50,4 +50,4 @@ export function hasSchoolServiceFocus(value) {
   return /\bschools?\b/i.test(String(value || ''));
 }
 
-export const SCHOOL_DAY_EXPECTATION_HTML = '<p data-school-day-expectations="true"><strong>School-based attendance:</strong> As part of the school-based service focus, the {{ROLE_LABEL}} is expected to be present in the assigned school for a minimum of {{MIN_DAYS_PER_WEEK}} days per week. A school day is approximately 8:00 a.m.–3:00 p.m., with roughly seven clients per day. These are expected days in the school, including when school-based services are only part of the role’s service focus.</p>';
+export const SCHOOL_DAY_EXPECTATION_HTML = '<p data-school-day-expectations="true"><strong>School-based attendance:</strong> As part of the school-based service focus, the {{ROLE_LABEL}} is expected to be present in the assigned school for a minimum of {{MIN_DAYS_PER_WEEK}} days per week. These are expected days in the school, including when school-based services are only part of the role’s service focus.</p>';

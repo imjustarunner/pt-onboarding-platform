@@ -9,18 +9,22 @@ export const DEMOGRAPHIC_FIELDS = [
   { key: 'provider_marketing_gender', label: 'Gender (optional, for profile display)' },
   { key: 'provider_marketing_ethnicity', label: 'Ethnicity / heritage (optional, for profile display)' }
 ];
-export async function getHireUserSetup(user, agencyId) {
+export async function getHireUserSetup(user, agencyId, { spanishProvider = false } = {}) {
   const records = await getProviderUpdateRecords(user.id, agencyId);
   const profile = await ProviderPublicProfile.getForProvider({ providerUserId: user.id, agencyId });
   const [rows] = await pool.execute(`SELECT d.field_key, v.value FROM user_info_field_definitions d
     JOIN user_info_values v ON v.field_definition_id=d.id WHERE v.user_id=?
     AND (d.agency_id=? OR d.agency_id IS NULL) AND d.field_key IN (?,?) ORDER BY d.agency_id, v.updated_at`,
     [user.id, agencyId, ...DEMOGRAPHIC_FIELDS.map(f => f.key)]);
+  const languages = profile?.details?.languages || [];
+  const approvedLanguages = spanishProvider && !languages.some(language => /^(?:spanish|español|es)$/i.test(language))
+    ? [...languages, 'Spanish']
+    : languages;
   return { clinical: needsClinicalProfile(user), demographicFields: DEMOGRAPHIC_FIELDS,
     focusGroups: records.focusGroups, values: { contact: records.contact, credential: records.credential,
       blurb: records.blurb, clinicalFocus: records.clinicalFocus,
       demographics: Object.fromEntries(rows.map(r => [r.field_key, r.value || ''])),
-      languages: profile?.details?.languages || [], typicalAvailability: records.typicalAvailability || [] } };
+      languages: approvedLanguages, typicalAvailability: records.typicalAvailability || [] } };
 }
 export function validateHireUserSetup(input, clinical, groups = FOCUS_GROUPS) {
   if (!input || typeof input !== 'object') fail('Review your setup information.');

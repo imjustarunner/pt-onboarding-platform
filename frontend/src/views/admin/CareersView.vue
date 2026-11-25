@@ -551,7 +551,7 @@
 
 
     <div v-if="editingRow" class="modal-overlay" @click.self="closeEdit">
-      <div class="modal">
+      <div class="modal job-edit-modal">
         <div class="modal-header">
           <h3>Edit job posting</h3>
           <button class="btn btn-secondary btn-sm" @click="closeEdit">Close</button>
@@ -1732,6 +1732,7 @@ onMounted(async () => {
 .error-banner { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; border-radius: 10px; padding: 10px; margin-bottom: 10px; }
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: flex; justify-content: center; align-items: center; z-index: 90; }
 .modal { width: 760px; max-width: 95vw; background: white; border-radius: 12px; border: 1px solid #e5e7eb; overflow: hidden; }
+.job-edit-modal { width: min(1280px, 94vw); }
 .modal-header { display: flex; justify-content: space-between; padding: 12px; border-bottom: 1px solid #e5e7eb; }
 .modal-body { padding: 12px; max-height: min(72vh, 820px); overflow: auto; }
 .modal-actions { display: flex; justify-content: flex-end; padding: 12px; border-top: 1px solid #e5e7eb; }

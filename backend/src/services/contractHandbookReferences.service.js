@@ -2,7 +2,7 @@ import pool from '../config/database.js';
 import {agencyDocumentPresentation} from './documentAgencyBranding.js';
 import {buildPublicAppUrl} from '../utils/publicPortalUrl.js';
 import {handbookTenant} from './handbookTenant.js';
-export const CONTRACT_HANDBOOK_REFERENCE_VERSION='contract-handbook-modal-2026-11-13';
+export const CONTRACT_HANDBOOK_REFERENCE_VERSION='contract-handbook-modal-2026-11-24';
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fail=(message,status=404)=>Object.assign(new Error(message),{status});
 const validId=value=>Number.isSafeInteger(Number(value))&&Number(value)>0;
@@ -34,14 +34,61 @@ export function contractHandbookAnchor(agency,index,section,text=section.title) 
 }
 
 const bySlug=(index,...slugs)=>slugs.map(slug=>index.sections.find(s=>s.slug===slug)).find(Boolean);
+
+const SERVICE_RATE_SECTIONS = {
+  'contract-clinical-session-rate': { title: 'Clinical Session Rate appendix', heading: 'Clinical Session Rate', code: /^(?:907|908)\d{2}(?:\s*×\s*2)?$/ },
+  'contract-direct-care-rate': { title: 'Direct Care Rate appendix', heading: 'Direct Care Rate', code: /^H\d{4}$/ }
+};
+
+// Select standard service rows from the cited publication. The Testing appendix
+// is a separate section with its own authorization requirements.
+export function contractServiceRateSection(sections, slug) {
+  const rate = Object.hasOwn(SERVICE_RATE_SECTIONS, slug) && SERVICE_RATE_SECTIONS[slug];
+  const appendix = sections.find(section => section.slug === 'colorado-billing-compensation-appendix');
+  if (!rate || !appendix) return null;
+  const html = String(appendix.body_html || '');
+  const topics = html.split(/(?=<h2(?:\s|>))/i);
+  const methodology = topics.find(topic => topic.startsWith('<h2>' + rate.heading));
+  const inventory = topics.find(topic => /^<h2>Saved code inventory<\/h2>/i.test(topic));
+  if (!methodology || !inventory) return null;
+  const columns = inventory.match(/<thead>[\s\S]*?<\/thead>/i)?.[0];
+  const rows = [...inventory.matchAll(/<tr(?:\s[^>]*)?>[\s\S]*?<\/tr>/gi)].filter(([row]) => {
+    const code = row.match(/<t[dh](?:\s[^>]*)?>([^<]*)<\/t[dh]>/i)?.[1]?.trim();
+    return code && rate.code.test(code) && row.includes(rate.heading);
+  });
+  if (!columns || !rows.length) return null;
+  return {
+    ...appendix, slug, title: rate.title, parent_slug: appendix.slug,
+    body_html: methodology + '<h3>Service codes and compensation quantities</h3><p>Use only services approved for your assignment and payer. The code table by itself gives no authorization to provide or bill a service.</p>' +
+      '<table>' + columns + '<tbody>' + rows.map(([row]) => row).join('') + '</tbody></table>'
+  };
+}
+
 export function linkContractHandbookHtml(html,{agency,index,clauseKey=''}={}) {
   if(!index?.sections?.length)return html;
-  const contractPolicy=bySlug(index,'employee-contract-policy');
+  const keys=String(clauseKey).toUpperCase();
+  const standardRate = slug => contractServiceRateSection(index.sections,slug);
+  const timekeeping = bySlug(index,'actual-work-time-support-and-corrections','timekeeping-support-and-overtime');
+  const rolePolicy = bySlug(index,'counseling-and-psychotherapy-role-expectations','service-focus-assignment');
+  const levelPolicy = bySlug(index,'compensation-level-expectations-and-review','pay-levels-and-provider-designation');
+  const missedFeePolicy = bySlug(index,'missed-session-fee-compensation');
+  const probationPolicy = bySlug(index,'compensation-introductory-probationary-compensation','employee-contract-policy');
+  const genericPolicy = /DUTIES|JOB_DESC|ROLE_/.test(keys) ? rolePolicy : null;
   const mappings=[
-    [/(?:Workplace Handbook Testing area|Testing handbook reference)/gi,bySlug(index,'testing-services')],
-    [/Workplace Handbook appendix/gi,bySlug(index,'testing-code-examples-and-pay-buckets','compensation-code-inventory','compensation-service-code-appendix')],
-    [/Workplace Handbook/gi,contractPolicy],
-    [/Clinical Supervision and Oversight/gi,bySlug(index,'counseling-and-psychotherapy-role-expectations')]
+    [/(?:Workplace Handbook Testing area|Testing handbook reference)/gi,/PSYCHOLOGICAL_TESTING/.test(keys) ? bySlug(index,'testing-services') : null],
+    [/Clinical Session Rate appendix/gi,standardRate('contract-clinical-session-rate')],
+    [/(?:Direct Care Rate appendix|Workplace Handbook appendix)/gi,standardRate('contract-direct-care-rate')],
+    [/Colorado Billing (?:&amp;|&) Compensation Appendix(?: of the Workplace Handbook)?/gi,timekeeping],
+    [/timekeeping and actual work policy/gi,timekeeping],
+    [/Workplace Handbook(?:’s|&#39;s) missed-session fee compensation policy|Workplace Handbook policy(?= communicated)|Workplace Handbook(?=\. Record actual direct)/gi,missedFeePolicy],
+    [/Workplace Handbook(?:’s|&#39;s) Training Leave policy/gi,bySlug(index,'training-leave-accrual-and-requests','training-leave-benefit')],
+    [/Workplace Handbook(?:’s|&#39;s) “School mileage reimbursement” policy/gi,bySlug(index,'mileage-reimbursement-policy','school-mileage-reimbursement')],
+    [/Workplace Handbook(?:’s|&#39;s) School Support Hours policy/gi,bySlug(index,'school-support-activity-hours','school-service-support-time')],
+    [/Workplace Handbook section “[^”]+”/gi,levelPolicy],
+    [/paid sick leave policy/gi,bySlug(index,'sick-leave-accrual-and-protected-use','paid-time-off-and-colorado-sick-leave')],
+    [/introductory compensation policy/gi,probationPolicy],
+    [/Clinical Supervision and Oversight/gi,rolePolicy],
+    [/Workplace Handbook/gi,genericPolicy]
   ].filter(([,section])=>section);
   let anchorDepth=0;
   const linked=String(html).split(/(<[^>]*>)/g).map(part=>{
@@ -50,9 +97,8 @@ export function linkContractHandbookHtml(html,{agency,index,clauseKey=''}={}) {
     // A single expression avoids nesting a generic Handbook link inside a
     // longer Testing link that was already emitted for this text node.
     const expression=new RegExp(mappings.map(([pattern])=>`(?:${pattern.source})`).join('|'),'gi');
-    return part.replace(expression,text=>{const mapping=mappings.find(([pattern])=>{pattern.lastIndex=0;return pattern.test(text)});return mapping?contractHandbookAnchor(agency,index,mapping[1],text):text});
+    return part.replace(expression,text=>{const mapping=mappings.find(([pattern])=>{pattern.lastIndex=0;return pattern.test(text)});return mapping?contractHandbookAnchor(agency,index,mapping[1],text.replace(/&amp;/gi,'&')):text});
   }).join('');
-  const keys=String(clauseKey).toUpperCase();
   const slugs=new Set();
   if(/COMP|PAY_TABLE/.test(keys))for(const slug of ['pay-levels-and-provider-designation','compensation-included-indirect-service-component','compensation-introductory-probationary-compensation','direct-care-automatic-indirect-correction'])slugs.add(slug);
   if(/BENEFIT|BEN_INTERN/.test(keys))for(const slug of ['benefits-tier-framework','adp-pay-statements-and-sick-leave-hours','bonus-tax-withholding-and-gross-pay'])slugs.add(slug);
@@ -61,7 +107,7 @@ export function linkContractHandbookHtml(html,{agency,index,clauseKey=''}={}) {
   if(/CHILDCARE/.test(keys))slugs.add('childcare-role-and-supervision');
   if(/BACHELORS_COUNSELING|PSYCHOTHERAPY|SUPERVISION/.test(keys))slugs.add('counseling-and-psychotherapy-role-expectations');
   if(/TUTORING/.test(keys)&&!['tisi','innerstrength','inner-strength'].includes(agency.slug))for(const section of index.sections)if(/tutoring/i.test(section.title)&&/pay|compensation|learning|pathway|service/i.test(section.title))slugs.add(section.slug);
-  if(/POLIC|SIG_BLOCK|SIGNATURE_BLOCK/.test(keys))slugs.add('employee-contract-policy');
+  if(/SIG_BLOCK|SIGNATURE_BLOCK/.test(keys))slugs.add('employee-contract-policy');
   const references=[...slugs].map(slug=>bySlug(index,slug)).filter(Boolean);
   if(!references.length)return linked;
   const footer=`<aside class="contract-handbook-references"><p><strong>Related Workplace Handbook policies · version ${Number(index.version_number)}:</strong> ${references.map(section=>contractHandbookAnchor(agency,index,section)).join(' · ')}</p><p><small>Open a policy to review its exact section and publication version. These references do not change the individual rates or duties stated in this agreement.</small></p></aside>`;
@@ -102,7 +148,7 @@ export async function readContractHandbookReference({agencyId,slug,versionId},db
     WHERE d.agency_id=? AND v.agency_id=? AND v.is_draft=0 AND ${versionId?'v.id=?':'v.id=d.published_version_id'} LIMIT 1`,versionId?[Number(agencyId),Number(agencyId),Number(versionId)]:[Number(agencyId),Number(agencyId)]);
   const version=versions[0];if(!version)throw fail('This published handbook version is not available for this company.');
   const [sections]=await db.execute('SELECT id,slug,title,parent_slug,source_page,body_html FROM workplace_handbook_sections WHERE version_id=? AND agency_id=? ORDER BY sort_order,id',[version.version_id,Number(agencyId)]);
-  const section=sections.find(s=>s.slug===slug);if(!section)throw fail('This section is not part of the referenced handbook version.');
+  const section=sections.find(s=>s.slug===slug) || contractServiceRateSection(sections,slug);if(!section)throw fail('This section is not part of the referenced handbook version.');
   const [agencies]=await db.execute('SELECT id,name,slug,color_palette FROM agencies WHERE id=? LIMIT 1',[Number(agencyId)]);const agency=agencies[0];if(!agency)throw fail('Company not found.');
   const location=[];let cursor=section;const visited=new Set();while(cursor&&!visited.has(cursor.slug)){visited.add(cursor.slug);location.unshift({slug:cursor.slug,title:cursor.title});cursor=sections.find(s=>s.slug===cursor.parent_slug)}
   return {agency:{id:agency.id,name:agency.name,slug:agency.slug},document:{id:version.document_id,title:`${agency.name} Workplace Handbook`},

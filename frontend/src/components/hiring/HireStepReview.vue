@@ -7,7 +7,7 @@
       <p><strong>{{ current.required === false ? 'Optional' : 'Required' }} · {{ current.action }}</strong></p>
       <p>{{ current.instructions }}</p>
       <slot v-if="current.key === 'job-description'" name="job-description" />
-      <button v-if="current.key === 'agreement'" type="button" @click="emit('agreement')">Review the employment agreement</button>
+      <button v-if="current.key === 'agreement'" type="button" @click="emit('agreement')">{{ current.agreementReady ? 'Open the prepared agreement' : 'Go to agreement setup' }}</button>
       <HireSetupDocumentPreview v-if="current.templateId || current.documentId" :key="current.key" :agency-id="agencyId" :job-id="jobId" :template-id="current.templateId" :document-id="current.documentId" :title="current.title" />
       <a v-if="current.url" :href="current.url" target="_blank" rel="noopener">Open {{ current.title }} ↗</a>
       <p v-if="current.unavailable" role="alert">This item has no saved content. Edit its source before inviting the candidate.</p>

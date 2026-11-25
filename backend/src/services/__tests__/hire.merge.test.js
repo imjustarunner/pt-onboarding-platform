@@ -27,9 +27,15 @@ describe('contract merge validation', () => {
     db.execute.mockResolvedValueOnce([[{ is_active: 1, pay_mode: 'none', clause_keys_json: ['ROLE', 'SIG_BLOCK'] }]])
       .mockResolvedValueOnce([[{ clause_key: 'ROLE', body_html: '<p>Tutoring appointment.</p>' }, { clause_key: 'SIG_BLOCK', body_html: '<p>Electronic acceptance.</p>' }]]);
     const result = await renderContractHtml({ agencyId: 1, configId: 1, tokens: { ROLE_LABEL: 'Employee', JOB_TITLE: 'Tutor' } });
-    expect(result.html.includes(slug === 'nlu' ? 'Category 4 — Licensed and Advanced Provider' : 'Category 3 · Licensed &amp; Advanced Professionals')).toBe(true);
+    if (slug === 'itsco') {
+      expect(result.html.includes('Compensation category definitions')).toBe(false);
+      expect(result.html.includes('fully released from duty')).toBe(true);
+      expect(result.html.includes('legally compensable time')).toBe(true);
+    } else {
+      expect(result.html.includes(slug === 'nlu' ? 'Category 4 — Licensed and Advanced Provider' : 'Category 3 · Licensed &amp; Advanced Professionals')).toBe(true);
+      expect(result.html.includes('actual work and required waiting time is separate')).toBe(true);
+    }
     expect(result.html).toContain('Workplace Handbook policy communicated');
-    expect(result.html).toContain('actual work and required waiting time is separate');
     expect(result.html.indexOf('Missed-session fee compensation')).toBeLessThan(result.html.indexOf('class="contract-signatures"'));
     expect(result.clauseManifest).toEqual(expect.arrayContaining([expect.objectContaining({ key: 'HANDBOOK_CATEGORY_AND_MISSED_SESSION_PAY', included: true })]));
     expect(result.unresolvedTokens).toEqual([]);
@@ -55,8 +61,7 @@ describe('contract merge validation', () => {
     db.execute.mockResolvedValueOnce([[{ slug: 'itsco' }]]);
     const result = await renderContractHtml({ agencyId: 1, configId: 1, tokens: { ROLE_LABEL: 'Provider', MIN_HOURS: 6, SERVICE_FOCUS: focus, MIN_DAYS_PER_WEEK: 2 } });
     expect(result.html).toContain('present in the assigned school for a minimum of 2 days per week');
-    expect(result.html).toContain('8:00 a.m.–3:00 p.m.');
-    expect(result.html).toContain('roughly seven clients per day');
+    expect(result.html.includes('roughly seven clients per day')).toBe(false);
     expect(result.html).toContain('schedule at least 8 hours per week');
     expect(result.unresolvedTokens).toEqual([]);
   });
@@ -150,6 +155,28 @@ describe('contract merge validation', () => {
     const result = await renderContractHtml({ agencyId: 1, configId: 1, tokens: { ...terms, COMPANY_ADDRESS: '', MIN_HOURS: '' } });
     expect(result.html).toContain('Test Candidate');
     expect(result.unresolvedTokens).toEqual(expect.arrayContaining(['COMPANYADDRESS', 'MINHOURS', 'UNKNOWNTERM']));
+  });
+  it('uses canonical résumé credentials and keeps the posting location separate from the employment title', async () => {
+    const { default: resumes } = await import('../../models/HiringResumeParse.model.js');
+    resumes.findLatestStructuredByCandidateUserId.mockResolvedValueOnce({
+      extracted_json: JSON.stringify({ summary: {
+        education: [{ degree: 'Master of Social Work', school: 'Example University' }],
+        licensesAndCertifications: [{ name: 'Social Work Candidate' }]
+      } })
+    });
+    db.execute.mockImplementation(async sql => {
+      if (sql.startsWith('SELECT user_id')) return [[{ user_id: 2 }]];
+      if (sql.includes('FROM users WHERE')) return [[{ first_name: 'Test', last_name: 'Candidate', role: 'provider' }]];
+      if (sql.includes('FROM agencies')) return [[{ id: 1, name: 'Test Agency' }]];
+      if (sql.includes('FROM hiring_profiles hp')) return [[{
+        title: 'Mental Health Provider - Denver', city: 'Denver', state: 'CO', role_type: 'provider', applicant_credential: ''
+      }]];
+      return [[]];
+    });
+    expect(await autofillTokensForCandidate({ agencyId: 1, candidateUserId: 2 })).toMatchObject({
+      JOB_TITLE: 'Mental Health Provider', JOB_CITY: 'Denver', CREDENTIAL: 'MSW, SWC',
+      CREDENTIAL_SOURCE: 'resume', UNIVERSITY_NAME: 'Example University'
+    });
   });
   for (const intakeFallback of [false, true]) it(`fills agency and job-posting fields${intakeFallback ? ' from a legacy application' : ''}`, async () => {
     const job = { job_description_id: 16, title: 'Community Group Facilitator', role_type: 'Facilitator', description_text: 'Lead groups.', tags_json: ['Community groups'], prehire_config_json: JSON.stringify({contractDefaults:{expectedHours:'24',directHours:'12',schedule:'Weekdays',additionalDuties:[{description:'Case management',payBasis:'custom',customRate:'35'}]}}) };

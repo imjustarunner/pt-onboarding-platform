@@ -4,15 +4,22 @@
   <div class="expectation-fields">
    <label v-if="showCoreFields">Contract role name<select :value="value.roleLabel || ''" @change="set('roleLabel',$event.target.value)"><option value="">Infer from role and credentials</option><option>Provider</option><option>Facilitator</option><option>Student</option><option>Employee</option></select></label>
    <ContractServiceFocusSelect v-if="showCoreFields" :model-value="value.serviceFocus" @update:model-value="set('serviceFocus',$event)" />
-   <label>Total work hours / week<input :value="value.expectedHours" @input="set('expectedHours',$event.target.value)" placeholder="e.g. 20, or 20–25" /></label>
+   <label v-if="!guidedSetup">Total work hours / week<input :value="value.expectedHours" @input="set('expectedHours',$event.target.value)" placeholder="e.g. 20, or 20–25" /></label>
    <label v-if="showCoreFields">Direct service hours / week<input :value="value.directHours" @input="set('directHours',$event.target.value)" placeholder="e.g. 10" /></label>
    <label v-if="showCoreFields">Days / week<input :value="value.daysPerWeek" @input="set('daysPerWeek',$event.target.value)" /></label>
-   <label>Work schedule<input :value="value.schedule" @input="set('schedule',$event.target.value)" placeholder="Days, availability and individual arrangements" /></label>
+   <label v-if="!guidedSetup">Work schedule<input :value="value.schedule" @input="set('schedule',$event.target.value)" placeholder="Days, availability and individual arrangements" /></label>
    <label>{{ categoryPlacement ? "Clinical supervision received by this employee" : "Supervision" }}<select :value="value.includeSupervision===undefined?'':String(value.includeSupervision)" @change="set('includeSupervision',$event.target.value===''?undefined:$event.target.value==='true')"><option value="">{{ categoryPlacement ? "Use assigned supervisor" : "Use configuration / supervisor assignment" }}</option><option value="true">{{ categoryPlacement ? "Receives clinical supervision" : "Include clinical supervision" }}</option><option value="false">{{ categoryPlacement ? "No clinical supervision in this agreement" : "Omit clinical supervision clause" }}</option></select></label>
    <label v-if="categoryPlacement" id="prehire-supervisor">Assigned clinical supervisor<select :value="supervisorUserId || ''" @change="$emit('update:supervisorUserId',$event.target.value ? Number($event.target.value) : null)"><option value="">Not assigned yet</option><option v-for="u in supervisorOptions" :key="u.id" :value="u.id">{{u.first_name}} {{u.last_name}}</option></select><small v-if="supervisorUserId && !supervisorOptions.some(u=>Number(u.id)===Number(supervisorUserId))" role="alert">The saved supervisor is not available in this agency. Choose an eligible supervisor.</small><small v-if="!supervisorOptions.length">No eligible supervisors are available in this agency. Update the supervisor assignment in staff settings.</small></label>
-   <label v-else>Assigned supervisor<input :value="value.supervisorName" @input="set('supervisorName',$event.target.value)" /></label>
+   <label v-else-if="!guidedSetup">Assigned supervisor<input :value="value.supervisorName" @input="set('supervisorName',$event.target.value)" /></label>
    <p v-if="categoryPlacement">Clinical supervision describes oversight this employee receives for clinical work. It does not make them a supervisor or select the employment agreement countersigner. Tutoring and childcare do not require a clinical supervision clause.</p>
   </div>
+  <details v-if="guidedSetup" class="schedule-notes">
+    <summary>Additional schedule details</summary>
+    <div class="expectation-fields">
+      <label>Total work hours per week, optional<input :value="value.expectedHours" @input="set('expectedHours',$event.target.value)" placeholder="Including indirect work" /></label>
+      <label>Individual schedule notes, optional<input :value="value.schedule" @input="set('schedule',$event.target.value)" placeholder="Agreed days and arrangements" /></label>
+    </div>
+  </details>
   <fieldset v-if="individualAgreementMode" class="individual-compensation">
     <legend>Individual compensation source</legend>
     <label class="compensation-toggle"><input type="checkbox" :checked="usesIndividualAgreement" @change="set('individualCompensationBasis',$event.target.checked?'approved_individual_agreement':'')" />Use this person’s approved individual agreement or written offer</label>
@@ -34,7 +41,7 @@
 import {computed} from 'vue';
 import ContractServiceFocusSelect from '../hiring/ContractServiceFocusSelect.vue';
 import ContractServiceRolesEditor from '../hiring/ContractServiceRolesEditor.vue';
-const props=defineProps({modelValue:Object,categoryPlacement:{type:Boolean,default:false},compensationLevel:[Number,String],payProfile:Object,supervisorUserId:[Number,String],supervisorOptions:{type:Array,default:()=>[]},individualAgreementMode:{type:Boolean,default:false},serviceRoleOptions:{type:Array,default:()=>[]},serviceRoleSource:{type:String,default:''},compensationCategory:[Number,String],serviceCompensation:{type:Object,default:null},showCoreFields:{type:Boolean,default:true},title:{type:String,default:'Contract defaults'},description:{type:String,default:'Defaults for hires from this posting. You can override them for each person when preparing their agreement.'}});
+const props=defineProps({modelValue:Object,categoryPlacement:{type:Boolean,default:false},compensationLevel:[Number,String],payProfile:Object,supervisorUserId:[Number,String],supervisorOptions:{type:Array,default:()=>[]},individualAgreementMode:{type:Boolean,default:false},serviceRoleOptions:{type:Array,default:()=>[]},serviceRoleSource:{type:String,default:''},compensationCategory:[Number,String],serviceCompensation:{type:Object,default:null},showCoreFields:{type:Boolean,default:true},guidedSetup:{type:Boolean,default:false},title:{type:String,default:'Contract defaults'},description:{type:String,default:'Defaults for hires from this posting. You can override them for each person when preparing their agreement.'}});
 const emit=defineEmits(['update:modelValue','update:supervisorUserId']);const value=computed(()=>props.modelValue||{});
 const usesIndividualAgreement=computed(()=>value.value.individualCompensationBasis==='approved_individual_agreement');
 function set(k,v){emit('update:modelValue',{...value.value,[k]:v});}
@@ -42,6 +49,7 @@ function duty(i,k,v){set('additionalDuties',(value.value.additionalDuties||[]).m
 function remove(i){set('additionalDuties',value.value.additionalDuties.filter((_,n)=>n!==i));}
 </script>
 <style scoped>
+.schedule-notes{margin:14px 0}.schedule-notes summary{cursor:pointer;margin-bottom:10px}
 .individual-compensation{border:1px solid #bbcec2;border-radius:10px;padding:18px;margin:20px 0}.individual-compensation .compensation-toggle{flex-direction:row;align-items:flex-start}.individual-compensation input[type=checkbox]{width:auto;margin-top:4px}
 .expectations-editor{border:1px solid #ceded5;border-radius:14px;padding:22px;margin:20px 0;background:#f7faf8;color:#203b32}.expectations-editor p{font-size:.9rem;line-height:1.6}.expectation-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px}.expectations-editor label{display:flex;flex-direction:column;gap:6px;font-size:.85rem}.expectations-editor input,.expectations-editor select,.expectations-editor textarea{font:inherit;background:white;border:1px solid #bbcec2;border-radius:8px;padding:10px;width:100%;box-sizing:border-box}.additional-duty{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;border-top:1px solid #ceded5;padding:18px 0;margin-top:18px}.expectations-editor button{font:inherit;border:1px solid #aac5b7;border-radius:8px;padding:10px 15px;background:white;color:#12583f;cursor:pointer;margin-top:12px}.expectation-note{color:#5b7164}
 </style>

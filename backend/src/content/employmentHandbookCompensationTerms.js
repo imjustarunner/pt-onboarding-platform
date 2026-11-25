@@ -27,10 +27,17 @@ export function applyEmploymentHandbookCompensation(clauses, { tenant } = {}) {
     }
     return { ...clause };
   });
+  const ownCategory = tenant === 'itsco';
+  const categoryDefinitions = tenant === 'nlu' ? nluCategoryDefinitionsHtml() : ownCategory ? '' : EMPLOYMENT_CATEGORY_DEFINITIONS_HTML;
+  const missedSession = ownCategory ? EMPLOYMENT_MISSED_SESSION_COMPENSATION_HTML.replace(
+    'Pay for actual work and required waiting time is separate from the fee share and remains payable regardless of whether a client fee is collected.',
+    'When an appointment is missed, the employee may leave or use the open time for personal purposes once fully released from duty and told when to return, where applicable. A duty-free gap that the employee can use for personal purposes is unpaid when permitted by law. Pay for any work performed and any other legally compensable time is separate from the fee share.'
+  ) : EMPLOYMENT_MISSED_SESSION_COMPENSATION_HTML;
+  const title = ownCategory ? 'Missed-session fees and bonus withholding' : 'Compensation categories and missed-session fees';
   const policy = {
     clause_key: EMPLOYMENT_HANDBOOK_COMPENSATION_KEY,
-    title: 'Compensation categories and missed-session fees',
-    body_html: `<h2>Compensation categories and missed-session fees</h2>${tenant==='nlu'?nluCategoryDefinitionsHtml():EMPLOYMENT_CATEGORY_DEFINITIONS_HTML}${EMPLOYMENT_MISSED_SESSION_COMPENSATION_HTML}<h3>Bonus amounts and withholding</h3><p>${BONUS_TAX_CLAUSE}</p>`,
+    title,
+    body_html: `<h2>${title}</h2>${categoryDefinitions}${missedSession}<h3>Bonus amounts and withholding</h3><p>${BONUS_TAX_CLAUSE}</p>`,
     policyVersion: EMPLOYMENT_HANDBOOK_COMPENSATION_VERSION,
     policyReason: 'Current category definitions and handbook-based missed-session compensation for new agreements'
   };

@@ -1,5 +1,6 @@
 <template>
   <div class="hps-root">
+    <PlotlineSignature context="People Operations settings" product="PO" />
     <div class="hps-header">
       <h2 class="hps-title">{{ phase === 'pre_hire' ? 'Hiring & Pre-Hire' : 'Onboarding' }}</h2>
       <p class="hps-subtitle">{{ phase === 'pre_hire' ? 'Prepare candidate documents, contracts and resources before employment begins.' : 'Set up employee forms, training and profile steps after pre-hire is complete.' }}</p>
@@ -10,6 +11,12 @@
     <div v-else-if="pageError" class="error-banner">{{ pageError }}</div>
 
     <template v-else>
+      <section v-if="phase === 'pre_hire'" class="hps-section">
+        <h3 class="hps-section-title">Standard pre-hire steps</h3>
+        <p class="hps-section-sub">Every pre-hire portal includes these steps. Review them for each candidate when preparing their invitation.</p>
+        <ol class="hps-standard-steps"><li v-for="step in standardPrehireSteps" :key="step.key"><strong>{{ step.title }}</strong><span>{{ step.action }}{{ step.required ? '' : ' · Optional' }}</span></li></ol>
+      </section>
+
       <!-- Default Pre-Hire Package -->
       <div v-if="phase === 'pre_hire'" class="hps-section">
         <div class="hps-section-header">
@@ -100,7 +107,7 @@
       </div>
 
       <div class="hps-section">
-        <HireWorkflowEditor v-model="form.portal_workflow" :templates="templates" :phase="phase" branding :supervisor-settings="phase === 'pre_hire'" :heading="phase === 'pre_hire' ? 'Pre-hire portal resources' : 'Onboarding portal resources'" />
+        <HireWorkflowEditor v-model="form.portal_workflow" :templates="phase === 'pre_hire' ? hiringTemplates : templates" :phase="phase" branding :supervisor-settings="phase === 'pre_hire'" :heading="phase === 'pre_hire' ? 'Pre-hire portal resources' : 'Onboarding portal resources'" />
 
       </div>
       <div v-if="phase === 'pre_hire'" class="hps-section">
@@ -110,7 +117,7 @@
           <label class="hps-label">Template name<input v-model="packet.name" class="input" /></label>
           <label class="hps-label">Pre-hire package<select v-model="packet.prehirePackageId" class="input"><option :value="null">Agency default</option><option v-for="p in preHirePackages" :key="p.id" :value="p.id">{{ p.name }}</option></select></label>
           <HirePackageContents :package-id="packet.prehirePackageId || form.default_prehire_package_id" documents-only />
-          <HireWorkflowEditor v-model="packet.workflow" :templates="templates" phase="pre_hire" heading="Additional pre-hire steps for this setup" />
+          <HireWorkflowEditor v-model="packet.workflow" :templates="hiringTemplates" phase="pre_hire" heading="Additional pre-hire steps for this setup" />
           <button type="button" class="btn btn-secondary" @click="form.hire_packet_templates.splice(index, 1)">Remove template</button>
         </div>
         <button type="button" class="btn btn-secondary" @click="addPacketTemplate">Add packet template</button>
@@ -269,6 +276,8 @@
 </template>
 
 <script setup>
+import PlotlineSignature from '../plotline/PlotlineSignature.vue';
+import { availableHiringTemplate, standardPrehireSteps } from '../../navigation/hireDocuments.js';
 import OnboardingPackageManagement from './OnboardingPackageManagement.vue';
 import HirePackageContents from '../hiring/HirePackageContents.vue';
 import HireWorkflowEditor from './HireWorkflowEditor.vue';
@@ -349,6 +358,7 @@ const staffUsers = ref([]);
 
 const preHirePackages = computed(() => packages.value.filter(p => p.package_type === 'pre_hire'));
 const onboardingPackages = computed(() => packages.value.filter(p => p.package_type === 'onboarding'));
+const hiringTemplates = computed(() => templates.value.filter(availableHiringTemplate));
 const signatureTemplates = computed(() => templates.value.filter(t => (t.document_action_type || 'signature') === 'signature'));
 
 const parseTemplateList = (payload) => {
@@ -500,8 +510,11 @@ watch(agencyId, (id, prev) => {
 </script>
 
 <style scoped>
+.hps-root > :deep(.plotline-signature) { justify-content:flex-start; padding-inline:0; }
 .hps-process-tabs{display:flex;gap:12px;margin:16px 0}.hps-process-tabs button{padding:12px 18px;border:1px solid #b7cec6;border-radius:8px;background:white;color:#185b46}.hps-process-tabs button[aria-pressed=true]{background:#185b46;color:white}
-.hps-root { max-width: 720px; }
+.hps-root { width: 100%; }
+.hps-standard-steps { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px 25px; margin-top:18px; }
+.hps-standard-steps span { display:block; font-size:.85rem; margin-top:3px; }
 
 .hps-header { margin-bottom: 24px; }
 .hps-title { font-size: 20px; font-weight: 700; margin: 0 0 6px; color: #111827; }

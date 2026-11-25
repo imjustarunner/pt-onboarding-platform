@@ -28,7 +28,7 @@ beforeEach(() => {
 afterEach(() => wrapper?.unmount());
 const button = text => wrapper.findAll('button').find(b => b.text().includes(text));
 const reviewCandidateSteps = async () => {
-  await wrapper.findAll('.sph-steps button')[3].trigger('click');
+  await wrapper.findAll('.sph-steps button').find(button => button.text().includes('Review each step')).trigger('click');
   const review = wrapper.getComponent({ name: 'HireStepReview' });
   for (let i = 0; i < review.props('steps').length; i++) await review.get('.review-actions .primary').trigger('click');
 };
@@ -244,8 +244,7 @@ describe('hire setup wizards', () => {
     await wrapper.get('select[aria-label="Service focus 2"]').setValue('School-Based Counseling');
     expect(Boolean(days())).toBe(schoolDaysEnabled);
     if (schoolDaysEnabled) {
-      expect(days().text()).toContain('8:00 a.m.–3:00 p.m.');
-      expect(days().text()).toContain('roughly seven clients');
+      expect(days().text()).toContain('Enter the agreed number of school days for this hire.');
       await days().get('input').setValue('2');
     }
     await wrapper.findAll('label').find(l => l.text().startsWith('Pay category')).get('select').setValue('2');
@@ -288,13 +287,13 @@ describe('hire setup wizards', () => {
     await wrapper.findAll('.sph-steps button')[2].trigger('click');
     expect(wrapper.find('.workflow-editor').text()).toContain('Welcome video');
     expect(wrapper.find('.workflow-editor').text()).not.toContain('W4');
-    await wrapper.findAll('.sph-steps button')[4].trigger('click');
-    const jobTitleInput = wrapper.findAll('label').find(label => label.text() === 'Job title').get('input');
+    await wrapper.findAll('.sph-steps button').find(button => button.text().includes('Contract & cosigners')).trigger('click');
+    const jobTitleInput = wrapper.findAll('label').find(label => label.text() === 'Employment title').get('input');
     expect(jobTitleInput.element.value).toBe('Counselor');
     await jobTitleInput.setValue('School Counselor');
     await wrapper.findAll('label').find(l => l.text().startsWith('Pay category')).get('select').setValue('2');
     await wrapper.findAll('label').find(l => l.text().startsWith('Pay level')).get('select').setValue('2');
-    await wrapper.findAll('label').find(l => l.text().startsWith('Min hours / week')).get('input').setValue('6');
+    await wrapper.findAll('label').find(l => l.text().startsWith('Minimum direct service hours per week')).get('input').setValue('6');
     expect(wrapper.text()).toContain('Required available-to-book time: 8 hours / week. Expected to schedule: 8 hours / week');
     expect(wrapper.findAll('label').some(l => l.text().startsWith('Weekly session goal'))).toBe(false);
     await button('Update contract preview').trigger('click'); await flushPromises();
@@ -307,8 +306,8 @@ describe('hire setup wizards', () => {
     await reviewCandidateSteps();
     await wrapper.findAll('.sph-steps button')[5].trigger('click');
     expect(button('Prepare and send').attributes('disabled')).toBeUndefined();
-    await wrapper.findAll('.sph-steps button')[4].trigger('click');
-    await wrapper.findAll('label').find(l => l.text().startsWith('Min hours / week')).get('input').setValue('10');
+    await wrapper.findAll('.sph-steps button').find(button => button.text().includes('Contract & cosigners')).trigger('click');
+    await wrapper.findAll('label').find(l => l.text().startsWith('Minimum direct service hours per week')).get('input').setValue('10');
     expect(wrapper.text()).toContain('Required available-to-book time: 13 hours / week. Expected to schedule: 13 hours / week');
     expect(wrapper.text()).toContain('Values changed. Update the preview');
     await reviewCandidateSteps();
@@ -318,7 +317,7 @@ describe('hire setup wizards', () => {
   });
   it('shows failed delivery and retries just the email without recreating the prehire packet', async () => {
     wrapper = mount(StartPreHire, { global: { stubs: { RouterLink: true } } }); await flushPromises();
-    await wrapper.findAll('.sph-steps button')[4].trigger('click');
+    await wrapper.findAll('.sph-steps button').find(button => button.text().includes('Contract & cosigners')).trigger('click');
     await wrapper.findAll('label').find(l => l.text().startsWith('Pay category')).get('select').setValue('2');
     await wrapper.findAll('label').find(l => l.text().startsWith('Pay level')).get('select').setValue('2');
     await button('Update contract preview').trigger('click'); await flushPromises();
@@ -382,13 +381,13 @@ describe('saved pre-hire progress', () => {
       contractReviewed: true, contractPreview: { html: 'obsolete preview' }
     } } } : normalGet(url));
     wrapper = mount(StartPreHire, { global: { stubs: { RouterLink: true } } }); await flushPromises();
-    expect(wrapper.findAll('label').find(l => l.text().startsWith('Min hours')).get('input').element.value).toBe('6');
+    expect(wrapper.findAll('label').find(l => l.text().startsWith('Minimum direct service hours per week')).get('input').element.value).toBe('6');
     expect(wrapper.text()).toContain('Expected to schedule: 8 hours');
     expect(wrapper.findAll('label').find(l => l.text() === 'Employer address').get('input').element.value).toBe(officeDefaults.agency.address);
     expect(wrapper.text()).not.toContain('obsolete preview');
     expect(wrapper.findAll('label').some(l=>l.text().includes('I reviewed this agreement'))).toBe(false);
     expect(http.put).not.toHaveBeenCalled();
-    await wrapper.findAll('label').find(l => l.text().startsWith('Min hours')).get('input').setValue('7');
+    await wrapper.findAll('label').find(l => l.text().startsWith('Minimum direct service hours per week')).get('input').setValue('7');
     const leave = onBeforeRouteLeave.mock.calls.at(-1)[0];
     expect(await leave()).toBe(true);
     expect(http.put.mock.calls.at(-1).slice(0,2)).toMatchObject(['/hiring/candidates/2/prehire-draft', { revision:4, draft:{contract:{minHours:7,compensationCategory:2,compensationLevel:1},officeLocationId:1} }]);
@@ -396,11 +395,11 @@ describe('saved pre-hire progress', () => {
   it('keeps unsaved progress visible and blocks navigation when saving fails', async () => {
     wrapper = mount(StartPreHire, { global: { stubs: { RouterLink: true } } }); await flushPromises();
     http.put.mockRejectedValue({response:{data:{error:{message:'This draft changed in another window.'}}}});
-    await wrapper.findAll('label').find(l => l.text().startsWith('Min hours')).get('input').setValue('6');
+    await wrapper.findAll('label').find(l => l.text().startsWith('Minimum direct service hours per week')).get('input').setValue('6');
     const leave = onBeforeRouteLeave.mock.calls.at(-1)[0];
     expect(await leave()).toBe(false);await flushPromises();
     expect(wrapper.text()).toContain('This draft changed in another window.');
-    expect(wrapper.findAll('label').find(l => l.text().startsWith('Min hours')).get('input').element.value).toBe('6');
+    expect(wrapper.findAll('label').find(l => l.text().startsWith('Minimum direct service hours per week')).get('input').element.value).toBe('6');
   });
 });
 

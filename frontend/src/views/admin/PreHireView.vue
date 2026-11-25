@@ -1,6 +1,7 @@
 <template>
   <div class="phr-root">
     <!-- Header -->
+    <PlotlineSignature context="Hiring workspace" product="PO" />
     <div class="phr-header">
       <div>
         <h2 class="phr-title" data-tour="prehire-title">Pre-Hire</h2>
@@ -561,6 +562,7 @@
 </template>
 
 <script setup>
+import PlotlineSignature from '../../components/plotline/PlotlineSignature.vue';
 import PrehireRequirementOverrides from '../../components/admin/PrehireRequirementOverrides.vue';
 import { ref, computed, watch, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
@@ -1061,6 +1063,7 @@ onMounted(load);
 </script>
 
 <style scoped>
+.phr-root > :deep(.plotline-signature) { justify-content:flex-start; padding-inline:0; }
 .phr-root { padding: 24px; font-family: inherit; min-height: 100vh; background: #f9fafb; }
 
 /* ── Header ── */

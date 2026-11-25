@@ -5,7 +5,7 @@ import {testingExampleSummary} from '../content/testingServiceExamples.js';
 import {CONTRACT_PRESENTATION_VERSION,handbookReferencedContractHtml} from '../content/contractHandbookReference.js';
 import {applyCollectiveAssignmentClause,COLLECTIVE_ASSIGNMENT_KEY,COLLECTIVE_ASSIGNMENT_VERSION} from '../content/collectiveAssignmentClause.js';
 import { isProgramServiceRole } from '../content/programServiceRates.js';
-import {validateCredentials} from '../utils/credentialDisplay.js';
+import {CREDENTIAL_GROUPS, credentialItems, validateCredentials} from '../utils/credentialDisplay.js';
 import {employmentCategoryLevelTerms,applyEmploymentPayTerms} from '../content/employmentCategoryLevelTerms.js';
 import { applyEmploymentHandbookCompensation } from '../content/employmentHandbookCompensationTerms.js';
 import Agency from '../models/Agency.model.js';
@@ -154,17 +154,57 @@ function pickUniversityFromResume(summary) {
   return String(row?.school || '').trim();
 }
 
-function inferCredentialKeyFromResume(summary) {
-  if (!summary || typeof summary !== 'object') return null;
-  const licenses = Array.isArray(summary.licensesAndCertifications) ? summary.licensesAndCertifications : [];
-  for (const lic of licenses) {
-    const key = extractLicenseTypeKey({ credential: lic?.name || '' });
-    if (key) return key;
-  }
-  const hints = summary.credentialingHints || {};
-  const status = String(hints.likelyLicensureStatus || '').toLowerCase();
-  if (status === 'intern') return 'INTERN';
-  return null;
+export function employmentTitle(title, city, state) {
+  const original = String(title || '').trim();
+  const locationSuffix = original.match(/\s+[-–—]\s+([^-–—]+)$/);
+  const normalize = value => String(value || '').trim().toLowerCase();
+  if (!locationSuffix || !normalize(city)) return original;
+  const suffix = normalize(locationSuffix[1]);
+  return [normalize(city), normalize([city, state].filter(Boolean).join(', '))].includes(suffix)
+    ? original.slice(0, locationSuffix.index).trim()
+    : original;
+}
+
+function resumeCredentialEvidence(document) {
+  const parsed = parseJsonValue(document?.extracted_json);
+  return parsed?.summary && typeof parsed.summary === 'object' ? parsed.summary : parsed;
+}
+
+function credentialsFromResume(summary) {
+  const degrees = {
+    'master of social work': 'MSW',
+    'master of arts': 'MA',
+    'master of science': 'MS',
+    'master of education': 'MEd',
+    'bachelor of social work': 'BSW',
+    'bachelor of arts': 'BA',
+    'bachelor of science': 'BS',
+    'doctor of psychology': 'PsyD',
+    'doctor of philosophy': 'PhD'
+  };
+  const names = {
+    'licensed professional counselor candidate': 'LPCC',
+    'licensed professional counselor': 'LPC',
+    'licensed clinical social worker': 'LCSW',
+    'licensed social worker': 'LSW',
+    'social work candidate': 'SWC',
+    'marriage and family therapist candidate': 'MFTC',
+    'licensed marriage and family therapist': 'LMFT',
+    'licensed psychologist': 'PSY'
+  };
+  const education = Array.isArray(summary?.education) ? summary.education : [];
+  const licenses = Array.isArray(summary?.licensesAndCertifications) ? summary.licensesAndCertifications : [];
+  const items = [
+    ...education.map(row => {
+      const degree = String(row?.degree || '').trim();
+      return degrees[degree.toLowerCase()] || credentialItems(degree)[0];
+    }).filter(value => CREDENTIAL_GROUPS[0].values.includes(value)),
+    ...licenses.map(row => {
+      const name = String(row?.name || '').trim();
+      return names[name.toLowerCase()] || extractLicenseTypeKey({ credential: name }) || credentialItems(name)[0];
+    }).filter(value => CREDENTIAL_GROUPS[1].values.includes(value) || CREDENTIAL_GROUPS[2].values.includes(value))
+  ];
+  return [...new Set(items)].slice(0, 12).join(', ');
 }
 
 export function resolveCredentialLabel(credentialKey) {
@@ -419,17 +459,16 @@ export async function autofillTokensForCandidate({
   }
 
   const resumeParse = await HiringResumeParse.findLatestStructuredByCandidateUserId(candidateUserId).catch(() => null);
-  const resumeSummary = parseJsonValue(resumeParse?.extracted_json);
+  const resumeSummary = resumeCredentialEvidence(resumeParse);
   const degree = pickDegreeFromResume(resumeSummary);
   const university = pickUniversityFromResume(resumeSummary);
-  const resumeCredentialKey = inferCredentialKeyFromResume(resumeSummary);
+  const resumeCredential = credentialsFromResume(resumeSummary);
 
   if (credentialOverride != null) credentialOverride = validateCredentials(credentialOverride);
-  let credential = String(credentialOverride ?? jobDescriptionRow?.applicant_credential ?? user?.credential ?? '').trim();
-  if (!credential && resumeCredentialKey) {
-    credential = resolveCredentialLabel(resumeCredentialKey) || resumeCredentialKey;
-  }
-  const credentialKey = extractLicenseTypeKey({ credential }) || resumeCredentialKey;
+  const recordedCredential = [jobDescriptionRow?.applicant_credential, user?.credential]
+    .map(value => String(value ?? '').trim()).find(Boolean);
+  const credential = String(credentialOverride ?? (recordedCredential || resumeCredential)).trim();
+  const credentialKey = extractLicenseTypeKey({ credential });
 
   const payInference = inferCompensationFromCredential({
     credential,
@@ -490,7 +529,7 @@ export async function autofillTokensForCandidate({
     AGENCY_SLUG: String(agency?.slug || '').toLowerCase(),
     JOB_CITY: jobDescriptionRow?.city || '',
     JOB_STATE: jobDescriptionRow?.state || '',
-    JOB_TITLE: jobTitle,
+    JOB_TITLE: employmentTitle(jobTitle, jobDescriptionRow?.city, jobDescriptionRow?.state),
     JOB_DESCRIPTION: jobDescription,
     SERVICE_FOCUS: serviceFocus,
     ROLE_LABEL: roleLabel,
@@ -504,6 +543,7 @@ export async function autofillTokensForCandidate({
     SUPERVISOR_NAME: '',
     MIN_HOURS: '',
     CREDENTIAL: credential,
+    CREDENTIAL_SOURCE: !recordedCredential && resumeCredential && credentialOverride == null ? 'resume' : '',
     CREDENTIAL_KEY: credentialKey || '',
     DEGREE: degree,
     LICENSE_TYPE: licenseType,
@@ -663,9 +703,17 @@ export async function renderContractHtml({
   for(const key of ['CONTRACT_HANDBOOK_REFERENCE_VERSION','HANDBOOK_PUBLICATION_VERSION_ID']){delete mergedTokens[key];delete mergedTokens[key.replaceAll('_','')];}
   if(mergedTokens.HANDBOOK_REFERENCES_ENABLED==='1'&&handbookTenant(agency)&&!handbookIndex)throw Object.assign(new Error('Publish this company’s approved Workplace Handbook before preparing a new agreement with policy references.'),{status:409});
   if(handbookIndex){mergedTokens.CONTRACT_HANDBOOK_REFERENCE_VERSION=CONTRACT_HANDBOOK_REFERENCE_VERSION;mergedTokens.HANDBOOK_PUBLICATION_VERSION_ID=handbookIndex.version_id;}
-  const visibleClauses = selectedClauses.map(clause => ({
-    ...clause, body_html: linkContractHandbookHtml(withWeeklyHoursExpectations(terms ? handbookReferencedContractHtml(clause.body_html) : clause.body_html),{agency,index:handbookIndex,clauseKey:clause.clause_key})
-  }));
+  const visibleClauses = selectedClauses.map(clause => {
+    let html = terms ? handbookReferencedContractHtml(clause.body_html) : clause.body_html;
+    if (handbookTenant(agency) === 'itsco' && /JOB_DESC|DUTIES/.test(String(clause.clause_key).toUpperCase())) {
+      html = html.replace(/Deliver services primarily within school-based settings at least 2\s*[–—-]\s*3 days per week, with in-office client sessions gradually increasing over time as directed by the Practice\./gi,
+        'Deliver services in the settings assigned by the Practice, following the individual service expectations in this agreement.');
+    }
+    return {
+      ...clause,
+      body_html: linkContractHandbookHtml(withWeeklyHoursExpectations(html), {agency,index:handbookIndex,clauseKey:clause.clause_key})
+    };
+  });
   if (agreementPlan && String(mergedInput.MIN_HOURS ?? '').trim() && !visibleClauses.some(clause => findContractPlaceholders(clause.body_html).some(key => key.replaceAll('_', '') === 'MINHOURS'))) {
     visibleClauses.splice(3, 0, { body_html: withWeeklyHoursExpectations('<p>The {{ROLE_LABEL}} is expected to maintain at least {{MIN_HOURS}} direct service hours per week.</p>') });
   }
@@ -716,7 +764,10 @@ export async function renderContractHtml({
     dutyRates = (await selectedContractCompensation(agencyId, category, level, 'ffs')).rates;
   }
   if(terms?.schedule?.newHireTermsVersion && !terms.schedule.probationApplies)dutyRates=dutyRates.map(rate=>({...rate,reduced:null}));
-  const expectationsHtml = renderAdditionalExpectations(expectations, compensation.row, dutyRates);
+  const expectationSummary = agreementPlan && handbookTenant(agency) === 'itsco'
+    ? {...expectations, directHours: '', daysPerWeek: ''}
+    : expectations;
+  const expectationsHtml = renderAdditionalExpectations(expectationSummary, compensation.row, dutyRates);
   if (expectationsHtml) {
     const signatureIndex = bodyParts.findIndex(body=>body.includes('class="contract-signatures"'));
     bodyParts.splice(signatureIndex < 0 ? bodyParts.length : signatureIndex, 0, expectationsHtml);

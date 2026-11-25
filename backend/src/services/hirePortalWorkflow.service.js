@@ -217,7 +217,7 @@ export async function buildPortalWorkflow({ user, agencyId, tasks, prehireTasks,
   }
   if (user.status === 'ONBOARDING' && (!onboardingClosed || stored('onboarding', 'user-setup'))) {
     const saved = stored('onboarding', 'user-setup');
-    const setup = await getHireUserSetup(user, agencyId);
+    const setup = await getHireUserSetup(user, agencyId, { spanishProvider: config.spanishProvider });
     add('onboarding', {key:'user-setup',kind:'user-setup',title:'Your user setup',...setup,
       values:saved?.value || setup.values,complete:!!saved?.completedAt});
   }

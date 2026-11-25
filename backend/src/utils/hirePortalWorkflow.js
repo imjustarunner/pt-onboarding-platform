@@ -36,6 +36,7 @@ export function sanitizeWorkflow(input) {
     supervisorName: String(raw.supervisorName || '').trim().slice(0, 180),
     supervisorUserId: Number(raw.supervisorUserId) > 0 ? Number(raw.supervisorUserId) : null,
     supervisorRole: raw.supervisorRole === true,
+    ...(typeof raw.spanishProvider === 'boolean' ? { spanishProvider: raw.spanishProvider } : {}),
     supervisorTemplateId: Number(raw.supervisorTemplateId) > 0 ? Number(raw.supervisorTemplateId) : null,
     supervisorClause: String(raw.supervisorClause || '').trim().slice(0, 12000),
     excludedResourceIds: (Array.isArray(raw.excludedResourceIds) ? raw.excludedResourceIds : []).map(resourceKey).slice(0, 80),

@@ -32,7 +32,13 @@
     </div>
 
     <section v-if="allowAgencyDefault" class="jpde-card">
-      <h4>Documents from all jobs</h4>
+      <PlotlineSignature context="Job pre-hire setup" product="PO" />
+      <h4>Standard candidate steps</h4>
+      <ol><li v-for="step in standardPrehireSteps" :key="step.key">{{ step.title }}</li></ol>
+    </section>
+    <section v-if="allowAgencyDefault" class="jpde-card">
+      <h4>Agency documents inherited by this job</h4>
+      <p class="muted">Changing an inherited selection here applies to this job posting.</p>
       <p v-if="catalogError" role="alert">{{ catalogError }} <button type="button" @click="loadCatalog">Retry</button></p>
       <p v-else-if="catalogLoading">Loading available documents…</p>
       <p v-else-if="!inheritedDocuments.length">No additional agency default documents.</p>
@@ -144,6 +150,8 @@
 </template>
 
 <script setup>
+import PlotlineSignature from '../plotline/PlotlineSignature.vue';
+import { availableHiringTemplate, standardPrehireSteps } from '../../navigation/hireDocuments.js';
 import HireWorkflowEditor from '../admin/HireWorkflowEditor.vue';
 import LibraryDocumentEditor from '../library/LibraryDocumentEditor.vue';
 import { computed, reactive, ref, watch } from 'vue';
@@ -178,7 +186,7 @@ async function loadCatalog() {
     ]);
     if (request !== catalogRequest) return;
     const list = Array.isArray(templates.data) ? templates.data : templates.data?.templates || templates.data?.data || [];
-    availableTemplates.value = list.filter(t => (t.agency_id == null || Number(t.agency_id) === Number(props.agencyId)) && t.is_active !== false && t.is_active !== 0);
+    availableTemplates.value = list.filter(t => (t.agency_id == null || Number(t.agency_id) === Number(props.agencyId)) && availableHiringTemplate(t));
     agencyDocuments.value = defaults.data?.settings?.default_prehire_docs || [];
   } catch { if (request === catalogRequest) catalogError.value = 'Could not load available documents.'; }
   finally { if (request === catalogRequest) catalogLoading.value = false; }

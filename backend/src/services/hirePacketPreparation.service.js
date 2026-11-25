@@ -13,6 +13,8 @@ export async function prepareHirePacket({ userId, agencyId, body }) {
   const jobConfig = jsonObject(job?.prehire_config_json);
   const preset = (settings.hire_packet_templates || []).find((p) => p.id === body.packetTemplateId);
   const workflow = composeWorkflow(settings.portal_workflow, jobConfig.workflow, { ...(preset?.workflow || {}), ...(body.portalWorkflow || {}) });
+  // This is an individual approval. Agency/job presets cannot opt a hire in.
+  if (typeof body.portalWorkflow?.spanishProvider !== 'boolean') delete workflow.spanishProvider;
   workflow.resources = workflow.resources.filter(resource => resource.phase === 'pre_hire');
   const availableDocs = mergePrehireDocuments(jobConfig, { documents: settings.default_prehire_docs || [] }).documents;
   const selected = Array.isArray(body.selectedJobDocs) ? new Set(body.selectedJobDocs.map((d) => String(d.id))) : null;
