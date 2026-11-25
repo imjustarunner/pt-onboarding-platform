@@ -7,7 +7,7 @@ const fields = {
   claim: ['claimId', 'clinical_claim_id'], appointment: ['appointment_id', 'appointmentId'],
   office_event: ['office_event_id', 'officeEventId'],
   provider_schedule_event: ['provider_schedule_event_id', 'providerScheduleEventId'],
-  draft: ['draft_id', 'draftId'], note: ['clinical_note_id', 'clinicalNoteId'],
+  draft: ['draft_id', 'draftId'], note: ['clinical_note_id', 'clinicalNoteId', 'sourceIntakeNoteId'],
   billing_encounter: ['billing_encounter_id', 'billingEncounterId']
 };
 export function clinicalWorkResourceRefs(row, kind = null) {

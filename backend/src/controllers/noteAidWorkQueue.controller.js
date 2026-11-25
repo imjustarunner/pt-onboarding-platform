@@ -2,6 +2,7 @@ import { validationResult } from 'express-validator';
 import NoteAidWorkQueueItem from '../models/NoteAidWorkQueueItem.model.js';
 import { linkImportedPlannedServices } from '../services/noteAidPlannedClaim.service.js';
 import { reconcileBookedSessionWork } from '../services/bookedSessionWorkQueue.service.js';
+import { reconcileIntakeTreatmentPlanWork } from '../services/intakeTreatmentPlanWork.service.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
 
 function safeInt(v) {
@@ -16,6 +17,8 @@ export async function listNoteAidWorkQueue(req, res) {
     const agencyId = req.auricwellPreview?.agencyId || null;
     const added = await reconcileBookedSessionWork(req.user,{agencyId});
     if (added.length) await logAuditEvent(req,{actionType:'booked_session_work_items_added',agencyId,metadata:{workItemIds:added.map(item=>item.serverId),clinicalSessionIds:added.map(item=>item.clinicalSessionId)}});
+    try { await reconcileIntakeTreatmentPlanWork(req.user, agencyId); }
+    catch { console.warn('[my-work] Initial treatment-plan tasks could not be reconciled.'); }
     const items = await NoteAidWorkQueueItem.listForUser(userId, { agencyId });
     return res.json({ items });
   } catch (error) {
@@ -94,10 +97,14 @@ export async function deleteNoteAidWorkQueueItem(req, res) {
     const id = safeInt(req.params?.id);
     if (!userId) return res.status(401).json({ error: { message: 'Unauthorized' } });
     const deleted = await NoteAidWorkQueueItem.deleteForUser({ id, userId });
+    if (deleted) {
+      try { await logAuditEvent(req, { actionType: 'note_aid_work_item_removed', metadata: { workItemId: id } }); }
+      catch { console.warn('[my-work] Work item removed. Audit delivery needs review.'); }
+    }
     return res.json({ deleted });
   } catch (error) {
     console.error('deleteNoteAidWorkQueueItem:', error);
-    return res.status(500).json({ error: { message: error.message || 'Failed to delete work queue item' } });
+    return res.status(error.status || 500).json({ error: { message: error.status ? error.message : 'Failed to delete work queue item' } });
   }
 }
 

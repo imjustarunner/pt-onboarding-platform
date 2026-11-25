@@ -39,7 +39,13 @@ export function createMobileDocumentationQueue({db=pool,findUser=id=>User.findBy
     try{
      const result=await listWork(req),rows=(result.items || []).filter(item=>Number(item.agencyId)===brand.agencyId);
      const allowed=await cards(actor,brand.agencyId,rows.map(item=>item.clientId));
-     for(const row of rows){if(!row.clientId || !allowed.has(Number(row.clientId)))continue;items.push({...sanitizeMobileWorkItem(row,allowed.get(Number(row.clientId))),...brand,queueKind:'own'});}
+     for(const row of rows){
+      if(!row.clientId || !allowed.has(Number(row.clientId)))continue;
+      const planTask = !!row.sourceIntakeNoteId;
+      if(planTask && ['completed','signed'].includes(row.status))continue;
+      const desktopPlanUrl = planTask ? `${buildPublicAppUrl(agency,'note-aid')}?${new URLSearchParams({agencyId:String(brand.agencyId),workQueueId:row.id})}` : null;
+      items.push({...sanitizeMobileWorkItem(row,allowed.get(Number(row.clientId))),...brand,queueKind:'own',...(desktopPlanUrl ? {desktopPlanUrl} : {})});
+     }
     }catch(error){failures.push({...brand,section:'notes',message:'Your notes could not be loaded. Try again.'});}
     try{
      const result=await listCosign(req);isSupervisor ||= result.isSupervisor===true;

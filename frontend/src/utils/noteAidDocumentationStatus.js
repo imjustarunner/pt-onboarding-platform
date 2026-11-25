@@ -259,6 +259,11 @@ export function deriveWorkQueueDocStatus(item) {
   return base;
 }
 
+export function isUnlinkedWorkQueueItem(item) {
+  return !!item && !item.sourceIntakeNoteId && !item.draftId && !item.clinicalNoteId
+    && !item.clinicalSessionId && !item.officeEventId && !item.appointmentId && !item.billingEncounterId && !item.claimId;
+}
+
 /** Filter work-queue items for the right smart queue. */
 export function filterWorkQueueForRightPanel(items) {
   return (items || []).filter((i) => isRightPanelStatus(deriveWorkQueueDocStatus(i)));
@@ -561,7 +566,7 @@ export function workQueueSessionKey(item = {}) {
 
 /** True only when a draft is the same person/session as this ToDo row. */
 export function draftMatchesWorkQueueItem(draft, item) {
-  if (!draft || !item) return false;
+  if (!draft || !item || item.sourceIntakeNoteId || draft.sourceIntakeNoteId) return false;
   const itemClient = Number(item.clientId || item.client_id || 0);
   const draftClient = Number(draft.client_id || draft.clientId || 0);
   if (itemClient && draftClient && itemClient !== draftClient) return false;

@@ -72,6 +72,9 @@
         />
       </div>
       <div class="cc-enc-timeline-list">
+        <div v-if="filteredEncounters.length" class="cc-enc-list-columns" aria-hidden="true">
+          <span>Date</span><span>Record</span><span>Provider</span><span>Service</span><span>Status</span>
+        </div>
         <article v-for="row in filteredEncounters" :key="encounterKey(row)" class="cc-enc-timeline-entry">
           <button
             :aria-expanded="encounterKey(row) === selectedId"
@@ -80,13 +83,13 @@
             :class="{ 'cc-enc-list-item--active': encounterKey(row) === selectedId }"
             @click="toggleEncounter(row)"
           >
-            <span class="timeline-date">{{ formatEncounterDate(row.service_date) }}</span>
+            <span class="timeline-date">{{ row.service_date ? formatEncounterDate(row.service_date) : 'Date unavailable' }}</span>
             <span class="timeline-title">
-              <strong>{{ row.historyKind ? row.title : formatEncounterProvider(row) }}</strong>
-              <span v-if="row.respondent" class="muted">{{ row.respondent }}</span>
-              <span v-else-if="!row.historyKind" class="muted">{{ row.service_code || '—' }}<span v-if="encounterScheduleLabel(row)"> · {{ encounterScheduleLabel(row) }}</span></span>
+              <strong>{{ recordTitle(row) }}</strong>
+              <span v-if="row.respondent || (!row.historyKind && encounterScheduleLabel(row))" class="muted">{{ row.respondent || encounterScheduleLabel(row) }}</span>
             </span>
-            <span class="timeline-type">{{ recordKind(row) }}</span>
+            <span class="timeline-provider">{{ row.historyKind ? '' : recordedProvider(row) }}</span>
+            <span class="timeline-service">{{ row.historyKind ? recordKind(row) : row.service_code || 'Code unrecorded' }}</span>
             <span v-if="row.historyKind" class="timeline-status">{{ row.recordStatus || '' }}</span>
             <span v-else class="cc-enc-note-pill timeline-status" :class="noteStatusClass(row)">{{ noteStatusLabel(row) }}</span>
           </button>
@@ -100,25 +103,22 @@
       <section v-else-if="selectedRow" class="cc-enc-detail-panel">
         <div class="cc-enc-detail-head">
           <div>
-            <h4>
-              {{ formatEncounterDate(selectedRow.service_date) }}
-              <span v-if="selectedRow.service_code" class="cc-enc-mono"> · {{ selectedRow.service_code }}</span>
-            </h4>
-            <p class="muted tiny" style="margin: 0;">
-              {{ formatEncounterProvider(selectedRow) }}
-              · {{ formatPlaceOfService(selectedRow.place_of_service) }}
-            </p>
+            <h4>{{ recordTitle(selectedRow) }}</h4>
+            <p class="muted tiny">{{ [selectedRow.service_date ? formatEncounterDate(selectedRow.service_date) : null, selectedRow.service_code, encounterScheduleLabel(selectedRow)].filter(Boolean).join(' · ') }}</p>
           </div>
           <button
+            v-if="canOpenNote(selectedRow)"
             type="button"
             class="btn btn-primary btn-sm"
-            :disabled="selectedRow.display_state === 'planned' || openingId === encounterKey(selectedRow)"
+            :disabled="openingId === encounterKey(selectedRow)"
             @click="openNote(selectedRow)"
           >
             {{ openingId === encounterKey(selectedRow) ? 'Opening…' : noteActionLabel(selectedRow) }}
           </button>
         </div>
 
+        <p v-if="noteOpeningError" role="alert">{{ noteOpeningError }}</p>
+        <RouterLink v-if="noteOpeningError || !canOpenNote(selectedRow)" class="cc-enc-schedule-link" :to="scheduleLink(selectedRow)">View schedule for this date</RouterLink>
         <div class="cc-enc-detail-subtabs" role="tablist">
           <button
             v-for="t in detailTabs"
@@ -145,25 +145,18 @@
               </div>
               <div>
                 <div class="cc-enc-field__label">Diagnosis</div>
-                <div class="cc-enc-field__value">{{ selectedRow.diagnosis_text || '—' }}</div>
+                <div class="cc-enc-field__value">{{ selectedRow.diagnosis_text || 'Unrecorded' }}</div>
               </div>
               <div>
                 <div class="cc-enc-field__label">Setting</div>
-                <div class="cc-enc-field__value">{{ formatPlaceOfService(selectedRow.place_of_service) }}</div>
+                <div class="cc-enc-field__value">{{ selectedRow.place_of_service ? formatPlaceOfService(selectedRow.place_of_service) : 'Unrecorded' }}</div>
               </div>
               <div>
                 <div class="cc-enc-field__label">Provider</div>
-                <div class="cc-enc-field__value">{{ formatEncounterProvider(selectedRow) }}</div>
+                <div class="cc-enc-field__value">{{ recordedProvider(selectedRow) }}</div>
               </div>
             </div>
-            <p class="muted tiny" style="margin: 0;">
-              <template v-if="canViewMissingClaimFlag && selectedRow.billing_attached === false && !selectedRow.non_billable">
-                No claim / billing info attached. Importing a billing report for this date and service code will attach to this session instead of creating a duplicate.
-              </template>
-              <template v-else>
-                Clinical notes are authored in Note Workspace and linked to this session.
-              </template>
-            </p>
+            <p v-if="canViewMissingClaimFlag && !selectedRow.non_billable" class="muted tiny">{{ selectedRow.billing_attached ? 'Billing record linked' : 'No billing record linked' }}</p>
           </template>
 
           <template v-else-if="detailTab === 'note'">
@@ -177,7 +170,7 @@
               <div>
                 <div class="cc-enc-field__label">Note ID</div>
                 <div class="cc-enc-field__value">
-                  {{ Number(selectedRow.clinical_note_id || 0) > 0 ? `#${selectedRow.clinical_note_id}` : '—' }}
+                  {{ Number(selectedRow.clinical_note_id || 0) > 0 ? `#${selectedRow.clinical_note_id}` : 'No note filed' }}
                 </div>
               </div>
             </div>
@@ -190,16 +183,6 @@
                     : 'No note has been started for this session yet.'
               }}
             </p>
-            <div>
-              <button
-                type="button"
-                class="btn btn-primary btn-sm"
-                :disabled="selectedRow.display_state === 'planned' || openingId === encounterKey(selectedRow)"
-                @click="openNote(selectedRow)"
-              >
-                {{ openingId === encounterKey(selectedRow) ? 'Opening…' : noteActionLabel(selectedRow) }}
-              </button>
-            </div>
           </template>
 
           <template v-else>
@@ -214,15 +197,15 @@
               </div>
               <div>
                 <div class="cc-enc-field__label">CPT code</div>
-                <div class="cc-enc-field__value cc-enc-mono">{{ selectedRow.service_code || '—' }}</div>
+                <div class="cc-enc-field__value cc-enc-mono">{{ selectedRow.service_code || 'Unrecorded' }}</div>
               </div>
               <div>
                 <div class="cc-enc-field__label">Place of service</div>
-                <div class="cc-enc-field__value">{{ selectedRow.place_of_service || '—' }}</div>
+                <div class="cc-enc-field__value">{{ selectedRow.place_of_service || 'Unrecorded' }}</div>
               </div>
               <div>
                 <div class="cc-enc-field__label">Diagnosis</div>
-                <div class="cc-enc-field__value">{{ selectedRow.diagnosis_text || '—' }}</div>
+                <div class="cc-enc-field__value">{{ selectedRow.diagnosis_text || 'Unrecorded' }}</div>
               </div>
               <div>
                 <div class="cc-enc-field__label">Provider</div>
@@ -248,6 +231,7 @@ import SchoolAbsenceRecords from '../schedule/SchoolAbsenceRecords.vue';
 import SafetyPlansPanel from '../safetyPlans/SafetyPlansPanel.vue';
 import ClinicalRecordDownloads from '../clinical/ClinicalRecordDownloads.vue';
 import PhiDocumentsPanel from './PhiDocumentsPanel.vue';
+import { useRoute } from 'vue-router';
 import { computed, ref, watch } from 'vue';
 import { useMedicalRecordHistory } from '../../composables/useMedicalRecordHistory.js';
 import { confirmRecordDownload } from '../../utils/recordDownloadNotice';
@@ -315,6 +299,29 @@ async function openSignedFile(row){
 }
 const recordFileError=ref('');
 const recordType=ref(''),recordSort=ref('newest');
+const noteOpeningError = ref('');
+const route = useRoute();
+function scheduleLink(row) {
+  const slug = route.params.organizationSlug;
+  return { path: slug ? `/${slug}/schedule` : '/schedule', query: row.service_date ? { date: String(row.service_date).slice(0, 10) } : {} };
+}
+function recordedProvider(row) {
+  const name = formatEncounterProvider(row);
+  return name === '—' ? 'Provider unrecorded' : name;
+}
+function recordTitle(row) {
+  if (row.historyKind) return row.title;
+  if (row.records_import) return row.note_title || 'Imported intake';
+  if (row.note_title) return row.note_title;
+  if (row.note_status === 'signed') return 'Signed clinical note';
+  if (row.note_status === 'draft') return 'Clinical note draft';
+  return row.billing_attached ? 'Billed encounter' : 'Appointment';
+}
+function canOpenNote(row) {
+  return !!(row.intake_draft_id || row.clinical_note_id || row.draft_id
+    || (!['planned', 'not_held'].includes(row.display_state)
+      && (row.appointment_id || row.office_event_id || row.billing_encounter_id)));
+}
 const recordKind=row=>row.historyKind || (row.records_import?'Imported intake':'Encounter');
 const history = useMedicalRecordHistory(clientRef, agencyRef);
 const chronologicalRows = computed(() => [...sortedEncounters.value, ...history.entries.value]
@@ -453,6 +460,7 @@ function selectEncounter(rowOrKey) {
 }
 
 function toggleEncounter(row) {
+  noteOpeningError.value = '';
   if (encounterKey(row) === selectedId.value) {
     selectedId.value = null;
     emit('encounter-change', 0);
@@ -462,14 +470,15 @@ function toggleEncounter(row) {
   selectEncounter(row);
 }
 
-function openNote(row) {
-  if (row.display_state === 'planned') return;
+async function openNote(row) {
+  if (!canOpenNote(row)) return;
   if(row.intake_draft_id){openedIntake.value=row;return;}
-  openClinicalNote({
-    agencyId: props.agencyId,
-    clientId: props.clientId,
-    row
-  });
+  noteOpeningError.value = '';
+  try {
+    await openClinicalNote({ agencyId: row.agency_id || props.agencyId, clientId: props.clientId, row, verifyAppointment: true });
+  } catch (error) {
+    if (selectedId.value === encounterKey(row)) noteOpeningError.value = error.response?.data?.error?.message || error.message;
+  }
 }
 
 function syncSelectionFromProps() {
@@ -526,7 +535,9 @@ watch(
 
 <style scoped>
 .cc-enc-select{display:flex;align-items:center;gap:.4rem;font-size:.85rem}
-.cc-enc-list-item{display:grid;grid-template-columns:minmax(6rem,1fr) minmax(11rem,3fr) minmax(7rem,1.4fr) minmax(6rem,1fr);align-items:center;gap:.8rem;text-align:left}
+.cc-enc-list-item,.cc-enc-list-columns{display:grid;grid-template-columns:minmax(5.9rem,1fr) minmax(11rem,3fr) minmax(7rem,1.6fr) minmax(5.25rem,1fr) minmax(7rem,1.2fr);align-items:center;gap:.8rem;text-align:left}
+.cc-enc-list-columns{padding:.4rem .75rem;font-size:.76rem;font-weight:700;color:#516579}
 .timeline-title{display:grid;gap:.2rem}.timeline-status{justify-self:start}.timeline-date{font-variant-numeric:tabular-nums}
-@media(max-width:650px){.cc-enc-list-item{grid-template-columns:1fr 1fr}.timeline-title{grid-row:1;grid-column:1/-1}}
+.timeline-provider,.timeline-service{color:#435971;font-size:.88rem;overflow-wrap:anywhere}
+@media(max-width:840px){.cc-enc-list-columns{display:none}.cc-enc-list-item{grid-template-columns:1fr 1fr}.timeline-title{grid-row:1;grid-column:1/-1}.timeline-provider:empty{display:none}}
 </style>

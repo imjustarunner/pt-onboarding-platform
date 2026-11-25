@@ -29,7 +29,7 @@ export function normalizeNarrivaPlanDraft(input, { finalize = false } = {}) {
     dischargePlan: bounded(input.dischargePlan, 16000),
     diagnosticJustification: bounded(input.diagnosticJustification, 16000),
     diagnoses: (Array.isArray(input.diagnoses) ? input.diagnoses : []).slice(0,20).filter(row=>row && bounded(row.icd10Code,16)).map(row=>({
-      icd10Code:bounded(row.icd10Code,16), description:bounded(row.description,500), isPrimary:row.isPrimary===true
+      icd10Code:bounded(row.icd10Code,16), description:bounded(row.description,500), justification:bounded(row.justification,16000), isPrimary:row.isPrimary===true
     })),
     goals: input.goals.map((goal, gi) => ({
       goalIndex: gi + 1, goalText: bounded(goal.goalText, 6000), durationMonths: months(goal.durationMonths),
@@ -82,7 +82,7 @@ function validateNarrivaPlan(draft) {
   if (scaledGoals < 2) throw planError('At least two separate goals need a 1–10 objective.');
 }
 
-export async function suggestNarrivaPlanDraft({ input, includeOther = false, completePlan = false, revision = '', generate = callGeminiText }) {
+export async function suggestNarrivaPlanDraft({ input, includeOther = false, completePlan = false, revision = '', intakeEvidence = '', generate = callGeminiText }) {
   const draft = normalizeNarrivaPlanDraft(input);
   if (completePlan) {
     while (draft.goals.length < 3) draft.goals.push({ goalText:'', objectives:[] });
@@ -103,7 +103,7 @@ export async function suggestNarrivaPlanDraft({ input, includeOther = false, com
   if (!objectives.length || objectives.length > 30) throw planError('Add 1–30 objectives, or use the rewrite on a single objective.');
   const result = await generate({
     prompt: `Prepare suggestions for an outpatient treatment plan using the anonymous themes below. Return exactly one entry for every supplied objective ref. Use the supplied goal refs to write a distinct, clinically appropriate goal title wherever needsTitle is true. When a new goal or objective has little context, use a clinician-reviewable priority based on the documented themes, without asserting new clinical facts. The default complete draft has three goals with at least one 1–10 objective each; retain all supplied goals and alternate measures. Apply the clinician’s revision themes where they support the documented plan. Preserve clinical intent and rewrite each objective into a concise, observable action with a specific frequency, measurable success criterion, and timeframe. Draft a revised objective instead of repeating the input’s measurement. Preserve documented scores and use no invented facts. Suggest linked interventions without dates/durations, a duration of 1–36 months per objective, and a natural client 1–10 question with concrete anchors. Add a third-person question only when includeOther is true. When alternateMeasure is true, preserve it and omit numeric scales and questions. Never supply a baseline or imply an observed score, symptom, diagnosis, or response that was not provided. Return only JSON {"goals":[{"ref":"3","goalText":"..."}],"objectives":[{"ref":"1.1","objectiveText":"...","target":8,"durationMonths":3,"interventions":["..."],"clientQuestion":"...","otherQuestion":"..."}],"dischargePlan":"short measurable draft criteria and planning, conditional on clinician review"}.
-${JSON.stringify({ goals, objectives, presentingThemes: clinicalThemes(draft.presentingProblem), revisionThemes })}`,
+${JSON.stringify({ goals, objectives, presentingThemes: clinicalThemes(draft.presentingProblem), intakeThemes: clinicalThemes(intakeEvidence), revisionThemes })}`,
     ...clinicalNoteModelOptions(), vertexOnly:true, sensitive:true, temperature:0.2, maxOutputTokens:8192, jsonMode:true
   });
   let proposed;
