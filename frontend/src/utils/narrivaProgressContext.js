@@ -22,8 +22,8 @@ export function encounterConsentStatement(encounter = {}) {
   const party = encounter.clientPresent === false ? 'The attending participant(s)' : 'The participant(s)';
   const pos = String(encounter.placeOfService || '').padStart(2,'0');
   const remote = ['02','10'].includes(pos) || /video|phone|virtual|telehealth|audio/i.test(encounter.modality || '');
-  const modality = remote ? /phone|audio/i.test(encounter.modality || '') ? 'audio-only telehealth' : 'telehealth' : 'in-person';
-  const site = pos === '10' ? 'at home' : String(encounter.clientLocationDescription || (!remote && (encounter.locationLabel || encounter.location)) || '').trim();
+  const modality = remote ? 'telehealth' : 'in-person';
+  const site = encounter.clientPresent===false ? '' : pos === '10' ? 'at home' : String(encounter.clientLocationDescription || (!remote && (encounter.locationLabel || encounter.location)) || '').trim();
   const setting = site ? (pos === '10' ? ' at home' : ' (' + site + ')') : '';
   return party + ' consented to ' + modality + ' services and participated from a private setting' + setting + '.';
 }

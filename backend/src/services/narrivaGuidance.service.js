@@ -52,7 +52,7 @@ export async function loadNarrivaGuidanceContext(source,{knowledge=getKnowledgeB
   ?'Choose the actual clinical service provided for this pro bono note. The funding choice stays free to the client.'
   :`Approved service instructions are unavailable for ${code || 'the selected service'}. The note is preserved and cannot be verified.`);
  const platformSettings=await settingsProvider();
- const serviceTool=getNoteAidToolById(resolveClinicalToolId({serviceCode:service.documentationCode || code,programId:meta.programId || source.source?.program_id},platformSettings.configuration));
+ const serviceTool=getNoteAidToolById(resolveClinicalToolId({serviceCode:service.documentationCode || code,programId:meta.programId || source.source?.program_id,assessmentKind:meta.assessmentContext?.assessmentKind},platformSettings.configuration));
  const tool=getNoteAidToolById(meta.toolId) || serviceTool || getNoteAidToolById('clinical_code_decider');
  const guidanceTools=[...new Map([tool,serviceTool].filter(Boolean).map(item=>[item.id,item])).values()];
  const agency=await Agency.findById(agencyId),flags=parse(agency?.feature_flags);
@@ -98,6 +98,7 @@ export async function loadNarrivaGuidanceContext(source,{knowledge=getKnowledgeB
   'Use authored examples for structure, specificity and tone. Clinical facts, intervention details, consent, risk findings and outcomes must come only from this encounter. Missing evidence needs clarification.',
   service.prompt,
   tool?.systemPrompt,tool?.outputInstructions,
+  service.documentationCode==='90791' && tool?.id!=='clinical_diagnosis_writer' ? ['Authored diagnostic writer criteria. Apply its diagnostic reasoning and requirements while preserving this intake writer’s section format.',getNoteAidToolById('clinical_diagnosis_writer')?.systemPrompt].filter(Boolean).join('\n'):null,
   serviceTool && serviceTool.id!==tool?.id?[
    `Service-specific authored reference (${serviceTool.id}). Apply its clinical requirements and examples only; retain the selected writer's section format, not this reference's output format.`,
    serviceTool.systemPrompt,serviceTool.outputInstructions

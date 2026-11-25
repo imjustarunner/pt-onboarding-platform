@@ -27,6 +27,8 @@
         </div>
       </div>
     </header>
+    <InternalDiagnosticCriteriaReview v-if="!workspace && !isLearning && agencyId && clientId" :agency-id="agencyId" :client-id="clientId" />
+    <EnrollmentAssessmentHistory v-if="!workspace && !isLearning && agencyId && clientId" :agency-id="agencyId" :client-id="clientId" />
     <ConfidentialClinicalEntries v-if="!workspace && !isLearning && agencyId && clientId" :key="clientId" :agency-id="agencyId" :client-id="clientId" />
 
     <div v-if="workspace" class="ccnf-workspace">
@@ -176,6 +178,8 @@
 </template>
 
 <script setup>
+import InternalDiagnosticCriteriaReview from '../../clinical/InternalDiagnosticCriteriaReview.vue';
+import EnrollmentAssessmentHistory from '../../clinical/EnrollmentAssessmentHistory.vue';
 import ConfidentialClinicalEntries from '../../clinical/ConfidentialClinicalEntries.vue';
 import ClientIntakeNotePanel from './ClientIntakeNotePanel.vue';
 import { computed, defineAsyncComponent, onMounted, ref, watch } from 'vue';

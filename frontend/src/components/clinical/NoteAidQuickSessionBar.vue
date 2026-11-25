@@ -46,6 +46,8 @@
         <strong v-else>{{ serviceCodeLabel || serviceCode || '—' }}</strong>
         <span v-if="editable && serviceCodeLabel.length > 16" class="detail">{{ serviceCodeLabel }}</span>
       </div>
+      <div v-if="$slots['service-assist']" class="na-quick-session__cell"><slot name="service-assist" /></div>
+      <slot name="assessment-type" />
       <div class="na-quick-session__cell na-quick-session__cell--participants">
         <span class="lbl">Participants</span>
         <select
@@ -59,9 +61,9 @@
           <option value="Others (client not present)">Others (client not present)</option>
         </select>
         <strong v-else>{{ participants || 'Client Only' }}</strong>
-        <span v-if="editable && participants.length > 16" class="detail">{{ participants }}</span>
+      </div>
+      <div v-if="editable && needsAttendeeDetail" class="na-quick-session__cell"><span class="lbl">Other participants</span>
         <input
-          v-if="editable && needsAttendeeDetail"
           type="text"
           class="na-quick-session__input na-quick-session__input--detail"
           :class="{ 'na-quick-session__input--required': attendeesRequired }"
@@ -70,7 +72,7 @@
           required
           @input="$emit('update:participantsDetail', $event.target.value)"
         />
-        <span v-else-if="!editable && participantsDetail" class="detail">{{ participantsDetail }}</span>
+        <span v-if="!editable && participantsDetail" class="detail">{{ participantsDetail }}</span>
         <span v-if="editable && attendeesRequired && !String(participantsDetail || '').trim()" class="na-quick-session__req">
           Name who attended
         </span>
@@ -88,8 +90,8 @@
         />
         <strong v-else>{{ durationLabel }}</strong>
       </div>
-      <div class="na-quick-session__cell">
-        <ClinicalLocationPicker v-if="editable" :model-value="locationModel || {locationLabel}" :choices="locationChoices" @update:model-value="$emit('update:locationModel',$event)" />
+      <div class="na-quick-session__cell na-quick-session__cell--location">
+        <ClinicalLocationPicker :client-present="!/client.*(?:not present|absent)|without client/i.test(participants)" v-if="editable" :model-value="locationModel || {locationLabel}" :choices="locationChoices" @update:model-value="$emit('update:locationModel',$event)" />
         <template v-else><span class="lbl">Location</span><strong>{{ locationLabel || '—' }}</strong></template>
       </div>
       <div class="na-quick-session__cell">
@@ -118,7 +120,7 @@
         <span class="lbl">Clinician</span>
         <strong>{{ clinicianLabel || '—' }}</strong>
       </div>
-      <div v-if="editable && !finalized" class="na-quick-session__cell na-quick-session__cell--addons">
+      <div v-if="editable && !finalized && (resolvedAddonMenuOptions.length || billingAddons.length)" class="na-quick-session__cell na-quick-session__cell--addons">
         <span class="lbl">Add-ons</span>
         <div class="na-quick-session__addon-wrap">
           <button
@@ -572,4 +574,9 @@ function onCodeChange(raw) {
 .na-quick-session__cell :deep(.clp > label) {display:grid;gap:.22rem;line-height:1.65rem}
 .na-quick-session__cell :is(input,select), .na-quick-session__cell :deep(.clp select) {box-sizing:border-box;min-height:2.25rem;width:100%;font:inherit;font-size:.875rem;color:#19354d}
 .na-quick-session__cell .lbl :deep(button) {height:1.5rem;width:1.5rem;min-width:0;min-height:0;padding:0}
+
+.na-quick-session__cell--location,.na-quick-session__cell--location :deep(.clp){display:contents}
+.na-quick-session__cell--location :deep(.clp > label){display:grid;min-width:0;gap:.22rem;font-size:.76rem;font-weight:650;line-height:1.65rem;color:#42576c}
+.na-quick-session__cell--location :deep(input),.na-quick-session__cell--location :deep(select){box-sizing:border-box;width:100%;min-width:0;min-height:2.25rem;font-size:.875rem;font-family:inherit;border:1px solid #c6d4e0;border-radius:7px;padding:8px;font-weight:400}
+.na-quick-session__cell--location :deep(.clp > p){grid-column:1/-1}
 </style>

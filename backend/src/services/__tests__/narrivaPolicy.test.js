@@ -46,7 +46,7 @@ describe('Narriva exact-content evidence policy',()=>{
   input.facts.clientPresent=false;input.facts.engagementDocumented=null;input.facts.responseDocumented=null;
   expect(deriveNarrivaCheck('participation_plan',input).status).toBe('passed');
   input.encounter.clientPresent=true;
-  expect(deriveNarrivaCheck('participation_plan',input).findings.map(f=>f.id)).toEqual(['participation_plan:engagementDocumented','participation_plan:responseDocumented']);
+  expect(deriveNarrivaCheck('participation_plan',input).findings.map(f=>f.id)).toEqual(code==='H0032'?[]:['participation_plan:engagementDocumented','participation_plan:responseDocumented']);
   const narrative='Synthetic collateral report describes concerns and the clinician’s documented plan.';
   const evidence=Object.fromEntries(NARRIVA_QUALITY_CRITERIA.map(item=>[item.id,{supported:true,evidence:[narrative]}]));
   evidence.response_specificity={supported:null,evidence:[]};

@@ -142,5 +142,5 @@ export const enrollmentSections = handle(async (req, res) => {
     agencyId: scope.agencyId, actionType: 'clinical_enrollment_note_import',
     targetType: 'client', targetId: scope.clientId, required: true
   });
-  res.json({ sections: context.manualSections || {} });
+  res.json({ sections: context.manualSections || {}, assessments:context.assessmentHistory || [] });
 });

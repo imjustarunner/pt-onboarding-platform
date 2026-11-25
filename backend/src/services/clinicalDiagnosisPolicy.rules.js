@@ -56,7 +56,7 @@ export function evaluateDiagnosisRules({ diagnoses = [], credentialTier, supervi
   for(const [index,d] of ordered.entries()) {
     const code=normalizeDiagnosisCode(d.icd10_code || d.icd10Code || d.code);
     if(!validDiagnosisCode(code, asOfDate)) blockers.push(`${code || 'Diagnosis'}: enter a valid ICD-10-CM code.`);
-    if(['bachelors','qbha'].includes(credentialTier) && code.startsWith('F')) blockers.push(`${code}: bachelor's-level and QBHA providers cannot document or bill F diagnoses.`);
+    if(['bachelors','qbha'].includes(credentialTier) && code.startsWith('F') && !d.establishedByQualifiedClinician && !d.review?.evidenceVerified) blockers.push(`${code}: bachelor's-level and QBHA providers require a verified diagnosing clinician or supporting outside professional documentation to carry an F diagnosis.`);
     if(!String(d.justification || '').trim() && !(screening && code==='R69') && (!progressSignature || index===primaryIndex)) blockers.push(`${code}: a separate clinical justification is required.`);
     if(index===primaryIndex) {
       if(!primaryDiagnosisAllowed(code,{age,serviceCode,sdohServiceEligible,asOfDate})) blockers.push(`${code}: this primary diagnosis is outside the approved coverage ranges or age/service conditions.`);

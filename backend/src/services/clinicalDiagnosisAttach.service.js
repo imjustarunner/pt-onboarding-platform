@@ -1,5 +1,5 @@
 import clinicalPool from '../config/clinicalDatabase.js';
-import { validateDiagnosisWrite } from './clinicalDiagnosisPolicy.service.js';
+import { validateDiagnosisWrite,saveDiagnosisReview } from './clinicalDiagnosisPolicy.service.js';
 
 function safeInt(v) {
   const n = Number(v);
@@ -23,7 +23,7 @@ export async function upsertClinicalDiagnosis({
   setPrimary = false,
   concernKind = 'clinical',
   /** When true, replace description/justification even when values are empty strings. */
-  forceOverwrite = false
+  forceOverwrite = false, externalDiagnosis = null
 }) {
   const agency = safeInt(agencyId);
   const client = safeInt(clientId);
@@ -41,7 +41,7 @@ export async function upsertClinicalDiagnosis({
     throw new Error('agencyId, clientId, icd10Code (or learning description), and createdByUserId are required');
   }
 
-  await validateDiagnosisWrite({agencyId:agency,clientId:client,createdByUserId:actor,icd10Code:code,justification,concernKind:kind});
+  await validateDiagnosisWrite({agencyId:agency,clientId:client,createdByUserId:actor,icd10Code:code,justification,concernKind:kind,externalDiagnosis});
 
   const conn = await clinicalPool.getConnection();
   try {
@@ -155,6 +155,7 @@ export async function upsertClinicalDiagnosis({
       }
     }
 
+    if(externalDiagnosis)await saveDiagnosisReview({agencyId:agency,clientId:client,diagnosisId,actorUserId:actor,input:{evidenceDocumentIds:externalDiagnosis.evidenceDocumentIds,reason:'External diagnosis source: '+externalDiagnosis.providerName+'. Provider attests that the diagnosis is recorded from the uploaded professional documentation; no new disorder is diagnosed by this entry.'}},conn);
     await conn.commit();
     return diagnosisId;
   } catch (e) {

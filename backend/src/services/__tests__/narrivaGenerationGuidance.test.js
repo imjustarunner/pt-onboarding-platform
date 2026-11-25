@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const m=vi.hoisted(()=>({execute:vi.fn(),agency:vi.fn(),agencies:vi.fn(),care:vi.fn(),client:vi.fn(),guardians:vi.fn(),
   context:vi.fn(),findDraft:vi.fn(),createDraft:vi.fn(),updateDraft:vi.fn(),knowledge:vi.fn(),model:vi.fn(),custom:vi.fn(),customAccess:vi.fn(),audit:vi.fn(),payerEligibility:vi.fn(),intake:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute},onTableWrite:()=>()=>{}}));
-vi.mock('../../config/clinicalDatabase.js',()=>({default:{execute:vi.fn()}}));
+vi.mock('../../config/clinicalDatabase.js',()=>({default:{execute:vi.fn(async()=>[[]])}}));
 vi.mock('../../models/Agency.model.js',()=>({default:{findById:m.agency}}));
 vi.mock('../../models/User.model.js',()=>({default:{getAgencies:m.agencies}}));
 vi.mock('../../models/Client.model.js',()=>({default:{findById:m.client}}));
@@ -32,7 +32,7 @@ vi.mock('../../models/clinical/ClinicalTreatmentPlan.model.js',()=>({default:{
  findById:async()=>({id:31,agency_id:2,client_id:10,status:'active',effective_date:'2026-11-01',goals:[]})
 }}));
 vi.mock('../treatmentPlanRenewal.service.js',async importOriginal=>({...await importOriginal(),loadRenewalPolicy:async()=>({renewAfterDays:90})}));
-vi.mock('../narrivaReview.service.js',()=>({assertNarrivaPreGeneration:vi.fn(async()=>({reviewId:81,keptAsIs:false,decisions:[],consentStatement:null}))}));
+vi.mock('../narrivaReview.service.js',()=>({recordNarrivaFinalization:vi.fn(async()=>{}),assertNarrivaPreGeneration:vi.fn(async()=>({reviewId:81,keptAsIs:false,decisions:[],consentStatement:null}))}));
 
 // The controller, shared guidance packer, exact service reference, authoring tool,
 // credential checks, prompt builder, section parser and encryption remain real.

@@ -9,6 +9,10 @@ import {getNoteReviewInsights} from '../controllers/clinicalNoteReviewInsights.c
 import {getClinicalSessionServiceCode,changeClinicalSessionServiceCode} from '../controllers/clinicalSessionServiceChange.controller.js';
 const router=express.Router();
 router.use(authenticate,requireActiveStatus,excludeSupportClinicalContent,apiLimiter);
+router.get('/clients/:clientId/assessment-context',handlers.getClinicalAssessmentContext);
+router.post('/diagnosis-criteria',noteAidLimiter,handlers.postDiagnosticCriteria);
+router.get('/clients/:clientId/diagnosis-criteria',handlers.getDiagnosticCriteria);
+router.get('/review-results',handlers.getNarrivaReviewResults);
 router.get('/preferences',handlers.getNarrivaPreferences);
 router.get('/test-review/options',handlers.getNarrivaTestOptions);
 router.post('/test-review',noteAidLimiter,handlers.postNarrivaTestReview);

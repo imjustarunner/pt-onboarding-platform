@@ -25,3 +25,15 @@ describe('Narriva draft and findings',()=>{
   w.unmount();vi.useRealTimers();
  });
 });
+
+it('lets the author edit the displayed sections and submits them together for recheck',async()=>{
+ const w=mount(Workspace,{props:{preGeneration:true,review:{id:51,status:'passed',draftPreview:'Synthetic draft',draftPreviewSections:{Subjective:'Caregiver reports a concern.',Plan:'Continue the documented assessment.'}}}});
+ await w.get('button').trigger('click');expect(w.findAll('textarea')).toHaveLength(2);
+ await w.get('[aria-label="Subjective"]').setValue('Caregiver reports a concern and supplied additional clinical context.');
+ await w.findAll('button').find(button=>button.text()==='Save edits and recheck').trigger('click');
+ expect(w.emitted('edit')[0][0]).toEqual({Subjective:'Caregiver reports a concern and supplied additional clinical context.',Plan:'Continue the documented assessment.'});expect(w.findAll('textarea')).toHaveLength(0);w.unmount();
+});
+it('requires a fresh review before editing an old preview while retaining its wording',()=>{
+ const w=mount(Workspace,{props:{preGeneration:true,review:{id:51,status:'stale',draftPreview:'Previous wording',draftPreviewSections:{Subjective:'Previous wording'}}}});
+ expect(w.get('button').attributes()).toHaveProperty('disabled');expect(w.text()).toContain('Previous wording');w.unmount();
+});

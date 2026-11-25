@@ -1,3 +1,4 @@
+import {clinicalServiceRequirements} from '../../../frontend/src/utils/clinicalEncounterRequirements.js';
 import { visibleClinicalWork } from '../services/clinicalWorkArchiveRead.service.js';
 import {treatmentPlanGoalTimeframes} from '../services/treatmentPlanGoalTimeframes.js';
 import {requireTestingEligibility} from '../services/testingEligibility.service.js';
@@ -2057,7 +2058,7 @@ export const signClinicalNote = async (req, res, next) => {
     if (isProgressClinicalNote(note, meta)) {
       const sessionMetadata = parseObject(lockedSession?.metadata_json);
       const serviceDate = meta.dateOfService || sessionMetadata.serviceDate || (lockedSession?.scheduled_start_at ? new Intl.DateTimeFormat('en-CA', { timeZone: lockedSession.source_timezone || 'America/Denver', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(lockedSession.scheduled_start_at)) : null);
-      meta.treatmentPlanEligibility = await assertEncounterTreatmentPlanEligibility({ agencyId: note.agency_id, clientId: note.client_id, dateOfService: serviceDate });
+      if(clinicalServiceRequirements({serviceCode:meta.underlyingServiceCode || meta.serviceCode || lockedSession?.service_code}).requireExistingGoals)meta.treatmentPlanEligibility = await assertEncounterTreatmentPlanEligibility({ agencyId: note.agency_id, clientId: note.client_id, dateOfService: serviceDate });
       if (!note.primary_diagnosis_id && !meta.primaryDiagnosisId) {
         meta.flags = { ...(meta.flags || {}), missingDiagnosis: true };
       }
@@ -2483,8 +2484,10 @@ export const upsertDiagnosis = async (req, res, next) => {
       clinicalSessionId: parseIntValue(req.body.clinicalSessionId),
       clinicalNoteId: parseIntValue(req.body.clinicalNoteId),
       setPrimary: isPrimary,
+      externalDiagnosis:req.body.externalDiagnosis || null,
       concernKind
     });
+    await logNoteAidChartEvent(req,{agencyId,clientId,action:req.body.externalDiagnosis?'external_diagnosis_recorded':'clinical_diagnosis_updated',metadata:{diagnosisId:id,icd10Code:code,externalDocumentation:req.body.externalDiagnosis?true:false}});
     return res.status(201).json({ id, icd10Code: code, concernKind });
   } catch (e) {
     next(e);

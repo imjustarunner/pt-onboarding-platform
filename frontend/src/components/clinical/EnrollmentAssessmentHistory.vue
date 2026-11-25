@@ -1,0 +1,11 @@
+<script setup>
+import {ref,watch} from 'vue';
+import api from '../../services/api.js';
+const props=defineProps({agencyId:[Number,String],clientId:[Number,String]});
+const assessments=ref([]),loaded=ref(false),busy=ref(false),error=ref('');let generation=0;
+watch(()=>[props.agencyId,props.clientId],()=>{generation++;loaded.value=false;assessments.value=[];error.value='';});
+async function load(){if(loaded.value || busy.value || !props.clientId || !props.agencyId)return;const current=++generation;busy.value=true;try{const {data}=await api.get(`/clinical-notes/clients/${props.clientId}/enrollment-sections`,{params:{agencyId:props.agencyId},skipGlobalLoading:true});if(current===generation){assessments.value=data.assessments || [];loaded.value=true;}}catch(e){if(current===generation)error.value=e.response?.data?.error?.message || 'Assessment history could not be loaded.';}finally{if(current===generation)busy.value=false;}}
+const label=key=>({psc17:'PSC-17',phq9:'PHQ-9',phqa:'PHQ-A',gad7:'GAD-7'})[key] || key;
+</script>
+<template><details class="assessment-history" @toggle="$event.target.open && load()"><summary>Assessment evidence &amp; score history</summary><p v-if="busy" role="status">Loading assessments…</p><p v-if="error" role="alert">{{error}}</p><p v-if="loaded && !assessments.length">No completed enrollment screening responses on file.</p><article v-for="(screen,index) in assessments" :key="index"><h4>{{label(screen.instrumentKey)}} · {{String(screen.submittedAt || '').slice(0,10)}} · {{screen.complete?'Total '+screen.total:'Incomplete'}}</h4><p>{{screen.interpretation?.summary || screen.text}}</p><details><summary>View original answers</summary><p v-for="item in screen.items" :key="item.key">{{item.question}} · {{item.value ?? 'Unanswered'}}</p></details></article></details></template>
+<style scoped>.assessment-history{border:1px solid #d0dee8;border-radius:10px;padding:14px;background:#fff;margin:12px 0;color:#23465d;font-size:13px}.assessment-history summary{font-weight:650;cursor:pointer}.assessment-history article{padding:12px 0;border-top:1px solid #e1e9ef;margin-top:12px}.assessment-history h4{margin:0 0 8px}.assessment-history p{font-size:12px;line-height:1.6;white-space:pre-wrap}</style>

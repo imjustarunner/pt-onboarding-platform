@@ -1,6 +1,6 @@
 <script setup>
 import {computed} from 'vue';
-const props = defineProps({riskRequired:Boolean,location:{type:Object,default:()=>({})}});
+const props = defineProps({clientPresent:{type:Boolean,default:null},riskRequired:Boolean,location:{type:Object,default:()=>({})}});
 const remote = computed(() => ['02','10'].includes(String(props.location.placeOfService)) || /video|phone|virtual|telehealth|audio/i.test(props.location.modality || ''));
 const site = computed(() => String(props.location.placeOfService) === '10' ? 'at home' : props.location.clientLocationDescription || '');
 const consent = defineModel('consent', { type: Boolean });
@@ -9,7 +9,7 @@ const risk = defineModel('risk', { type: Boolean });
 <template>
   <div class="narriva-session-confirmations">
     <label><input v-model="consent" type="checkbox" /> {{ remote ? 'I confirmed consent for telehealth and verified that the participant had privacy' + (site ? ' (' + site + ')' : '') + '.' : 'I confirmed consent for in-person services and privacy at the session location.' }}</label>
-    <label><input :checked="riskRequired || risk" :disabled="riskRequired" type="checkbox" @change="risk = $event.target.checked" /> {{ riskRequired ? 'Risk assessment required for this note' : 'Include a risk assessment' }}</label>
+    <label v-if="clientPresent !== false"><input :checked="riskRequired || risk" :disabled="riskRequired" type="checkbox" @change="risk = $event.target.checked" /> {{ riskRequired ? 'Risk assessment required for this note' : 'Include a risk assessment' }}</label>
   </div>
 </template>
 <style scoped>

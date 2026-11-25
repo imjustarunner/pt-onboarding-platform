@@ -24,6 +24,7 @@
         <p v-if="note.pendingServiceDetails" class="pending-label">A historical service amendment is awaiting approval. Review the preserved draft in Note versions before signing.</p>
         <CosignReviewTimer v-if="review.canTrackCosignTime && reviewProviderId" :key="`${noteId}-${review.contentHash}`" compact :agency-id="agencyId" :provider-id="reviewProviderId" :note-id="noteId" :content-hash="review.contentHash" />
       </div>
+      <InternalDiagnosticCriteriaReview :agency-id="agencyId" :client-id="note.clientId" :note-id="noteId" />
       <div ref="body" class="review-body">
         <p v-if="notice" class="review-notice" role="status">{{ notice }}</p>
         <NarrivaCompliancePanel v-if="narrivaReview || narrivaBusy || narrivaError" :review="narrivaReview" :busy="narrivaBusy" :error="narrivaError" read-only />
@@ -104,6 +105,7 @@
 </template>
 
 <script setup>
+import InternalDiagnosticCriteriaReview from './InternalDiagnosticCriteriaReview.vue';
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import api from '../../services/api.js';
 import NarrivaCompliancePanel from './NarrivaCompliancePanel.vue';

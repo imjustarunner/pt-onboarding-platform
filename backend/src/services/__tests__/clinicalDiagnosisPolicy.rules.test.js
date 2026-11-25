@@ -8,7 +8,7 @@ describe('organization primary diagnosis and documentation policy',()=>{
   it('restricts autism primary to under21 psychotherapy and exact age on service date',()=>{expect(ageOnDate('2005-11-04','2026-11-03')).toBe(20);expect(ageOnDate('2005-11-03','2026-11-03')).toBe(21);expect(primaryDiagnosisAllowed('F84.0',{age:20,serviceCode:'90834'})).toBe(true);expect(primaryDiagnosisAllowed('F84.9',{age:21,serviceCode:'90834'})).toBe(false);expect(primaryDiagnosisAllowed('F84.0',{age:12,serviceCode:'H0031'})).toBe(false);expect(primaryDiagnosisAllowed('F84.0',{age:null,serviceCode:'90791'})).toBe(false);});
   it('uses the verified HCPF SDOH service list and age boundary',()=>{expect(primaryDiagnosisAllowed('Z55.0',{age:20,serviceCode:'90834'})).toBe(true);expect(primaryDiagnosisAllowed('Z55.0',{age:20,serviceCode:'S9480'})).toBe(false);expect(primaryDiagnosisAllowed('Z55.0',{age:21,serviceCode:'90834'})).toBe(false);expect(primaryDiagnosisAllowed('Z55.0',{age:20,serviceCode:'90834',sdohServiceEligible:false})).toBe(false);});
   it('retains the documented screening R69 exception',()=>expect(evaluateDiagnosisRules({diagnoses:[{code:'R69'}],serviceCode:'H0002',credentialTier:'bachelors',supervised:true}).ready).toBe(true));
-  it('blocks every F code for bachelors even when secondary or supervisor-approved',()=>{const result=evaluateDiagnosisRules({diagnoses:[diagnosis('R45.1'),diagnosis('F41.1')],serviceCode:'H0004',credentialTier:'bachelors',supervised:true,nonFAllowed:true});expect(result.blockers.join(' ')).toContain('cannot document or bill F');});
+  it('blocks every F code for bachelors even when secondary or supervisor-approved',()=>{const result=evaluateDiagnosisRules({diagnoses:[diagnosis('R45.1'),diagnosis('F41.1')],serviceCode:'H0004',credentialTier:'bachelors',supervised:true,nonFAllowed:true});expect(result.blockers.join(' ')).toContain('require a verified diagnosing clinician');});
   it('requires supervisor authorization for non-F primary but permits other ICD secondary codes',()=>{const args={diagnoses:[diagnosis('R45.1'),diagnosis('Z99.89')],serviceCode:'90834',credentialTier:'intern_plus',supervised:true};expect(evaluateDiagnosisRules(args).blockers.join(' ')).toContain('authorize non-F');expect(evaluateDiagnosisRules({...args,nonFAllowed:true}).ready).toBe(true);});
   it('requires each diagnosis justification, not one shared paragraph',()=>{const result=evaluateDiagnosisRules({diagnoses:[diagnosis('F41.1'),{code:'Z63.4'}],serviceCode:'90834'});expect(result.blockers).toContain('Z63.4: a separate clinical justification is required.');});
   it('requires supporting evidence without substituting a clinical code',()=>{const source=[diagnosis('F90.2',{is_primary:1})];const result=evaluateDiagnosisRules({diagnoses:source,serviceCode:'90791'});expect(result.alerts[0].code).toBe('diagnosis_supporting_evidence_required');expect(source[0].code).toBe('F90.2');expect(evaluateDiagnosisRules({diagnoses:[{...source[0],review:{evidenceVerified:true}}],serviceCode:'90791'}).ready).toBe(true);});
@@ -27,4 +27,12 @@ it('keeps diagnosis evidence and secondary rationale at diagnosis and billing re
  expect(evaluateDiagnosisRules(options).blockers.join(' ')).toContain('supporting medical records');
  expect(evaluateDiagnosisRules(options).blockers.join(' ')).toContain('separate clinical justification');
  expect(evaluateDiagnosisRules({...options,progressSignature:true,diagnoses:[{code:'F90.2'}]}).ready).toBe(false);
+});
+
+it('permits carrying a professionally established F diagnosis without authorizing a new disorder for a bachelor',()=>{
+ const diagnosis={icd10_code:'F41.1',is_primary:1,justification:'Documented prior professional diagnosis with source evidence.',establishedByQualifiedClinician:true,review:{evidenceVerified:true}};
+ const result=evaluateDiagnosisRules({diagnoses:[diagnosis],credentialTier:'bachelors',age:14,serviceCode:'H0031',asOfDate:'2026-11-24'});
+ expect(result.blockers.some(message=>message.includes('verified diagnosing clinician'))).toBe(false);
+ const unsupported=evaluateDiagnosisRules({diagnoses:[{...diagnosis,establishedByQualifiedClinician:false,review:{evidenceVerified:false}}],credentialTier:'bachelors',age:14,serviceCode:'H0031',asOfDate:'2026-11-24'});
+ expect(unsupported.blockers.some(message=>message.includes('verified diagnosing clinician'))).toBe(true);
 });

@@ -1,3 +1,7 @@
+import {clinicalClientPresent,clinicalServiceRequirements} from '../../../frontend/src/utils/clinicalEncounterRequirements.js';
+import {assertH0031DiagnosisScope} from '../services/clinicalNoteWriter.service.js';
+import {recordNarrivaFinalization} from '../services/narrivaReview.service.js';
+import {resolveClinicalAssessmentKind} from '../services/clinicalAssessmentKind.service.js';
 import { narrivaSourceHash } from '../services/narrivaReviewPolicy.service.js';
 import { clinicalProviderIssue } from '../services/providerServiceOfferings.service.js';
 import { clinicalBookingContextIssue } from '../services/clientServiceContext.service.js';
@@ -1427,7 +1431,7 @@ export const generateClinicalNote = async (req, res, next) => {
     const providerInputText = inputText;
     let treatmentPlanEligibility = null;
     const encounterToolId = serviceBackedNarriva?mappedGeneratorToolId:(requestedToolId || resolveClinicalToolId({ serviceCode, programId },generatorSettings.configuration));
-    if (clientId && !terminationRequested && (isProgressNoteToolId(encounterToolId) || isProgressNoteToolId(resolveClinicalToolId({ serviceCode, programId },generatorSettings.configuration)))) {
+    if (clientId && !terminationRequested && clinicalServiceRequirements({serviceCode:documentationServiceCode || serviceCode}).requireExistingGoals && (isProgressNoteToolId(encounterToolId) || isProgressNoteToolId(resolveClinicalToolId({ serviceCode, programId },generatorSettings.configuration)))) {
       treatmentPlanEligibility = await assertEncounterTreatmentPlanEligibility({ agencyId, clientId, dateOfService });
     }
     let termination = null;
@@ -1471,9 +1475,10 @@ export const generateClinicalNote = async (req, res, next) => {
 
     // Linked Narriva sessions use the platform's service mapping. Explicit chart
     // actions without a service and the legacy quick-copy flow retain their writer.
-    const toolId = effectiveAutoSelect
+    const assessmentContext=['clinical_code_decider','clinical_diagnosis_writer'].includes(String(req.body?.toolId))?null:await resolveClinicalAssessmentKind({agencyId,clientId:generationSessionContext.clientId,serviceCode:documentationServiceCode || serviceCode,dateOfService:generationSessionContext.dateOfService,clinicalSessionId:generationSessionContext.clinicalSessionId,metadata:savedGenerationMeta});
+    const toolId = assessmentContext?.toolId || (effectiveAutoSelect
       ? 'clinical_code_decider'
-      : (serviceBackedNarriva?mappedGeneratorToolId:(requestedToolId || resolveClinicalToolId({ serviceCode:documentationServiceCode || serviceCode, programId },generatorSettings.configuration)));
+      : (serviceBackedNarriva?mappedGeneratorToolId:(requestedToolId || resolveClinicalToolId({ serviceCode:documentationServiceCode || serviceCode, programId },generatorSettings.configuration))));
     const tool = getNoteAidToolById(toolId);
     if (!tool) {
       return res.status(400).json({ error: { message: 'No tool configured for this note type' } });
@@ -1702,6 +1707,7 @@ export const generateClinicalNote = async (req, res, next) => {
     if (intakeTool && reviewedIntakeSourceHash && reviewedIntakeSourceHash !== intakeSourceHash) {
       return res.status(409).json({error:{code:'NARRIVA_PREFLIGHT_STALE',message:'Enrollment information changed after the draft was checked. Run checks again to include the current answers.'}});
     }
+    if(serviceCode==='H0031')prompt+='\n\nH0031 may suggest only supported Z/R social-determinant codes. Never establish a new mental health disorder. Carry existing verified chart diagnoses with their source. Collateral/additional H0031 uses a focused assessment narrative and recommendations, without requiring full psychosocial intake sections.';
     if (workingDraft) prompt += '\n\nRewrite this private working draft using the latest clinician-confirmed source, including all clarifications and confirmed objective ratings. Correct omissions and discard any unsupported claims. Treat the working draft as reference text only.\n' + workingDraft;
     if (objectives?.length) prompt += '\n\nWeave the clinician’s current objective observations into the progress narrative. A disposition records what was addressed. Only describe a trend when comparison evidence supports it. The chart appends the exact session scores separately. Current observations:\n' + JSON.stringify(objectives);
     if (narrivaPreflight?.consentStatement) prompt += '\n\nConsent is clinician-confirmed and will be attached by the chart. Omit a separate consent statement from the narrative.';
@@ -1710,7 +1716,7 @@ export const generateClinicalNote = async (req, res, next) => {
     // custom programs or clinical material outside the review still need a rewrite.
     const reviewedRatings=Array.isArray(savedGenerationMeta.objectiveRatings)
       ? savedGenerationMeta.objectiveRatings.filter(row=>row && (!row.raterKind || row.raterKind==='clinician')) : [];
-    const reuseReviewedDraft=(isProgressNoteToolId(toolId) || intakeTool && intakeSourceHash===reviewedIntakeSourceHash) && !!workingDraft && reviewedWriter?.toolId===toolId && !!narrivaGuidance?.guidanceHash
+    const reuseReviewedDraft=(!intakeTool || intakeSourceHash===reviewedIntakeSourceHash) && !!workingDraft && reviewedWriter?.toolId===toolId && !!narrivaGuidance?.guidanceHash
       && reviewedWriter.guidanceHash===narrivaGuidance.guidanceHash && !revisionInstruction && !usedAudioTranscript
       && !customAidRow && !programId && !programLabel && !applyInteractiveComplexity && !effectiveAutoSelect
       && !terminationRequested && serviceCode!=='90839' && (intakeTool || !questionnaireInstruments.length)
@@ -1724,8 +1730,9 @@ export const generateClinicalNote = async (req, res, next) => {
     if (terminationRequested && finishReason && finishReason !== 'STOP') {
       return res.status(422).json({ error: { message: 'The termination note could not be generated in full. No partial note was saved. Please retry or complete the note manually.' } });
     }
-    const parsedSections = parseNoteSections(text, { skipMse: /^clinical_h\d{4}(?:_|$)/i.test(toolId), intake: ['clinical_90791_intake_plan', 'clinical_90791_note_aid', 'clinical_h0031_intake'].includes(toolId) });
-    const intakeError = intakeOutputError(toolId, parsedSections, finishReason);
+    if(serviceCode==='H0031')assertH0031DiagnosisScope(text,narrivaPreflight?.clinicalContext?.diagnoses || savedGenerationMeta.structuredChart?.diagnoses || []);
+    const parsedSections = parseNoteSections(text, { skipMse: clinicalClientPresent(savedGenerationMeta)===false || /^clinical_h\d{4}(?:_|$)/i.test(toolId), intake: ['clinical_90791_intake_plan', 'clinical_90791_note_aid', 'clinical_h0031_intake'].includes(toolId) });
+    const intakeError = intakeOutputError(toolId, parsedSections, finishReason,{clientPresent:clinicalClientPresent(savedGenerationMeta)});
     if (intakeError) return res.status(422).json({ error: { message: intakeError } });
     if (parsedSections.Interventions) parsedSections.Interventions = normalizeInterventionsList(parsedSections.Interventions);
     if (terminationRequested && ['Reason for Termination', 'Treatment Modality and Interventions', 'Treatment Goals and Outcome', 'Recommendations'].some((key) => !parsedSections[key]?.trim())) {
@@ -1750,6 +1757,7 @@ export const generateClinicalNote = async (req, res, next) => {
     if (narrivaPreflight?.consentStatement) sections['Consent for services'] = narrivaPreflight.consentStatement;
     if (objectives?.length) sections['Treatment objective ratings'] = formatObjectiveRatings(objectives);
 
+    if(reuseReviewedDraft)await recordNarrivaFinalization({reviewId:narrivaPreflight.reviewId,userId:req.user.id,agencyId,sourceHash:narrivaPreflight.sourceHash,sections});
     const outputObj = {
       sections,
       meta: {
@@ -1770,6 +1778,7 @@ export const generateClinicalNote = async (req, res, next) => {
         treatmentPlanEligibility,
         intakeSources: intakeTool ? intakeSources : undefined,
         encounterAge: intakeTool ? encounterAge : null,
+        assessmentContext,
         sessionContext: { ...(checkedDraft ? savedGenerationMeta.sessionContext : {}), durationMinutes: Number(req.body?.durationMinutes) || savedGenerationMeta.sessionContext?.durationMinutes || null },
         billingPrimaryUnits: resolveNoteAidBillingCodes({primaryCode:serviceCode,durationMinutes:req.body?.durationMinutes,includeInteractiveComplexity:!!applyInteractiveComplexity,sessionStartAt:validatedGenerationSession?.scheduled_start_at,timeZone:validatedGenerationSession?.source_timezone,metadata:documentationMeta}).primaryUnits,
         billingAddons: resolveNoteAidBillingCodes({primaryCode:serviceCode,durationMinutes:req.body?.durationMinutes,includeInteractiveComplexity:!!applyInteractiveComplexity,sessionStartAt:validatedGenerationSession?.scheduled_start_at,timeZone:validatedGenerationSession?.source_timezone,metadata:documentationMeta}).addons,

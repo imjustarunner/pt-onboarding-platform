@@ -1,14 +1,17 @@
 <template>
   <div class="diagnosis-fields">
-    <label v-for="(diagnosis,index) in modelValue" :key="diagnosis.id || diagnosis.icd10_code || diagnosis.code || index">
-      <strong>{{ index === 0 ? 'Primary' : `Diagnosis ${index + 1}` }}: {{ diagnosis.icd10_code || diagnosis.icd10Code || diagnosis.code }} {{ diagnosis.description }}</strong>
+    <section v-for="(diagnosis,index) in modelValue" :key="diagnosis.id || diagnosis.icd10_code || diagnosis.code || index">
+      <label><strong>{{ index === 0 ? 'Primary' : `Diagnosis ${index + 1}` }}: {{ diagnosis.icd10_code || diagnosis.icd10Code || diagnosis.code }} {{ diagnosis.description }}</strong>
       <span>Clinical justification <span aria-hidden="true">*</span></span>
       <textarea :value="diagnosis.justification || ''" :disabled="disabled" rows="3" required :data-testid="`diagnosis-justification-${index}`" placeholder="Document the findings, duration and functional impact supporting this diagnosis. Include uncertainty or evidence still needed." @input="update(index,$event.target.value)" />
-    </label>
+      </label>
+      <NarrivaDiagnosticCriteria v-if="criteriaContext" :diagnosis="diagnosis" :agency-id="criteriaContext.agencyId" :draft-id="criteriaContext.draftId" :transport="criteriaContext.transport" :ensure-saved="criteriaContext.ensureSaved" />
+    </section>
   </div>
 </template>
 <script setup>
-const props=defineProps({modelValue:{type:Array,default:()=>[]},disabled:Boolean});
+import NarrivaDiagnosticCriteria from './NarrivaDiagnosticCriteria.vue';
+const props=defineProps({modelValue:{type:Array,default:()=>[]},disabled:Boolean,criteriaContext:Object});
 const emit=defineEmits(['update:modelValue']);
 function update(index,justification){emit('update:modelValue',props.modelValue.map((item,i)=>i===index?{...item,justification}:item));}
 </script>

@@ -1,3 +1,4 @@
+import {getDiagnosisReview} from '../controllers/clinicalDiagnosisPolicy.controller.js';
 import { maskMobileClientName } from '../services/narrivaAccess.service.js';
 import { enrollmentSections, listEntries, readEntry, createEntry } from '../controllers/confidentialClinicalEntries.controller.js';
 import sessionSupportingMaterials from './sessionSupportingMaterials.routes.js';
@@ -25,6 +26,10 @@ router.get('/context',requireClinicalChart,getMobileClinicalContext);
 router.post('/diagnosis-search',requireClinicalChart,scoped(searchDiagnosisCatalog));
 const clinicalClientAccess = [excludeSupportClinicalContent,requireClinicalChart];
 const clientScope = {clientParam:'clientId',requireClient:true};
+router.get('/clients/:clientId/diagnosis-evidence',...clinicalClientAccess,scoped(getDiagnosisReview,clientScope));
+router.post('/diagnosis-criteria',requireClinicalChart,scoped(narriva.postDiagnosticCriteria,{requireClient:true}));
+router.get('/clients/:clientId/diagnosis-criteria',...clinicalClientAccess,scoped(narriva.getDiagnosticCriteria,clientScope));
+router.get('/clients/:clientId/assessment-context',...clinicalClientAccess,scoped(narriva.getClinicalAssessmentContext,clientScope));
 router.get('/clients/:clientId/enrollment-sections',...clinicalClientAccess,scoped(enrollmentSections,clientScope));
 router.get('/clients/:clientId/confidential-entries',...clinicalClientAccess,scoped(listEntries,clientScope));
 router.get('/clients/:clientId/confidential-entries/:entryId',...clinicalClientAccess,scoped(readEntry,clientScope));

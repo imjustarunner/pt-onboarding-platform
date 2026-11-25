@@ -1,8 +1,11 @@
+import {reviewNarrivaDiagnosticCriteria,listNarrivaDiagnosticCriteria} from '../services/narrivaDiagnosticCriteria.service.js';
+import {listNarrivaReviewResults} from '../services/narrivaReviewResults.service.js';
+import {resolveClinicalAssessmentKind} from '../services/clinicalAssessmentKind.service.js';
 import {logNoteAidChartEvent} from '../services/noteAidChartAudit.service.js';
 import {loadNarrivaSource} from '../services/narrivaSource.service.js';
 import pool from '../config/database.js';
 import {narrivaTestOptions,runNarrivaTestReview} from '../services/narrivaTestReview.service.js';
-import { requireNarrivaAgency,positiveId,narrivaError } from '../services/narrivaAccess.service.js';
+import { requireNarrivaClient,requireNarrivaAgency,positiveId,narrivaError } from '../services/narrivaAccess.service.js';
 import { createNarrivaReview,readNarrivaReview,resolveNarrivaFinding,latestNarrivaStatus,latestDraftReview,narrivaFeatures,narrivaWriterCapabilities } from '../services/narrivaReview.service.js';
 const handle=fn=>async(req,res,next)=>{res.set('Cache-Control','no-store');try{await fn(req,res);}catch(e){next(e);}};
 export const getNarrivaTestOptions=handle(async(req,res)=>res.json(await narrivaTestOptions(req.user,positiveId(req.query.agencyId))));
@@ -44,3 +47,14 @@ export const getNarrivaDraftStatus=handle(async(req,res)=>{
  res.json({review:await latestDraftReview(req.user,agencyId,draftId,sessionId)});
 });
 export const getNarrivaNoteStatus=handle(async(req,res)=>{const agencyId=positiveId(req.query.agencyId),noteId=positiveId(req.params.noteId);const source=await loadNarrivaSource(req.user,{agencyId,noteId});res.json({review:await latestNarrivaStatus(req.user,agencyId,noteId,{actorUserId:Number(source.source.created_by_user_id)})});});
+
+export const getClinicalAssessmentContext=handle(async(req,res)=>{
+ const agencyId=positiveId(req.query.agencyId),clientId=positiveId(req.params.clientId);
+ await requireNarrivaClient(req.user,agencyId,clientId);
+ res.json(await resolveClinicalAssessmentKind({agencyId,clientId,serviceCode:req.query.serviceCode,dateOfService:req.query.dateOfService,clinicalSessionId:positiveId(req.query.clinicalSessionId)}) || {});
+});
+
+export const getNarrivaReviewResults=handle(async(req,res)=>res.json(await listNarrivaReviewResults(req)));
+
+export const postDiagnosticCriteria=handle(async(req,res)=>res.json(await reviewNarrivaDiagnosticCriteria(req)));
+export const getDiagnosticCriteria=handle(async(req,res)=>res.json(await listNarrivaDiagnosticCriteria(req)));

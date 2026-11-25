@@ -1,9 +1,10 @@
+import {clinicalClientPresent} from '../../../frontend/src/utils/clinicalEncounterRequirements.js';
 import {isMentalStatusExamComplete} from '../../../frontend/src/utils/noteAidMseCatalog.js';
 import pool from '../config/database.js';
 import ClinicalNoteDraft from '../models/ClinicalNoteDraft.model.js';
 import { maybeDecryptNotePayload, maybeEncryptNotePayload } from './clinicalNoteCrypto.service.js';
 import { decryptChatText } from './chatEncryption.service.js';
-import { narrivaSourceHash, NARRIVA_RULES_VERSION } from './narrivaReviewPolicy.service.js';
+import { narrivaSourceHash, NARRIVA_RULES_VERSION,narrivaRecordedDecisions } from './narrivaReviewPolicy.service.js';
 
 // A selected domain is not an assessment. These are the same three domains as the editor.
 export const NARRIVA_RISK_DOMAINS=['Suicidal Ideation','Homicidal Ideation','Self-Harm'];
@@ -39,10 +40,7 @@ export function completeNarrivaRiskAssessment(risk) {
  // Older notes use named areas; require an actual finding for every safety domain.
  return Array.isArray(risk.areas) && NARRIVA_RISK_DOMAINS.every(name=>risk.areas.some(area=>area?.name===name && (selected(area.option) || selected(area.status) || selected(area.level))));
 }
-const decisions=review=>[...new Map([
- ...(review.priorDecisions || []),
- ...(review.checks || []).flatMap(check=>(check.findings || []).filter(f=>f.bypassed===true).map(f=>({checkId:check.id,id:f.id,message:f.message,reason:f.bypassReason,bypassedBy:f.bypassedBy,bypassedAt:f.bypassedAt})))
-].map(decision=>[`${decision.checkId}:${decision.id}`,decision])).values()];
+const decisions=narrivaRecordedDecisions;
 function riskBypassed(review,authorUserId) {
  const risk=review.checks?.find(check=>check.id==='risk_safety');
  return review.riskAssessmentIncluded!==true && risk?.status==='bypassed' && Array.isArray(risk.findings) && risk.findings.length>0 && risk.findings.every(f=>f.canBypass===true && f.bypassed===true && id(f.bypassedBy)===id(authorUserId) && typeof f.bypassReason==='string' && f.bypassReason.trim().length>0);
@@ -72,7 +70,7 @@ export async function verifiedNarrivaPreflight({draft,session,authorUserId,evide
   || review.phase==='output' && review.draftEvidenceHash!==narrivaDraftEvidenceHash(draft))throw stale();
  const kept=decisions(review);
  return {reviewId:id(row.id),phase:review.phase,draftEvidenceHash:review.draftEvidenceHash || null,sourceHash:row.source_hash,inputHash,keptAsIs:kept.length>0,decisions:kept,
-  riskAssessmentIncluded:review.riskAssessmentIncluded===true,riskBypassed:riskBypassed(review,authorUserId)};
+  advisories:(review.checks || []).flatMap(check=>(check.advisories || []).filter(advisory=>advisory.category==='risk')),riskAssessmentIncluded:review.riskAssessmentIncluded===true,riskBypassed:riskBypassed(review,authorUserId)};
 }
 function evidenceHash(notePayload,metadata) {
  return narrivaSourceHash({notePayload:maybeDecryptNotePayload(notePayload),narrivaPreflight:metadata.narrivaPreflight,
@@ -97,6 +95,7 @@ export async function protectNarrivaPreflightMetadata({metadata,draft,session,au
   clean.quickSignEligible=false;
   clean.narrivaSupervisorFlags=verified.decisions.map(decision=>({category:decision.checkId==='risk_safety'?'risk':'documentation',...decision,reviewId:verified.reviewId}));
  }
+ if(verified.advisories?.length){clean.quickSignEligible=false;clean.narrivaSupervisorFlags=[...(clean.narrivaSupervisorFlags || []),...verified.advisories.map(advisory=>({...advisory,reviewId:verified.reviewId}))];}
  const claim={v:1,agencyId:id(session.agency_id),clientId:id(session.client_id),clinicalSessionId:id(session.id),authorUserId:id(authorUserId),draftId:id(draft.id),
   ...verified,riskAssessmentIncluded:verified.riskAssessmentIncluded || saved.meta?.narrivaContext?.riskAssessmentIncluded===true || clean.narrivaContext?.riskAssessmentIncluded===true,
   evidenceHash:evidenceHash(notePayload,clean)};
@@ -178,6 +177,8 @@ async function verifiedNoteRiskBypass(note,{database=pool}={}) {
 }
 export async function assertNarrivaRiskBeforeSignature(note,dependencies={}) {
  const database=dependencies.database || pool,meta=object(note.metadata_json);
+ if(meta.assessmentContext?.requiresDiagnosisConfirmation && meta.narrivaContext?.diagnosesConfirmed!==true)throw Object.assign(new Error('Confirm the carried diagnoses and clinical justification before signing this assessment.'),{status:409,code:'DIAGNOSES_CONFIRMATION_REQUIRED'});
+ if(clinicalClientPresent(meta)===false)return;
  const clinicalCode=String(meta.underlyingServiceCode || meta.narrivaContext?.underlyingServiceCode || note.service_code || meta.serviceCode || '').toUpperCase();
  if (!note.provider_signed_at && meta.narrivaContext?.writerMode==='narriva' && /^9\d{4}$/.test(clinicalCode)
      && !isMentalStatusExamComplete(meta.structuredChart?.mentalStatusExam)) {

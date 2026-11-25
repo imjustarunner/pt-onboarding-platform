@@ -7,7 +7,7 @@ export function mergeSessionDiagnosis(existing = [], selected) {
   if (!/^[A-Z][0-9]{2}(?:\.[A-Z0-9]{1,4})?$/.test(code) || !justification) return existing;
   const index = existing.findIndex(row => diagnosisCode(row) === code);
   const current = index >= 0 ? existing[index] : null;
-  const next = { ...current, icd10_code: code, description: String(selected.description || current?.description || '').trim(), justification, is_active: 1,
+  const next = { ...current,...(selected.id?{id:selected.id}:{}),...(selected.source?{source:selected.source}:{}), icd10_code: code, description: String(selected.description || current?.description || '').trim(), justification, is_active: 1,
     is_primary: current?.is_primary ?? (existing.some(row => Number(row?.is_primary) === 1) ? 0 : 1) };
   return index >= 0 ? existing.map((row, i) => i === index ? next : row) : [...existing, next];
 }

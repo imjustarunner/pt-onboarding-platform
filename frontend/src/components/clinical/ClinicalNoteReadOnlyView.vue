@@ -34,6 +34,7 @@
       </button>
     </div>
 
+    <InternalDiagnosticCriteriaReview :agency-id="note.agencyId" :client-id="note.clientId" :note-id="note.id" />
     <ClinicalNoteVersionHistory ref="versionHistory" v-if="note.providerSignedAt && note.id && note.agencyId" :note-id="note.id" :agency-id="note.agencyId" :legacy-pending-service-details="note.pendingServiceDetails" :legacy-amendment="legacyPendingAmendment" prefer-pending @changed="onVersionChanged" />
 
     <section v-if="hasSessionFacts" class="ccn-block ccn-facts" aria-label="Session details">
@@ -373,6 +374,7 @@
 </template>
 
 <script setup>
+import InternalDiagnosticCriteriaReview from './InternalDiagnosticCriteriaReview.vue';
 import { canAccessMedicalBilling } from '../../config/medicalBillingAccess.js';
 import ConfidentialClinicalEntries from './ConfidentialClinicalEntries.vue';
 import SessionSupportingMaterials from './SessionSupportingMaterials.vue';

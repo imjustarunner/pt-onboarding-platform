@@ -1,3 +1,5 @@
+import {clinicalClientPresent,clinicalServiceRequirements} from '../../../frontend/src/utils/clinicalEncounterRequirements.js';
+import {resolveClinicalAssessmentKind} from './clinicalAssessmentKind.service.js';
 import ClinicalTreatmentObjectiveRating from '../models/clinical/ClinicalTreatmentObjectiveRating.model.js';
 import { loadEncounterTreatmentPlanEligibility } from './treatmentPlanEncounterEligibility.service.js';
 import { planObjectiveReview } from '../../../frontend/src/utils/narrivaObjectiveReview.js';
@@ -97,7 +99,7 @@ export function narrivaLocalContext({source,meta,session={},provider={},serviceR
    location:String(context.locationLabel || context.placeOfService || meta.locationLabel || session.location_name || ''),
    modality,placeOfService:pos,clientLocationDescription:String(narriva.clientLocationDescription || ''),
    consentConfirmed:narriva.consentConfirmed===true,
-   participants:participantText,clientPresent:narriva.clientPresent ?? chart.patientPresent ?? (participantLower.includes('client') && !/without client|client not present|client absent/.test(participantLower)),
+   participants:participantText,clientPresent:clinicalClientPresent(meta),
    additionalParticipantsDocumented:/parent|mother|father|guardian|caregiver|partner|spouse|family|collateral|teacher|other/i.test(participantText)},
   clinical:{hasDiagnosis:Array.isArray(diagnoses) && diagnoses.some(d=>typeof d==='string'?d.trim():d.icd10_code || d.code || d.diagnosis),
    hasJustification:textPresent(chart.diagnosticJustification || meta.diagnosticJustification) || diagnoses.some(d=>textPresent(d.justification)),
@@ -157,6 +159,8 @@ export async function loadNarrivaSource(user,{agencyId,draftId,noteId,phase='out
    {authorizedNoteReviewer:!!noteId,clinicalDb});
   assessmentManifest=evidence.verifiedManifest;
  }
+ const assessmentContext=await resolveClinicalAssessmentKind({agencyId,clientId:client.id,serviceCode:documentationCode,dateOfService:source.date_of_service || meta.dateOfService,clinicalSessionId:source.clinical_session_id,noteId,metadata:meta},clinicalDb);
+ if(assessmentContext){meta.assessmentContext=assessmentContext;meta.toolId=assessmentContext.toolId;}
  const inputText=draftId?decryptNarrivaDraft(source.input_text):'';
  let modelSessionNarrative=inputText;
  // An unsigned chart copy may use the author's original encounter narrative
@@ -184,6 +188,7 @@ export async function loadNarrivaSource(user,{agencyId,draftId,noteId,phase='out
  local.clinical.hasDiagnosis=clinicalContext.diagnoses.length>0;
  local.clinical.hasJustification=textPresent(clinicalContext.diagnosticJustification) || clinicalContext.diagnoses.some(item=>textPresent(item.justification));
  local.clinical.assessmentEvidencePresent=assessmentManifest.length>0;
+ if(assessmentContext)local.service.assessmentKind=assessmentContext.assessmentKind;
  const [[priorRisk]]=await pool.execute(`SELECT MAX(risk_assessment_required) AS required FROM narriva_reviews WHERE agency_id=? AND ((draft_id IS NOT NULL AND draft_id=?) OR (clinical_note_id IS NOT NULL AND clinical_note_id=?) OR (clinical_session_id IS NOT NULL AND clinical_session_id=?))`,[agencyId,positiveId(draftId || meta.draftId),positiveId(noteId),positiveId(source.clinical_session_id)]);
  local.clinical.riskRequiredFromPriorReview=Number(priorRisk?.required)===1;
  const catalog=await resolveAgencySchedulingCatalog({agencyId,credentialTier:care.credentialTier,allServiceCodes:[],eligibleServiceCodes:[]});
@@ -194,7 +199,7 @@ export async function loadNarrivaSource(user,{agencyId,draftId,noteId,phase='out
  if (phase === 'pre_generation') {
   const {configuration} = await loadNarrivaSettings();
   const tool = resolveClinicalToolId({serviceCode:documentationCode, programId:source.program_id},configuration);
-  if (isProgressNoteToolId(tool) || isProgressNoteToolId(meta.toolId)) {
+  if (clinicalServiceRequirements({serviceCode:documentationCode,assessmentKind:assessmentContext?.assessmentKind}).requireExistingGoals && (isProgressNoteToolId(tool) || isProgressNoteToolId(meta.toolId))) {
    const eligible = await loadEncounterTreatmentPlanEligibility({agencyId,clientId:client.id,dateOfService:source.date_of_service || meta.dateOfService,includePlan:true});
    const previousScores=await ClinicalTreatmentObjectiveRating.previousClinicianScores({agencyId,clientId:client.id,dateOfService:eligible.dateOfService,
     objectiveIds:(eligible.plan?.goals || []).flatMap(goal=>(goal.objectives || []).map(o=>o.id))},clinicalDb);

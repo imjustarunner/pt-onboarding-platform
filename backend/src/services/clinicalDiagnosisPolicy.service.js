@@ -15,10 +15,12 @@ export async function loadClientDiagnosesWithReviews({agencyId,clientId},db=clin
   let reviews=[];
   try { [reviews]=await db.execute('SELECT * FROM clinical_diagnosis_reviews WHERE agency_id=? AND client_id=? ORDER BY id DESC',[agencyId,clientId]); }
   catch(error){ if(!missingSchema(error))throw error; }
+  const authors=[...new Set((rows || []).map(row=>Number(row.created_by_user_id)).filter(Boolean))];
+  const [clinicians]=authors.length?await pool.execute(`SELECT id,role,credential FROM users WHERE id IN (${authors.map(()=>'?').join(',')})`,authors):[[]];
   return (rows || []).map(d=>{
     const history=reviews.filter(r=>Number(r.diagnosis_id)===Number(d.id)).map(review=>({...review,evaluation_note:review.evaluation_note ? maybeDecryptNotePayload(review.evaluation_note) : null,review_reason:review.review_reason ? maybeDecryptNotePayload(review.review_reason) : ''}));
     const review=history[0];
-    return {...d,reviewHistory:history,review:review ? {...review,evidenceDocumentIds:array(review.evidence_document_ids_json),evidenceVerified:array(review.evidence_document_ids_json).length>0 || (!!review.qualified_evaluator_user_id && !!String(review.evaluation_note || '').trim()),last_reviewed_at:review.reviewed_at} : {evidenceVerified:false}};
+    return {...d,establishedByQualifiedClinician:clinicians.some(actor=>Number(actor.id)===Number(d.created_by_user_id) && (isFullyLicensedCredentialText(actor.credential) || credentialTierFor(actor)==='intern_plus')),reviewHistory:history,review:review ? {...review,evidenceDocumentIds:array(review.evidence_document_ids_json),evidenceVerified:array(review.evidence_document_ids_json).length>0 || (!!review.qualified_evaluator_user_id && !!String(review.evaluation_note || '').trim()),last_reviewed_at:review.reviewed_at} : {evidenceVerified:false}};
   });
 }
 export async function listClientDiagnosisAlerts({agencyId,clientId,asOfDate}={}) {
@@ -58,6 +60,7 @@ export async function evaluateClientDiagnosisPolicy({agencyId,clientId,providerU
   // A pure digital screening needs no invented disorder. Explicitly recorded
   // diagnoses still undergo credential/justification checks, even when billing uses R69.
   if(service==='H0002' && (!explicitCodes.length || explicitCodes.every(code=>code==='R69')))return {ready:true,blockers:[],warnings:[],alerts:[]};
+  if(['H0032','H0023','H0025'].includes(service) && !explicitCodes.length)return {ready:true,blockers:[],warnings:[],alerts:[]};
   const chart=await loadClientDiagnosesWithReviews({agencyId,clientId});
   const frozenPrimaryJustification = String(note?.diagnostic_justification || metadata.structuredChart?.diagnosticJustification || metadata.diagnosticJustification || '').trim();
   // Mutable chart text cannot retrospectively supply a signed note's rationale.
@@ -69,7 +72,7 @@ export async function evaluateClientDiagnosisPolicy({agencyId,clientId,providerU
     const record=source.find(row=>codeOf(row)===code)||{};
     const current=chart.find(row=>codeOf(row)===code);
     const justification=record.justification || (index===0 && note ? frozenPrimaryJustification : '');
-    return {...record,justification,icd10_code:code,is_primary:index===0?1:0,review:current?.review || {evidenceVerified:false},created_at:record.created_at || current?.created_at};
+    return {...record,justification,icd10_code:code,is_primary:index===0?1:0,establishedByQualifiedClinician:current?.establishedByQualifiedClinician===true,review:current?.review || {evidenceVerified:false},created_at:record.created_at || current?.created_at};
   });
   if(!selected.length)return {ready:false,blockers:['A primary diagnosis with its own clinical justification is required.'],warnings:[],alerts:[]};
   const ctx=await providerContext({agencyId,clientId,providerUserId:providerUserId || note?.provider_signed_by_user_id || note?.created_by_user_id});
@@ -82,16 +85,28 @@ export async function assertClientDiagnosisPolicy(args) {
   if(!result.ready)throw Object.assign(fail(409,result.blockers.join(' ')),{blockers:result.blockers,diagnosisAlerts:result.alerts});
   return result;
 }
-export async function validateDiagnosisWrite({agencyId,clientId,createdByUserId,icd10Code,justification,concernKind}) {
+export async function validateDiagnosisWrite({agencyId,clientId,createdByUserId,icd10Code,justification,concernKind,externalDiagnosis}) {
   if(concernKind==='learning_concern')return;
   if(!validDiagnosisCode(icd10Code))throw fail(400,'Enter a valid ICD-10-CM diagnosis code.');
   if(!String(justification || '').trim())throw fail(400,`${normalizeDiagnosisCode(icd10Code)} requires its own clinical justification.`);
   const [[actor]]=await pool.execute('SELECT u.role,u.credential FROM users u JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=? WHERE u.id=? LIMIT 1',[agencyId,createdByUserId]);
   if(!actor)throw fail(403,'An agency clinical relationship is required to add diagnoses.');
   const tier=credentialTierFor(actor);
-  if(['bachelors','qbha'].includes(tier)&&normalizeDiagnosisCode(icd10Code).startsWith('F'))throw fail(403,"Bachelor's-level and QBHA providers cannot author F diagnoses.");
+  if(normalizeDiagnosisCode(icd10Code).startsWith('F') && externalDiagnosis)await validateExternalDiagnosis({agencyId,clientId,externalDiagnosis});
+  if(['bachelors','qbha'].includes(tier)&&normalizeDiagnosisCode(icd10Code).startsWith('F')) {
+    const existing=(await loadClientDiagnosesWithReviews({agencyId,clientId})).find(row=>normalizeDiagnosisCode(row.icd10_code)===normalizeDiagnosisCode(icd10Code));
+    if(!externalDiagnosis && !existing?.establishedByQualifiedClinician && !existing?.review?.evidenceVerified)throw fail(403,"Recording an outside F diagnosis requires its provider source, uploaded documentation and attestation. This does not authorize independently diagnosing a disorder.");
+  }
   const [[client]]=await pool.execute('SELECT id FROM clients WHERE id=? AND agency_id=? LIMIT 1',[clientId,agencyId]);
   if(!client) { const [[assignment]]=await pool.execute('SELECT client_id FROM client_agency_assignments WHERE client_id=? AND agency_id=? AND is_active=1 LIMIT 1',[clientId,agencyId]); if(!assignment)throw fail(404,'Client not found in this agency.'); }
+}
+export async function validateExternalDiagnosis({agencyId,clientId,externalDiagnosis}) {
+ const source=String(externalDiagnosis.providerName || '').trim();
+ const ids=externalDiagnosis.evidenceDocumentIds;
+ if(externalDiagnosis.attested!==true || source.length<3 || source.length>300 || !Array.isArray(ids) || !ids.length || ids.length>20 || ids.some(id=>!Number.isSafeInteger(Number(id)) || Number(id)<1))throw fail(400,'Confirm the outside diagnosing provider and select the supporting documents from this client’s file.');
+ const unique=[...new Set(ids.map(Number))];
+ const [documents]=await pool.execute(`SELECT id FROM client_phi_documents WHERE agency_id=? AND client_id=? AND COALESCE(document_type,'') <> 'private_client_medical_history' AND id IN (${unique.map(()=>'?').join(',')})`,[agencyId,clientId,...unique]);
+ if(documents.length!==unique.length)throw fail(400,'Supporting documentation must belong to this client and agency.');
 }
 export async function saveDiagnosisReview({agencyId,clientId,diagnosisId,actorUserId,input},db=clinicalPool) {
   const [[diagnosis]]=await db.execute('SELECT * FROM clinical_diagnoses WHERE id=? AND agency_id=? AND client_id=? AND is_active=1 LIMIT 1',[diagnosisId,agencyId,clientId]);

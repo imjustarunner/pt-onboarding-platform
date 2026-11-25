@@ -182,8 +182,8 @@ describe('Narriva pre-generation review', () => {
     for(const value of Object.values(facts.qualityEvidence))value.supported=false;
     const review=await preflight();
     expect(review).toMatchObject({phase:'pre_generation',status:'passed',quickSignEligible:false});
-    expect(m.model.mock.calls[0][0]).toMatchObject({model:'gemini-4-hydrogen',thinkingLevel:'MEDIUM',vertexLocation:'us',allowModelFallback:false});
-    expect(m.model.mock.calls[0][0].prompt).toContain('pre-generation check');
+    expect(m.model.mock.calls[0][0]).toMatchObject({model:'gemini-4-hydrogen',thinkingLevel:'LOW',vertexLocation:'us',allowModelFallback:false});
+    expect(m.model.mock.calls.at(-1)[0].prompt).toContain('pre-generation check');
     await expect(assertNarrivaPreGeneration({user:clinician,body:{preflightReviewId:review.id}},{agencyId:2,clientId:10,draftId:42,clinicalSessionId:20,inputText:source.inputText})).resolves.toMatchObject({reviewId:review.id,keptAsIs:false});
   });
   it('shows the checked draft to its author alongside current ratings',async()=>{
@@ -411,5 +411,38 @@ describe('author signing of a previously reviewed chart copy',()=>{
   const result=await createNarrivaReview(req(change==='another reviewer'?supervisor:clinician));
   expect(result.status).toBe('running');
   for(let i=0;i<3;i++)await drain();
+ });
+});
+
+describe('editable and finalized server-reviewed drafts',()=>{
+ async function checked(){
+  source.phase='pre_generation';source.draftId=42;source.noteId=null;source.source.user_id=7;source.source.provider_signed_at=null;source.source.clinical_session_id=20;
+  m.load.mockImplementation(async(user,input)=>({...source,phase:input.phase || 'output',sourceHash:narrivaSourceHash({narrative:source.narrative,meta:source.meta,encounter:source.encounter,phase:input.phase})}));
+  facts.draftReadyForDisplay=true;
+  m.model.mockResolvedValueOnce({text:source.narrative,finishReason:'STOP',modelName:'synthetic-writer'});
+  const created=await createNarrivaReview({user:clinician,body:{agencyId:2,draftId:42,phase:'pre_generation'}});for(let i=0;i<5;i++)await drain();
+  return readNarrivaReview(clinician,created.id,2);
+ }
+ it('records a manual edit, reviews it without rewriting again, and retains its compliance flag',async()=>{
+  const original=await checked();const before=m.model.mock.calls.length;
+  const edited='Provider-authored clarification of the observed functional impact and assessment recommendation.';
+  const result=await resolveNarrivaFinding({user:clinician,params:{reviewId:original.id},body:{agencyId:2,action:'edit_draft',sections:{Subjective:edited}}});
+  expect(result.status).toBe('running');for(let i=0;i<5;i++)await drain();
+  const reviewed=await readNarrivaReview(clinician,original.id,2);
+  expect(reviewed).toMatchObject({manualEdited:true,status:'bypassed',quickSignEligible:false});expect(reviewed.draftPreview).toContain(edited);expect(m.model.mock.calls.length-before).toBe(1);
+  const proof=await assertNarrivaPreGeneration({user:clinician,body:{preflightReviewId:original.id}},{agencyId:2,clientId:10,draftId:42,clinicalSessionId:20,inputText:source.inputText});expect(proof.keptAsIs).toBe(true);expect(proof.decisions.some(item=>item.checkId==='manual_edit')).toBe(true);
+ });
+ it('does not let a supervisor overwrite the author’s preview through the edit endpoint',async()=>{
+  const original=await checked();await expect(resolveNarrivaFinding({user:supervisor,params:{reviewId:original.id},body:{agencyId:2,action:'edit_draft',sections:{Subjective:'A synthetic edit by another reviewer.'}}})).rejects.toMatchObject({status:403});
+ });
+ it.each([false,true])('reuses finalization evidence only while the saved text is unchanged (edited=%s)',async edited=>{
+  const original=await checked();const {recordNarrivaFinalization}=await import('../narrivaReview.service.js');
+  const sections={Subjective:source.narrative};
+  await recordNarrivaFinalization({reviewId:original.id,userId:7,agencyId:2,sourceHash:original.sourceHash,sections});
+  source.sectionContent={...sections};if(edited)source.sectionContent.Subjective+=' New provider-added content requires review.';
+  source.meta.narrivaPreflight={reviewId:original.id,sourceHash:original.sourceHash,inputHash:original.inputHash};
+  const before=m.model.mock.calls.length;
+  const next=await createNarrivaReview({user:clinician,body:{agencyId:2,draftId:42,phase:'output'}});for(let i=0;i<5;i++)await drain();
+  const final=await readNarrivaReview(clinician,next.id,2);expect(['passed','action_required','bypassed']).toContain(final.status);expect(m.model.mock.calls.length-before).toBe(edited?1:0);
  });
 });

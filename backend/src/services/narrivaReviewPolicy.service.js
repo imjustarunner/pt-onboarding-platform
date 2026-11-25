@@ -1,6 +1,7 @@
+import {clinicalServiceRequirements} from '../../../frontend/src/utils/clinicalEncounterRequirements.js';
 import crypto from 'node:crypto';
 
-export const NARRIVA_RULES_VERSION='2026-11-24.2';
+export const NARRIVA_RULES_VERSION='2026-11-24.3';
 export const NARRIVA_SCORE_THRESHOLD=70;
 export const NARRIVA_QUALITY_CRITERIA=[
  {id:'intervention_specificity',label:'Specific service actions and interventions',points:20,instruction:'Identifies the actual service action or intervention and how it was applied in this encounter; a generic service label alone is insufficient.'},
@@ -11,7 +12,7 @@ export const NARRIVA_QUALITY_CRITERIA=[
  {id:'follow_up_specificity',label:'Actionable follow-up',points:15,instruction:'States a specific next action, practice, coordination or follow-up recommendation supported by this encounter, rather than only continue treatment.'},
  {id:'assessment_integration',label:'Assessment findings used in care',points:5,instruction:'When a separate assessment is referenced, documents its actual findings or how the assessment informs this encounter or plan. Do not infer results from a linked file.'}
 ];
-export function narrivaQualityCriteria(serviceCode,{clientPresent=null}={}) {
+export function narrivaQualityCriteria(serviceCode,{clientPresent=null,assessmentKind=null}={}) {
  const isIntake=['90791','H0031'].includes(String(serviceCode || '').toUpperCase());
  const intake={
   intervention_specificity:['Diagnostic assessment activities','Identifies the diagnostic interview, history gathering, collateral interview or screening interpretation actually performed in this assessment.'],
@@ -21,9 +22,15 @@ export function narrivaQualityCriteria(serviceCode,{clientPresent=null}={}) {
   goal_linkage:['Identified treatment needs','Identifies assessment-supported clinical needs or treatment recommendations. An existing treatment plan is not a prerequisite.'],
   follow_up_specificity:['Assessment recommendations and next steps','States supported diagnostic follow-up, further differential assessment, treatment planning or level-of-care recommendations.']
  };
+ const profile=clinicalServiceRequirements({serviceCode,assessmentKind,clientPresent});
+ const focused={
+  intervention_specificity:['Specific service activities',`Identifies the actual ${profile.actionLabel} performed and how they addressed this encounter.`],
+  progress_detail:['Findings and barriers relevant to this service','Documents concrete findings, service needs or barriers from this encounter. Prior therapy progress is not a prerequisite.'],
+  goal_linkage:['Service purpose and identified needs','Connects the work with the actual assessment, planning, screening, outreach or crisis purpose. An existing treatment goal is not a prerequisite.']
+ };
  const criteria=isIntake
   ? NARRIVA_QUALITY_CRITERIA.map(item=>intake[item.id]?{...item,label:intake[item.id][0],instruction:intake[item.id][1],notApplicable:item.id==='response_specificity'}:item)
-  : NARRIVA_QUALITY_CRITERIA;
+  : NARRIVA_QUALITY_CRITERIA.map(item=>!profile.requireExistingGoals && focused[item.id]?{...item,label:focused[item.id][0],instruction:focused[item.id][1],notApplicable:item.id==='response_specificity'}:!profile.requireParticipation && item.id==='response_specificity'?{...item,notApplicable:true}:item);
  if(clientPresent!==false)return criteria;
  return criteria.map(item=>item.id==='response_specificity'?{...item,notApplicable:true,label:'Client participation rating',instruction:'Client is documented as absent. Client participation and intervention-response ratings are excluded. Return supported:null and an empty evidence array.'}:item);
 }
@@ -72,12 +79,14 @@ export function pendingNarrivaScoring() {
   criteria:NARRIVA_QUALITY_CRITERIA.map(c=>({id:c.id,label:c.label,earned:0,possible:c.points,status:'pending',evidence:[],message:c.instruction}))};
 }
 export function deriveNarrivaCheck(id,{facts,encounter,clinical,service},{standaloneTest=false,preGeneration=false}={}) {
- const intake=['90791','H0031'].includes(String(service.documentationCode || service.code || '').toUpperCase());
+ const profile=clinicalServiceRequirements({serviceCode:service.documentationCode || service.code,assessmentKind:service.assessmentKind,clientPresent:encounter.clientPresent});
+ const intake=profile.assessment;
  const result={id,label:NARRIVA_CHECKS.find(c=>c[0]===id)[1],status:'passed',findings:[],actions:[]};
  const add=(key,message,action='edit_note',canBypass=true)=>result.findings.push({id:`${id}:${key}`,message,action,canBypass});
  const required=(condition,key,message,action='edit_note',canBypass=true)=>{if(!condition)add(key,message,action,canBypass);};
  if(id==='risk_safety') {
-  result.riskAssessmentRequired=clinical.riskAssessmentIncluded===true || clinical.riskRequiredFromPriorReview===true || facts.currentRisk===true || facts.riskUncertain===true;
+  result.riskAssessmentRequired=profile.directAssessment && (clinical.riskAssessmentIncluded===true || clinical.riskRequiredFromPriorReview===true || facts.currentRisk===true || facts.riskUncertain===true);
+  if(!profile.directAssessment && (facts.currentRisk===true || facts.riskUncertain===true))result.advisories=[{id:'risk_safety:collateral_concern',category:'risk',message:'A collateral safety concern was reported. Review the reported concern and documented follow-up.'}];
   if(result.riskAssessmentRequired) {
    if(preGeneration) {
     required(clinical.riskAssessmentIncluded || clinical.riskAssessmentComplete,'assessment','Risk was detected. Include a risk assessment to complete in the note, or keep as is for supervisor review.','risk_assessment',clinical.riskAssessmentIncluded!==true);
@@ -117,23 +126,23 @@ export function deriveNarrivaCheck(id,{facts,encounter,clinical,service},{standa
   else required(encounter.timesValid,'times','Confirm start/end times and a matching duration.','encounter');
   required(nonempty(encounter.location),'location','Select the service location.','encounter');
   required(nonempty(encounter.modality),'method','Select the service delivery method.','encounter');
-  if(String(encounter.placeOfService)==='02')required(nonempty(encounter.clientLocationDescription),'client_location','Describe where the client participated during the virtual session.','encounter',false);
+  if(profile.clientPresent!==false && String(encounter.placeOfService)==='02')required(nonempty(encounter.clientLocationDescription),'client_location','Describe where the client participated during the virtual session.','encounter',false);
   required(encounter.consentConfirmed===true,'consent','Confirm consent to participate in this session.','encounter',false);
   if(facts.locationMatches===false)add('location_mismatch','The narrative describes a different location than the session header. Update the location here.','encounter',false);
   if(facts.modalityMatches===false)add('method_mismatch','The narrative describes a different delivery method than the session header. Update in person, video, or phone here.','encounter',false);
  }
  if(id==='necessity_interventions') {
-  if(!intake || !preGeneration)required(clinical.hasDiagnosis && clinical.hasJustification,'diagnosis','Add the clinical diagnosis and its service justification.','clinical_context');
+  if(profile.requireDiagnosis && (!intake || !preGeneration))required(clinical.hasDiagnosis && clinical.hasJustification,'diagnosis','Add the clinical diagnosis and its service justification.','clinical_context');
   required(clinical.hasPresentingProblem || intake && facts.medicalNecessityDocumented===true,'presenting','Include the current presenting problem/reason for service.','clinical_context');
-  required(facts.interventionsDocumented===true,'interventions',intake?'Describe the diagnostic interview or assessment activities performed.':'Identify the interventions actually performed.');
+  required(facts.interventionsDocumented===true,'interventions',`Describe the ${profile.actionLabel} performed.`);
   required(facts.medicalNecessityDocumented===true,'necessity','Document the symptoms, impairment, and reason continued service is needed.');
   if(facts.assessmentMentioned===true)required(clinical.assessmentEvidencePresent || clinical.enrollmentAssessmentEvidencePresent,'assessment','Attach or link the assessment referenced by this note.','assessment');
  }
  if(id==='participation_plan') {
-  const expectations=intake
+  const expectations=(!profile.requireExistingGoals)
    ? [['followUpDocumented','assessment recommendations or follow-up plan']]
    : [['engagementDocumented','engagement'],['responseDocumented','response to interventions'],['progressDocumented','benefit, progress or barriers'],['goalsDocumented','treatment goals'],['followUpDocumented','follow-up plan']];
-  for(const [key,label] of expectations.filter(([key])=>encounter.clientPresent!==false || !['engagementDocumented','responseDocumented'].includes(key)))required(facts[key]===true,key,`Document ${label} using the actual session evidence.`);
+  for(const [key,label] of expectations.filter(([key])=>profile.requireParticipation || !['engagementDocumented','responseDocumented'].includes(key)))required(facts[key]===true,key,`Document ${label} using the actual session evidence.`);
  }
  result.status=result.findings.length?'action_required':'passed';
  result.actions=[...new Set(result.findings.map(f=>f.action))];return result;
@@ -147,7 +156,7 @@ export function narrivaOverall(checks) {
 export function bypassNarrivaFinding(review,findingId,reason,actorUserId) {
  if(typeof reason!=='string' || reason.trim().length<5 || reason.length>2000)throw Object.assign(new Error('Explain why you are keeping this note (5–2,000 characters).'),{status:400});
  if(findingId==='scoring:threshold') {
-  if(review.scoring?.qualityPassed!==false||!['action_required','bypassed'].includes(review.status))throw Object.assign(new Error('This quality finding is not available for bypass.'),{status:409});
+  if(review.scoring?.qualityPassed!==false||!['action_required','bypassed',...(review.phase==='pre_generation'?['passed']:[])].includes(review.status))throw Object.assign(new Error('This quality finding is not available for bypass.'),{status:409});
   const next=structuredClone(review);
   next.qualityBypass={bypassed:true,bypassReason:reason.trim(),bypassedBy:actorUserId,bypassedAt:new Date().toISOString()};
   next.scoring={...next.scoring,passed:false,findings:next.scoring.findings.map(f=>({...f,...next.qualityBypass}))};
@@ -164,4 +173,11 @@ export function bypassNarrivaFinding(review,findingId,reason,actorUserId) {
  if(next.status==='passed' && next.scoring?.qualityPassed===false)next.status=next.qualityBypass?'bypassed':'action_required';
  if(next.scoring)next.scoring.passed=false;
  next.quickSignEligible=false;return next;
+}
+
+export function narrivaRecordedDecisions(review) {
+ const items=[...(review.priorDecisions || []),...(review.checks || []).flatMap(check=>(check.findings || []).filter(f=>f.bypassed===true).map(f=>({checkId:check.id,id:f.id,message:f.message,reason:f.bypassReason,bypassedBy:f.bypassedBy,bypassedAt:f.bypassedAt})))];
+ if(review.manualEdited)items.push({checkId:'manual_edit',id:'manual_edit:working_draft',message:'Provider manually edited the draft.',reason:'Manual changes retained for compliance review.',bypassedBy:review.actorUserId,bypassedAt:review.manualEditRecordedAt});
+ if(review.qualityBypass)items.push({checkId:'scoring',id:'scoring:threshold',message:'Documentation quality was kept as written.',reason:review.qualityBypass.bypassReason,bypassedBy:review.qualityBypass.bypassedBy,bypassedAt:review.qualityBypass.bypassedAt});
+ return [...new Map(items.map(item=>[item.checkId+':'+item.id,item])).values()];
 }

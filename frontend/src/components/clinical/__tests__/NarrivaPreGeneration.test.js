@@ -47,10 +47,10 @@ describe('Narriva inline source confirmation', () => {
     expect(wrapper.emitted('apply')[0][0].clarification).toContain('Client practiced the skill twice');
     wrapper.unmount();
   });
-  it('keeps generation separate from score and Quick Sign before the writer runs', () => {
+  it('shows reviewed draft quality without granting Quick Sign before finalization', () => {
     const wrapper = mount(NarrivaCompliancePanel, { props: { preGeneration: true, review: { id: 51, phase: 'pre_generation', status: 'passed', checks: NARRIVA_CHECKS.map(check => ({ ...check, status: 'passed', findings: [] })), quickSignEligible: false } }, slots: { generate: '<button>Generate note</button>' } });
-    expect(wrapper.find('.narriva-score').exists()).toBe(false);
-    expect(wrapper.text()).toContain('ready for the writer');
+    expect(wrapper.find('.narriva-score').exists()).toBe(true);
+    expect(wrapper.text()).toContain('ready to finalize');
     expect(wrapper.text()).toContain('Generate note');
     expect(wrapper.find('[alt="Narriva Quick Sign Approved"]').exists()).toBe(false);
     wrapper.unmount();

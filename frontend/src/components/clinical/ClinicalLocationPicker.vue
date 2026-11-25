@@ -9,14 +9,14 @@
       <option v-for="choice in sites" :key="choice.value" :value="choice.value">{{ String(choice.placeOfService) === '99' ? choice.label || choice.name : choice.name || choice.label }}</option>
       <option value="__home__">Home</option>
     </select></label>
-    <label v-if="remote">Client’s location during telehealth<select aria-label="Client’s location during telehealth" :value="clientPlace" :disabled="disabled || unavailable" @change="choose(selection,$event.target.value)"><option value="">Choose location</option><option value="10">At home</option><option value="02">Somewhere else</option></select></label>
-    <label v-if="remote && clientPlace === '02'">Where was the client?<input :value="modelValue.clientLocationDescription || ''" :disabled="disabled || unavailable" maxlength="300" placeholder="Describe the setting; no address or identifying details" @input="$emit('update:modelValue', { ...modelValue, clientLocationDescription: $event.target.value })" /></label>
+    <label v-if="remote && clientPresent !== false">Client’s location during telehealth<select aria-label="Client’s location during telehealth" :value="clientPlace" :disabled="disabled || unavailable" @change="choose(selection,$event.target.value)"><option value="">Choose location</option><option value="10">At home</option><option value="02">Somewhere else</option></select></label>
+    <label v-if="remote && clientPresent !== false && clientPlace === '02'">Where was the client?<input :value="modelValue.clientLocationDescription || ''" :disabled="disabled || unavailable" maxlength="300" placeholder="Describe the setting; no address or identifying details" @input="$emit('update:modelValue', { ...modelValue, clientLocationDescription: $event.target.value })" /></label>
     <p v-if="unavailable" role="status">Assigned locations could not load. Your saved location is preserved.</p>
   </div>
 </template>
 <script setup>
 import {computed} from 'vue';
-const props=defineProps({modelValue:{type:Object,default:()=>({})},choices:{type:Array,default:()=>[]},disabled:Boolean,unavailable:Boolean});
+const props=defineProps({modelValue:{type:Object,default:()=>({})},choices:{type:Array,default:()=>[]},clientPresent:{type:Boolean,default:null},disabled:Boolean,unavailable:Boolean});
 const emit=defineEmits(['update:modelValue']);
 const sites=computed(()=>props.choices.filter(choice=>['11','03','99'].includes(String(choice.placeOfService))));
 const remoteValue=method=>/phone|telephone/i.test(method || '')?'__telehealth_phone__':/video/i.test(method || '')?'__telehealth_video__':/virtual|telehealth/i.test(method || '')?'__telehealth_unspecified__':'';
