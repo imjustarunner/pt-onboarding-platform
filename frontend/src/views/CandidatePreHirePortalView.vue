@@ -18,7 +18,7 @@
         @phase="selectedProcess = $event" @section="onWorkspaceSection" @reload="reloadPortal"
         @document="selectTask" @complete-task="markIntakeFormDone" @submit="confirmSubmit" @media="embeddedVideoPlaying = $event">
         <template v-if="previewData" #preview-document="{ step }">
-          <iframe v-if="step.task?.id === 'agreement' && previewAgreement" class="portal-agreement-preview" sandbox="" title="Employment agreement" :srcdoc="previewAgreement" />
+          <iframe v-if="step.task?.id === 'agreement' && previewAgreement" ref="contractFrame" class="portal-agreement-preview" sandbox="allow-scripts" title="Employment agreement" :srcdoc="contractHandbookSrcdoc(previewAgreement)" />
           <HireSetupDocumentPreview v-else-if="step.task?.referenceId || step.doc?.bodyHtml || step.doc?.filePath"
             :key="step.key" :title="step.title" :agency-id="agency?.id" :job-id="jobDescription?.id" :template-id="step.task?.referenceId" :document-id="step.doc?.id" />
           <a v-else-if="step.doc?.url" :href="step.doc.url" target="_blank" rel="noopener">Open document</a>
@@ -113,7 +113,8 @@
                 <p v-else class="muted">
                   {{ jobDescription?.title || 'Job description will appear here once your hiring team attaches the posting.' }}
                 </p>
-                <template v-if="!jdAcknowledged && !closed">
+                <fieldset v-if="!jdAcknowledged && (!closed || previewData)" :disabled="!!previewData" class="journey-prehire">
+                <legend>Required acknowledgement</legend>
                 <AdaptiveSignatureCapture
                   ref="jdSignatureCapture"
                   v-model="jdSignature"
@@ -124,7 +125,7 @@
                 <button type="button" class="btn-primary" :disabled="jdSaving" @click="acknowledgeJobDescription">
                   {{ jdSaving ? 'Saving…' : 'I acknowledge this job description' }}
                 </button>
-                </template>
+                </fieldset>
               </div>
             </section>
 
@@ -387,7 +388,7 @@
             </section>
 
 </template>
-        <template #messages><p v-if="previewData">The candidate can message People Operations here after receiving their invitation.</p><PreHirePortalChat v-else ref="chatRef" :token="token" :portal-api="portalApi" :support-team="supportTeam" :agency-name="agency?.name || ''" /></template>
+        <template #messages><PreHirePortalChat :preview="!!previewData" ref="chatRef" :token="token" :portal-api="portalApi" :support-team="supportTeam" :agency-name="agency?.name || ''" /></template>
         <template #time><strong>{{ processClosed ? 'Time recorded for payroll review' : embeddedTraining ? 'Time tracking is handled in this training step' : activity.tracking.value ? 'Recording active time' : 'Time tracking paused' }}</strong><p>{{ Math.floor((portalData?.journey?.time?.seconds || 0) / 60) }} minutes saved</p><p v-if="activity.error.value" role="alert">{{ activity.error.value }}</p><p v-else>Active portal work is recorded for payroll review. Tell People Operations about time spent outside this portal or any missing time.</p></template>
       </HirePortalWorkspace>
       <!-- Task signing panel (modal-style overlay) -->
@@ -603,14 +604,21 @@ import '../styles/digital-form.css';
 
 const route = useRoute();
 const router = useRouter();
-const props = defineProps({ previewData: Object, previewAgreement: String });
-const token = computed(() => props.previewData ? '' : route.params.token);
+const props = defineProps({ previewData: Object, previewAgreement: String, previewHandbook: Function });
+const token = computed(() => props.previewData ? 'preview' : route.params.token);
 
 // Use a base axios instance (no auth cookies needed — token is in URL)
 const portalApi = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '/api',
   withCredentials: false,
-  ...(props.previewData ? { adapter: async () => { throw new Error('Candidate preview is read-only.'); } } : {})
+  ...(props.previewData ? { adapter: async config => {
+    const url = new URL(config.url, 'https://preview.invalid');
+    if (config.method === 'get' && props.previewHandbook && /^\/prehire-portal\/preview\/resources\/handbook(?:\/reference)?$/.test(url.pathname)) {
+      const response = await props.previewHandbook({ ...Object.fromEntries(url.searchParams), ...config.params });
+      return { ...response, config };
+    }
+    throw new Error('Candidate preview is read-only.');
+  } } : {})
 });
 
 // ─── State ────────────────────────────────────────────────────────────────────

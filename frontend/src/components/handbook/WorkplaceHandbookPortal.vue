@@ -7,7 +7,7 @@
     <template v-else-if="handbook">
       <p v-if="handbook.beta" class="reference-edition"><strong>Reference edition</strong> Available to read while the published edition is being prepared.</p>
       <p v-if="handbook.beta && !referenceOnly" role="status" class="reference-edition">People Operations must publish this handbook before you can sign your onboarding acknowledgement. <button type="button" @click="emit('help')">Contact People Operations</button></p>
-      <WorkplaceHandbookBook :handbook="handbook" neutral :analytics="analytics" :analytics-http="http" :updates="handbook.updates || []" :answer-question="handbook.version?.id ? answerQuestion : null" @reload="load" />
+      <WorkplaceHandbookBook :handbook="handbook" neutral :analytics="analytics" :analytics-http="http" :updates="handbook.updates || []" :answer-question="!preview && handbook.version?.id ? answerQuestion : null" @reload="load" />
     </template>
     <div v-else class="handbook-status" :role="error ? 'alert' : 'status'">
       <span class="status-icon"><Icon :name="error ? 'help' : 'book'" /></span>
@@ -23,7 +23,7 @@
 import { onBeforeUnmount, ref, watch } from 'vue';
 import WorkplaceHandbookBook from './WorkplaceHandbookBook.vue';
 import Icon from '../prehire/HirePortalIcon.vue';
-const props = defineProps({ http: { type: Object, required: true }, token: { type: String, required: true }, referenceOnly: Boolean });
+const props = defineProps({ http: { type: Object, required: true }, token: { type: String, required: true }, referenceOnly: Boolean, preview: Boolean });
 const emit = defineEmits(['available', 'version', 'help']);
 const analytics = ref(null);
 const handbook = ref(null), loading = ref(false), error = ref(false);

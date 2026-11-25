@@ -25,7 +25,13 @@
     <label class="compensation-toggle"><input type="checkbox" :checked="usesIndividualAgreement" @change="set('individualCompensationBasis',$event.target.checked?'approved_individual_agreement':'')" />Use this person’s approved individual agreement or written offer</label>
     <template v-if="usesIndividualAgreement"><label>Approved agreement or written-offer reference — required<input :value="value.priorAgreementReference || ''" @input="set('priorAgreementReference',$event.target.value)" placeholder="Identify this person’s approved agreement, offer or amendment and its date" /></label><p>Enter the exact agreed compensation for every selected service role below. Shared category rates and another agency’s pay schedules are not used. Additional duties need their own individually agreed rate.</p></template>
   </fieldset>
-  <ContractServiceRolesEditor :model-value="value" :category-placement="categoryPlacement" :compensation-level="compensationLevel" :pay-profile="payProfile" :options="serviceRoleOptions" :source="serviceRoleSource" :allow-inference="showCoreFields" :require-compensation-for-all-roles="individualAgreementMode && usesIndividualAgreement" :compensation-category="compensationCategory" :service-compensation="serviceCompensation" @update:model-value="$emit('update:modelValue',$event)" />
+  <fieldset v-if="postingTenant === 'nlu'" class="posting-tracks">
+    <legend>Service tracks available for this posting</legend>
+    <label v-for="track in ['clinical', 'learning']" :key="track"><input type="checkbox" :checked="value.serviceTracks?.includes(track)" @change="setTrack(track, $event.target.checked)" />{{ track === 'clinical' ? 'Clinical' : 'Learning' }}</label>
+    <p>Choose both if this job can include clinical and learning work. Confirm each person’s assigned roles during pre-hire.</p>
+  </fieldset>
+  <p v-if="postingTenant === 'itsco'"><strong>Service track</strong> · Clinical</p>
+  <ContractServiceRolesEditor :model-value="value" :category-placement="categoryPlacement" :compensation-level="compensationLevel" :pay-profile="payProfile" :options="postingTenant ? postingRoleOptions : serviceRoleOptions" :source="serviceRoleSource" :allow-inference="showCoreFields" :require-compensation-for-all-roles="individualAgreementMode && usesIndividualAgreement" :compensation-category="compensationCategory" :service-compensation="serviceCompensation" @update:model-value="$emit('update:modelValue',$event)" />
   <article v-for="(d,i) in value.additionalDuties || []" :key="i" class="additional-duty">
    <label>Additional duty<textarea :value="d.description" @input="duty(i,'description',$event.target.value)" placeholder="Responsibilities based on this person’s experience" /></label>
    <label>Compensation<select :value="d.payBasis" @change="duty(i,'payBasis',$event.target.value)"><option value="">Choose a rate</option><template v-if="!individualAgreementMode || !usesIndividualAgreement"><option value="direct">Clinical/direct base rate (see preview for unit)</option><option value="indirect">Indirect hourly rate</option><option value="support">Support activity hourly rate</option><option value="hcode">Direct Care Rate (H-code rate, hourly duty)</option><option value="service_code">Specific service code</option></template><option v-else-if="d.payBasis && d.payBasis!=='custom'" :value="d.payBasis" disabled>Previously selected shared rate — choose an individual rate</option><option value="custom">Individually agreed rate</option></select></label>
@@ -39,16 +45,30 @@
 </template>
 <script setup>
 import {computed} from 'vue';
+import {CONTRACT_SERVICE_ROLE_OPTIONS} from '../../constants/contractServiceRoles.js';
 import ContractServiceFocusSelect from '../hiring/ContractServiceFocusSelect.vue';
 import ContractServiceRolesEditor from '../hiring/ContractServiceRolesEditor.vue';
-const props=defineProps({modelValue:Object,categoryPlacement:{type:Boolean,default:false},compensationLevel:[Number,String],payProfile:Object,supervisorUserId:[Number,String],supervisorOptions:{type:Array,default:()=>[]},individualAgreementMode:{type:Boolean,default:false},serviceRoleOptions:{type:Array,default:()=>[]},serviceRoleSource:{type:String,default:''},compensationCategory:[Number,String],serviceCompensation:{type:Object,default:null},showCoreFields:{type:Boolean,default:true},guidedSetup:{type:Boolean,default:false},title:{type:String,default:'Contract defaults'},description:{type:String,default:'Defaults for hires from this posting. You can override them for each person when preparing their agreement.'}});
+const props=defineProps({modelValue:Object,postingTenant:String,categoryPlacement:{type:Boolean,default:false},compensationLevel:[Number,String],payProfile:Object,supervisorUserId:[Number,String],supervisorOptions:{type:Array,default:()=>[]},individualAgreementMode:{type:Boolean,default:false},serviceRoleOptions:{type:Array,default:()=>[]},serviceRoleSource:{type:String,default:''},compensationCategory:[Number,String],serviceCompensation:{type:Object,default:null},showCoreFields:{type:Boolean,default:true},guidedSetup:{type:Boolean,default:false},title:{type:String,default:'Contract defaults'},description:{type:String,default:'Defaults for hires from this posting. You can override them for each person when preparing their agreement.'}});
 const emit=defineEmits(['update:modelValue','update:supervisorUserId']);const value=computed(()=>props.modelValue||{});
 const usesIndividualAgreement=computed(()=>value.value.individualCompensationBasis==='approved_individual_agreement');
+const roleTrack = role => ['tutoring', 'childcare'].includes(role) ? 'learning' : 'clinical';
+const postingRoleOptions = computed(() => CONTRACT_SERVICE_ROLE_OPTIONS.filter(role => {
+  if (props.postingTenant === 'itsco') return roleTrack(role.id) === 'clinical';
+  return !value.value.serviceTracks?.length || value.value.serviceTracks.includes(roleTrack(role.id));
+}));
+function setTrack(track, enabled) {
+  const current = value.value.serviceTracks || [];
+  const serviceTracks = enabled ? [...new Set([...current, track])] : current.filter(item => item !== track);
+  const next = { ...value.value, serviceTracks };
+  if (serviceTracks.length && next.serviceRoles) next.serviceRoles = next.serviceRoles.filter(role => serviceTracks.includes(roleTrack(role)));
+  emit('update:modelValue', next);
+}
 function set(k,v){emit('update:modelValue',{...value.value,[k]:v});}
 function duty(i,k,v){set('additionalDuties',(value.value.additionalDuties||[]).map((d,n)=>n===i?{...d,[k]:v}:d));}
 function remove(i){set('additionalDuties',value.value.additionalDuties.filter((_,n)=>n!==i));}
 </script>
 <style scoped>
+.posting-tracks{margin:16px 0;padding:12px 16px;border:1px solid #ceded5;border-radius:8px}.posting-tracks label{display:inline-flex;align-items:center;gap:8px;margin-right:18px}
 .schedule-notes{margin:14px 0}.schedule-notes summary{cursor:pointer;margin-bottom:10px}
 .individual-compensation{border:1px solid #bbcec2;border-radius:10px;padding:18px;margin:20px 0}.individual-compensation .compensation-toggle{flex-direction:row;align-items:flex-start}.individual-compensation input[type=checkbox]{width:auto;margin-top:4px}
 .expectations-editor{border:1px solid #ceded5;border-radius:14px;padding:22px;margin:20px 0;background:#f7faf8;color:#203b32}.expectations-editor p{font-size:.9rem;line-height:1.6}.expectation-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px}.expectations-editor label{display:flex;flex-direction:column;gap:6px;font-size:.85rem}.expectations-editor input,.expectations-editor select,.expectations-editor textarea{font:inherit;background:white;border:1px solid #bbcec2;border-radius:8px;padding:10px;width:100%;box-sizing:border-box}.additional-duty{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;border-top:1px solid #ceded5;padding:18px 0;margin-top:18px}.expectations-editor button{font:inherit;border:1px solid #aac5b7;border-radius:8px;padding:10px 15px;background:white;color:#12583f;cursor:pointer;margin-top:12px}.expectation-note{color:#5b7164}

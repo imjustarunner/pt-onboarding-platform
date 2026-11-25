@@ -51,7 +51,7 @@ describe('client coverage drives code availability on a shared payer route',()=>
   const r=rules();r.overrides=[exception({allowed:0})];const insurance={primary:{payerId:'UNITED',programType:'commercial'},secondary:{payerId:'COCHA',programType:'medicaid'}};
   expect(evaluateClientBillingPayerRules({rules:r,insurance,credentialTier:'intern_plus',serviceCodes:['H0004'],dateOfService:'2026-11-16'}).ready).toBe(false);
   expect(filterCodesForClientPayer({codes:['H0004'],rules:r,policy:insurance.primary,secondaryPolicy:insurance.secondary,credentialTier:'intern_plus',dateOfService:'2026-11-16'}).serviceCodes).toEqual(['H0004']);
-  const deps={care:async()=>({canProvideCare:true,credentialTier:'intern_plus'}),insurance:async()=>insurance,rules:async()=>rules(),credentialRules:async()=>new Map(),grants:async()=>[]};expect((await clientPayerServiceEligibility({agencyId:2,clientId:3,providerUserId:8,dateOfService:'2026-11-16',codes:['H0002','H0004']},deps)).serviceCodes).toEqual(['H0004']);
+  const deps={serviceScope:async()=>null,care:async()=>({canProvideCare:true,credentialTier:'intern_plus'}),insurance:async()=>insurance,rules:async()=>rules(),credentialRules:async()=>new Map(),grants:async()=>[]};expect((await clientPayerServiceEligibility({agencyId:2,clientId:3,providerUserId:8,dateOfService:'2026-11-16',codes:['H0002','H0004']},deps)).serviceCodes).toEqual(['H0004']);
  });
  it('keeps Commercial and Medicaid separate on United',()=>{
   for(const [programType,expected] of [['commercial',['90837']],['medicaid',['90837','H0004','T1017']]])expect(filterCodesForClientPayer({codes:['90837','H0004','T1017'],rules:rules(),policy:{payerId:'UNITED',programType},credentialTier:'intern_plus',dateOfService:'2026-11-16'}).serviceCodes).toEqual(expected);
@@ -86,8 +86,20 @@ describe('individual payer service exceptions',()=>{
  it('changes the review fingerprint when rules change',()=>expect(review().fingerprint).not.toBe(review({rules:{...rules(),revision:4}}).fingerprint));
 });
 describe('provider and code permission intersection',()=>{
+ it('intersects offered codes with the executed service track and assigned role',async()=>{
+  const codes=['90837','H2014','TUTORING','HOMEWORK HELP','CHILDCARE'];
+  const deps={care:async()=>({canProvideCare:true,credentialTier:'intern_plus'}),insurance:async()=>({primary:null}),rules:async()=>rules(),credentialRules:async()=>new Map(),grants:async()=>codes};
+  const input={agencyId:6,clientId:3,providerUserId:8,dateOfService:'2026-11-25',codes};
+  const scope=(tracks,roles)=>({CONTRACT_ASSIGNED_SERVICE_TRACKS:tracks,CONTRACT_SERVICE_TRACKS:['clinical','learning'],CONTRACT_SERVICE_ROLES:roles});
+  const clinical=await clientPayerServiceEligibility(input,{...deps,serviceScope:async()=>scope(['clinical'],['psychotherapy'])});
+  expect(clinical.serviceCodes).toEqual(['90837']);
+  const learning=await clientPayerServiceEligibility(input,{...deps,serviceScope:async()=>scope(['learning'],['tutoring'])});
+  expect(learning.serviceCodes).toEqual(['TUTORING','HOMEWORK HELP']);
+  const combined=await clientPayerServiceEligibility(input,{...deps,serviceScope:async()=>scope(['clinical','learning'],['psychotherapy','tutoring'])});
+  expect(combined.serviceCodes).toEqual(['90837','H2014','TUTORING','HOMEWORK HELP']);
+ });
  it('retains personal grant requirements even for Medicaid',async()=>{
-  const deps={care:async()=>({canProvideCare:true,credentialTier:'intern_plus'}),insurance:async()=>({primary:{payerId:'UNITED',programType:'medicaid'}}),rules:async()=>rules(),credentialRules:async()=>new Map(),grants:async()=>[]};
+  const deps={serviceScope:async()=>null,care:async()=>({canProvideCare:true,credentialTier:'intern_plus'}),insurance:async()=>({primary:{payerId:'UNITED',programType:'medicaid'}}),rules:async()=>rules(),credentialRules:async()=>new Map(),grants:async()=>[]};
   const input={agencyId:2,clientId:3,providerUserId:8,dateOfService:'2026-11-16',codes:['H0002','H0004','90837']};
   expect((await clientPayerServiceEligibility(input,deps)).serviceCodes).toEqual(['H0004','90837']);
   expect((await clientPayerServiceEligibility(input,{...deps,grants:async()=>['H0002']})).serviceCodes).toContain('H0002');

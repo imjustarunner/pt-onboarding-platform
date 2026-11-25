@@ -61,6 +61,16 @@ export function normalizeContractServiceRoleDetails(value = {}) {
 
 const escape = value => String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
+export const contractServiceTrack = role => ['tutoring', 'childcare'].includes(role) ? 'learning' : 'clinical';
+
+export function availableContractRoles(tenant, tracks) {
+  return CONTRACT_SERVICE_ROLES.filter(role => {
+    if (tenant === 'itsco') return contractServiceTrack(role.id) === 'clinical';
+    if (tenant === 'isi') return role.id !== 'tutoring';
+    return tenant !== 'nlu' || !tracks || tracks.includes(contractServiceTrack(role.id));
+  });
+}
+
 /** Posting selections win over inference, including an explicitly empty list. */
 export function inferContractServiceRoles({ job = {}, credential = '', serviceFocus = '' } = {}) {
   let config = job.prehire_config_json || {};

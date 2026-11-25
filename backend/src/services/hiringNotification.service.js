@@ -1,7 +1,7 @@
 import pool from '../config/database.js';
 import {taskPhase} from './hireJourney.service.js';
 import {portalPacket} from './hirePortalWorkflow.service.js';
-import {buildPublicAppUrl} from '../utils/publicPortalUrl.js';
+import { hirePortalUrl } from '../utils/publicPortalUrl.js';
 import VonageService from './vonage.service.js';
 import {sendNotificationEmail} from './unifiedEmail/unifiedEmailSender.service.js';
 import {resolveRegisteredSmsSender} from './smsCompliance.service.js';
@@ -85,7 +85,7 @@ export async function runHiringNotifications(){
     WHERE e.email_status='pending' OR e.sms_status='pending' ORDER BY e.id LIMIT 100`);
   for(const event of events){
    const validToken=['PENDING_SETUP','PREHIRE_OPEN','PREHIRE_REVIEW','ONBOARDING'].includes(event.status)&&event.passwordless_token_purpose==='prehire_portal'&&event.passwordless_token&&new Date(event.passwordless_token_expires_at)>new Date();
-   const url=validToken?buildPublicAppUrl(event,`pre-hire/${event.passwordless_token}`):null;
+   const url=validToken?hirePortalUrl(event.passwordless_token):null;
    const text=`${HIRING_EVENT_TEXT[event.event_type]}${url?`\n${url}\nKeep this personal link private.`:' Contact People Operations for a current portal link.'}`;
    for(const channel of ['email','sms']){
     if(event[`${channel}_status`]!=='pending')continue;

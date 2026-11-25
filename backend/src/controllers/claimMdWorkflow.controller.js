@@ -1,3 +1,4 @@
+import { assignedServiceScopeBlockers } from '../services/clientPayerServiceEligibility.service.js';
 import {requireTestingEligibility} from '../services/testingEligibility.service.js';
 import {requiresTestingRole} from '../content/testingServicePolicy.js';
 import { assertConfiguredTestingReferenceCodes } from '../services/testingCatalogClaimGuard.service.js';
@@ -103,6 +104,10 @@ export async function prepareClaimReview(agencyId, claimId) {
   const billingMetadata=claimMetadata(documentation.note);
   readiness.blockers.push(...linkedServiceLineBlockers(lines,billingMetadata.structuredChart?.durationMinutes || billingMetadata.durationMinutes || session?.duration_minutes,billingMetadata.serviceCode || session?.service_code));
   const providerId = Number(session?.provider_user_id || session?.rendering_provider_user_id);
+  readiness.blockers.push(...await assignedServiceScopeBlockers({
+    agencyId, providerUserId: providerId, dateOfService: claim.date_of_service,
+    codes: lines.map(line => line.procedure_code || line.service_code)
+  }));
   const rollout = await providerBillingRolloutReview({ agencyId, providerUserId: providerId, payerId: insurance?.primary?.payerId, serviceDate: claim.date_of_service });
   if (!rollout.ready) readiness.blockers.push(rollout.reason);
   const policy = await resolveNoteDocumentationPolicy(documentation.note);

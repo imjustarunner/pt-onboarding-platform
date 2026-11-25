@@ -69,9 +69,10 @@ describe('phase manifest', () => {
   it('includes username, personal information and headshot in prehire, while password setup stays in onboarding', async () => {
     mocks.execute.mockImplementation(async (sql) => sql.includes('config_json FROM') ? [[{ config_json: { workflow: { resources: [] }, handbookUrl: 'https://drive.google.com/file/d/book/view' } }]] : [[]]);
     const manifest = await buildPortalWorkflow({ user: { id: 1, status: 'PREHIRE_OPEN', first_name: 'Taylor', sso_password_override: '0' }, agencyId: 2, tasks: [], prehireTasks: [], extras: {}, backgroundCheck: {}, hireAccountMode: 'group_password', journey: {} });
-    expect(manifest.steps.pre_hire[0].kind).toBe('hiring-notifications');
-    expect(manifest.steps.pre_hire[0].required).toBe(false);
-    expect(manifest.steps.pre_hire[1].kind).toBe('background');
+    expect(manifest.steps.pre_hire[0].kind).toBe('background');
+    expect(manifest.steps.pre_hire.find(step => step.kind === 'job-description')).toMatchObject({ required: true, complete: false });
+    expect(manifest.steps.pre_hire.some(step => step.kind === 'hiring-notifications')).toBe(false);
+    expect(manifest.steps.onboarding.some(step => step.kind === 'hiring-notifications')).toBe(false);
     expect(manifest.steps.pre_hire.map(s => s.kind)).toEqual(expect.arrayContaining(['profile', 'headshot']));
     expect(manifest.steps.onboarding.map(s => s.kind)).not.toContain('profile');
     expect(manifest.steps.pre_hire.map(s => s.kind)).toContain('work-email');

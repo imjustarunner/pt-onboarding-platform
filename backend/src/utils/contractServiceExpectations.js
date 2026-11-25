@@ -19,9 +19,12 @@ export function weeklyRequiredHours(minHours) {
 }
 
 // Apply to stored and newly authored clauses alike, before token replacement.
-export function withWeeklyHoursExpectations(html) {
-  const source = String(html || '');
+export function withWeeklyHoursExpectations(html, { append = true } = {}) {
+  const original = String(html || '');
+  const oldParagraph = /<p\b[^>]*>(?:(?!<\/p>)[\s\S])*?<strong>Weekly availability and scheduling expectations:<\/strong>(?:(?!<\/p>)[\s\S])*?<\/p>|<p\b[^>]*data-weekly-hours-expectations[^>]*>[\s\S]*?<\/p>/gi;
+  const source = original.replace(oldParagraph, '').trimEnd();
+  if (!append) return source;
   const fields = findContractPlaceholders(source).map(key => key.replaceAll('_', ''));
-  if (!fields.includes('MINHOURS') || source.includes('data-weekly-hours-expectations')) return source;
-  return `${source}\n<p data-weekly-hours-expectations="true"><strong>Weekly availability and scheduling expectations:</strong> To meet the minimum weekly direct-service expectation stated above, the {{ROLE_LABEL}} must list and maintain at least {{MIN_AVAILABLE_HOURS}} hours per week of client-bookable availability in the app and is expected to schedule at least {{MIN_SCHEDULED_HOURS}} hours per week to support achieving the compensation rate for the selected category and level. Both available-to-book hours and expected scheduled hours equal the minimum weekly direct-service hours plus 25%, rounded up to the next whole hour, to account for no-shows, cancellations and rescheduling. These two expectations are calculated automatically whenever the minimum changes; they do not require separate entries. Compensation for approved services actually performed remains subject to the Agreement and applicable Practice compensation policies.</p>`;
+  if (!fields.includes('MINHOURS') && original === source) return source;
+  return `${source}\n<p data-weekly-hours-expectations="true"><strong>Weekly availability and scheduling expectations.</strong> The individual minimum is {{MIN_HOURS}} direct-service hours per week. The {{ROLE_LABEL}} must maintain at least {{MIN_AVAILABLE_HOURS}} hours per week of client-bookable availability in the app and plan to schedule at least {{MIN_SCHEDULED_HOURS}} hours per week. Both figures use the direct-service minimum plus 25%, rounded up to the next whole hour. Follow the individual schedule in this agreement for agreed days and arrangements. Compensation for approved work follows the agreement’s pay terms.</p>`;
 }

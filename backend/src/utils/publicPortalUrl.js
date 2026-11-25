@@ -122,6 +122,10 @@ export function buildPublicAppUrl(agency, path = '', { platformBaseUrl } = {}) {
   return `${base}/${suffix}`;
 }
 
+export function hirePortalUrl(token) {
+  return token ? `https://plotlinepo.com/pre-hire/${encodeURIComponent(token)}` : null;
+}
+
 export function buildProviderAvailabilitySettingsUrl(agency) {
   return `${buildPublicAppUrl(agency, 'dashboard')}?tab=my&my=availability`;
 }

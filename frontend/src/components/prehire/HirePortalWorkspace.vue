@@ -23,7 +23,7 @@
       <main v-if="section === 'handbook'" class="documents-page handbook-reference">
         <div class="reference-header"><div class="reference-title"><span class="reference-icon"><Icon name="book" /></span><div><span class="reference-eyebrow">Your workplace, at a glance</span><h2 tabindex="-1" ref="referenceHeading">Workplace handbook</h2><p>Explore policies and find answers at your own pace.</p></div></div><button @click="navigate('steps')"><Icon name="back" />Return to my steps</button></div>
         <div class="reference-note"><span class="reference-badge">Optional reference</span><p>No signature or acknowledgement is needed here. Your pre-hire progress stays the same.</p></div>
-        <p v-if="preview">The published handbook is available to the candidate in this section.</p><WorkplaceHandbookPortal v-else :http="http" :token="token" reference-only @help="navigate('messages')" />
+        <WorkplaceHandbookPortal :preview="preview" :http="http" :token="token" reference-only @help="navigate('messages')" />
       </main>
       <div v-else-if="section === 'messages'" class="messages-page"><slot name="messages" /></div>
       <div v-else-if="section === 'access'" class="documents-page"><slot name="access" /></div>
@@ -51,7 +51,6 @@
             <div ref="stepHeading" tabindex="-1" class="card current-heading"><span class="large-icon"><Icon :name="iconFor(step)" /></span><div><h2>{{ step.title }}</h2><p>{{ step.staffOverride ? 'People Operations recorded an exception for this step.' : step.instructions || (closed ? 'Your retained submission' : step.complete ? 'Completed and saved to your hire record.' : 'Complete this item, then continue to your next step.') }}</p></div><span v-if="step.complete" class="badge done">{{ step.staffOverride ? 'Staff exception' : 'Completed' }}</span></div>
             <p v-if="error" class="notice error" role="alert">{{ error }}</p><p v-if="savedMessage" class="notice success" role="status">{{ savedMessage }}</p>
             <div v-if="step.staffOverride" class="card notice"><h3>Staff exception recorded</h3><p>{{ step.staffOverride.reason }}</p><p>{{ step.staffOverride.actorName }} recorded this exception on {{ new Date(step.staffOverride.at).toLocaleString() }}. You can continue with your remaining steps. Your original document and signature status are retained.</p></div>
-            <HiringNotificationChoices v-else-if="step.kind === 'hiring-notifications'" :inert="preview" :key="phase" :context="step.communicationChoices" show-save :busy="busy" @save="saveHiringNotifications" />
             <div v-else-if="step.kind === 'profile'" class="card">
               <p>This information is collected for individuals under consideration with {{ agency.name }}. People Operations will review your submission. Submitting does not guarantee employment or finalize an offer.</p>
               <form @submit.prevent="saveProfile(true)"><fieldset :disabled="closed || busy || preview"><div class="profile-grid"><div class="profile-field" v-for="field in workflow.profileFields" :key="field.key" :class="{ wide: field.type === 'textarea' }"><label :for="`profile-${field.key}`">{{ field.label }}<span v-if="field.required"> *</span></label><CredentialPicker v-if="field.key === 'provider_credential'" v-model="profile[field.key]" :disabled="closed || busy || preview" /><textarea :id="`profile-${field.key}`" v-else-if="field.type === 'textarea'" v-model="profile[field.key]" rows="3" /><input :id="`profile-${field.key}`" v-else v-model="profile[field.key]" :type="field.type === 'phone' ? 'tel' : field.type" :required="field.required" /></div></div></fieldset><div v-if="!closed" class="form-actions"><button type="button" :disabled="busy" @click="saveProfile(false)">Save for later</button><button class="primary" :disabled="busy">{{ busy ? 'Saving…' : 'Save information' }}</button></div></form>
@@ -122,7 +121,6 @@ import HireUserSetup from './HireUserSetup.vue';
 import HireSchoolAvailability from './HireSchoolAvailability.vue';
 import CredentialPicker from '../CredentialPicker.vue';
 import WorkplaceHandbookPortal from '../handbook/WorkplaceHandbookPortal.vue';
-import HiringNotificationChoices from '../communications/HiringNotificationChoices.vue';
 import StaffCommunicationChoices from '../communications/StaffCommunicationChoices.vue';
 import SupervisionAgreementCard from '../supervision/SupervisionAgreementCard.vue';
 import AdaptiveSignatureCapture from '../adaptive-intake/AdaptiveSignatureCapture.vue';
@@ -165,7 +163,7 @@ const profile = ref({ ...workflow.value.profile });
 const preferredEmail = ref(workflow.value.preferredWorkEmail || '');
 const emailChoices = ref([]), emailDomain = ref('');
 watch(() => step.value?.kind, async kind => {
-    if (kind !== 'work-email' || props.data.hireAccountMode === 'group_password' || !usernameEditable.value) return;
+  if (props.preview || kind !== 'work-email' || props.data.hireAccountMode === 'group_password' || !usernameEditable.value) return;
   try { const { data } = await props.http.get(`/prehire-portal/${props.token}/account/suggestions`); emailChoices.value = data.suggestions || []; emailDomain.value = data.domain || ''; }
   catch { error.value = 'Work email choices could not be loaded. Please retry.'; }
 }, { immediate: true });
@@ -194,7 +192,6 @@ function embedUrl(raw) {
 }
 async function copyLink() { try { await navigator.clipboard.writeText(portalLink.value); copied.value = true; } catch { error.value = 'Select and copy your personal link from the field.'; } }
 async function save(key, body) { if (props.preview) return; busy.value = true; error.value = ''; savedMessage.value = ''; try { await props.http.post(`/prehire-portal/${props.token}/workflow/${key}`, body); savedMessage.value = body.complete === false ? 'Draft saved. Complete this step when you are ready.' : 'Saved to your hire record.'; emit('reload'); } catch (e) { error.value = e.response?.data?.error?.message || 'Unable to save. Please try again.'; } finally { busy.value = false; } }
-async function saveHiringNotifications(input) { if (props.preview) return; busy.value=true;error.value='';try{await props.http.put(`/prehire-portal/${props.token}/hiring-notifications`,input);savedMessage.value='Your notification preference was saved.';emit('reload');}catch(e){error.value=e.response?.data?.error?.message||'Unable to save your notification preference.';}finally{busy.value=false;} }
 const saveProfile = (complete) => save('profile', { values: profile.value, complete });
 async function upload(key, event) { if (props.preview) return; const file = event.target.files?.[0]; if (!file) return; if (file.size > 10 * 1024 * 1024) { error.value = 'Choose a file up to 10 MB.'; return; } busy.value = true; error.value = ''; try { const body = new FormData(); body.append('file', file); await props.http.post(`/prehire-portal/${props.token}/workflow/${key}/upload`, body); savedMessage.value = 'Your file has been saved.'; emit('reload'); } catch (e) { error.value = e.response?.data?.error?.message || 'Upload failed. Please try again.'; } finally { busy.value = false; event.target.value = ''; } }
 function registerMediaFrame(event) {
