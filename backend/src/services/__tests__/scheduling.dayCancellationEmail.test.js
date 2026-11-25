@@ -30,23 +30,27 @@ beforeEach(()=>{
 const input=()=>({...proof,agencyId:2,clientId:8,to:'parent@example.test',cc:['support@itsco.health'],templateType:'day_cancellation',generatedByUserId:776});
 const deps=()=>({database:db,decrypt:x=>x,domain:async()=> 'itsco.health'});
 
-it('uses the tenant messages identity for SSO with provider Reply-To and support CC',async()=>{
- const personal=vi.fn(async()=>({identity:{id:9,agency_id:2,is_active:1},routing:'workspace_user',replyTo:'messages@itsco.health'}));
- const envelope=await resolveDayCancellationEmail({agencyId:2,providerId:776,providerAuthored:true,actorUserId:776,...proof},
-  {...deps(),agency:async()=>({id:2,name:'ITSCO'}),personal});
- expect(personal).toHaveBeenCalledWith({agencyId:2,userId:776});
- expect(envelope).toMatchObject({senderIdentityId:9,replyToOverride:'support@itsco.health',cc:['support@itsco.health'],
-  providerEmail:'danica@itsco.health',supportEmail:'support@itsco.health',source:'manual',...proof});
+it.each([
+ [2,'ITSCO','itsco.health'],[6,'Next Level Up','nextleveluplcc.com'],[3,'Inner Strength','innerstrengthin.com']
+])('uses the verified company Messages sender for provider-authored cancellations at %s / %s',async(agencyId,name,domain)=>{
+ const personal=vi.fn(async()=>{throw new Error('Configure your work group email before sending email.');});
+ const fromEmail=`messages@${domain}`;
+ const messages=vi.fn(async()=>({identity:{id:9,agency_id:agencyId,is_active:1,identity_key:'messages',from_email:fromEmail},fromEmail}));
+ const envelope=await resolveDayCancellationEmail({agencyId,providerId:776,providerAuthored:true,actorUserId:776,...proof},
+  {...deps(),domain:async()=>domain,agency:async()=>({id:agencyId,name}),personal,messages});
+ expect(messages).toHaveBeenCalledWith(agencyId);expect(personal).not.toHaveBeenCalled();
+ expect(envelope.portalEmailBrand.products.some(p=>p.includes('SchoolCareBridge'))).toBe(false);
+ expect(envelope).toMatchObject({senderIdentityId:9,fromDisplayNameOverride:'Danica Provider',replyToOverride:`support@${domain}`,cc:[`support@${domain}`],source:'manual',...proof});
 });
 it('uses a shared messages sender when staff cancel on behalf of the provider',async()=>{
- const personal=vi.fn(),messages=vi.fn(async()=>({identity:{id:9,agency_id:2,is_active:1}}));
+ const personal=vi.fn(),messages=vi.fn(async()=>({identity:{id:9,agency_id:2,is_active:1,identity_key:'messages',from_email:'messages@itsco.health'}}));
  const envelope=await resolveDayCancellationEmail({agencyId:2,providerId:776,providerAuthored:false,actorUserId:99},
   {...deps(),agency:async()=>({id:2,name:'ITSCO'}),personal,messages});
  expect(personal).not.toHaveBeenCalled();expect(messages).toHaveBeenCalledWith(2);
  expect(envelope).toMatchObject({replyToOverride:'support@itsco.health',cc:['support@itsco.health']});
 });
 it('rejects provider impersonation or an identity from another agency',async()=>{
- const options={...deps(),agency:async()=>({id:2,name:'ITSCO'}),personal:async()=>({identity:{id:9,agency_id:6,is_active:1}})};
+ const options={...deps(),agency:async()=>({id:2,name:'ITSCO'}),messages:async()=>({identity:{id:9,agency_id:6,is_active:1,identity_key:'messages',from_email:'messages@itsco.health'}})};
  await expect(resolveDayCancellationEmail({agencyId:2,providerId:776,providerAuthored:true,actorUserId:99},options)).rejects.toThrow('provider’s reviewed action');
  await expect(resolveDayCancellationEmail({agencyId:2,providerId:776,providerAuthored:true,actorUserId:776},options)).rejects.toThrow('unavailable');
 });
@@ -90,4 +94,19 @@ it('exempts a signed cancellation from the rollout reminder pause while retainin
  familyNotificationDeliveryGate.mockResolvedValue({allowed:false,reason:'family_notification_category_off'});
  expect(await routineParentEmailGate(input(),db)).toMatchObject({allowed:false,reason:'family_notification_category_off'});
  expect(await routineParentEmailGate({...input(),templateType:'school_session_notice'},db)).toMatchObject({allowed:false,reason:'routine_parent_emails_paused'});
+});
+
+it.each([
+ {agency_id:6,is_active:1,identity_key:'messages',from_email:'messages@itsco.health'},
+ {agency_id:2,is_active:0,identity_key:'messages',from_email:'messages@itsco.health'},
+ {agency_id:2,is_active:1,identity_key:'messages',from_email:'messages@innerstrengthin.com'},
+ {agency_id:2,is_active:1,identity_key:'personal_776',from_email:'messages@itsco.health'}
+])('refuses an unavailable, private, or different-company cancellation sender %j',async identity=>{
+ const options={...deps(),agency:async()=>({id:2,name:'ITSCO'}),messages:async()=>({identity:{id:9,...identity}})};
+ await expect(resolveDayCancellationEmail({agencyId:2,providerId:776,providerAuthored:true,actorUserId:776},options)).rejects.toHaveProperty('status',403);
+});
+
+it('adds school coordination only when the caller is sending a school absence notice',async()=>{
+ const result=await resolveDayCancellationEmail({agencyId:2,providerId:776,providerAuthored:true,actorUserId:776,school:true},{...deps(),agency:async()=>({id:2,name:'ITSCO'}),messages:async()=>({identity:{id:9,agency_id:2,is_active:1,identity_key:'messages',from_email:'messages@itsco.health'}})});
+ expect(result.portalEmailBrand.products).toContain('SchoolCareBridge · school coordination');
 });

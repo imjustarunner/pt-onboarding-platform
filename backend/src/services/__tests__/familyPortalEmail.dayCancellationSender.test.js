@@ -12,7 +12,7 @@ import {sendScheduleNotificationEmail} from '../scheduleNotificationEmail.servic
 import {sendSchoolDayAbsenceEmail} from '../schoolDayAbsenceEmail.service.js';
 const proof={reviewedCancellationToken:'11111111-1111-4111-8111-111111111111',reviewedCancellationItemKey:'appointment:17'};
 const envelope={senderIdentityId:9,replyToOverride:'support@itsco.health',cc:['support@itsco.health'],fromDisplayNameOverride:'Danica Provider',
- portalEmailBrand:{clinical:false,name:'ITSCO',displayName:'ITSCO',products:[],replyTo:'support@itsco.health'},source:'manual',...proof};
+ portalEmailBrand:{clinical:false,name:'ITSCO',displayName:'Danica Provider',products:[],replyTo:'support@itsco.health'},source:'manual',...proof};
 beforeEach(()=>{
  vi.clearAllMocks();m.context.mockResolvedValue({tenant:{name:'ITSCO'},url:()=> 'https://example.test/guardian'});
  m.envelope.mockResolvedValue(envelope);m.proof.mockResolvedValue({providerId:776,actorUserId:776,plan:{facts:{providerAuthored:true}},...proof});
@@ -48,4 +48,23 @@ it('does not mix an unreviewed schedule notice into the signed operational excep
  await expect(sendScheduleNotificationEmail({agencyId:2,clientId:8,to:'parent@example.test',generatedByUserId:776,
   entries:[{appointment:{id:17},payload:{facts:proof}},{appointment:{id:18},payload:{facts:{}}}]})).rejects.toThrow('mixed schedule notices');
  expect(m.send).not.toHaveBeenCalled();
+});
+
+it.each(['day','individual'])('uses the private clinical client brand for %s cancellation, preserving the company support envelope',async kind=>{
+ const brand={clinical:true,name:'Inner Strength',displayName:'AuricWell Portal',products:['AuricWell · clinical portal'],replyTo:'support@innerstrengthin.com'};
+ m.context.mockResolvedValue({brand,tenant:{name:'Inner Strength'},url:()=>''});
+ m.envelope.mockResolvedValue({...envelope,portalEmailBrand:{...brand,products:['SchoolCareBridge · school coordination']},replyToOverride:'support@innerstrengthin.com',cc:['support@innerstrengthin.com']});
+ await sendScheduleNotificationEmail({agencyId:3,clientId:8,to:'client@example.test',generatedByUserId:776,text:'Your session is canceled.',
+  entries:[{appointment:{id:17},payload:kind==='day'?{facts:proof}:{individualCancellationReview:{appointmentId:17}}}]});
+ const sent=m.send.mock.calls[0][0];
+ expect(sent.html).toContain('AuricWell');expect(sent.html).toContain('Inner Strength');expect(sent.html).not.toContain('SchoolCareBridge');
+ expect(sent.portalEmailBrand).toMatchObject({products:brand.products,replyTo:'support@innerstrengthin.com',displayName:'Danica Provider'});
+});
+it.each([
+ [{clinical:true,name:'ITSCO',displayName:'AuricWell Portal',products:['SchoolCareBridge · school coordination','AuricWell · clinical portal'],replyTo:'support@itsco.health'},'SchoolCareBridge'],
+ [{clinical:false,learning:true,name:'Next Level Up',displayName:'Next Level Up Portal',products:[],replyTo:'support@nextleveluplcc.com'},'Next Level Up']
+])('preserves the canonical school or learning portal context during cancellation',async(brand,expected)=>{
+ m.context.mockResolvedValue({brand,tenant:{name:brand.name},url:()=>''});
+ await sendScheduleNotificationEmail({agencyId:2,clientId:8,to:'parent@example.test',generatedByUserId:776,text:'Session update',entries:[{appointment:{id:17},payload:{facts:proof}}]});
+ const sent=m.send.mock.calls[0][0];expect(sent.html).toContain(expected);expect(sent.portalEmailBrand.products).toEqual(brand.products);expect(sent.portalEmailBrand.clinical).toBe(brand.clinical);
 });

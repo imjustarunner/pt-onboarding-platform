@@ -38,6 +38,40 @@ describe.skipIf(!socket)('shared activity protection integration',()=>{
   await state.db.query("INSERT INTO account_mfa_sessions VALUES ('key-1',UTC_TIMESTAMP(3),NULL),('key-2',UTC_TIMESTAMP(3),NULL)");
  });
  afterAll(async()=>{if(state.db){await state.db.query('DROP DATABASE activity_protection_test');await state.db.end();}});
+ it('lets the sole designated owner restore a file hold with fresh proof and append-only audit evidence',async()=>{
+  for(let i=0;i<6;i++)await file(req(),`owner-held-${i}`).catch(()=>{});
+  await state.db.query('INSERT INTO privacy_reviewers VALUES (1,2,UTC_TIMESTAMP(3),NULL)');
+  const owner=req();owner.body={reviewHold:true};const ticket=await call(requestFileAccess,owner);
+  owner.params={id:ticket.id};owner.body={decision:'reset',note:'I reviewed the activity and need to resume routine document work.',soleReviewerRecovery:true,confirmOwnFileAccess:true};
+  await call(requirePrivacyReviewer,owner);await call(reviewTicket,owner);
+  const [[hold]]=await state.db.query("SELECT held_at FROM activity_protection_state WHERE user_id=1 AND kind='client_file'");expect(hold.held_at).toBeNull();
+  const [[audit]]=await state.db.query("SELECT user_id,details FROM security_evidence WHERE action='sole_reviewer_file_access_recovery' ORDER BY occurred_at DESC LIMIT 1");
+  const details=typeof audit.details==='string'?JSON.parse(audit.details):audit.details;expect(audit.user_id).toBe(1);expect(details).toMatchObject({soleReviewerRecovery:true,reviewerCount:1,usageWindowReset:true,verificationMethod:'fresh_authenticator'});
+  const [[alerts]]=await state.db.query('SELECT COUNT(*) n FROM activity_protection_alerts WHERE user_id=1 AND reviewed_at IS NULL');expect(Number(alerts.n)).toBeGreaterThan(0);
+  await file(req(),'after-owner-recovery');
+  await expect(call(reviewTicket,owner)).rejects.toHaveProperty('code','NO_FILE_HOLD');
+ });
+ it('refuses owner recovery once a second active reviewer is designated',async()=>{
+  for(let i=0;i<6;i++)await file(req(),`two-reviewers-${i}`).catch(()=>{});
+  await state.db.query('INSERT INTO privacy_reviewers VALUES (1,2,UTC_TIMESTAMP(3),NULL),(2,1,UTC_TIMESTAMP(3),NULL)');
+  const owner=req();owner.body={reviewHold:true};const ticket=await call(requestFileAccess,owner);
+  owner.params={id:ticket.id};owner.body={decision:'reset',note:'I reviewed the activity and need routine document access.',soleReviewerRecovery:true,confirmOwnFileAccess:true};
+  await expect(call(reviewTicket,owner)).rejects.toHaveProperty('code','SELF_APPROVAL_FORBIDDEN');
+  const [[hold]]=await state.db.query("SELECT held_at FROM activity_protection_state WHERE user_id=1 AND kind='client_file'");expect(hold.held_at).not.toBeNull();
+  const [[saved]]=await state.db.query('SELECT status FROM activity_protection_tickets WHERE id=?',[ticket.id]);expect(saved.status).toBe('pending');
+ });
+ it('rolls back sole-reviewer recovery when append-only audit cannot be written',async()=>{
+  for(let i=0;i<6;i++)await file(req(),`owner-audit-${i}`).catch(()=>{});
+  await state.db.query('INSERT INTO privacy_reviewers VALUES (1,2,UTC_TIMESTAMP(3),NULL)');
+  const owner=req();owner.body={reviewHold:true};const ticket=await call(requestFileAccess,owner);
+  owner.params={id:ticket.id};owner.body={decision:'reset',note:'I checked my file activity and need to continue routine work.',soleReviewerRecovery:true,confirmOwnFileAccess:true};
+  await state.db.query("CREATE TRIGGER fail_owner_reset_audit BEFORE INSERT ON security_evidence FOR EACH ROW BEGIN IF NEW.action='sole_reviewer_file_access_recovery' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='synthetic owner audit failure'; END IF; END");
+  try{
+   await expect(call(reviewTicket,owner)).rejects.toThrow('synthetic owner audit failure');
+   const [[hold]]=await state.db.query("SELECT held_at FROM activity_protection_state WHERE user_id=1 AND kind='client_file'");expect(hold.held_at).not.toBeNull();
+   const [[saved]]=await state.db.query('SELECT status FROM activity_protection_tickets WHERE id=?',[ticket.id]);expect(saved.status).toBe('pending');
+  }finally{await state.db.query('DROP TRIGGER fail_owner_reset_audit');}
+ });
  it('gives only the verified Avery demo account audited permanent file access while retaining its historical hold evidence',async()=>{
   await state.db.query("INSERT INTO activity_protection_state (user_id,kind,held_at) VALUES (1433,'client_file',UTC_TIMESTAMP(3))");
   const avery=()=>({...req(1433),user:{...req(1433).user,role:'provider'}});

@@ -40,3 +40,12 @@ it('allows a read-only HTML preview after final review without offering rewrite 
   wrapper = mount(Editor, { props: { ...props, readOnly: true } });
   expect(wrapper.find('textarea').exists()).toBe(false); expect(button('Warmer')).toBeUndefined(); expect(button('Preview HTML email')).toBeTruthy();
 });
+
+it('refreshes the preview when its actor-owned review changes and passes only that reference',async()=>{
+ api.post.mockResolvedValue({data:{html:'<p>Preview</p>'}});wrapper=mount(Editor,{props});
+ await button('Preview HTML email').trigger('click');await flushPromises();
+ expect(api.post).toHaveBeenLastCalledWith(props.baseUrl+'/email-preview',expect.not.objectContaining({school:expect.anything()}),expect.anything());
+ await wrapper.setProps({reviewContext:{reviewToken:'review-token',date:'2026-11-24',itemKey:'school:3'}});expect(wrapper.find('iframe').exists()).toBe(false);
+ await button('Refresh HTML preview').trigger('click');await flushPromises();
+ expect(api.post).toHaveBeenLastCalledWith(props.baseUrl+'/email-preview',expect.objectContaining({reviewToken:'review-token',date:'2026-11-24',itemKey:'school:3'}),expect.anything());
+});

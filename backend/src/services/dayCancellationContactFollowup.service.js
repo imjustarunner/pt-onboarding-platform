@@ -42,7 +42,7 @@ export function createDayCancellationContactFollowup(overrides = {}) {
     const to = [...new Set([sender.supportEmail,sender.providerEmail].filter(Boolean))];
     if (!to.length) throw new Error('The provider and support follow-up recipients are not configured.');
     const subject = `Cancellation contact follow-up — ${plan.dates.join(', ')}`;
-    const text = `The provider's cancellation was recorded. These families could not be notified because contact information was missing or inadequate. Follow up through an approved contact method.\n\n${clients.map(client => `${client.initials} — ${client.date}: ${client.reason}`).join('\n')}\n\nClient initials are listed here; review the authorized school portal for contact details.`;
+    const text = `The provider's cancellation was recorded. These families could not be notified because contact information was missing or inadequate. Follow up through an approved contact method.\n\n${clients.map(client => `${client.initials} — ${client.date}: ${client.reason}`).join('\n')}\n\nClient initials are listed here; review the authorized client record for contact details.`;
     const result = await d.send({ ...sender, agencyId, providerId:plan.providerId, to:to.join(', '), cc:null,
       subject, text, templateType:'day_cancellation_contact_followup', source:'manual', generatedByUserId:actorUserId,
       reviewedCancellationToken:token, reviewedCancellationItemKey:clients[0].itemKey });

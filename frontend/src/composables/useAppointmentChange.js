@@ -417,13 +417,13 @@ export function useAppointmentChange({identity,recoverOperations=true}={}) {
       const start = new Date().toISOString().slice(0, 10);
       const end = new Date(); end.setUTCFullYear(end.getUTCFullYear() + 1);
       const response = await api.get('/appointments', { params: { agencyId: appointment.agencyId, clientId: context.clientId,
-        windowStart: start, windowEnd: end.toISOString().slice(0, 10) }, skipGlobalLoading: true });
+        windowStart: start, windowEnd: end.toISOString().slice(0, 10), order: 'upcoming' }, skipGlobalLoading: true });
       replacements.value = (response.data?.appointments || []).filter((a) => Number(a.id) !== appointmentId.value
         && ['scheduled', 'confirmed', 'client_confirmed'].includes(a.status)).map((a) => {
         const raw = String(a.startAt || '');
         const date = new Date(/(?:Z|[+-]\d{2}:?\d{2})$/.test(raw) ? raw : raw.replace(' ', 'T') + 'Z');
-        return { id: a.id, label: `${date.toLocaleString([], { timeZone: a.sourceTimezone || 'America/Denver', dateStyle: 'medium', timeStyle: 'short' })} — ${a.title || 'Session'}` };
-      });
+        return { id: a.id, startAt: date.getTime(), label: `${date.toLocaleString([], { timeZone: a.sourceTimezone || 'America/Denver', dateStyle: 'medium', timeStyle: 'short' })} — ${a.title || 'Session'}` };
+      }).filter(a => Number.isFinite(a.startAt)).sort((a,b) => a.startAt - b.startAt || Number(a.id) - Number(b.id)).map(({startAt,...option}) => option);
     } catch (e) { error.value = e.response?.data?.error?.message || 'Could not load replacement appointments.'; }
   }
 

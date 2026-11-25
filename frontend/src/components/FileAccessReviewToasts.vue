@@ -4,6 +4,7 @@
   <article v-for="ticket in tickets" :key="ticket.id" :aria-label="`File access request from ${ticket.actor_email || `User ${ticket.user_id}`}`">
    <strong>{{ ticket.actor_email || `User ${ticket.user_id}` }} requested file-access review</strong>
    <p>{{ ticket.reason }}</p>
+   <p v-if="ticket.hold_reason">{{ ticket.hold_reason === 'bulk_operation' ? 'This hold began with a bulk download, export, or print request.' : ticket.hold_reason === 'volume_limit' ? 'This hold began when the file-access volume limit was reached.' : `Recorded hold reason: ${ticket.hold_reason}` }}</p>
    <p>Ordinary admin and support document views stay available. Reset clears the file hold and restarts its usage window; audit history is retained.</p>
    <div class="links"><router-link :to="auditLink(ticket, 'user_activity')">Activity logs</router-link><router-link :to="auditLink(ticket, 'phi_document')">Document audit</router-link></div>
    <div v-if="Number(ticket.user_id) !== Number(userId)" class="actions">
@@ -11,6 +12,7 @@
     <button type="button" :disabled="busy" @click="decide(ticket, 'dismissed')">Dismiss</button>
     <button type="button" :disabled="busy" @click="decide(ticket, 'reset')">Reviewed &amp; reset</button>
    </div>
+   <SoleReviewerFileRecovery v-else-if="selfRecoveryAllowed" :ticket-id="ticket.id" @reviewed="resolved(ticket.id)" />
    <p v-else>Another designated reviewer must handle your request.</p>
   </article>
  </section>
@@ -18,8 +20,9 @@
 <script setup>
 import { onBeforeUnmount, onMounted, ref } from 'vue';
 import api from '../services/api';
+import SoleReviewerFileRecovery from './SoleReviewerFileRecovery.vue';
 const props = defineProps({ userId: { type: [Number, String], required: true } });
-const tickets = ref([]), error = ref(''), busy = ref(false);
+const tickets = ref([]), error = ref(''), busy = ref(false), selfRecoveryAllowed = ref(false);
 let disposed = false, loading = false, timer;
 const reviewedIds = new Set();
 const auditLink = (ticket, source) => ({ path: '/admin/audit-center', query: { userId: String(ticket.user_id), source, view: 'table' } });
@@ -28,7 +31,7 @@ async function load() {
  loading = true;
  try {
   const { data } = await api.get('/privacy-review/requests', { skipGlobalLoading: true });
-  if (!disposed) { tickets.value = Array.isArray(data?.tickets) ? data.tickets.filter(ticket => !reviewedIds.has(ticket.id)) : []; error.value = ''; }
+  if (!disposed) { tickets.value = Array.isArray(data?.tickets) ? data.tickets.filter(ticket => !reviewedIds.has(ticket.id)) : []; selfRecoveryAllowed.value=data?.selfRecoveryAllowed===true; error.value = ''; }
  } catch { if (!disposed) error.value = 'File-access review requests could not be refreshed.'; }
  finally { loading = false; }
 }
@@ -43,6 +46,7 @@ async function decide(ticket, decision) {
  } catch (e) { if (!disposed) error.value = e.response?.data?.error?.message || 'The review could not be saved. The request remains pending.'; }
  finally { busy.value = false; }
 }
+function resolved(id) { reviewedIds.add(id); tickets.value=tickets.value.filter(ticket=>ticket.id!==id); }
 onMounted(() => { load(); timer = setInterval(load, 30000); window.addEventListener('focus', load); document.addEventListener('visibilitychange', load); });
 onBeforeUnmount(() => { disposed = true; clearInterval(timer); window.removeEventListener('focus', load); document.removeEventListener('visibilitychange', load); });
 </script>
