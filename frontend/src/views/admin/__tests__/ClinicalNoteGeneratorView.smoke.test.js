@@ -706,12 +706,10 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     wrapper.unmount();
   });
 
-  it('generates a full unlinked 90791 intake and plan with editable, individually copyable sections', async () => {
+  it('generates a full unlinked 90791 intake and plan with editable sections and no copy actions', async () => {
     const { wrapper, state } = await workspace('90791_intake_plan');
     state.noteWriterMode = 'narriva';
     await nextTick();
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    vi.stubGlobal('navigator', { clipboard: { writeText } });
     try {
       state.initials = 'TEST';
       state.dateOfService = '2026-10-27';
@@ -741,18 +739,12 @@ describe('ClinicalNoteGeneratorView smoke', () => {
 
       const cards = wrapper.findAll('.na-soap-card');
       expect(cards).toHaveLength(Object.keys(sections).length);
-      for (const card of cards) {
-        const body = card.find('pre').text();
-        await card.findAll('button').find((button) => button.text() === 'Copy').trigger('click');
-        await flushPromises();
-        expect(writeText).toHaveBeenLastCalledWith(body);
-      }
+      expect(cards.flatMap(card=>card.findAll('button')).some(button=>button.text()==='Copy')).toBe(false);
       const diagnosisCard = cards.find((card) => card.find('.na-soap-title').text() === 'Diagnosis');
       await diagnosisCard.findAll('button').find((button) => button.text() === 'Edit').trigger('click');
       await diagnosisCard.find('textarea').setValue('Clinician-reviewed diagnosis.');
-      await diagnosisCard.findAll('button').find((button) => button.text() === 'Copy').trigger('click');
-      await flushPromises();
-      expect(writeText).toHaveBeenLastCalledWith('Clinician-reviewed diagnosis.');
+      await diagnosisCard.findAll('button').find((button) => button.text() === 'Done').trigger('click');
+      expect(diagnosisCard.find('pre').text()).toBe('Clinician-reviewed diagnosis.');
       expect(vi.mocked(api.post).mock.calls.some(([url]) => url.startsWith('/medical-billing/'))).toBe(false);
     } finally {
       wrapper.unmount();

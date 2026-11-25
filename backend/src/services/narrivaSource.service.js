@@ -1,3 +1,4 @@
+import { initialAssessmentDocumentationApplies } from '../../../frontend/src/utils/clinicalNoteRecordSections.js';
 import {clinicalClientPresent,clinicalServiceRequirements} from '../../../frontend/src/utils/clinicalEncounterRequirements.js';
 import {resolveClinicalAssessmentKind} from './clinicalAssessmentKind.service.js';
 import ClinicalTreatmentObjectiveRating from '../models/clinical/ClinicalTreatmentObjectiveRating.model.js';
@@ -189,6 +190,10 @@ export async function loadNarrivaSource(user,{agencyId,draftId,noteId,phase='out
  local.clinical.hasJustification=textPresent(clinicalContext.diagnosticJustification) || clinicalContext.diagnoses.some(item=>textPresent(item.justification));
  local.clinical.assessmentEvidencePresent=assessmentManifest.length>0;
  if(assessmentContext)local.service.assessmentKind=assessmentContext.assessmentKind;
+ if(initialAssessmentDocumentationApplies(documentationCode,assessmentContext?.assessmentKind)
+     && typeof meta.narrivaContext?.intakeDocumentationReviewed==='boolean'){
+  local.clinical.intakeDocumentationReviewed=meta.narrivaContext.intakeDocumentationReviewed;
+ }
  const [[priorRisk]]=await pool.execute(`SELECT MAX(risk_assessment_required) AS required FROM narriva_reviews WHERE agency_id=? AND ((draft_id IS NOT NULL AND draft_id=?) OR (clinical_note_id IS NOT NULL AND clinical_note_id=?) OR (clinical_session_id IS NOT NULL AND clinical_session_id=?))`,[agencyId,positiveId(draftId || meta.draftId),positiveId(noteId),positiveId(source.clinical_session_id)]);
  local.clinical.riskRequiredFromPriorReview=Number(priorRisk?.required)===1;
  const catalog=await resolveAgencySchedulingCatalog({agencyId,credentialTier:care.credentialTier,allServiceCodes:[],eligibleServiceCodes:[]});

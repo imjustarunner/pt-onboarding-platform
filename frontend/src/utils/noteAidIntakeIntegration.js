@@ -133,14 +133,14 @@ export function intakeSectionsForRecord(sections, { mentalStatusExam, riskAssess
     const label = domainSelectionLabel(cell);
     return label ? `${domain}: ${label}` : '';
   }).filter(Boolean);
-  set(['Mental Status Examination', 'Mental Status Exam', 'Current Mental Status'], [...mseLines, ...intakeAssessments(sections).unmappedMse].join('\n'));
+  if (mseLines.length) set(['Mental Status Examination', 'Mental Status Exam', 'Current Mental Status'], [...mseLines, ...intakeAssessments(sections).unmappedMse].join('\n'));
   if (riskAssessment) {
     const riskLines = Object.entries(riskAssessment.items || {}).map(([domain, cell]) => {
       const label = domainSelectionLabel(cell);
       return label ? `${domain}: ${label}` : '';
     }).filter(Boolean);
     const notes = riskAssessment.notes || '';
-    set(['Risk Assessment'], riskAssessment.patientDeniesAll
+    if (riskLines.length || notes.trim() || riskAssessment.patientDeniesAll) set(['Risk Assessment'], riskAssessment.patientDeniesAll
       ? 'Patient denies all areas of risk. No contrary clinical indications present.'
       : [...riskLines, /^(?:patient|client) denies all areas of risk/i.test(notes) ? '' : notes].filter(Boolean).join('\n'));
   }

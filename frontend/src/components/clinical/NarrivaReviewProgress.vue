@@ -14,12 +14,12 @@ const steps = [
 const active = computed(()=>Math.max(0,steps.findIndex(step=>step.id===props.stage)));
 </script>
 <template>
-  <section class="narriva-review-progress" role="status" aria-live="polite" aria-label="Narriva review progress">
+  <section class="narriva-review-progress" role="status" aria-live="polite" :aria-label="stage === 'finalizing' ? 'Note finalization progress' : 'Narriva review progress'">
     <header><img :src="NARRIVA_BRAND.compliance" alt="Narriva Compliance" /><span>{{ elapsed }}s elapsed</span></header>
-    <strong>{{ active === 2 ? 'Checking your session…' : active === 1 ? 'Writing your draft…' : 'Preparing your session…' }}</strong>
-    <div class="narriva-progress-track" role="progressbar" :aria-valuetext="steps[active].label" aria-label="Narriva is working"><span /></div>
-    <ol><li v-for="(step,index) in steps" :key="step.id" :class="{current:index===active,done:index<active}"><span aria-hidden="true">{{ index<active?'✓':index===active?'●':'○' }}</span>{{ step.label }}</li></ol>
-    <p v-if="elapsed >= 30">Narriva is still working. Your saved narrative is available if you leave this page.</p>
+    <strong>{{ stage === 'finalizing' ? 'Finalizing your note…' : active === 2 ? 'Checking your session…' : active === 1 ? 'Writing your draft…' : 'Preparing your session…' }}</strong>
+    <div class="narriva-progress-track" role="progressbar" :aria-valuetext="stage === 'finalizing' ? 'Finalizing your note' : steps[active].label" aria-label="Narriva is working"><span /></div>
+    <ol v-if="stage !== 'finalizing'"><li v-for="(step,index) in steps" :key="step.id" :class="{current:index===active,done:index<active}"><span aria-hidden="true">{{ index<active?'✓':index===active?'●':'○' }}</span>{{ step.label }}</li></ol>
+    <p v-if="elapsed >= 30">Your draft is saved. This step is still running.</p>
   </section>
 </template>
 <style scoped>

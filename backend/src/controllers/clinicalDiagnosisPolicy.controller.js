@@ -1,7 +1,7 @@
 import { resolveClientRecordAccess } from '../services/clientRecordAccess.service.js';
 import pool from '../config/database.js';
 import ClinicalEligibilityService from '../services/clinicalEligibility.service.js';
-import { loadClientDiagnosesWithReviews, listClientDiagnosisAlerts, saveDiagnosisReview, readSupervisorDiagnosisPermission, saveSupervisorDiagnosisPermission } from '../services/clinicalDiagnosisPolicy.service.js';
+import { loadClientDiagnosesWithReviews, listClientDiagnosisAlerts, saveDiagnosisReview, readSupervisorDiagnosisPermission, canManageSupervisorDiagnosisPermission, saveSupervisorDiagnosisPermission } from '../services/clinicalDiagnosisPolicy.service.js';
 const id=value=>Number.isSafeInteger(Number(value)) && Number(value)>0 ? Number(value):null;
 async function scope(req) {
   const agencyId=id(req.body?.agencyId || req.query.agencyId),clientId=id(req.body?.clientId || req.query.clientId || req.params.clientId);
@@ -24,7 +24,7 @@ export async function postDiagnosisReview(req,res,next) {
   }catch(error){next(error);}
 }
 export async function getSupervisorDiagnosisPolicy(req,res,next) {
-  try {const context=await scope(req),providerUserId=id(req.params.providerUserId);if(!providerUserId)throw Object.assign(new Error('Provider is required.'),{status:400});const history=await readSupervisorDiagnosisPermission({...context,providerUserId});res.json({history,current:history.find(entry=>Number(entry.supervisor_user_id)===Number(req.user.id)) || null});}catch(error){next(error);}
+  try {const context=await scope(req),providerUserId=id(req.params.providerUserId);if(!providerUserId)throw Object.assign(new Error('Provider is required.'),{status:400});const canManage=await canManageSupervisorDiagnosisPermission({...context,providerUserId});const history=canManage?await readSupervisorDiagnosisPermission({...context,providerUserId}):[];res.json({canManage,history,current:history.find(entry=>Number(entry.supervisor_user_id)===Number(req.user.id)) || null});}catch(error){next(error);}
 }
 export async function putSupervisorDiagnosisPolicy(req,res,next) {
   try {const context=await scope(req),providerUserId=id(req.params.providerUserId);if(!providerUserId)throw Object.assign(new Error('Provider is required.'),{status:400});res.json(await saveSupervisorDiagnosisPermission({...context,providerUserId,input:req.body}));}catch(error){next(error);}

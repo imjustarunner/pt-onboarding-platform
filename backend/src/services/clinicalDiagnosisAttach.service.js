@@ -24,7 +24,7 @@ export async function upsertClinicalDiagnosis({
   concernKind = 'clinical',
   /** When true, replace description/justification even when values are empty strings. */
   forceOverwrite = false, externalDiagnosis = null
-}) {
+}, { transaction } = {}) {
   const agency = safeInt(agencyId);
   const client = safeInt(clientId);
   const kind = String(concernKind || 'clinical').trim().toLowerCase() === 'learning_concern'
@@ -43,9 +43,9 @@ export async function upsertClinicalDiagnosis({
 
   await validateDiagnosisWrite({agencyId:agency,clientId:client,createdByUserId:actor,icd10Code:code,justification,concernKind:kind,externalDiagnosis});
 
-  const conn = await clinicalPool.getConnection();
+  const conn = transaction || await clinicalPool.getConnection();
   try {
-    await conn.beginTransaction();
+    if (!transaction) await conn.beginTransaction();
 
     if (setPrimary) {
       await conn.execute(
@@ -156,13 +156,13 @@ export async function upsertClinicalDiagnosis({
     }
 
     if(externalDiagnosis)await saveDiagnosisReview({agencyId:agency,clientId:client,diagnosisId,actorUserId:actor,input:{evidenceDocumentIds:externalDiagnosis.evidenceDocumentIds,reason:'External diagnosis source: '+externalDiagnosis.providerName+'. Provider attests that the diagnosis is recorded from the uploaded professional documentation; no new disorder is diagnosed by this entry.'}},conn);
-    await conn.commit();
+    if (!transaction) await conn.commit();
     return diagnosisId;
   } catch (e) {
-    await conn.rollback();
+    if (!transaction) await conn.rollback();
     throw e;
   } finally {
-    conn.release();
+    if (!transaction) conn.release();
   }
 }
 

@@ -114,7 +114,7 @@ describe('assigned locations and portal readiness',()=>{
  it('keeps a secure-message setup option visible with no portal contacts without dispatching a message or invitation',async()=>{api.get.mockResolvedValue({data:{client:{maskedName:'Syn* Cli*',age:14},contacts:[],secureMessaging:{available:false,reason:'Review Portal settings to arrange authorized access.'}}});const w=mount(MobileClientSummary,{props:{apiBase:'/api/quick-view',sessionToken:'scoped',clientId:31}});await flushPromises();await w.findAll('button').find(b=>b.text()==='Secure message · Set up access').trigger('click');expect(w.text()).toContain('Review Portal settings');expect(api.post).not.toHaveBeenCalled();w.unmount();});
 });
 
-it('checks the saved narrative before generation, reviews output separately, and hides signing when the source changes',async()=>{
+it('checks the saved narrative before generation, reviews output separately and makes the finalized draft editable without regeneration',async()=>{
  vi.stubGlobal('crypto',webcrypto);const data=fixture();data.preferences.defaultMode='narriva';api.get.mockResolvedValue({data});
  const text='The clinician practiced grounding; the client engaged and planned continued practice.';
  const claim={v:1,sourceHash:createHash('sha256').update(JSON.stringify([text,'90834','narriva'])).digest('hex')};
@@ -122,7 +122,7 @@ it('checks the saved narrative before generation, reviews output separately, and
  api.post.mockImplementation(async (url,body)=>({data:url.endsWith('/drafts')?{draft:{id:61}}:url.endsWith('/generate')?{draftId:61,outputJson:{sections:{Narrative:'Generated supported clinical note.'},meta:{generationReceipt:receipt}}}:url.endsWith('/narriva/reviews')?{review:review(body?.phase)}:{}}));
  const {w}=await mountWriter();expect(w.find('.mn-note').exists()).toBe(false);expect(w.find('.mn-sign').exists()).toBe(false);expect(w.find('.narriva-compliance').exists()).toBe(false);
  await w.get('[aria-label="Session Narrative"]').setValue(text);await flushPromises();expect(api.post.mock.calls.some(([u])=>u.endsWith('/reviews'))).toBe(false);expect(w.find('.mn-sign').exists()).toBe(false);
- await w.get('.mn-generate').trigger('click');await flushPromises();expect(api.post.mock.calls.some(([u])=>u.endsWith('/generate'))).toBe(false);expect(w.get('.mn-generate').text()).toMatch(/Finalize note|Continue/);expect(w.find('.mn-sign').exists()).toBe(false);expect(w.get('.mn-generate').element.disabled).toBe(true);await w.get('.narriva-section-approval input').setValue(true);await w.get('.mn-generate').trigger('click');await vi.waitFor(()=>expect(w.find('.mn-sign').exists()).toBe(true));expect(w.get('.mn-note').text()).toContain('Generated note');expect(api.post.mock.calls.find(([u])=>u.endsWith('/generate'))[1].preflightReviewId).toBe(41);expect(api.post.mock.calls.filter(([u])=>u.endsWith('/reviews')).map(([,body])=>body.phase)).toEqual(['pre_generation','output']);
+ await w.get('.mn-generate').trigger('click');await flushPromises();expect(api.post.mock.calls.some(([u])=>u.endsWith('/generate'))).toBe(false);expect(w.get('.mn-generate').text()).toMatch(/Finalize note|Continue/);expect(w.find('.mn-sign').exists()).toBe(false);expect(w.get('.mn-generate').element.disabled).toBe(true);await w.get('.narriva-section-approval input').setValue(true);await w.get('.mn-generate').trigger('click');await vi.waitFor(()=>expect(w.find('.mn-sign').exists()).toBe(true));expect(w.get('.mn-note').text()).toContain('Finalized draft');expect(api.post.mock.calls.find(([u])=>u.endsWith('/generate'))[1].preflightReviewId).toBe(41);expect(api.post.mock.calls.filter(([u])=>u.endsWith('/reviews')).map(([,body])=>body.phase)).toEqual(['pre_generation','output']);
  expect(w.get('.mn-note').find('textarea').exists()).toBe(false);
  expect(w.get('.mn-note').text()).toContain('Generated supported clinical note.');
  expect(w.get('.mn-note').text()).toContain('Presenting Problem');
@@ -132,8 +132,16 @@ it('checks the saved narrative before generation, reviews output separately, and
  expect(w.get('#mobile-assessment-todos h2').text()).toBe('Assessments complete');
  const sign=w.get('.mn-sign');
  await sign.findAll('input[type="checkbox"]')[0].setValue(true);await sign.findAll('input[type="checkbox"]')[1].setValue(true);
- expect(sign.get('button').element.disabled).toBe(false);
- await w.get('[aria-label="Session Narrative"]').setValue(text+' Changed source.');await flushPromises();expect(w.find('.mn-sign').exists()).toBe(false);expect(w.text()).toContain('Generate again');w.unmount();vi.unstubAllGlobals();
+ expect(sign.get('button.mn-sign-submit').element.disabled).toBe(false);
+ expect(w.find('[aria-label="Session Narrative"]').exists()).toBe(false);
+ expect(w.find('.mn-generate').exists()).toBe(false);
+ await w.get('[aria-label="Edit Narrative"]').trigger('click');
+ await w.get('textarea[aria-label="Narrative note section"]').setValue('Provider edited the finalized draft.');
+ await w.get('[aria-label="Done editing Narrative"]').trigger('click');
+ await w.get('.chart-preview-button').trigger('click');
+ expect(w.get('dialog').text()).toContain('Provider edited the finalized draft.');
+ expect(sign.get('button.mn-sign-submit').element.disabled).toBe(true);
+ expect(api.post.mock.calls.filter(([url])=>url.endsWith('/generate'))).toHaveLength(1);w.unmount();vi.unstubAllGlobals();
 });
 it('opens a previously generated note with its saved scores and signs it after the MSE',async()=>{
  vi.stubGlobal('crypto',webcrypto);
@@ -156,7 +164,7 @@ it('opens a previously generated note with its saved scores and signs it after t
  expect(w.get('.mn-session-scores').text()).toContain('Practice at home — Not addressed');
  w.findComponent({name:'NoteAidStructuredChartPanel'}).vm.$emit('mse-all-normal');await flushPromises();
  for(const box of w.get('.mn-sign').findAll('input[type="checkbox"]'))await box.setValue(true);
- await w.get('.mn-sign button').trigger('click');await flushPromises();
+ await w.get('.mn-sign button.mn-sign-submit').trigger('click');await flushPromises();
  await vi.waitFor(()=>expect(w.text()).toContain('Provider signature saved'));
  const [,chart]=api.post.mock.calls.find(([url])=>url.endsWith('/sessions/82/notes'));
  expect(JSON.parse(chart.notePayload).sections).toMatchObject({'Presenting Problem':'Anxiety affects daily function.',Diagnosis:'F41.9','Diagnostic Justification':'F41.9: Documented impairment.'});
@@ -239,9 +247,9 @@ it.each([['90834','PROGRESS_NOTE'],['90791','INTAKE'],['H0031','INTAKE']])('retr
  await w.get('[aria-label="Narrative note section"]').setValue('The clinician documented the intervention and response.');
  await confirmManualEncounter(w);
  for(const box of w.findAll('.mn-sign input'))await box.setValue(true);
- await w.get('.mn-sign button').trigger('click');await flushPromises();
+ await w.get('.mn-sign button.mn-sign-submit').trigger('click');await flushPromises();
  expect(w.get('.mn-sign').text()).toContain('Signature could not be saved.');
- await w.get('.mn-sign button').trigger('click');await flushPromises();
+ await w.get('.mn-sign button.mn-sign-submit').trigger('click');await flushPromises();
  expect(w.text()).toContain('Provider signature saved');
  const attachments=api.post.mock.calls.filter(([url])=>url.endsWith('/sessions/82/notes'));
  expect(attachments).toHaveLength(1);expect(attachments[0][1].noteType).toBe(noteType);

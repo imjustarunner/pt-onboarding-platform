@@ -1,7 +1,7 @@
 <template>
   <section class="diagnosis-review" aria-label="Diagnosis documentation and review">
     <div v-for="alert in alerts" :key="`${alert.code}:${alert.diagnosisId}`" class="diagnosis-alert" role="status">{{ alert.message }}</div>
-    <details @toggle="onToggle">
+    <details open>
       <summary>Diagnosis evidence and review</summary>
       <p v-if="loading">Loading diagnosis documentation…</p><p v-if="error" role="alert" class="error">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p>
       <p>Each diagnosis retains its own justification. Supporting records or your documented qualified clinician evaluation may establish evidence. This review does not rewrite a signed note.</p>
@@ -20,9 +20,17 @@
         <details v-if="diagnosis.reviewHistory?.length > 1"><summary>Diagnosis review history ({{ diagnosis.reviewHistory.length }})</summary><p v-for="review in diagnosis.reviewHistory" :key="review.id">{{ new Date(review.reviewed_at).toLocaleString() }} · Reviewer #{{ review.reviewed_by_user_id }} · {{ review.review_reason }}</p></details>
         <p v-if="diagnosis.review?.reviewed_at">Last reviewed: {{ new Date(diagnosis.review.reviewed_at).toLocaleDateString() }}</p>
       </article>
-      <p v-if="!loading && !diagnoses.length">No active diagnoses recorded.</p>
-      <button type="button" :disabled="loading || busy" @click="load">Refresh documentation</button>
-      <form v-if="providerUserId && !readOnly" class="supervisor-policy" @submit.prevent="savePermission">
+      <section v-if="pendingDiagnoses.length" aria-label="Diagnoses in the current draft">
+        <h4>Diagnoses in this draft</h4>
+        <p>Signing adds these reviewed diagnoses and their justifications to the chart.</p>
+        <ul><li v-for="diagnosis in pendingDiagnoses" :key="diagnosis.icd10_code">
+          <strong>{{ diagnosis.icd10_code }} {{ diagnosis.description }}</strong>
+          <p>{{ diagnosis.justification || 'Clinical justification is required.' }}</p>
+        </li></ul>
+      </section>
+      <p v-else-if="!loading && !diagnoses.length && !error">No active chart diagnoses.</p>
+      <button type="button" :disabled="loading || busy" @click="load">Reload chart diagnoses</button>
+      <form v-if="canManagePermission && !readOnly" class="supervisor-policy" @submit.prevent="savePermission">
         <strong>Supervisor permission for this provider</strong>
         <p>Only the assigned licensed supervisor can authorize non-F primary diagnoses under their supervision. Coverage and credential limits still apply.</p>
         <label><input v-model="allowNonFPrimary" type="checkbox" /> Allow this supervisee to use covered non-F primary diagnoses</label>
@@ -34,16 +42,26 @@
 </template>
 <script setup>
 import {ref,watch} from 'vue';
-import api from '../../services/api';
-const props=defineProps({agencyId:{type:[String,Number],required:true},clientId:{type:[String,Number],required:true},providerUserId:{type:[String,Number],default:null},readOnly:Boolean});
+const props=defineProps({agencyId:{type:[String,Number],required:true},clientId:{type:[String,Number],required:true},providerUserId:{type:[String,Number],default:null},pendingDiagnoses:{type:Array,default:()=>[]},transport:Object,readOnly:Boolean});
 const emit=defineEmits(['changed']);
 const diagnoses=ref([]),documents=ref([]),alerts=ref([]),drafts=ref({}),loading=ref(false),busy=ref(false),error=ref(''),notice=ref(''),allowNonFPrimary=ref(false),permissionReason=ref('');
-let generation=0;
-async function load(){if(!props.agencyId||!props.clientId)return;const g=++generation;loading.value=true;error.value='';try{const {data}=await api.get('/medical-billing/diagnoses/review',{params:{agencyId:props.agencyId,clientId:props.clientId},skipGlobalLoading:true});if(g!==generation)return;diagnoses.value=data.diagnoses||[];documents.value=data.documents||[];alerts.value=data.alerts||[];drafts.value=Object.fromEntries(diagnoses.value.map(d=>[d.id,{evidenceDocumentIds:d.review?.evidenceDocumentIds||[],evaluationNote:'',stressorEventMonth:d.review?.stressor_event_month||'',reason:''}]));}catch(e){if(g===generation)error.value=e.response?.data?.error?.message||e.message;}finally{if(g===generation)loading.value=false;}}
-function onToggle(event){if(event.target.open&&!diagnoses.value.length&&!loading.value)load();}
-async function save(diagnosis){busy.value=true;error.value='';notice.value='';try{await api.post(`/medical-billing/diagnoses/${diagnosis.id}/review`,{agencyId:Number(props.agencyId),clientId:Number(props.clientId),...drafts.value[diagnosis.id],evaluationNote:drafts.value[diagnosis.id].evaluationNote.trim() || undefined},{skipGlobalLoading:true});notice.value='Diagnosis review recorded with your identity and timestamp.';await load();emit('changed');}catch(e){error.value=e.response?.data?.error?.message||e.message;}finally{busy.value=false;}}
-async function loadPermission(){if(!props.agencyId||!props.providerUserId||props.readOnly)return;try{const {data}=await api.get(`/medical-billing/providers/${props.providerUserId}/diagnosis-policy`,{params:{agencyId:props.agencyId},skipGlobalLoading:true});allowNonFPrimary.value=Number(data.current?.allow_non_f_primary)===1;}catch(e){error.value=e.response?.data?.error?.message||e.message;}}
-async function savePermission(){busy.value=true;error.value='';try{await api.put(`/medical-billing/providers/${props.providerUserId}/diagnosis-policy`,{agencyId:Number(props.agencyId),allowNonFPrimary:allowNonFPrimary.value,reason:permissionReason.value},{skipGlobalLoading:true});notice.value='Supervisor diagnosis permission recorded.';permissionReason.value='';}catch(e){error.value=e.response?.data?.error?.message||e.message;}finally{busy.value=false;}}
+const canManagePermission=ref(false);
+let generation=0,permissionRequest=0;
+const clientApi=async()=>props.transport || (await import('../../services/api')).default;
+async function load(){if(!props.agencyId||!props.clientId)return;const g=++generation;loading.value=true;error.value='';try{const {data}=await (await clientApi()).get(props.transport ? `/clients/${props.clientId}/diagnosis-evidence` : '/medical-billing/diagnoses/review',{params:{agencyId:props.agencyId,clientId:props.clientId},skipGlobalLoading:true});if(g!==generation)return;diagnoses.value=data.diagnoses||[];documents.value=data.documents||[];alerts.value=data.alerts||[];drafts.value=Object.fromEntries(diagnoses.value.map(d=>[d.id,{evidenceDocumentIds:d.review?.evidenceDocumentIds||[],evaluationNote:'',stressorEventMonth:d.review?.stressor_event_month||'',reason:''}]));}catch(e){if(g===generation)error.value=e.response?.data?.error?.message||e.message;}finally{if(g===generation)loading.value=false;}}
+async function save(diagnosis){busy.value=true;error.value='';notice.value='';try{await (await clientApi()).post(`/medical-billing/diagnoses/${diagnosis.id}/review`,{agencyId:Number(props.agencyId),clientId:Number(props.clientId),...drafts.value[diagnosis.id],evaluationNote:drafts.value[diagnosis.id].evaluationNote.trim() || undefined},{skipGlobalLoading:true});notice.value='Diagnosis review recorded with your identity and timestamp.';await load();emit('changed');}catch(e){error.value=e.response?.data?.error?.message||e.message;}finally{busy.value=false;}}
+async function loadPermission(){
+  const request=++permissionRequest;
+  canManagePermission.value=false;
+  if(!props.agencyId||!props.providerUserId||props.readOnly)return;
+  try{
+    const {data}=await (await clientApi()).get(`/medical-billing/providers/${props.providerUserId}/diagnosis-policy`,{params:{agencyId:props.agencyId},skipGlobalLoading:true});
+    if(request!==permissionRequest)return;
+    canManagePermission.value=data.canManage===true;
+    allowNonFPrimary.value=Number(data.current?.allow_non_f_primary)===1;
+  }catch{/* The note author can still review chart diagnoses. */}
+}
+async function savePermission(){busy.value=true;error.value='';try{await (await clientApi()).put(`/medical-billing/providers/${props.providerUserId}/diagnosis-policy`,{agencyId:Number(props.agencyId),allowNonFPrimary:allowNonFPrimary.value,reason:permissionReason.value},{skipGlobalLoading:true});notice.value='Supervisor diagnosis permission recorded.';permissionReason.value='';}catch(e){error.value=e.response?.data?.error?.message||e.message;}finally{busy.value=false;}}
 watch(()=>[props.agencyId,props.providerUserId,props.readOnly],loadPermission,{immediate:true});
 watch(()=>[props.agencyId,props.clientId],()=>{generation++;diagnoses.value=[];alerts.value=[];drafts.value={};load();},{immediate:true});
 </script>

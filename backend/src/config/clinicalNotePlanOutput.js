@@ -16,6 +16,7 @@ import { TREATMENT_PLAN_TIMEFRAME_INSTRUCTIONS } from './treatmentPlanTimeframe.
  */
 
 export const INTAKE_SECTION_TITLES = [
+  "Objective Content",
   "Identification",
   "Presenting Problem",
   "History of Present Illness",
@@ -32,7 +33,6 @@ export const INTAKE_SECTION_TITLES = [
   "Educational / Occupational History",
   "Legal History",
   "SNAP",
-  "Objective Content",
   "Mental Status Examination",
   "Risk Assessment",
   "Diagnosis",

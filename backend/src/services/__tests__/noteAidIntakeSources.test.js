@@ -3,6 +3,9 @@ vi.mock('../clientChartArtifacts.service.js',()=>({loadIntakeSubmissionsForClien
 vi.mock('../../models/IntakeLink.model.js',()=>({default:{findById:vi.fn()}}));
 import { buildClinicalIntakeSourceContext, intakeAssessmentResponses } from '../noteAidIntakeSources.service.js';
 import { intakeAgeInstruction, applyIntakeIdentifyingAge } from '../noteAidAge.service.js';
+vi.mock('../../models/ClientIntakeNoteDraft.model.js',()=>({default:{listForClient:vi.fn()}}));
+import ClientIntakeNoteDraft from '../../models/ClientIntakeNoteDraft.model.js';
+import { loadIntakeSubmissionsForClient } from '../clientChartArtifacts.service.js';
 import { clinicalRowsFromCompletedIntake } from '../intakeClinicalSourcePresentation.js';
 const phq = values=>Object.fromEntries(values.map((value,index)=>[`phq9_${index+1}`,value]));
 describe('enrollment and assessment source context',()=>{
@@ -31,6 +34,18 @@ describe('enrollment and assessment source context',()=>{
   expect(result.instruments[0]).toMatchObject({total:null,complete:false,sourceRef:'intake:2'});
   expect(result.contextText).toContain('Reported history 2');expect(result.contextText).not.toContain('Do not transmit this identity');expect(result.contextText).toContain('Reported history 1');expect(result.manualSections['Presenting Problem']).toContain('Earlier enrollment 2');
   expect(result.sources.map(source=>source.submissionId)).toEqual([2,1]);
+ });
+ it('uses the latest finalized imported intake as the historical source when enrollment is absent',async()=>{
+  const record=(id,status,text)=>({id,status,finalized_at:`2026-11-${String(id).padStart(2,'0')}`,
+    session_context_enc:JSON.stringify({source:'client_records_import'}),
+    note_sections_json_enc:JSON.stringify([{label:'Legal History',body:text}])});
+  ClientIntakeNoteDraft.listForClient.mockResolvedValue([record(24,'draft','Unreviewed working content'),record(21,'final','Most recent verified history.'),record(18,'final','Superseded history')]);
+  loadIntakeSubmissionsForClient.mockResolvedValue([]);
+  const result=await buildClinicalIntakeSourceContext({agencyId:2,clientId:10});
+  expect(ClientIntakeNoteDraft.listForClient).toHaveBeenCalledWith({agencyId:2,clientId:10});
+  expect(result.manualSections['Legal History']).toBe('Most recent verified history.');
+  expect(result.contextText).toContain('Prior finalized imported clinical assessment');
+  expect(result.contextText).not.toMatch(/Unreviewed working content|Superseded history/);
  });
  it('rejects an enrollment link from another agency and includes no unreviewed draft',async()=>{
   const result=await buildClinicalIntakeSourceContext({agencyId:2,clientId:10},{loadSubmissions:async()=>[{id:1,status:'submitted',intake_link_id:1,intake_data:{}}],findLink:async()=>({organization_id:99}),buildRecord:()=>{throw Error('Must not read foreign source');}});

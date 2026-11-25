@@ -1,3 +1,4 @@
+import { intakeDocumentationStatement, intakeObjectiveFirst } from '../../../frontend/src/utils/clinicalNoteRecordSections.js';
 import { clinicalServiceRequirements } from '../../../frontend/src/utils/clinicalEncounterRequirements.js';
 import { narrivaQualityCriteria } from './narrivaReviewPolicy.service.js';
 import { parseNoteSections } from './clinicalNoteSections.service.js';
@@ -73,7 +74,7 @@ async function loadNarrivaGuidance(source,knowledge=getKnowledgeBaseContext) {
 function reviewedScoring(review,source) {
  if(!review.qualityEvidence)return pendingNarrivaScoring();
  return deriveNarrivaScoring({qualityEvidence:review.qualityEvidence,assessmentMentioned:review.qualityContext?.assessmentMentioned,
-  narrative:review.phase==='pre_generation'?review.workingDraft || source.narrative:source.narrative,serviceCode:source.service.documentationCode || source.service.code,clientPresent:source.encounter.clientPresent,checks:review.checks,reviewStatus:review.status,qualityBypass:review.qualityBypass});
+  narrative:review.phase==='pre_generation'?review.workingDraft || source.narrative:source.narrative,serviceCode:source.service.documentationCode || source.service.code,clientPresent:source.encounter.clientPresent,checks:review.checks,reviewStatus:review.status,qualityBypass:review.qualityBypass,intakeDocumentationReviewed:source.clinical.intakeDocumentationReviewed});
 }
 function reviewedStatus(review) {
  const mandatory=narrivaOverall(review.checks);
@@ -204,7 +205,8 @@ export async function inspectNarrivaFacts(source,{model=callPrivateSessionText,k
   const tool=getNoteAidToolById(mappedGeneratorId) || getNoteAidToolById(source.meta?.toolId) || getNoteAidToolById('clinical_code_decider');
   const prompt=[buildPromptForTool({tool,inputText:'Use the sessionNarrative in the encounter evidence below.'}),guidance,
    source.service.documentationCode==='H0031' || source.service.code==='H0031' ? 'H0031 never originates a mental health disorder diagnosis. Suggest only supported Z/R codes. Existing diagnoses remain attributed to their verified source. If this is an additional/collateral H0031, produce the focused additional-assessment note using its writer, and omit the full psychosocial intake template.' : '',
-   'Use telehealth session rather than video session in prose. Do not mention missing narrative or enrollment documentation. Use None reported only when a report supports it, otherwise use Pending assessment. Do not invent a denial or absence of contraindications.',
+   'Use telehealth session rather than video session in prose. Do not mention missing narrative or enrollment documentation. For unavailable history, state the specific topic, such as No information regarding legal history was provided at the time of assessment. Reserve pending assessment for an actual planned follow-up. Use None reported only for an explicit negative report. Name completed instruments and who reported them without mentioning enrollment. Do not invent a denial or absence of contraindications.',
+   'Start an initial assessment with Objective Content. The application adds any provider-confirmed review of disclosure, education and supervision, informed consent, and policies. Omit boilerplate claiming these were reviewed.',
    'Write the complete clinical note now using the selected writer and its section format. This private working draft can be released to the clinician after the pre-generation check. For SOAP progress notes use Subjective, Objective, Interventions, and Plan headers and a comma-separated list of supported interventions. Weave current objective ratings and dispositions into progress where supported. The chart appends exact scores and confirmed consent separately. Never invent unobserved facts or normal findings. A deferred risk assessment is a to-do, never a completed assessment.',
    JSON.stringify(evidencePayload)].join('\n\n');
   await onProgress({stage:'drafting',enrollmentSources,enrollmentPreview,enrollmentAssessments,intakeSourceHash});
@@ -224,7 +226,7 @@ export async function inspectNarrivaFacts(source,{model=callPrivateSessionText,k
   preflight ? 'For the Session Narrative, recognize ordinary or dictated speech. A client replying to a clinician question documents participation and a response. A described clinician action such as guided exploration or practicing a skill documents an intervention even without a modality label. Distinguish a relative discussed from someone who attended. Use stated functional effects and symptoms together with the confirmed presenting problem and diagnostic justification when assessing clinical need. Never infer an unstated impairment or improvement. Identify ongoing clinician work tied to a stated treatment target as a basis for the writer’s plan. For service fit, compare what was done with the selected clinical service and flag explicit conflicts or missing defining service elements. Check date and duration using the structured encounter.' : '',
   intake && source.service.assessmentKind==='additional' ? 'This is a FOCUSED ADDITIONAL OR COLLATERAL ASSESSMENT. Evaluate the reported needs, actual additional assessment activities, findings and recommendations. Full psychosocial intake fields, direct participation and prior therapy progress are not required.' : intake ? 'The selected service is an INITIAL DIAGNOSTIC ASSESSMENT. Evaluate diagnostic interviewing, collateral history, clinical formulation and assessment recommendations. A caregiver reporting symptoms and the clinician exploring differential diagnosis support diagnostic assessment activity. Participation, engagement and response-to-intervention ratings are inapplicable to an initial assessment. Set engagementDocumented and responseDocumented to null if absent; they do not block intake completion. Existing treatment goals, improvement across therapy sessions, and response to psychotherapy interventions are not prerequisites for this intake. Credit clinically grounded recommendations for further differential assessment as follow-up. Enrollment answers are patient/caregiver reports, never clinician-observed findings. A diagnosis remains provisional until the provider confirms it.' : '',
   source.encounter.clientPresent===false ? 'The provider-confirmed encounter documents the client as ABSENT. A collateral diagnostic interview, review of caregiver-reported concerns or treatment planning can support the service action and clinical need. Do not require a direct client interview. No direct client MSE or risk assessment is required. Omit client participation, engagement and intervention-response requirements. Preserve documented collateral information and the attending person’s account where relevant. Never invent direct client observations or responses. The selected service still needs its actual defining activities and recommendations.' : '',
-  'Use concise clinical wording. When the report explicitly denies a history, None reported is appropriate. For unknown information, use Pending assessment or Requires clarification. Never invent a denial or absence of contraindications, and avoid prose about information not being in the narrative/enrollment. Use telehealth session in the note, and retain the actual video/audio delivery method in the structured encounter only.',
+  'Use concise clinical wording. When the report explicitly denies a history, None reported is appropriate. For unknown history, state that no information on that topic was provided at the time of assessment. Describe a pending assessment only if an actual follow-up was documented. Never invent a denial or absence of contraindications, and avoid prose about information not being in the narrative/enrollment. Use telehealth session in the note, and retain the actual video/audio delivery method in the structured encounter only.',
   'For documented fields, true means explicitly supported by the note. Missing or ambiguous documentation is null, not true.',
   'Behavioral defiance, disrespect, poor grades, gaming, discipline, or a possible conduct disorder do not by themselves establish current danger or uncertain self-harm/harm-to-others risk. Do not treat instructions about PHQ item 9 as a patient answer. Base risk flags on an actual reported risk finding and preserve its historical/current context.',
   'currentRisk: current harm to self or others identified. A diagnosis carried forward from the chart does not establish current session risk by itself. Distinguish denial, historical risk, hypothetical education and quoted third-party history. riskUncertain means the current source suggests possible harm but its status is unresolved.',
@@ -331,6 +333,15 @@ async function latestPreGenerationReview({agencyId,actorUserId,draftId,clinicalS
  return null;
 }
 
+async function initialAssessmentDocumentationStatement(source, actorUserId) {
+  if (source.clinical.intakeDocumentationReviewed !== true) return '';
+  const policy = await resolveNoteDocumentationPolicy({
+    clinical_session_id:source.source.clinical_session_id, agency_id:source.agencyId,
+    client_id:source.client.id, created_by_user_id:actorUserId, metadata_json:source.meta
+  });
+  return intakeDocumentationStatement(!!policy.supervisorUserId);
+}
+
 // Generation consumes the exact saved narrative that the provider checked.
 export async function assertNarrivaPreGeneration(req,{agencyId,clientId,draftId,clinicalSessionId,inputText,currentGuidance}) {
  const reviewId=positiveId(req.body?.preflightReviewId);
@@ -352,6 +363,7 @@ export async function assertNarrivaPreGeneration(req,{agencyId,clientId,draftId,
   userId:Number(req.user.id),
   approvedAt:new Date().toISOString(),
   draftToken:review.draftApprovalToken,
+  method:approval.method==='all'?'all':'individual',
   sections:sectionTitles
  };
  const consentStatement=encounterConsentStatement(source.encounter) || null;
@@ -360,7 +372,8 @@ export async function assertNarrivaPreGeneration(req,{agencyId,clientId,draftId,
  const confirmed=parse(source.confirmedClinicalContext);
  const clinicalContext={presentingProblem:context.presentingProblem || source.meta.presentingProblem || chart.presentingProblem || confirmed.presentingProblem || '',diagnosticJustification:chart.diagnosticJustification || source.meta.diagnosticJustification || confirmed.diagnosticJustification || '',diagnoses:Array.isArray(confirmed.diagnoses)?confirmed.diagnoses:(Array.isArray(rawDiagnoses)?rawDiagnoses:[]).map(diagnosis=>typeof diagnosis==='string'?{code:diagnosis}:{code:diagnosis.icd10_code || diagnosis.code || '',description:diagnosis.description || diagnosis.diagnosis || '',justification:diagnosis.justification || ''}),...(confirmed.diagnosesReferenceOnly?{diagnosesReferenceOnly:true}:{})};
  requireNarrivaIdentifierCorrection(JSON.stringify(clinicalContext),source.identifiers);
- return {authorApproval,reviewedWriter:(latest.reviewedWriter || (latest.manualEdited || keptFindings(review).length ? latest.writerCandidate:null)) ? {...(latest.reviewedWriter || latest.writerCandidate),guidanceHash:latest.guidanceHash} : null,workingDraft:latest.workingDraft,objectives:source.planReview?.objectives,intakeSourceHash:latest.intakeSourceHash || null,reviewId:review.id,sourceHash:review.sourceHash,inputHash:review.inputHash,keptAsIs:latest.manualEdited===true || keptFindings(review).length>0,manualEdited:latest.manualEdited===true,decisions:keptFindings(review),consentStatement,clinicalContext};
+ const documentationStatement=await initialAssessmentDocumentationStatement(source,req.user.id);
+ return {authorApproval,documentationStatement,reviewedWriter:(latest.reviewedWriter || (latest.manualEdited || keptFindings(review).length ? latest.writerCandidate:null)) ? {...(latest.reviewedWriter || latest.writerCandidate),guidanceHash:latest.guidanceHash} : null,workingDraft:latest.workingDraft,objectives:source.planReview?.objectives,intakeSourceHash:latest.intakeSourceHash || null,reviewId:review.id,sourceHash:review.sourceHash,inputHash:review.inputHash,keptAsIs:latest.manualEdited===true || keptFindings(review).length>0,manualEdited:latest.manualEdited===true,decisions:keptFindings(review),consentStatement,clinicalContext};
 }
 
 async function inheritPreGenerationDecisions(review,source) {
@@ -464,6 +477,9 @@ async function evaluateStoredReview(user,review,source,writerGuidance){
  if(review.phase==='pre_generation' && Number(review.actorUserId)===Number(user.id) && ['running','action_required','passed','bypassed','stale'].includes(review.status) && review.workingDraft){
    review.draftPreview=review.workingDraft;
    review.draftPreviewSections=parseNoteSections(review.workingDraft,{intake:['90791','H0031'].includes(source.service.documentationCode || source.service.code) && source.service.assessmentKind!=='additional',skipMse:source.encounter.clientPresent===false || /^H/.test(source.service.documentationCode || source.service.code || '')});
+   if(['90791','H0031'].includes(source.service.documentationCode || source.service.code) && source.service.assessmentKind!=='additional'){
+    review.draftPreviewSections=intakeObjectiveFirst(review.draftPreviewSections,await initialAssessmentDocumentationStatement(source,review.actorUserId));
+   }
    if(!Object.keys(review.draftPreviewSections).length)review.draftPreviewSections={'Draft note':review.workingDraft};
    if(['passed','bypassed'].includes(review.status)){
     review.draftApprovalToken=narrivaSourceHash({id:review.id,sourceHash:review.sourceHash,draft:review.workingDraft,sections:review.draftPreviewSections});

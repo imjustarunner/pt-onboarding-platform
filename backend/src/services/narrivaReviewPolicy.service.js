@@ -51,7 +51,7 @@ const nonempty=value=>typeof value==='string' && value.trim().length>0;
 const normalizedEvidence=value=>String(value || '').trim();
 const completeMandatoryChecks=checks=>Array.isArray(checks)&&checks.length===NARRIVA_CHECKS.length&&NARRIVA_CHECKS.every(([id])=>checks.filter(c=>c.id===id).length===1&&checks.some(c=>c.id===id&&c.status==='passed'&&(!c.findings||c.findings.length===0)));
 /** Quality is supplemental: neither points nor a bypass can replace a required check. */
-export function deriveNarrivaScoring({qualityEvidence={},assessmentMentioned=null,narrative='',checks=[],reviewStatus=null,qualityBypass=null,serviceCode=null,clientPresent=null}={}) {
+export function deriveNarrivaScoring({qualityEvidence={},assessmentMentioned=null,narrative='',checks=[],reviewStatus=null,qualityBypass=null,serviceCode=null,clientPresent=null,intakeDocumentationReviewed=null}={}) {
  const source=normalizedEvidence(narrative);
  const criteria=narrivaQualityCriteria(serviceCode,{clientPresent}).map(criterion=>{
   const applicable=!criterion.notApplicable && (criterion.id!=='assessment_integration'||assessmentMentioned!==false);
@@ -60,6 +60,11 @@ export function deriveNarrivaScoring({qualityEvidence={},assessmentMentioned=nul
   const evidence=Array.isArray(supplied?.evidence)?[...new Set(supplied.evidence.filter(quote=>typeof quote==='string'&&normalizedEvidence(quote).length>=16&&normalizedEvidence(quote).split(/\s+/).length>=3&&source.includes(normalizedEvidence(quote))).map(normalizedEvidence))].slice(0,3):[];
   const met=supplied?.supported===true&&evidence.length>0&&(criterion.id!=='assessment_integration'||assessmentMentioned===true);
   return {id:criterion.id,label:criterion.label,earned:met?criterion.points:0,possible:criterion.points,status:met?'met':'missing',evidence:met?evidence:[],message:met?'Supported by the saved note evidence.':criterion.instruction};
+ });
+ if(typeof intakeDocumentationReviewed==='boolean')criteria.push({
+  id:'initial_assessment_documentation',label:'Initial assessment documentation review',possible:10,
+  earned:intakeDocumentationReviewed?10:0,status:intakeDocumentationReviewed?'met':'missing',evidence:[],
+  message:intakeDocumentationReviewed?'Provider confirmed review of disclosure, education and supervision, consent, and policies.':'The provider did not confirm review of the initial assessment documents.'
  });
  const earned=criteria.reduce((sum,c)=>sum+c.earned,0),possible=criteria.reduce((sum,c)=>sum+c.possible,0);
  const score=possible?Math.floor(earned*100/possible):0;
@@ -98,6 +103,7 @@ export function deriveNarrivaCheck(id,{facts,encounter,clinical,service},{standa
   }
  }
  if(id==='service_code') {
+  if(typeof clinical.intakeDocumentationReviewed==='boolean')result.documentationReviewPercent=clinical.intakeDocumentationReviewed?100:0;
   const serviceAction=service.proBono===true?'clinical_service':'service_code';
   const documentationCode=String(service.documentationCode || service.code || '').trim().toUpperCase();
   required(service.allowed,'qualification',service.reason || 'Review provider qualifications and the enabled service.',serviceAction,false);

@@ -133,9 +133,13 @@ export async function readSupervisorDiagnosisPermission({agencyId,providerUserId
   const [rows]=await clinicalPool.execute('SELECT * FROM clinical_supervisor_diagnosis_permissions WHERE agency_id=? AND provider_user_id=? ORDER BY id DESC',[agencyId,providerUserId]);
   return rows.map(row=>({...row,reason:row.reason ? maybeDecryptNotePayload(row.reason) : ''}));
 }
-export async function saveSupervisorDiagnosisPermission({agencyId,providerUserId,actorUserId,input}) {
+export async function canManageSupervisorDiagnosisPermission({agencyId,providerUserId,actorUserId}) {
+  if(Number(providerUserId)===Number(actorUserId))return false;
   const [[assignment]]=await pool.execute("SELECT sa.id,u.credential FROM supervisor_assignments sa JOIN users u ON u.id=sa.supervisor_id WHERE sa.agency_id=? AND sa.supervisee_id=? AND sa.supervisor_id=? AND sa.supervisor_type IN ('clinical','billing') LIMIT 1",[agencyId,providerUserId,actorUserId]);
-  if(!assignment || !isFullyLicensedCredentialText(assignment.credential))throw fail(403,'Only the assigned licensed supervisor may change their supervisee\'s non-F diagnosis permission.');
+  return !!assignment && isFullyLicensedCredentialText(assignment.credential);
+}
+export async function saveSupervisorDiagnosisPermission({agencyId,providerUserId,actorUserId,input}) {
+  if(!await canManageSupervisorDiagnosisPermission({agencyId,providerUserId,actorUserId}))throw fail(403,'Only the assigned licensed supervisor may change their supervisee\'s non-F diagnosis permission.');
   if(typeof input.allowNonFPrimary!=='boolean')throw fail(400,'Choose whether non-F primary diagnoses are authorized.');
   const reason=String(input.reason || '').trim();if(!reason || reason.length>2000)throw fail(400,'A reason is required.');
   const [result]=await clinicalPool.execute('INSERT INTO clinical_supervisor_diagnosis_permissions (agency_id,provider_user_id,supervisor_user_id,allow_non_f_primary,reason) VALUES (?,?,?,?,?)',[agencyId,providerUserId,actorUserId,input.allowNonFPrimary?1:0,maybeEncryptNotePayload(reason)]);

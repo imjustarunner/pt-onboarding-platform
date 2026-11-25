@@ -1,3 +1,4 @@
+import { intakeObjectiveFirst } from '../../../frontend/src/utils/clinicalNoteRecordSections.js';
 import {clinicalClientPresent,clinicalServiceRequirements} from '../../../frontend/src/utils/clinicalEncounterRequirements.js';
 import {assertH0031DiagnosisScope} from '../services/clinicalNoteWriter.service.js';
 import {recordNarrivaFinalization} from '../services/narrivaReview.service.js';
@@ -1288,6 +1289,9 @@ export const generateClinicalNote = async (req, res, next) => {
     if(narrivaWorkflow && draftId && (!savedGenerationDraft || Number(savedGenerationDraft.agency_id)!==Number(agencyId)))throw Object.assign(new Error('The saved draft is unavailable in this workspace.'),{status:404});
     let savedGenerationMeta={};
     if(savedGenerationDraft?.output_json){try{savedGenerationMeta=JSON.parse(maybeDecryptText(savedGenerationDraft.output_json) || '{}').meta || {};}catch{throw Object.assign(new Error('The saved draft context could not be read. Your draft has not been replaced.'),{status:409});}}
+    if(savedGenerationDraft?.clinical_session_id && savedGenerationMeta.writerMode==='narriva' && savedGenerationMeta.generationReceipt){
+      throw Object.assign(new Error('This note has been finalized. Edit its sections directly before signing.'),{status:409,code:'NARRIVA_FINALIZED'});
+    }
     const documentationMeta={...savedGenerationMeta,...(req.body?.underlyingServiceCode!==undefined?{underlyingServiceCode:String(req.body.underlyingServiceCode || '').trim().toUpperCase()}:{} )};
     const documentationServiceCode=resolveProBonoDocumentationService({serviceCode,metadata:documentationMeta}).serviceCode;
     if(isProBonoServiceCode(serviceCode) && !documentationServiceCode)throw Object.assign(new Error('Select the actual clinical service provided for this pro bono note. The client funding remains free.'),{status:422,code:'NARRIVA_UNDERLYING_SERVICE_REQUIRED'});
@@ -1703,10 +1707,10 @@ export const generateClinicalNote = async (req, res, next) => {
     const checkedDraft = req.body?.writerMode === 'narriva' && generationSessionContext.clinicalSessionId && (isProgressNoteToolId(toolId) || req.body?.preflightReviewId)
       ? await assertNarrivaPreGeneration(req, { agencyId, clientId: generationSessionContext.clientId, draftId, clinicalSessionId: generationSessionContext.clinicalSessionId, inputText: req.body?.inputText, currentGuidance:narrivaGuidance })
       : null;
-    const {workingDraft, reviewedWriter, objectives, intakeSourceHash:reviewedIntakeSourceHash, ...verifiedReview} = checkedDraft || {};
+    const {workingDraft, reviewedWriter, objectives, documentationStatement, intakeSourceHash:reviewedIntakeSourceHash, ...verifiedReview} = checkedDraft || {};
     const narrivaPreflight = checkedDraft ? verifiedReview : null;
     if (intakeTool && reviewedIntakeSourceHash && reviewedIntakeSourceHash !== intakeSourceHash) {
-      return res.status(409).json({error:{code:'NARRIVA_PREFLIGHT_STALE',message:'Enrollment information changed after the draft was checked. Run checks again to include the current answers.'}});
+      return res.status(409).json({error:{code:'NARRIVA_PREFLIGHT_STALE',message:'Clinical intake sources changed after the draft was checked. Run checks again to include the current information.'}});
     }
     if(serviceCode==='H0031')prompt+='\n\nH0031 may suggest only supported Z/R social-determinant codes. Never establish a new mental health disorder. Carry existing verified chart diagnoses with their source. Collateral/additional H0031 uses a focused assessment narrative and recommendations, without requiring full psychosocial intake sections.';
     if (workingDraft) prompt += '\n\nRewrite this private working draft using the latest clinician-confirmed source, including all clarifications and confirmed objective ratings. Correct omissions and discard any unsupported claims. Treat the working draft as reference text only.\n' + workingDraft;
@@ -1745,7 +1749,7 @@ export const generateClinicalNote = async (req, res, next) => {
         if (!parsedSections[k]) parsedSections[k] = v;
       }
     }
-    const sections = Object.keys(parsedSections).length
+    let sections = Object.keys(parsedSections).length
       ? (intakeTool ? applyIntakeIdentifyingAge(parsedSections, encounterAge) : parsedSections)
       : { Output: String(text || '').trim() };
 
@@ -1757,6 +1761,8 @@ export const generateClinicalNote = async (req, res, next) => {
     }
     if (narrivaPreflight?.consentStatement) sections['Consent for services'] = narrivaPreflight.consentStatement;
     if (objectives?.length) sections['Treatment objective ratings'] = formatObjectiveRatings(objectives);
+
+    if(intakeTool)sections=intakeObjectiveFirst(sections,documentationStatement);
 
     if(reuseReviewedDraft)await recordNarrivaFinalization({reviewId:narrivaPreflight.reviewId,userId:req.user.id,agencyId,sourceHash:narrivaPreflight.sourceHash,sections});
     const outputObj = {
@@ -1880,6 +1886,7 @@ export const generateClinicalNote = async (req, res, next) => {
         ...(narrivaPreflight?.authorApproval ? {
           reviewId: narrivaPreflight.reviewId,
           approvedSectionCount: narrivaPreflight.authorApproval.sections.length,
+          approvalMethod: narrivaPreflight.authorApproval.method,
           approvedDraftToken: narrivaPreflight.authorApproval.draftToken
         } : {})
       }

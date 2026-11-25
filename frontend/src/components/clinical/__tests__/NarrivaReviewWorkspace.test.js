@@ -46,9 +46,11 @@ it('requires approval of each displayed section and resets it for a new draft',a
  await boxes[0].setValue(true);
  expect(w.emitted('approval').at(-1)).toEqual([null]);
  await boxes[1].setValue(true);
- expect(w.emitted('approval').at(-1)).toEqual([{token:'revision-1',sections:['Subjective','Plan']}]);
+ expect(w.emitted('approval').at(-1)).toEqual([{token:'revision-1',sections:['Subjective','Plan'],method:'individual'}]);
  await w.setProps({review:{...review,draftApprovalToken:'revision-2'}});
  expect(w.findAll('.narriva-section-approval input').every(box=>!box.element.checked)).toBe(true);
  expect(w.emitted('approval').at(-1)).toEqual([null]);
+ await w.findAll('button').find(button=>button.text()==='Mark all as reviewed and approved').trigger('click');
+ expect(w.emitted('approval').at(-1)).toEqual([{token:'revision-2',sections:['Subjective','Plan'],method:'all'}]);
  w.unmount();
 });

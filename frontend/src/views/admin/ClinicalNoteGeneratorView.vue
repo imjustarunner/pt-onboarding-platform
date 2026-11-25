@@ -304,7 +304,7 @@
           @toggle-addon-code="toggleManualAddonCode"
         >
           <template #service-information><ServiceInformation v-if="actualServiceCode" presentation="button" :service-code="actualServiceCode" :agency-id="noteAidAgencyId || currentAgencyId" /></template>
-          <template #service-assist><NarrivaClinicalAssist v-if="effectiveClientId && !signedNoteViewerId" kind="service" :agency-id="noteAidAgencyId || currentAgencyId" :source-text="inputText" @apply="applyClinicalAssist" /></template>
+          <template #service-assist><NarrivaClinicalAssist v-if="effectiveClientId && !signedNoteViewerId && !finalizedNarriva" kind="service" :agency-id="noteAidAgencyId || currentAgencyId" :source-text="inputText" @apply="applyClinicalAssist" /></template>
           <template #assessment-type><div v-if="actualServiceCode === 'H0031'" class="na-quick-session__cell">
             <label class="na-assessment-type">Assessment type<select v-model="assessmentKind" @change="assessmentKindConfirmed=false"><option value="initial">Initial assessment</option><option value="additional">Additional / collateral assessment</option></select></label>
             <label v-if="assessmentKind !== (assessmentContext?.automaticKind || 'initial')" class="na-sign-check"><input v-model="assessmentKindConfirmed" type="checkbox" /> I confirm this assessment type matches the service performed.</label>
@@ -373,7 +373,7 @@
         </section>
 
         <div v-if="!needsClientAttachStep" class="na-write-after-attach">
-        <NarrivaModeChooser v-if="!signedNoteViewerId && !chartNoteReadOnly" :disabled="needsActualProgressSession" v-model="noteWriterMode" :default-mode="narrivaDefaultMode" :allow-manual="canUseManualSkipAi" :allow-narriva="narrivaFeatures.writing !== false" :allow-smart="showCsNoteBuildPathway && narrivaFeatures.writing !== false" :saving="narrivaPreferenceSaving" :error="narrivaPreferenceError" @save-default="saveNarrivaDefault" />
+        <NarrivaModeChooser v-if="!signedNoteViewerId && !chartNoteReadOnly && !finalizedNarriva" :disabled="needsActualProgressSession" v-model="noteWriterMode" :default-mode="narrivaDefaultMode" :allow-manual="canUseManualSkipAi" :allow-narriva="narrivaFeatures.writing !== false" :allow-smart="showCsNoteBuildPathway && narrivaFeatures.writing !== false" :saving="narrivaPreferenceSaving" :error="narrivaPreferenceError" @save-default="saveNarrivaDefault" />
         <button v-if="encounterToolLocked && (isClientChartAid || therapyNotesWriterOnly) && !chartNoteReadOnly && !signedNoteViewerId" class="na-btn-outline" type="button" :disabled="savingDraftManual || needsActualProgressSession" @click="saveDraftNow">{{ savingDraftManual ? 'Saving…' : 'Save draft' }}</button>
         <div v-if="!encounterToolLocked && (isClientChartAid || therapyNotesWriterOnly)" class="na-aid-bar">
           <div class="na-aid-bar-copy">
@@ -934,7 +934,7 @@
           </section>
           <section v-if="showStructuredChartPanel && chartDiagnosisMode !== 'none' && !chartNoteReadOnly && !signedNoteViewerId && (!narrivaPreGenerationRequired || displayPanels.length)" class="na-session-card">
             <h2>Diagnoses and clinical justification</h2>
-            <NarrivaClinicalAssist v-if="clinicalContextDiagnosisMode !== 'none'" :agency-id="noteAidAgencyId || currentAgencyId" :source-text="inputText" :diagnosis-mode="actualServiceCode === 'H0031' ? 'zr_only' : clinicalContextDiagnosisMode" :date-of-service="dateOfService" @apply="applyClinicalAssist" />
+            <NarrivaClinicalAssist v-if="clinicalContextDiagnosisMode !== 'none' && !finalizedNarriva" :agency-id="noteAidAgencyId || currentAgencyId" :source-text="inputText" :diagnosis-mode="actualServiceCode === 'H0031' ? 'zr_only' : clinicalContextDiagnosisMode" :date-of-service="dateOfService" @apply="applyClinicalAssist" />
             <ExternalClinicalDiagnosis v-if="effectiveClientId" :agency-id="noteAidAgencyId || currentAgencyId" :client-id="effectiveClientId" :session-id="sessionClinicalSessionId" :date-of-service="dateOfService" @saved="recordOutsideDiagnosis" />
             <ClinicalDiagnosisSearch v-if="isIntakeOutput && ['full','zr_only'].includes(clinicalContextDiagnosisMode)" v-model="diagnosisQuery" label="Add a diagnosis" :agency-id="noteAidAgencyId || currentAgencyId" :date-of-service="dateOfService" :filter-results="diagnosisAllowed" @select="addIntakeDiagnosis" />
             <ClinicalDiagnosisFields :criteria-context="{agencyId:noteAidAgencyId || currentAgencyId,draftId,ensureSaved:saveDraftNow}" v-if="structuredChartDiagnoses.length" :model-value="structuredChartDiagnoses" :disabled="!isIntakeOutput || !['full','zr_only'].includes(clinicalContextDiagnosisMode)" @update:model-value="updateIntakeDiagnoses" />
@@ -964,7 +964,11 @@
             <input v-model="narrivaRiskCompleted" type="checkbox" :disabled="!isRiskAssessmentComplete(chartRiskAssessment)" /> I completed and reviewed the risk assessment.
           </label>
 
-        <section v-if="!useCsNoteBuildPathway && !skipAiAid && !signedNoteViewerId" class="na-input-panel">
+        <label v-if="initialIntakeDocumentation && !signedNoteViewerId && !chartNoteReadOnly && !finalizedNarriva" class="na-sign-check">
+          <input v-model="intakeDocumentationReviewed" type="checkbox" />
+          I reviewed the disclosure agreement, my education and supervision status, informed consent, and practice policies with the attending participants.
+        </label>
+        <section v-if="!useCsNoteBuildPathway && !skipAiAid && !signedNoteViewerId && !finalizedNarriva" class="na-input-panel">
           <h2 class="narriva-narrative-label"><img :src="NARRIVA_BRAND.icon" alt="" />Session Narrative</h2>
           <p class="narriva-privacy-hint" role="note">Please do not enter or speak names, birth dates, contact details, or other identifying information here. Use Client, Provider, parent, or guardian. Use the session recorder for spoken content.</p>
           <p v-if="phiNameHits.length" class="na-phi-warn" role="alert">Possible identifying name detected. Replace it with the person’s role before generating.</p>
@@ -1038,8 +1042,9 @@
 
         <p v-if="!needsActualProgressSession && !signedNoteViewerId && !isClientChartAid && !narrivaComplianceRequired && (inputText || displayPanels.length)" class="na-field-hint" role="status">Unlinked writing aid. You can generate, edit, save and copy this note. Narriva Compliance does not run on unlinked notes.</p>
         <NarrivaReviewResults v-if="!showAidPicker && !workspaceHydrateDepth" :own="!['admin','agency_admin','super_admin'].includes(authStore.user?.role) && ![true,1,'1'].includes(authStore.user?.has_supervisor_privileges)" :agency-id="noteAidAgencyId || currentAgencyId" />
-        <NarrivaReviewWorkspace @approval="narrivaDraftApproval = $event" @edit="resolveNarrivaFinding({action:'edit_draft',sections:$event})" v-if="noteWriterMode === 'narriva' && narrivaComplianceRequired && !signedNoteViewerId && !isClientChartAid && (narrivaChecksSubmitted || narrivaReview?.id)" :review="narrivaReview" :busy="preparingNarrivaCheck || narrivaReviewBusy" :pre-generation="narrivaReviewPhase === 'pre_generation'">
-        <NarrivaCompliancePanel v-if="!preparingNarrivaCheck && !narrivaReviewBusy && noteWriterMode === 'narriva' && narrivaComplianceRequired && !signedNoteViewerId && !isClientChartAid && (narrivaChecksSubmitted || narrivaReview?.id)" :review="narrivaReview" :pre-generation="narrivaReviewPhase === 'pre_generation'" :risk-assessment-required="narrivaRiskRequired" :busy="narrivaReviewBusy" :error="narrivaReviewError" @retry="runNarrivaChecks" @resolve="resolveNarrivaFinding" @action="onNarrivaFindingAction">
+        <NarrivaReviewProgress v-if="generating && narrivaPreGenerationRequired" stage="finalizing" />
+        <NarrivaReviewWorkspace @approval="narrivaDraftApproval = $event" @edit="resolveNarrivaFinding({action:'edit_draft',sections:$event})" v-if="noteWriterMode === 'narriva' && narrivaComplianceRequired && !signedNoteViewerId && !isClientChartAid && (narrivaChecksSubmitted || narrivaReview?.id)" :review="narrivaReview" :busy="!generating && (preparingNarrivaCheck || narrivaReviewBusy)" :pre-generation="!finalizedNarriva && narrivaReviewPhase === 'pre_generation'">
+        <NarrivaCompliancePanel v-if="!generating && !preparingNarrivaCheck && !narrivaReviewBusy && noteWriterMode === 'narriva' && narrivaComplianceRequired && !signedNoteViewerId && !isClientChartAid && (narrivaChecksSubmitted || narrivaReview?.id)" :review="narrivaReview" :pre-generation="narrivaReviewPhase === 'pre_generation'" :risk-assessment-required="narrivaRiskRequired" :busy="narrivaReviewBusy" :error="narrivaReviewError" @retry="runNarrivaChecks" @resolve="resolveNarrivaFinding" @action="onNarrivaFindingAction">
           <template #finding="{ checkId, finding }">
             <NarrivaAssessmentEvidence v-if="!finding.bypassed && finding.action === 'assessment'" v-model="narrivaAssessmentEvidence" :agency-id="noteAidAgencyId || currentAgencyId" :client-id="effectiveClientId" :clinical-session-id="sessionClinicalSessionId" :draft-id="draftId" :api-client="api" />
             <NarrivaInlineFinding v-else-if="!finding.bypassed" :check-id="checkId" :finding="finding" :context="narrivaInlineContext" :location-choices="sessionLocationChoices" :service-choices="rawEligibleServiceCodes" :disabled="narrivaReviewBusy" @apply="applyNarrivaInlineUpdate" />
@@ -1050,7 +1055,7 @@
               <template v-else-if="narrivaReviewPhase !== 'pre_generation'"><strong>{{ narrivaRiskCompleted ? 'Risk assessment reviewed' : 'To do: complete the risk assessment' }}</strong><button type="button" class="na-link-btn" @click="openNarrivaRisk">Complete risk assessment</button><label><input v-model="narrivaRiskCompleted" type="checkbox" /> I completed and reviewed the documented risk assessment.</label></template>
             </div>
           </template>
-          <template v-if="narrivaPreGenerationRequired && narrivaReviewPhase === 'pre_generation'" #generate>
+          <template v-if="!finalizedNarriva && narrivaPreGenerationRequired && narrivaReviewPhase === 'pre_generation'" #generate>
             <p v-if="generateError" role="alert">{{ generateError }}</p>
             <button class="na-generate" type="button" :disabled="!narrivaPreflightReady || !narrivaDraftApproved || generateDisabled" @click="generateNote">{{ generating ? 'Finalizing…' : 'Finalize note' }}</button>
             <p v-if="generateError" role="alert">{{ generateError }}</p>
@@ -1134,20 +1139,12 @@
                 </button>
                 <span class="na-soap-actions">
                   <button
-                    v-if="!chartNoteReadOnly && (!isTerminationAid || !['Reason for Termination', 'Recommendations'].includes(panel.id))"
+                    v-if="!chartNoteReadOnly && (!isTerminationAid || !['Reason for Termination', 'Recommendations'].includes(panel.id)) && (!finalizedNarriva || !isIntakeOutput || !structuredChartDiagnoses.length || !['Diagnosis', 'Diagnoses', 'Diagnostic Justification'].includes(panel.id))"
                     type="button"
                     class="na-mini-btn"
                     @click="toggleSectionEdit(panel.id)"
                   >
                     {{ sectionEditing[panel.id] ? 'Done' : 'Edit' }}
-                  </button>
-                  <button
-                    type="button"
-                    class="na-mini-btn"
-                    :disabled="!panelText(panel)"
-                    @click="copySectionContent(panel)"
-                  >
-                    {{ copiedSectionId === panel.id ? 'Copied' : 'Copy' }}
                   </button>
                 </span>
               </div>
@@ -1192,7 +1189,7 @@
             <button type="button" class="na-link-btn" :disabled="addingInteractiveComplexity" @click="cancelInteractiveComplexity">Cancel add-on</button>
             <p v-if="interactiveComplexityError" class="error">{{ interactiveComplexityError }}</p>
           </div>
-          <div v-if="!chartNoteReadOnly" class="field na-revision-field">
+          <div v-if="!chartNoteReadOnly && !finalizedNarriva" class="field na-revision-field">
             <label class="na-revision-label" for="na-revision">
               Add additional content / make changes / update instructions
             </label>
@@ -1216,14 +1213,12 @@
             </div>
           </div>
 
-          <div v-if="intakeDiagnosesPending && !chartNoteReadOnly && !signedNoteViewerId" class="na-plan-fields" role="status">
-            <p>Diagnosis recommendations are filled below. Review the Diagnosis and Diagnostic Justification sections before applying them to the chart. Signing also applies the reviewed diagnoses.</p>
-            <button type="button" class="na-btn-outline" :disabled="applyingIntakeDiagnoses || !effectiveClientId" @click="reviewAndApplyIntakeDiagnoses">
-              {{ applyingIntakeDiagnoses ? 'Saving diagnoses…' : 'Apply reviewed diagnoses to chart' }}
+          <div v-if="intakeDiagnosesPending && intakeDiagnosisRecommendations.some(diagnosis => /^F(?:84|90)\./.test(diagnosis.icd10_code) && !diagnosis.id) && !chartNoteReadOnly && !signedNoteViewerId" class="na-plan-fields">
+            <button type="button" class="na-btn-outline" :disabled="applyingIntakeDiagnoses" @click="reviewAndApplyIntakeDiagnoses">
+              {{ applyingIntakeDiagnoses ? 'Saving diagnoses…' : 'Save diagnoses for evidence review' }}
             </button>
           </div>
-
-          <ClinicalDiagnosisReviewPanel v-if="effectiveClientId && (chartAgencyIdForSave || noteAidAgencyId)" :client-id="effectiveClientId" :agency-id="chartAgencyIdForSave || noteAidAgencyId" :provider-user-id="supervisorReviewItem?.providerId || authStore.user?.id" :read-only="chartNoteReadOnly || !!signedNoteViewerId" />
+          <ClinicalDiagnosisReviewPanel v-if="effectiveClientId && (chartAgencyIdForSave || noteAidAgencyId)" :client-id="effectiveClientId" :agency-id="chartAgencyIdForSave || noteAidAgencyId" :provider-user-id="supervisorReviewItem?.providerId" :pending-diagnoses="intakeDiagnosesPending ? intakeDiagnosisRecommendations : []" :read-only="chartNoteReadOnly || !!signedNoteViewerId" />
 
 
           <div
@@ -1304,7 +1299,7 @@
             </label>
             <label class="na-sign-check">
               <input v-model="attestAccurateAndComplete" type="checkbox" />
-              I mark this note as accurate and complete.
+              I reviewed every section of this final note and approve it as accurate and complete.
             </label>
             <label v-if="isReviewOnlyAid" class="na-sign-check">
               <input v-model="attestMedicallyNecessary" type="checkbox" />
@@ -1321,13 +1316,6 @@
             <label v-if="requiresAiReviewAttestation" class="na-sign-check">
               <input v-model="attestAiContentReviewed" type="checkbox" />
               I have reviewed this AI-generated content and confirm it is accurate.
-            </label>
-            <label
-              v-if="nextInQueueItem || nextInProgressRow"
-              class="na-sign-check"
-            >
-              <input v-model="signAndOpenNextInQueue" type="checkbox" />
-              After {{ isReviewOnlyAid ? 'review' : 'signing' }}, open next in queue
             </label>
             <button
               v-if="!bothAttestationsChecked"
@@ -1354,6 +1342,8 @@
           </div>
 
           <div class="na-output-actions">
+            <ClinicalNoteChartPreview v-if="canApproveToClinicalRecord && !chartNoteReadOnly && !signedNoteViewerId && displayPanels.length"
+              :sections="chartRecordSections" :encounter="{ 'Date of service': dateOfService, Service: actualServiceCode, Participants: [sessionParticipants, sessionParticipantsDetail].filter(Boolean).join(' · '), Location: sessionLocationLabel, Clinician: authStore.user?.displayName || [authStore.user?.firstName, authStore.user?.lastName].filter(Boolean).join(' ') }" />
             <button
               v-if="canSaveTreatmentPlanToChart"
               type="button"
@@ -1369,7 +1359,7 @@
                 class="na-btn-primary"
                 :disabled="!displayPanels.length || approvingNote || !canConfirmAndSign || !bothAttestationsChecked"
                 @click="approveNoteOutput({
-                  afterSign: (signAndOpenNextInQueue && nextInQueueItem) ? 'queue' : 'close'
+                  afterSign: 'close'
                 })"
               >
                 {{ approvingNote
@@ -1379,7 +1369,7 @@
                     : (isTreatmentSummaryAid ? 'Save document' : 'Sign')) }}
               </button>
               <button
-                v-if="!signAndOpenNextInQueue && nextInQueueItem"
+                v-if="nextInQueueItem"
                 type="button"
                 class="na-btn-outline"
                 :disabled="!displayPanels.length || approvingNote || !canConfirmAndSign || !bothAttestationsChecked"
@@ -1637,6 +1627,9 @@ import NoteAidTerminationOutcomes from '../../components/clinical/NoteAidTermina
 import NoteAidStartPage from '../../components/clinical/NoteAidStartPage.vue';
 import NoteAidQuickSessionBar from '../../components/clinical/NoteAidQuickSessionBar.vue';
 import NoteAidClientPicker from '../../components/clinical/NoteAidClientPicker.vue';
+import ClinicalNoteChartPreview from '../../components/clinical/ClinicalNoteChartPreview.vue';
+import NarrivaReviewProgress from '../../components/clinical/NarrivaReviewProgress.vue';
+import { clinicalNoteRecordSections, initialAssessmentDocumentationApplies, intakeDocumentationStatement, intakeObjectiveFirst } from '../../utils/clinicalNoteRecordSections.js';
 import NarrivaReviewWorkspace from '../../components/clinical/NarrivaReviewWorkspace.vue';
 import NarrivaSessionConfirmations from '../../components/clinical/NarrivaSessionConfirmations.vue';
 import { planObjectiveReview, objectiveReviewMessage } from '../../utils/narrivaObjectiveReview.js';
@@ -2302,7 +2295,6 @@ const activeNoteReviewRequests = computed(() => noteReviewWork.value.filter(item
 const activeCosignQueueId = ref(null);
 const canSuperviseCosign = ref(false);
 /** Session preference: after signing, open the next not-started queue item (default on). */
-const signAndOpenNextInQueue = ref(true);
 const skipAiAid = ref(true);
 const noteAidAllowManualWrite = ref(true);
 const noteAidAutosignAfterReview = ref(false);
@@ -3408,6 +3400,8 @@ const narrivaServiceSnapshot=ref(null),narrivaServiceLoading=ref(false),narrivaS
 const narrivaServicePending=computed(()=>!isClientChartAid.value && !!narrivaServiceSnapshot.value && (!!narrivaServiceSnapshot.value.pendingServiceChange || !!narrivaPendingConfirmation.value || !!actualServiceCode.value && String(actualServiceCode.value).toUpperCase()!==String(narrivaServiceSnapshot.value.serviceCode || '').toUpperCase()));
 const narrivaRecordingText=ref(''),narrivaRecordingError=ref('');let narrivaRecordingRequest=0;
 const assessmentContext=ref(null),assessmentKind=ref('initial'),assessmentKindConfirmed=ref(false),diagnosesConfirmed=ref(false);
+const intakeDocumentationReviewed = ref(null);
+const initialIntakeDocumentation = computed(() => initialAssessmentDocumentationApplies(actualServiceCode.value, assessmentKind.value));
 let assessmentContextRequest=0;
 async function loadAssessmentContext(){
  const clientId=Number(effectiveClientId.value),agencyId=Number(noteAidAgencyId.value || currentAgencyId.value),serviceCode=actualServiceCode.value;
@@ -3453,10 +3447,15 @@ async function saveNarrivaDefault(mode) {
 function narrivaContext() {
   const context = { ...(outputObj.value?.meta?.narrivaContext || {}), assessmentKind:assessmentKind.value,assessmentKindConfirmed:assessmentKindConfirmed.value,diagnosesConfirmed:diagnosesConfirmed.value, underlyingServiceCode: narrivaUnderlyingCode.value || null, assessmentEvidence: narrivaAssessmentEvidence.value, presentingProblem: chartPresentingProblem.value || '', presentingProblemOverride: sessionPresentingProblemOverride.value, writerMode: noteWriterMode.value, consentConfirmed: narrivaConsentConfirmed.value, modality: sessionLocationModel.value.modality, interactiveComplexitySelected: includeInteractiveComplexity.value && showInteractiveComplexityOption.value, riskAssessmentIncluded: narrivaRiskIncluded.value, clientLocationDescription: narrivaClientLocationDescription.value, riskAssessmentCompleted: narrivaRiskCompleted.value };
   delete context.riskAssessmentRequired;
+  if (!initialIntakeDocumentation.value) delete context.intakeDocumentationReviewed;
+  if (initialIntakeDocumentation.value && (intakeDocumentationReviewed.value !== null || !finalizedNarriva.value)) {
+    context.intakeDocumentationReviewed = intakeDocumentationReviewed.value === true;
+  }
   return context;
 }
 
 async function runNarrivaChecks({ phase = narrivaReviewPhase.value } = {}) {
+  if (finalizedNarriva.value) phase = 'output';
   if(actualServiceCode.value==='H0031' && assessmentKind.value!==(assessmentContext.value?.automaticKind || 'initial') && !assessmentKindConfirmed.value){generateError.value='Confirm the selected assessment type before submitting.';return;}
   if (!narrivaComplianceRequired.value || preparingNarrivaCheck.value || narrivaReviewBusy.value || signedNoteViewerId.value) return;
   if (phase !== 'pre_generation' && !outputObj.value) return;
@@ -3921,9 +3920,8 @@ function startSpeakVisualizer(stream) {
 const generating = ref(false);
 const generateError = ref('');
 const outputObj = ref(null);
-const copied = ref(false);
-const copiedSectionId = ref('');
-let copiedSectionTimer = null;
+const finalizedNarriva = computed(() => noteWriterMode.value === 'narriva'
+  && !!sessionClinicalSessionId.value && !!outputObj.value?.meta?.generationReceipt);
 const revisionInstruction = ref('');
 const newNoteMenuOpen = ref(false);
 const configExpanded = ref(true); // kept for draft load compatibility; wizard uses noteWizardStep
@@ -5084,7 +5082,7 @@ const displayPanels = computed(() => {
   return buildDisplaySections(sections, { preferTreatmentPlan, preferIntake: aidKind(selectedAid.value) === 'intake' });
 });
 
-watch(mergedSectionEntries, () => {
+watch(outputObj, () => {
   if (!isWorkspaceHydrating()) synchronizeIntakeFields();
 }, { flush: 'post' });
 
@@ -5467,44 +5465,6 @@ const generationLogicSummary = computed(() => {
   const modelPart = model ? ` • Model: ${model}` : '';
   return `${base}${codePart}${modelPart}`;
 });
-
-const copyText = async (text) => {
-  try {
-    const t = String(text || '');
-    if (!t) return;
-    copied.value = false;
-    if (navigator?.clipboard?.writeText) {
-      await navigator.clipboard.writeText(t);
-    } else {
-      const ta = document.createElement('textarea');
-      ta.value = t;
-      ta.style.position = 'fixed';
-      ta.style.opacity = '0';
-      document.body.appendChild(ta);
-      ta.focus();
-      ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
-    }
-    copied.value = true;
-    window.setTimeout(() => (copied.value = false), 1500);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-/** Copy section body only (not the S/O/I/P title). */
-const copySectionContent = async (panel) => {
-  const ok = await copyText(panelText(panel));
-  if (!ok) return;
-  copiedSectionId.value = panel?.id || '';
-  if (copiedSectionTimer) window.clearTimeout(copiedSectionTimer);
-  copiedSectionTimer = window.setTimeout(() => {
-    copiedSectionId.value = '';
-    copiedSectionTimer = null;
-  }, 1500);
-};
 
 let contextRequestSequence=0,payerRequestSequence=0,credentialContextCodes=null;
 const eligibilityScope = () => ({
@@ -6457,6 +6417,7 @@ const stopTranscription = () => {
 };
 
 const generateNote = async () => {
+  if (finalizedNarriva.value) return;
   const preflightReviewId = narrivaPreGenerationRequired.value ? narrivaReview.value?.id : null;
   if (preflightReviewId && !narrivaDraftApproved.value) { generateError.value = 'Review and approve each draft section before finalizing.'; return; }
   if (narrivaPreGenerationRequired.value && !narrivaPreflightReady.value) { generateError.value = 'Submit the current session narrative for compliance check, resolve the prompts here, then generate the note.'; return; }
@@ -6869,9 +6830,9 @@ function currentRecordSections() {
   if (noteWriterMode.value === 'manual' && narrivaConsentConfirmed.value) {
     sections['Consent for services'] = encounterConsentStatement({...sessionLocationModel.value, consentConfirmed:true});
   }
-  if (isIntakeOutput.value) sections = intakeSectionsForRecord(sections, {
+  if (isIntakeOutput.value || showStructuredChartPanel.value) sections = intakeSectionsForRecord(sections, {
     mentalStatusExam: skipMentalStatusExam.value ? null : chartMentalStatus.value, skipMse: skipMentalStatusExam.value, riskAssessment: chartRiskAssessment.value,
-    diagnoses: structuredChartDiagnoses.value, diagnosticJustification: chartDiagnosticJustification.value
+    ...(isIntakeOutput.value ? { diagnoses: structuredChartDiagnoses.value, diagnosticJustification: chartDiagnosticJustification.value } : {})
   });
   if (isTerminationAid.value) {
     const labels = { goals_achieved: 'Treatment goals achieved', client_choice: 'Client elected to end treatment', lost_contact: 'Lost contact / discontinued attendance', transfer: 'Transfer to another provider or level of care', client_exchange: 'Referred to the Client Exchange for a new provider', lack_of_progress: 'Lack of progress', other: 'Other' };
@@ -6881,19 +6842,18 @@ function currentRecordSections() {
   return sections;
 }
 
-const buildApprovedPayloadText = () => {
-  const sections=Object.fromEntries(Object.entries(currentRecordSections()).filter(([,value]) => String(value || '').trim() && value !== 'Write this section…'));
-  if (audioOnlyNote.value) sections['Reason for Audio Only'] = audioOnlyReason.value.trim();
-  if (!Object.keys(sections).length) return '';
-  return JSON.stringify(
-    {
-      sections,
-      meta: { ...(outputObj.value?.meta || {}), structuredChart: draftStructuredChart(), ...(isTerminationAid.value ? { termination: terminationMetadata() } : {}) }
-    },
-    null,
-    2
-  );
-};
+const chartRecordSections = computed(() => {
+  let sections = clinicalNoteRecordSections(currentRecordSections());
+  if (initialIntakeDocumentation.value) {
+    const statement = noteWriterMode.value === 'manual' && intakeDocumentationReviewed.value === true
+      ? intakeDocumentationStatement(!!clinicalCosignSupervisor.value?.supervisor_id) : '';
+    sections = intakeObjectiveFirst(sections, statement);
+  }
+  if (audioOnlyNote.value && audioOnlyReason.value.trim()) sections['Reason for Audio Only'] = audioOnlyReason.value.trim();
+  return sections;
+});
+const buildApprovedPayloadText = () => Object.keys(chartRecordSections.value).length
+  ? JSON.stringify({ sections: chartRecordSections.value }, null, 2) : '';
 
 const ensureClinicalSessionForApproval = async () => {
   if (needsActualProgressSession.value) throw new Error('Link the actual session before saving or signing this progress note. Your draft text is preserved.');
@@ -6986,7 +6946,6 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
     approvingNote.value = true;
     approvalError.value = '';
     approvalMessage.value = '';
-    await applyIntakeDiagnosesToChart();
     const checkedEncounter=narrivaPreGenerationRequired.value && !!outputObj.value?.meta?.generationReceipt;
     if (checkedEncounter) {
       if (narrivaReviewBusy.value || preparingNarrivaCheck.value) throw new Error('The current note review is still in progress.');
@@ -7047,6 +7006,7 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
         : `${String(noteType).replace(/_/g, ' ')} ${serviceCodeForMetadata ? `(${serviceCodeForMetadata}) ` : ''}${dos}`.trim());
     const structuredChart = {
       diagnoses: structuredChartDiagnoses.value,
+      intakeDiagnoses: isIntakeOutput.value ? intakeDiagnosisRecommendations.value : undefined,
       diagnosticJustification: chartDiagnosticJustification.value || null,
       mentalStatusExam: skipMentalStatusExam.value ? null : chartMentalStatus.value,
       riskAssessment: chartRiskAssessment.value,
@@ -7252,7 +7212,7 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
       || afterSign === 'close'
       || afterSign === 'same_client'
       ? afterSign
-      : (signAndOpenNextInQueue.value ? 'queue' : 'close');
+      : 'close';
 
     if (terminationTodo && openTerminationAfterSign) {
       await activateWorkQueueItem(terminationTodo);
@@ -7510,7 +7470,7 @@ const focusArchivedShelf = async () => {
 const resetClientClinicalContext = () => {
   sessionPresentingProblemOverride.value = null;
   narrivaChecksSubmitted.value=false;
-  narrivaUnderlyingServiceCode.value='';narrivaConsentConfirmed.value=false;narrivaModality.value='';audioOnlyReason.value='';audioOnlyReasonMissing.value=false;narrivaRiskIncluded.value=false;narrivaRiskRequired.value=false;narrivaRiskCompleted.value=false;narrivaAssessmentEvidence.value=[];showNarrivaAssessmentEvidence.value=false;invalidateNarrivaReview();
+  narrivaUnderlyingServiceCode.value='';narrivaConsentConfirmed.value=false;intakeDocumentationReviewed.value=null;narrivaModality.value='';audioOnlyReason.value='';audioOnlyReasonMissing.value=false;narrivaRiskIncluded.value=false;narrivaRiskRequired.value=false;narrivaRiskCompleted.value=false;narrivaAssessmentEvidence.value=[];showNarrivaAssessmentEvidence.value=false;invalidateNarrivaReview();
   chartPlanLoadSeq += 1;
   intakeLoadSeq += 1;
   lastRenewalPrompt = '';
@@ -9684,6 +9644,7 @@ const loadDraftIntoWorkspace = async (d, options = {}) => {
   narrivaUnderlyingServiceCode.value = savedMeta.underlyingServiceCode || savedMeta.narrivaContext?.underlyingServiceCode || '';
   sessionObjectiveRatings.value = Array.isArray(savedMeta.objectiveRatings) ? savedMeta.objectiveRatings : [];
   narrivaConsentConfirmed.value = savedMeta.narrivaContext?.consentConfirmed === true;
+  intakeDocumentationReviewed.value = savedMeta.narrivaContext?.intakeDocumentationReviewed ?? null;
   assessmentKind.value=savedMeta.narrivaContext?.assessmentKind || 'initial';assessmentKindConfirmed.value=savedMeta.narrivaContext?.assessmentKindConfirmed===true;diagnosesConfirmed.value=savedMeta.narrivaContext?.diagnosesConfirmed===true;
   sessionPresentingProblemOverride.value = typeof savedMeta.narrivaContext?.presentingProblemOverride === 'string' ? savedMeta.narrivaContext.presentingProblemOverride : null;
   narrivaModality.value = savedMeta.sessionContext?.modality || savedMeta.narrivaContext?.modality || '';
@@ -9923,22 +9884,6 @@ const archiveCurrentDraft = async () => {
   } finally {
     archivingDraft.value = false;
   }
-};
-
-const copyFullNote = async () => {
-  const sections = Object.fromEntries(
-    displayPanels.value.map((p) => [p.id, panelText(p)])
-  );
-  const text = formatFullNoteCopy({
-    sections,
-    meta: outputObj.value?.meta || {},
-    initials: initials.value,
-    dateOfService: dateOfService.value,
-    dateWritten: effectiveCreatedDate.value,
-    noteTypeLabel: noteTypeDisplayLabel.value,
-    includeInteractiveComplexity: includeInteractiveComplexity.value && showInteractiveComplexityOption.value
-  });
-  await copyText(text);
 };
 
 const toggleRecent = async () => {
@@ -10493,8 +10438,13 @@ watch([actualServiceCode, selectedProgramId, narrivaUnderlyingCode], syncMappedN
 watch(() => narrivaReview.value?.riskAssessmentRequired, required => { narrivaRiskRequired.value = required === true; });
 watch([effectiveClientId,actualServiceCode,dateOfService],()=>{if(!isWorkspaceHydrating())diagnosesConfirmed.value=false;void loadAssessmentContext();});
 watch(assessmentKind,()=>{if(!isWorkspaceHydrating())syncMappedNarrivaTool();});
-watch([assessmentKind,assessmentKindConfirmed,diagnosesConfirmed,audioOnlyReason, sessionObjectiveRatings, sessionPresentingProblemOverride, chartDiagnoses, chartDiagnosticJustification, inputText, revisionInstruction, actualServiceCode, dateOfService, sessionDurationMinutes, sessionStartTimeLocal, sessionEndTimeLocal, sessionParticipants, sessionParticipantsDetail, sessionLocationLabel, chartMentalStatus, chartRiskAssessment, sectionOverrides, narrivaUnderlyingServiceCode, narrivaConsentConfirmed, narrivaModality, narrivaRiskCompleted, narrivaRiskIncluded, narrivaClientLocationDescription, narrivaAssessmentEvidence], () => { if (!isWorkspaceHydrating()) { narrivaEditVersion++; invalidateNarrivaReview({ preserve: narrivaReview.value?.phase === 'pre_generation' }); } }, { deep:true });
-watch([assessmentKind,assessmentKindConfirmed,diagnosesConfirmed,audioOnlyReason,sessionObjectiveRatings,sessionPresentingProblemOverride,chartDiagnoses,narrivaUnderlyingServiceCode,narrivaConsentConfirmed,narrivaModality,narrivaRiskIncluded,narrivaRiskCompleted,narrivaClientLocationDescription,narrivaAssessmentEvidence], () => { if (!isWorkspaceHydrating()) scheduleAutosave(600); });
+watch([intakeDiagnosisRecommendations,intakeDocumentationReviewed,assessmentKind,assessmentKindConfirmed,diagnosesConfirmed,audioOnlyReason, sessionObjectiveRatings, sessionPresentingProblemOverride, chartDiagnoses, chartDiagnosticJustification, inputText, revisionInstruction, actualServiceCode, dateOfService, sessionDurationMinutes, sessionStartTimeLocal, sessionEndTimeLocal, sessionParticipants, sessionParticipantsDetail, sessionLocationLabel, chartMentalStatus, chartRiskAssessment, sectionOverrides, narrivaUnderlyingServiceCode, narrivaConsentConfirmed, narrivaModality, narrivaRiskCompleted, narrivaRiskIncluded, narrivaClientLocationDescription, narrivaAssessmentEvidence], () => { if (!isWorkspaceHydrating()) { narrivaEditVersion++; invalidateNarrivaReview({ preserve: narrivaReview.value?.phase === 'pre_generation' }); } }, { deep:true });
+watch([intakeDocumentationReviewed,assessmentKind,assessmentKindConfirmed,diagnosesConfirmed,audioOnlyReason,sessionObjectiveRatings,sessionPresentingProblemOverride,chartDiagnoses,narrivaUnderlyingServiceCode,narrivaConsentConfirmed,narrivaModality,narrivaRiskIncluded,narrivaRiskCompleted,narrivaClientLocationDescription,narrivaAssessmentEvidence], () => { if (!isWorkspaceHydrating()) scheduleAutosave(600); });
+watch(chartRecordSections, (next, previous) => {
+  if (!finalizedNarriva.value || isWorkspaceHydrating() || JSON.stringify(next) === JSON.stringify(previous)) return;
+  attestAccurateAndComplete.value = false;
+  attestAiContentReviewed.value = false;
+});
 watch([draftId,effectiveClientId,noteAidAgencyId,() => authStore.user?.id], () => { narrivaEditVersion++; pendingChartSignature=null; invalidateNarrivaReview(); });
 
 watch(sectionOverrides, () => { if (!isWorkspaceHydrating()) scheduleAutosave(600); }, {deep:true});

@@ -6,8 +6,10 @@ const props=defineProps({review:Object,busy:Boolean,preGeneration:Boolean});
 const emit=defineEmits(['edit','approval']);
 const editing=ref(false),edited=ref({});
 const approvedSections=ref([]);
+const bulkApproval=ref(false);
 const approvalToken=computed(()=>props.preGeneration && ['passed','bypassed'].includes(props.review?.status) ? props.review?.draftApprovalToken : null);
 function clearApproval(){
+  bulkApproval.value=false;
   approvedSections.value=[];
   emit('approval',null);
 }
@@ -17,7 +19,7 @@ watch([()=>props.review?.id,approvalToken],()=>{
 });
 watch(approvedSections,titles=>{
   const allApproved=Object.keys(sections.value).every(title=>titles.includes(title));
-  emit('approval',approvalToken.value && titles.length && allApproved ? {token:approvalToken.value,sections:[...titles]} : null);
+  emit('approval',approvalToken.value && titles.length && allApproved ? {token:approvalToken.value,sections:[...titles],method:bulkApproval.value?'all':'individual'} : null);
 });
 function startEdit(){clearApproval();edited.value={...sections.value};editing.value=true;nextTick(()=>document.querySelectorAll('.narriva-draft-editor').forEach(grow));}
 function grow(event){const el=event.target || event;el.style.height='auto';el.style.height=el.scrollHeight+'px';}
@@ -47,14 +49,18 @@ const instrumentLabel=value=>({phq9:'PHQ-9',phqa:'PHQ-A',gad7:'GAD-7',psc17:'PSC
         <p v-if="review?.manualEdited" class="narriva-edit-notice">Manually edited · retained for compliance review</p>
         <button v-if="!editing" type="button" :disabled="busy || review?.status === 'stale'" @click="startEdit">Edit draft</button>
         <p v-if="editing" class="narriva-edit-notice">Saving your changes rechecks this draft and records manual editing for compliance review.</p>
-        <p v-if="approvalToken && !editing" class="narriva-approval-hint">Review and approve each section to enable Finalize note.</p>
+        <div v-if="approvalToken && !editing" class="narriva-approval-hint">
+          <p>After reading the full draft, confirm all sections together or approve them individually.</p>
+          <button type="button" :disabled="busy || approvedSections.length === Object.keys(sections).length" @click="bulkApproval=true; approvedSections=Object.keys(sections)">Mark all as reviewed and approved</button>
+          <span role="status">{{ approvedSections.length }} of {{ Object.keys(sections).length }} sections approved</span>
+        </div>
         <section v-for="(text,title) in sections" :key="title">
           <h3>{{ title }}</h3>
           <textarea v-if="editing" class="narriva-draft-editor" v-model="edited[title]" :aria-label="title" @input="grow" />
           <template v-else>
             <p>{{ text }}</p>
             <label v-if="approvalToken" class="narriva-section-approval">
-              <input v-model="approvedSections" type="checkbox" :value="title" :disabled="busy" />
+              <input v-model="approvedSections" type="checkbox" :value="title" :disabled="busy" @change="bulkApproval=false" />
               I reviewed and approve {{ title }}
             </label>
           </template>

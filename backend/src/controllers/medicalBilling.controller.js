@@ -1964,6 +1964,42 @@ export const reviewClinicalNote = async (req,res,next) => {
   }catch(error){next(error);}
 };
 
+async function saveSignedIntakeDiagnoses({note, meta, session, actorUserId, db}) {
+  const code = String(session?.service_code || meta.serviceCode || '').toUpperCase();
+  const chart = meta.structuredChart;
+  const reviewed = chart?.intakeDiagnoses;
+  if (String(note.note_type).toUpperCase() !== 'INTAKE' || !['90791','H0031'].includes(code) || !Array.isArray(reviewed) || !reviewed.length) return [];
+  // A collateral / psychosocial assessment can carry a chart diagnosis, but cannot establish a disorder.
+  const valid = reviewed.filter(row => row && row.icd10_code);
+  const primary = valid.find(row => Number(row.is_primary) === 1) || valid[0];
+  const saved = [];
+  for (const row of valid) {
+    const icd10Code = String(row.icd10_code).trim().toUpperCase();
+    if (code === 'H0031' && !/^[ZR]/.test(icd10Code)) continue;
+    const id = await upsertClinicalDiagnosis({
+      agencyId: note.agency_id, clientId: note.client_id, createdByUserId: actorUserId,
+      clinicalSessionId: note.clinical_session_id, clinicalNoteId: note.id, icd10Code,
+      description: row.description, justification: row.justification, setPrimary: row === primary
+    }, { transaction: db });
+    saved.push({id, icd10Code, primary: row === primary});
+  }
+  const primaryId = saved.find(row => row.primary)?.id;
+  if (primaryId) {
+    await db.execute('UPDATE clinical_notes SET primary_diagnosis_id = ? WHERE id = ? AND agency_id = ? AND provider_signed_at IS NULL',
+      [primaryId,note.id,note.agency_id]);
+    meta.primaryDiagnosisId = primaryId;
+  }
+  // The diagnosis rows now have chart IDs. The authored text and justification remain the reviewed snapshot.
+  const idsByCode = new Map(saved.map(row => [row.icd10Code,row.id]));
+  for (const field of ['diagnoses','intakeDiagnoses']) {
+    if (Array.isArray(chart[field])) chart[field] = chart[field].map(row => {
+      const id = idsByCode.get(String(row?.icd10_code || row?.code || '').toUpperCase());
+      return id ? {...row,id} : row;
+    });
+  }
+  return saved;
+}
+
 async function reviewSubmittedNote(req,note){
  try{await (await import('../services/narrivaSubmissionReview.service.js')).reviewNarrivaSubmission(req,note);}
  catch{console.warn('[signClinicalNote] Submission review unavailable; signed note preserved.');}
@@ -2124,6 +2160,7 @@ export const signClinicalNote = async (req, res, next) => {
       accurateAndComplete: true,
       medicallyNecessary: !contentReviewOnly,
       contentReviewConfirmed: contentReviewOnly ? true : meta.attestation?.contentReviewConfirmed,
+      finalCopyReviewed: true,
       attestedAt: signedAtIso,
       attestedByUserId: req.user.id,
       signerLabel,
@@ -2133,6 +2170,7 @@ export const signClinicalNote = async (req, res, next) => {
     const documentationPolicy = await resolveNoteDocumentationPolicy(note,pool,signingDb);
     const nonBillable = isNonBillableDocument(note);
     if (!nonBillable) await assertClientDiagnosisPolicy({ progressSignature:isProgressClinicalNote(note,meta), agencyId: note.agency_id, clientId: note.client_id, providerUserId: note.provider_signed_by_user_id || note.created_by_user_id || lockedSession?.provider_user_id, serviceCode: lockedSession?.service_code || meta.serviceCode, dateOfService: meta.dateOfService || parseObject(lockedSession?.metadata_json).serviceDate, note });
+    const savedIntakeDiagnoses = await saveSignedIntakeDiagnoses({note,meta,session:lockedSession,actorUserId:req.user.id,db:signingDb});
     const mandatoryTypes = nonBillable ? await requiredDocumentReviewTypes(note.agency_id, note.client_id, note.created_at) : [];
     const wantsReview = hasClinicalAmendments(note) || !nonBillable || mandatoryTypes.includes(normalizeNoteType(note.note_type || meta.noteType)) || documentationPolicy.nonBillableReview === 'all'
       || (documentationPolicy.nonBillableReview === 'selected' && documentationPolicy.noteTypes.includes(normalizeNoteType(note.note_type || meta.noteType)));
@@ -2157,6 +2195,12 @@ export const signClinicalNote = async (req, res, next) => {
     const originalRevision=await ensureOriginalRevision({db:signingDb,note:persisted,session:lockedSession || {},actorUserId:req.user.id,signatureEvent:true,responsibleSupervisorUserId:supervisor?.supervisor_id || null,requiresSupervisorCosign:!!supervisor});
     await signingDb.commit();signingDb.release();signingDb=null;
     queueCommittedClinicalSourceChange({ agencyId: note.agency_id, clientId: note.client_id, sourceKind: 'note', sourceId: noteId });
+    if (savedIntakeDiagnoses.length) {
+      try {
+        await logNoteAidChartEvent(req,{clientId:note.client_id,agencyId:note.agency_id,action:'clinical_intake_diagnoses_signed',
+          metadata:{noteId,revisionId:originalRevision.id,diagnosisIds:savedIntakeDiagnoses.map(row=>row.id)}});
+      } catch { console.warn('[signClinicalNote] Intake diagnosis audit delivery needs review'); }
+    }
     if (note.clinical_session_id && !nonBillable) {
       try {
         const { attachSignedSessionToClaim } = await import('../services/sessionClaimWindow.service.js');
