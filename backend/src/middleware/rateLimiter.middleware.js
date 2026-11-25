@@ -44,6 +44,18 @@ export const apiLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// Note editing opens several reads and autosaves per encounter. Keep its
+// budget independent of unrelated activity and other staff on the same IP.
+// Mount only after staff or scoped mobile authentication.
+export const clinicalWorkspaceLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 300,
+  message: { error: { message: 'Too many requests from this note workspace. Please wait a moment and retry.' } },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: req => `clinical-workspace:${req.user?.id || req.ip}`
+});
+
 export const noteAidLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
   max: isDevelopment ? 60 : 12, // higher in dev; conservative in prod

@@ -19,7 +19,7 @@ function serviceSelectionPolicy(policy, agencyId) {
  return policy;
 }
 export function filterCodesForClientPayer({agencyId,codes,rules,policy,secondaryPolicy=null,credentialTier,dateOfService}){
- if((!policy || !Object.values(policy).some(value=>value && value!==false)) && !secondaryPolicy)return {serviceCodes:codes,program:null,message:'No insurance policy is recorded. Confirm the billing basis before submission.'};
+ if((!policy || !Object.values(policy).some(value=>value && value!==false)) && !secondaryPolicy)return {serviceCodes:codes,program:null,billingBasisUnrecorded:true,message:'No insurance policy is recorded. Confirm the billing basis before submission.'};
  const allowed=[],failures=[],coordinationCodes=[],pendingClassificationCodes=[];
  const insurance={primary:serviceSelectionPolicy(policy,agencyId) || {},secondary:serviceSelectionPolicy(secondaryPolicy,agencyId)};
  for(const item of codes){const code=typeof item==='string'?item:String(item.code || item.service_code || '');const result=evaluateClientBillingPayerRules({rules,insurance,credentialTier,serviceCodes:[code],dateOfService,forSelection:true});if(result.ready){allowed.push(item);if(result.coordinationRequired)coordinationCodes.push(code);}else {failures.push(...result.blockers);if(result.classificationOnly)pendingClassificationCodes.push(code);}}

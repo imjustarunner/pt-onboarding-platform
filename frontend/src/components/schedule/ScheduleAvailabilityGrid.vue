@@ -2484,6 +2484,7 @@
             :co-providers-loading="bookingProvidersLoading"
             :service-code-options="bookingServiceCodeOptions"
             :clinical-session-id="editorClinicalSessionId"
+            :can-prepare-clinical-session="editorCanPrepareClinicalSession && !editorClinicalContextLoading"
             :clinical-note-id="editorClinicalNoteId"
             :claim-id="editorClaimId"
             :package-entitlements="editorIsLearning ? [] : editorPackageEntitlements"
@@ -15039,6 +15040,10 @@ const makeupAppointment=ref(null);
 watch(showRequestModal,()=>{makeupAppointment.value=null;});
 const editorStatus = ref('scheduled');
 const editorStatusBaseline = ref('scheduled');
+const editorCanPrepareClinicalSession = computed(() => editorIsClinical.value
+  && Number(editorAppointmentId.value) > 0 && Number(editorInfoClientId.value) > 0
+  && ['scheduled', 'confirmed', 'client_confirmed', 'checked_in', 'completed'].includes(editorStatusBaseline.value));
+
 const editorOutcomeReadOnly=computed(()=>Number(editorAppointmentId.value||0)>0&&['completed','ended','no_show','no_show_pending','canceled','cancelled','canceled_by_client','canceled_by_guardian','canceled_by_provider','canceled_by_organization','late_canceled','rescheduled','voided'].includes(String(editorStatus.value).toLowerCase()));
 const editorPublicStatusOptions=computed(()=>APPOINTMENT_EDITOR_STATUS_OPTIONS.filter(option=>!['draft','booked','assigned','temporary','no_show','no_show_pending'].includes(String(option.value||option.id||option).toLowerCase())));
 const editorAppointmentBaseline=ref(null);

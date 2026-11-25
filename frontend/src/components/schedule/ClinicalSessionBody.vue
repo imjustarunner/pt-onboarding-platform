@@ -172,7 +172,7 @@
     </div>
 
     <div v-if="showClinicalTools && !hideClinicalTools" class="csb-tools">
-      <button type="button" class="btn btn-secondary btn-sm" :disabled="!clinicalNoteId && !clinicalSessionId" @click="emit('open-note')">
+      <button type="button" class="btn btn-secondary btn-sm" :disabled="disabled || (!sessionBooked && !canPrepareClinicalSession)" @click="emit('open-note')">
         Open clinical note
       </button>
       <button v-if="showBillingTools" type="button" class="btn btn-secondary btn-sm" :disabled="!claimId && !clinicalSessionId" @click="emit('open-claim')">
@@ -241,6 +241,7 @@ const props = defineProps({
   addonServiceCodes: { type: Array, default: () => [] },
   serviceCodeOptions: { type: Array, default: () => [] },
   clinicalSessionId: { type: [Number, String], default: 0 },
+  canPrepareClinicalSession: Boolean,
   clinicalNoteId: { type: [Number, String], default: 0 },
   claimId: { type: [Number, String], default: 0 },
   showBillingTools: { type: Boolean, default: false },

@@ -5,7 +5,7 @@ import sessionSupportingMaterials from './sessionSupportingMaterials.routes.js';
 import express from 'express';
 import {getClinicalMseHistory} from '../controllers/clinicalMseHistory.controller.js';
 import {excludeSupportClinicalContent} from '../middleware/supportContentAccess.middleware.js';
-import {apiLimiter} from '../middleware/rateLimiter.middleware.js';
+import {clinicalWorkspaceLimiter,noteAidLimiter} from '../middleware/rateLimiter.middleware.js';
 import {requireClinicalChart,requireClinicalNoteSigning} from '../middleware/medicalBilling.middleware.js';
 import {requireMobileClinicalSession,scopedMobileClinicalHandler as scoped,getMobileClinicalContext,getMobileClientSummary,resolveMobileClientContact,sendMobileClientContact,getMobileNotesToSign,bootstrapMobileClinicalSession} from '../controllers/mobileClinical.controller.js';
 import {createClinicalNoteDraft,patchClinicalNoteDraft,generateClinicalNote} from '../controllers/clinicalNoteGenerator.controller.js';
@@ -21,7 +21,7 @@ import {searchDiagnosisCatalog} from '../controllers/clinicalDiagnosisSearch.con
 const router=express.Router();
 // Parent mounts requireQuickViewSession. Full bearer authentication is deliberately
 // absent: this router accepts only the verified primary-device scoped session.
-router.use(requireMobileClinicalSession,apiLimiter);
+router.use(requireMobileClinicalSession,clinicalWorkspaceLimiter);
 router.get('/context',requireClinicalChart,getMobileClinicalContext);
 router.post('/diagnosis-search',requireClinicalChart,scoped(searchDiagnosisCatalog));
 const clinicalClientAccess = [excludeSupportClinicalContent,requireClinicalChart];
@@ -47,13 +47,13 @@ router.get('/assessments/:kind/:evidenceId/view',requireClinicalChart,assessment
 router.get('/service-reference/:serviceCode',requireClinicalChart,scoped(getServiceReference));
 router.get('/narriva/preferences',scoped(narriva.getNarrivaPreferences));
 router.patch('/narriva/preferences',scoped(narriva.patchNarrivaPreferences));
-router.post('/narriva/reviews',requireClinicalChart,scoped(narriva.postNarrivaReview));
+router.post('/narriva/reviews',requireClinicalChart,noteAidLimiter,scoped(narriva.postNarrivaReview));
 router.get('/narriva/reviews/:reviewId',requireClinicalChart,scoped(narriva.getNarrivaReview));
 router.patch('/narriva/reviews/:reviewId/findings',requireClinicalChart,scoped(narriva.patchNarrivaFinding));
 router.get('/narriva/notes/:noteId/status',requireClinicalChart,scoped(narriva.getNarrivaNoteStatus,{noteParam:'noteId'}));
 router.post('/drafts',scoped(createClinicalNoteDraft,{requireClient:true}));
 router.patch('/drafts/:draftId',scoped(patchClinicalNoteDraft,{draftParam:'draftId',requireClient:true}));
-router.post('/generate',scoped(generateClinicalNote,{requireClient:true}));
+router.post('/generate',noteAidLimiter,scoped(generateClinicalNote,{requireClient:true}));
 router.post('/sessions/bootstrap',requireClinicalChart,scoped(bootstrapMobileClinicalSession,{requireClient:true}));
 router.post('/sessions/:sessionId/diagnoses',excludeSupportClinicalContent,requireClinicalChart,scoped((req,res,next)=>{
   req.body.clinicalSessionId=req.mobileClinical.session.id;

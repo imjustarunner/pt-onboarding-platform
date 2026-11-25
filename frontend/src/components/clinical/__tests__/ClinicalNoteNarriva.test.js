@@ -18,11 +18,13 @@ describe('Narriva writer choices and evidence', () => {
     expect(w.findAll('.narriva-modes__options button').map(button => button.find('strong').text())).toEqual(['Manual writer', 'Narriva', 'Smart Notes']);
     await w.findAll('.narriva-modes__options button')[1].trigger('click');
     expect(w.emitted('update:modelValue')[0]).toEqual(['narriva']);
-    expect(w.emitted('save-default')[0]).toEqual(['narriva']);
+    expect(w.emitted('save-default')).toBeUndefined();
     expect(w.find('.narriva-modes__options').exists()).toBe(false);
     await w.setProps({ modelValue: 'narriva', allowManual: false });
     await w.get('.narriva-modes__summary button').trigger('click');
     expect(w.findAll('.narriva-modes__options button')[0].element.disabled).toBe(true);
+    await w.get('.narriva-modes__footer button').trigger('click');
+    expect(w.emitted('save-default')[0]).toEqual(['narriva']);
     w.unmount();
   });
   it('shows all five checks in the corrected order and grants no local verification', () => {
@@ -86,6 +88,25 @@ describe('Narriva review request lifecycle', () => {
     await vi.advanceTimersByTimeAsync(1200);await pending;
     expect(client.post).toHaveBeenCalledWith('/narriva/reviews',{agencyId:7,draftId:41},{skipGlobalLoading:true});
     expect(state.review.value.quickSignEligible).toBe(true);state.invalidate();expect(state.review.value).toBeNull();scope.stop();
+  });
+  it('waits for the server after a throttled review read and resumes the existing review', async () => {
+    vi.useFakeTimers();
+    const client = {
+      post: vi.fn().mockResolvedValue({ data: { review: { id: 24, status: 'running' } } }),
+      get: vi.fn().mockRejectedValueOnce({ response: { status: 429, headers: { 'retry-after': '3' } } })
+        .mockResolvedValue({ data: { review: passed() } })
+    };
+    const scope = effectScope();
+    const state = scope.run(() => useNarrivaReview({ agencyId: ref(7), apiClient: client, pollMs: 20 }));
+    const pending = state.runReview({ draftId: 41 });
+    await vi.advanceTimersByTimeAsync(3019);
+    expect(client.get).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await pending;
+    expect(client.post).toHaveBeenCalledTimes(1);
+    expect(client.get).toHaveBeenLastCalledWith('/narriva/reviews/24', expect.anything());
+    expect(state.review.value.status).toBe('passed');
+    scope.stop();
   });
   it('ignores a late response after switching note and does not expose provider errors', async () => {
     let respond;const client={post:vi.fn(()=>new Promise(resolve=>{respond=resolve;})),get:vi.fn(),patch:vi.fn()};

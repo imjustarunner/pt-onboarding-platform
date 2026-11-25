@@ -10,7 +10,7 @@ import multer from 'multer';
 import { body, param, query } from 'express-validator';
 
 import { authenticate, requireActiveStatus } from '../middleware/auth.middleware.js';
-import { apiLimiter } from '../middleware/rateLimiter.middleware.js';
+import { apiLimiter, clinicalWorkspaceLimiter, noteAidLimiter } from '../middleware/rateLimiter.middleware.js';
 import {
   getTherapyNotesQuickCopyCatalog, listTherapyNotesQuickCopyNotes, getTherapyNotesQuickCopyNote,
   updateTherapyNotesQuickCopyNote, transcribeTherapyNotesQuickCopy, generateTherapyNotesQuickCopy, getTherapyNotesQuickCopyServiceReference
@@ -77,58 +77,58 @@ router.post('/quick-copy/transcribe', apiLimiter, transcribeUpload.single('audio
 
 // Operational contact notes stay available above this clinical-content boundary.
 router.use(excludeSupportClinicalContent);
-router.get('/clients/:clientId/confidential-entries', apiLimiter, excludeFamilyClinicalWorkspace, requireClinicalChart, confidential.listEntries);
-router.get('/clients/:clientId/confidential-entries/:entryId', apiLimiter, excludeFamilyClinicalWorkspace, requireClinicalChart, confidential.readEntry);
-router.post('/clients/:clientId/confidential-entries', apiLimiter, excludeFamilyClinicalWorkspace, requireClinicalChart, confidential.createEntry);
-router.get('/clients/:clientId/enrollment-sections', apiLimiter, excludeFamilyClinicalWorkspace, requireClinicalChart, confidential.enrollmentSections);
+router.get('/clients/:clientId/confidential-entries', clinicalWorkspaceLimiter, excludeFamilyClinicalWorkspace, requireClinicalChart, confidential.listEntries);
+router.get('/clients/:clientId/confidential-entries/:entryId', clinicalWorkspaceLimiter, excludeFamilyClinicalWorkspace, requireClinicalChart, confidential.readEntry);
+router.post('/clients/:clientId/confidential-entries', clinicalWorkspaceLimiter, excludeFamilyClinicalWorkspace, requireClinicalChart, confidential.createEntry);
+router.get('/clients/:clientId/enrollment-sections', clinicalWorkspaceLimiter, excludeFamilyClinicalWorkspace, requireClinicalChart, confidential.enrollmentSections);
 // POST keeps the clinical search text out of URL/access-log query strings.
-router.post('/diagnosis-search',apiLimiter,searchDiagnosisCatalog);
-router.get('/appointment-alerts',apiLimiter,getClinicalAppointmentAlerts);
-router.post('/appointment-alerts/:appointmentId/acknowledge',apiLimiter,acknowledgeClinicalAppointmentAlert);
-router.get('/context', apiLimiter, [query('agencyId').isInt({ min: 1 })], getClinicalNotesContext);
-router.get('/drafts/:draftId/pdf', apiLimiter, downloadClinicalDraftPdf);
-router.get('/drafts/:draftId/appointment',apiLimiter,repairClinicalDraftAppointment);
-router.post('/drafts/:draftId/appointment',apiLimiter,repairClinicalDraftAppointment);
-router.get('/termination-outcomes', apiLimiter, getTerminationOutcomeStats);
-router.post('/interactive-complexity', apiLimiter, generateInteractiveComplexitySentence);
+router.post('/diagnosis-search',clinicalWorkspaceLimiter,searchDiagnosisCatalog);
+router.get('/appointment-alerts',clinicalWorkspaceLimiter,getClinicalAppointmentAlerts);
+router.post('/appointment-alerts/:appointmentId/acknowledge',clinicalWorkspaceLimiter,acknowledgeClinicalAppointmentAlert);
+router.get('/context', clinicalWorkspaceLimiter, [query('agencyId').isInt({ min: 1 })], getClinicalNotesContext);
+router.get('/drafts/:draftId/pdf', clinicalWorkspaceLimiter, downloadClinicalDraftPdf);
+router.get('/drafts/:draftId/appointment',clinicalWorkspaceLimiter,repairClinicalDraftAppointment);
+router.post('/drafts/:draftId/appointment',clinicalWorkspaceLimiter,repairClinicalDraftAppointment);
+router.get('/termination-outcomes', clinicalWorkspaceLimiter, getTerminationOutcomeStats);
+router.post('/interactive-complexity', noteAidLimiter, generateInteractiveComplexitySentence);
 
-router.get('/work-queue', apiLimiter, listNoteAidWorkQueue);
+router.get('/work-queue', clinicalWorkspaceLimiter, listNoteAidWorkQueue);
 
 router.put(
   '/work-queue',
-  apiLimiter,
+  clinicalWorkspaceLimiter,
   [body('items').isArray({ max: 500 })],
   syncNoteAidWorkQueue
 );
 
 router.post(
   '/work-queue',
-  apiLimiter,
+  clinicalWorkspaceLimiter,
   [body('items').isArray({ min: 1, max: 200 })],
   appendNoteAidWorkQueue
 );
 
 router.patch(
   '/work-queue/:id',
-  apiLimiter,
+  clinicalWorkspaceLimiter,
   [param('id').isInt({ min: 1 })],
   patchNoteAidWorkQueueItem
 );
 
 router.delete(
   '/work-queue/:id',
-  apiLimiter,
+  clinicalWorkspaceLimiter,
   [param('id').isInt({ min: 1 })],
   deleteNoteAidWorkQueueItem
 );
 
-router.delete('/work-queue', apiLimiter, clearNoteAidWorkQueue);
+router.delete('/work-queue', clinicalWorkspaceLimiter, clearNoteAidWorkQueue);
 
-router.get('/programs', apiLimiter, [query('agencyId').isInt({ min: 1 })], listClinicalNotePrograms);
+router.get('/programs', clinicalWorkspaceLimiter, [query('agencyId').isInt({ min: 1 })], listClinicalNotePrograms);
 
 router.post(
   '/consent-task',
-  apiLimiter,
+  clinicalWorkspaceLimiter,
   [
     body('agencyId').isInt({ min: 1 }),
     body('templateId').isInt({ min: 1 }),
@@ -140,7 +140,7 @@ router.post(
 
 router.get(
   '/recent',
-  apiLimiter,
+  clinicalWorkspaceLimiter,
   [
     query('agencyId').isInt({ min: 1 }),
     query('days').optional().isInt({ min: 1, max: 2555 }),
@@ -154,7 +154,7 @@ router.get(
 
 router.post(
   '/drafts',
-  apiLimiter,
+  clinicalWorkspaceLimiter,
   [
     body('agencyId').isInt({ min: 1 }),
     // Frontend autosave sends nulls for empty fields; treat null as "not provided".
@@ -170,7 +170,7 @@ router.post(
 
 router.patch(
   '/drafts/:draftId',
-  apiLimiter,
+  clinicalWorkspaceLimiter,
   [
     param('draftId').isInt({ min: 1 }),
     body('agencyId').isInt({ min: 1 }),
@@ -186,7 +186,7 @@ router.patch(
 
 router.post(
   '/drafts/delete',
-  apiLimiter,
+  clinicalWorkspaceLimiter,
   [
     body('agencyId').isInt({ min: 1 }),
     body('draftIds').isArray({ min: 1, max: 200 }),
@@ -197,7 +197,7 @@ router.post(
 
 router.post(
   '/audit',
-  apiLimiter,
+  clinicalWorkspaceLimiter,
   [
     body('action').isString().isLength({ min: 1, max: 64 }),
     body('agencyId').optional({ nullable: true }).isInt({ min: 1 }),
@@ -208,7 +208,7 @@ router.post(
 
 router.post(
   '/drafts/:draftId/archive',
-  apiLimiter,
+  clinicalWorkspaceLimiter,
   [
     param('draftId').isInt({ min: 1 }),
     body('agencyId').isInt({ min: 1 }),
@@ -219,7 +219,7 @@ router.post(
 
 router.post(
   '/transcribe',
-  apiLimiter,
+  noteAidLimiter,
   transcribeUpload.single('audio'),
   [body('agencyId').isInt({ min: 1 }), body('languageCode').optional().isString().isLength({ min: 2, max: 10 })],
   transcribeClinicalNoteAudio
@@ -227,7 +227,7 @@ router.post(
 
 router.post(
   '/generate',
-  apiLimiter,
+  noteAidLimiter,
   upload.single('audio'),
   [
     body('agencyId').isInt({ min: 1 }),

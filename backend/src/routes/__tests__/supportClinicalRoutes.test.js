@@ -3,7 +3,7 @@ vi.mock('../../middleware/auth.middleware.js',()=>({authenticate:(req,res,next)=
 vi.mock('../../controllers/unassignedDocuments.controller.js',()=>Object.fromEntries([
   'listUnassignedDocuments','assignToClient','getGuardianClients','downloadDocument'
 ].map(name=>[name,(req,res)=>res.json({uploadedDocument:true})])));
-vi.mock('../../middleware/rateLimiter.middleware.js',()=>({apiLimiter:(req,res,next)=>next()}));
+vi.mock('../../middleware/rateLimiter.middleware.js',()=>({apiLimiter:(req,res,next)=>next(),clinicalWorkspaceLimiter:(req,res,next)=>next(),noteAidLimiter:(req,res,next)=>next()}));
 vi.mock('../../controllers/contactDocumentation.controller.js',()=>({
   list:(req,res)=>res.json({contactNotes:true}),detail:(req,res)=>res.json({contactNotes:true}),save:(req,res)=>res.json({saved:true})
 }));

@@ -5,8 +5,8 @@
       <button type="submit" :disabled="disabled || !consent">Confirm consent</button>
     </template>
     <template v-else-if="kind === 'participants'">
-      <label>Who attended?<select v-model="participants"><option>Client Only</option><option>Client and Others</option><option>Others (client not present)</option></select></label>
-      <label v-if="participants !== 'Client Only'">Other participants’ roles<input v-model="participantsDetail" placeholder="Mother, guardian, partner, school staff…" maxlength="500" /></label>
+      <label>Who attended?<select v-model="participants" :disabled="disabled"><option>Client Only</option><option>Client and Others</option><option>Others (client not present)</option></select></label>
+      <label v-if="participants !== 'Client Only'">Other participants’ roles<input v-model="participantsDetail" placeholder="Parent, guardian, partner, school staff…" maxlength="500" :disabled="disabled" /></label>
       <label v-else>Clarification<textarea v-model="answer" rows="2" placeholder="For example: Mother was discussed but did not attend." /></label>
       <button type="submit" :disabled="disabled || participants !== 'Client Only' && !participantsDetail.trim()">Confirm participants</button>
     </template>
@@ -71,14 +71,26 @@ const diagnosisAllowed = value => canSelectSessionDiagnosis(diagnosisMode.value,
 const serviceOptions = computed(() => props.serviceChoices.map(item => typeof item === 'string' ? { code: item, label: item } : { code: item.code || item.value, label: item.label || item.description || item.code || item.value }).filter(item => item.code));
 watch(() => props.context, value => {
   consent.value = value.consentConfirmed === true;
-  participants.value = value.participants || 'Client Only'; participantsDetail.value = value.participantsDetail || '';
   date.value = value.dateOfService || ''; start.value = value.startTime || ''; end.value = value.endTime || ''; duration.value = value.durationMinutes;
   location.value = { ...(value.location || {}), clientLocationDescription: value.clientLocationDescription || value.location?.clientLocationDescription || '' };
   serviceCode.value = value.serviceCode || '';
   presentingProblem.value = value.presentingProblem || '';
   selectedDiagnosis.value = null; diagnosisQuery.value = ''; diagnosisJustification.value = '';
 }, { immediate: true });
-const kind = computed(() => props.finding.id?.endsWith(':consent') ? 'consent' : props.finding.action === 'participants' ? 'participants' : props.finding.action === 'encounter' ? 'encounter' : props.checkId === 'risk_safety' ? 'risk' : props.finding.action === 'clinical_context' ? /:presenting$/.test(props.finding.id || '') ? 'presenting' : 'diagnosis' : props.finding.action === 'service_code' || props.finding.action === 'clinical_service' ? 'service' : props.finding.action === 'interactive_complexity' ? 'complexity' : 'narrative');
+watch([
+  () => props.context.agencyId,
+  () => props.context.clientId,
+  () => props.context.clinicalSessionId,
+  () => props.context.officeEventId,
+  () => props.context.participants,
+  () => props.context.participantsDetail
+], ([, , , , mode, detail]) => {
+  participants.value = mode || 'Client Only';
+  participantsDetail.value = detail || '';
+  answer.value = '';
+  saved.value = false;
+}, { immediate: true });
+const kind = computed(() => props.finding.id?.endsWith(':consent') ? 'consent' : ['participants', 'review_participants'].includes(props.finding.action) ? 'participants' : props.finding.action === 'encounter' ? 'encounter' : props.checkId === 'risk_safety' ? 'risk' : props.finding.action === 'clinical_context' ? /:presenting$/.test(props.finding.id || '') ? 'presenting' : 'diagnosis' : props.finding.action === 'service_code' || props.finding.action === 'clinical_service' ? 'service' : props.finding.action === 'interactive_complexity' ? 'complexity' : 'narrative');
 const answerLabel = computed(() => /:interventions$/i.test(props.finding.id) ? 'Describe the assessment, planning, coordination or intervention activities performed' : /engagement|response/i.test(props.finding.id) ? 'Describe the client’s engagement and response to the interventions' : /necessity|presenting/i.test(props.finding.id) ? 'Describe recent symptoms, functional needs, and the reason for this service' : /intervention/i.test(props.finding.id) ? 'Describe the intervention and how it was used' : 'Add the missing session details');
 const answerHint = computed(() => 'Use only what was observed, reported, or performed in this session. Use roles instead of names.');
 function updateDiagnosisQuery(value) {

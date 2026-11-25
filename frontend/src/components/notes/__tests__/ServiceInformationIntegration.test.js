@@ -27,3 +27,16 @@ describe('handbook service details at the point of selection',()=>{
     expect(w.findComponent(ServiceInformation).props()).toMatchObject({agencyId:7,serviceCode:'H2011',serviceInfo:reference});expect(state.svcForm.unitMinutes).toBe(15);w.unmount();
   });
 });
+
+it('allows a booked visit to open its note while the encounter still needs to be prepared', async () => {
+  const wrapper = mount(ClinicalSessionBody, { props: { practiceCategory: 'mental_health' } });
+  const openNote = () => wrapper.findAll('button').find(button => button.text() === 'Open clinical note');
+  expect(openNote().element.disabled).toBe(true);
+  await wrapper.setProps({ canPrepareClinicalSession: true });
+  expect(openNote().element.disabled).toBe(false);
+  await openNote().trigger('click');
+  expect(wrapper.emitted('open-note')).toHaveLength(1);
+  await wrapper.setProps({ disabled: true });
+  expect(openNote().element.disabled).toBe(true);
+  wrapper.unmount();
+});
