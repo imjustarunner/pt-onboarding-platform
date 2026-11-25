@@ -1,4 +1,5 @@
 export default {root:new URL('.',import.meta.url).pathname,resolve:{alias:{stream:'node:stream',vitest:new URL('../frontend/node_modules/vitest/dist/index.js',import.meta.url).pathname}},test:{environment:'node',include:[
+ 'src/models/__tests__/PayrollRunDelta.test.js',
  'src/controllers/__tests__/payrollPtoPartialApprovalAccess.test.js',
  'src/services/__tests__/payrollLeavePartialApproval.test.js',
  'src/services/__tests__/supplementalLeave.test.js',
