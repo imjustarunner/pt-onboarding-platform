@@ -60,8 +60,26 @@ export async function buildPayrollCorrectionReview({destinationPeriodId,agencyId
   if(!beforeRaw || (compareRowId&&!afterRaw)) fail('The source session was not found in this agency and payroll.',404);
   const before=decode(beforeRaw),after=afterRaw?decode(afterRaw):null;
   if(!before.user_id || !first(before.patient_first_name)) fail('The original session identity needs a manual review.');
-  if(after && (identity(before)!==identity(after) || Number(after.slot_number)<=Number(before.slot_number))) fail('The original and replacement rows do not identify the same session in successive reports.',400);
-  if(after && code(before.service_code)===code(after.service_code) && Number(before.unit_count)===Number(after.unit_count)) fail('There is no service-code or quantity change to review.',400);
+  const identityChanged=!!after && identity(before)!==identity(after);
+  if(after && Number(after.slot_number)<=Number(before.slot_number)) fail('The replacement must come from a later report.',400);
+  if(identityChanged) {
+    // A unique name-only difference can be acknowledged by payroll staff, but
+    // must never authorize extra pay or a deduction for a different client.
+    if(Number(before.user_id)!==Number(after.user_id) || day(before.service_date)!==day(after.service_date)
+      || code(before.service_code)!==code(after.service_code) || Number(before.unit_count)!==Number(after.unit_count)
+      || !first(after.patient_first_name) || !payable(before) || !payable(after)) {
+      fail('The original and replacement rows do not identify the same session in successive reports.',400);
+    }
+    const [relatedRaw]=await db.execute('SELECT * FROM payroll_import_rows WHERE agency_id=? AND payroll_import_id IN (?,?) AND user_id=? AND service_date=?',
+      [Number(agencyId),Number(before.payroll_import_id),Number(after.payroll_import_id),Number(before.user_id),day(before.service_date)]);
+    const related=relatedRaw.map(decode),previous=related.filter(r=>Number(r.payroll_import_id)===Number(before.payroll_import_id)),current=related.filter(r=>Number(r.payroll_import_id)===Number(after.payroll_import_id));
+    const unmatched=(rows,other)=>rows.filter(r=>code(r.service_code)===code(before.service_code) && !other.some(o=>same(r,o)));
+    const removed=unmatched(previous,current),added=unmatched(current,previous);
+    if(removed.length!==1 || added.length!==1 || Number(removed[0].id)!==Number(before.id) || Number(added[0].id)!==Number(after.id)) {
+      fail('More than one source session could match this name change. Reconcile the source reports before confirming it.',400);
+    }
+  }
+  if(after && !identityChanged && code(before.service_code)===code(after.service_code) && Number(before.unit_count)===Number(after.unit_count)) fail('There is no service-code or quantity change to review.',400);
   const [[latestImport]]=await db.execute('SELECT id,slot_number FROM payroll_imports WHERE agency_id=? AND payroll_period_id=? ORDER BY COALESCE(slot_number,1) DESC,id DESC LIMIT 1',[Number(agencyId),Number(sourcePayrollPeriodId)]);
   if(after && Number(after.payroll_import_id)!==Number(latestImport?.id)) fail('A newer source report is available. Refresh the comparison.');
   if(!after) {
@@ -102,7 +120,11 @@ export async function buildPayrollCorrectionReview({destinationPeriodId,agencyId
     if(Number(breakdown.__paySystem?.paySystemBonusTotal || breakdown.__paySystem?.bonuses?.totalBonusAmount || 0)>0) blockers.push('The original payroll includes bonus pay. Review its bonus impact in Payroll Stage before posting an automatic adjustment.');
     if(original) {
       const oldLine=original.line;
-      if(!after || isProBonoServiceCode(after.service_code)) corrected={baseAmount:0,autoIndirectAmount:0,total:0,credits:0,rate:after?0:null,rateUnit:after?'pro_bono_unpaid':null,category:original.category};
+      if(identityChanged) {
+        const {line,...unchanged}=original;
+        corrected=unchanged;
+      }
+      else if(!after || isProBonoServiceCode(after.service_code)) corrected={baseAmount:0,autoIndirectAmount:0,total:0,credits:0,rate:after?0:null,rateUnit:after?'pro_bono_unpaid':null,category:original.category};
       else if(oldLine.agreementRateProfile && oldLine.rateEraStatus) {
         const [rules]=await db.execute('SELECT * FROM payroll_service_code_rules WHERE agency_id=? AND UPPER(service_code)=?',[Number(agencyId),code(after.service_code)]);
         const newSaved=Object.entries(breakdown).find(([key,v])=>!key.startsWith('__')&&v&&typeof v==='object'&&code(v.displayServiceCode || key)===code(after.service_code))?.[1];
@@ -129,10 +151,11 @@ export async function buildPayrollCorrectionReview({destinationPeriodId,agencyId
   const canResolve=!locked(destination) && !existing && !resolution && !!payment;
   const review={correctionKey:key,agencyId:Number(agencyId),userId:Number(before.user_id),destinationPeriodId:Number(destinationPeriodId),sourcePayrollPeriodId:Number(sourcePayrollPeriodId),baselineRowId:Number(before.id),rowMatchKey:after?.row_fingerprint || before.row_fingerprint || null,compareRowId:after?Number(after.id):null,
     provider:before.provider_name,client:before.patient_first_name,serviceDate:day(before.service_date),
+    identityReview:identityChanged?{originalClient:before.patient_first_name,reportedClient:after.patient_first_name,requiresConfirmation:true}:null,
     original:{code:before.service_code,units:Number(payment?.paidRow.unit_count ?? before.unit_count),noteStatus:code(before.note_status)==='DRAFT'&&Number(before.draft_payable)===1?'DRAFT_PAID':before.note_status,paymentConfirmed:!!payment,amountConfirmed:!!original,payrollPeriodId:payment?.period.id || null,periodStart:day(payment?.period.period_start),periodEnd:day(payment?.period.period_end),postedAt:payment?.period.posted_at || payment?.period.finalized_at || null,proof:payment?.proof || null,baseAmount:original?.baseAmount ?? null,autoIndirectAmount:original?.autoIndirectAmount ?? null,total:originalPay,rate:original?.rate ?? null,rateUnit:original?.rateUnit || null,credits:original?.credits ?? null},
     corrected:{code:after?.service_code || null,units:after?Number(after.unit_count):0,noteStatus:after?.note_status || 'Removed',...corrected,total:correctedPay},
     existingResolution:resolution || null,canWaive:canResolve && adjustmentAmount!==0,canConfirmNoChange:canResolve && adjustmentAmount===0 && blockers.every(message=>message==='The service pay is unchanged. No pay adjustment is needed.'),reductionAmount:reduction,additionalPayAmount:adjustmentAmount!=null?Math.max(0,adjustmentAmount):null,adjustmentAmount,adjustmentType,existingAdjustment:existing || null,canPostAdjustment:blockers.length===0,canPostReduction:blockers.length===0&&adjustmentType==='reduction',canPostAdditionalPay:blockers.length===0&&adjustmentType==='additional_pay',blockers,
-    calculationBasis:'Saved original service pay and its automatic indirect pay; replacement valued with its dated compensation snapshot and applicable payroll calculation rules. This is a pay adjustment only.'};
+    calculationBasis:identityChanged?'Only the reported client name differs. Confirm these are the same service before keeping the original pay. No additional pay or deduction will be created.':'Saved original service pay and its automatic indirect pay; replacement valued with its dated compensation snapshot and applicable payroll calculation rules. This is a pay adjustment only.'};
   const tokenData={...review,sourceVersion:summary?.computed_at || null,beforePayable:before.draft_payable,afterPayable:after?.draft_payable};
   review.reviewToken=crypto.createHash('sha256').update(JSON.stringify(tokenData)).digest('hex');
   return review;
@@ -175,7 +198,7 @@ export function postPayrollCorrectionAdditionalPay(args,getConnection) {
 }
 
 
-export async function resolvePayrollCorrection({reviewToken,actorUserId,resolution,reason,confirmed,...args},getConnection=()=>pool.getConnection()) {
+export async function resolvePayrollCorrection({reviewToken,actorUserId,resolution,reason,confirmed,identityConfirmed,...args},getConnection=()=>pool.getConnection()) {
   if(!['waived','no_change'].includes(resolution)) fail('Choose waiver or no pay change.',400);
   if(confirmed!==true) fail('Confirm that your account will be identified with this decision.',400);
   const explanation=String(reason || '').trim();
@@ -187,6 +210,7 @@ export async function resolvePayrollCorrection({reviewToken,actorUserId,resoluti
     const review=await buildPayrollCorrectionReview({...args,db,lockRows:true});
     if(review.existingResolution){await db.commit();return {resolutionId:review.existingResolution.id,alreadyResolved:true};}
     if(!reviewToken || reviewToken!==review.reviewToken) fail('The payroll calculation changed. Refresh the review before recording your decision.');
+    if(review.identityReview && identityConfirmed!==true) fail('Confirm that the original and reported client names refer to the same service before keeping its pay.',400);
     if(resolution==='waived'?!review.canWaive:!review.canConfirmNoChange) fail('This correction cannot be resolved by that action. Refresh the review.');
     const [result]=await db.execute(`INSERT INTO payroll_correction_resolutions (agency_id,payroll_period_id,user_id,correction_key,source_payroll_period_id,baseline_row_id,compare_row_id,resolution,reason,review_json,reviewed_by_user_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
       [Number(args.agencyId),Number(args.destinationPeriodId),review.userId,review.correctionKey,Number(args.sourcePayrollPeriodId),Number(args.baselineRowId),args.compareRowId?Number(args.compareRowId):null,resolution,explanation || 'Reviewed: no pay difference.',JSON.stringify(review),Number(actorUserId)]);

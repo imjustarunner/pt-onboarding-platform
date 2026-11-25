@@ -238,3 +238,15 @@ it('keeps other-mileage estimates consistent with payroll after editing eligible
 it('shows a configured Tier 1 zero rate as zero pay rather than an unknown estimate',()=>{
  expect(mileageEstimate(mileage,{rates:[{tierLevel:1,ratePerMile:0}]},1)).toBe(0);
 });
+
+it('approves only selected PTO hours and leaves the dated remainder pending',async()=>{
+ ptoRows=[{id:89,user_id:7,status:'submitted',request_type:'sick',total_hours:15,items:[{request_date:'2026-10-20',hours:5},{request_date:'2026-10-21',hours:5},{request_date:'2026-10-22',hours:5}]}];
+ mock.patch.mockImplementationOnce(async(url,body)=>{ptoRows=[{...ptoRows[0],status:'approved',total_hours:body.approvalHours},{...ptoRows[0],id:90,total_hours:15-body.approvalHours,items:[{request_date:'2026-10-21',hours:2},{request_date:'2026-10-22',hours:5}]}];return{data:{approval:{approvedHours:8,remainingHours:7,remainderRequestId:90}}};});
+ const w=await page('pto');const input=w.get('input[aria-label="Hours to approve now for Test Provider"]');await input.setValue('8');expect(w.text()).toContain('7 hours stay pending');
+ await button(w,'Approve').trigger('click');await flushPromises();expect(mock.patch).toHaveBeenCalledWith('/payroll/pto-requests/89',expect.objectContaining({action:'approve',approvalHours:8,targetPayrollPeriodId:8}));
+ expect(ptoRows.find(r=>r.id===90)).toMatchObject({status:'submitted',total_hours:7});expect(w.text()).toContain('PTO rate settings');
+});
+it('does not approve an invalid PTO portion',async()=>{
+ ptoRows=[{id:89,user_id:7,status:'submitted',request_type:'sick',total_hours:15,items:[{request_date:'2026-10-20',hours:15}]}];
+ const w=await page('pto');await w.get('input[aria-label="Hours to approve now for Test Provider"]').setValue('16');await button(w,'Approve').trigger('click');await flushPromises();expect(mock.patch).not.toHaveBeenCalled();expect(w.text()).toContain('no more than the requested hours');
+});

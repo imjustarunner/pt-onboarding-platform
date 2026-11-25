@@ -12,6 +12,7 @@
           <p v-if="review.original.paymentConfirmed && !review.original.amountConfirmed" role="status">Payment inclusion confirmed. The original dollar amount still needs review.</p>
           <p v-if="review.corrected.rateUnit === 'pro_bono_unpaid'">Pro Bono is unpaid: corrected service pay, automatic indirect pay, and pay credits are $0.</p>
           <table><thead><tr><th></th><th>Previously paid</th><th>Corrected session</th></tr></thead><tbody>
+            <tr v-if="review.identityReview"><th>Client name in report</th><td>{{ review.identityReview.originalClient }}</td><td>{{ review.identityReview.reportedClient }}</td></tr>
             <tr><th>Service code</th><td>{{ review.original.code }}</td><td>{{ review.corrected.code || 'Removed' }}</td></tr>
             <tr><th>Units</th><td>{{ review.original.units }}</td><td>{{ review.corrected.units }}</td></tr>
             <tr><th>Pay credits / hours</th><td>{{ review.original.credits ?? 'Not confirmed' }}</td><td>{{ review.corrected.credits ?? 'Not confirmed' }}</td></tr>
@@ -36,7 +37,8 @@
             <button type="button" class="btn btn-secondary" :disabled="posting" @click="confirmingWaiver=false">Cancel waiver</button>
             <button type="button" class="btn btn-primary" :disabled="posting || !waiverConfirmed || !waiverReason.trim()" @click="saveResolution('waived')">Confirm waiver</button>
           </div>
-          <button v-if="review.canConfirmNoChange" type="button" class="btn btn-primary" :disabled="posting || loading" @click="saveResolution('no_change')">Confirm reviewed — no pay change</button>
+          <label v-if="review.identityReview && review.canConfirmNoChange"><input v-model="identityConfirmed" type="checkbox" :disabled="posting" /> I checked the source reports and confirm these names refer to the same service. Keep the original pay.</label>
+          <button v-if="review.canConfirmNoChange" type="button" class="btn btn-primary" :disabled="posting || loading || (review.identityReview && !identityConfirmed)" @click="saveResolution('no_change')">Confirm reviewed — no pay change</button>
           <footer><button type="button" class="btn btn-secondary" :disabled="posting || loading" @click="load">Refresh review</button><button v-if="!review.existingAdjustment && !review.existingResolution && review.adjustmentType !== 'none'" type="button" class="btn btn-primary" :disabled="posting || loading || !review.canPostAdjustment" @click="postAdjustment">{{ posting ? 'Posting adjustment…' : review.adjustmentType === 'additional_pay' ? 'Post additional pay' : 'Post reduction' }}</button></footer>
         </template>
       </section>
@@ -48,17 +50,17 @@ import { ref, onMounted, nextTick } from 'vue';
 import api from '../../services/api';
 const props=defineProps({destinationPeriodId:{type:Number,required:true},sourcePeriodId:{type:Number,required:true},baselineRowId:{type:Number,default:null},compareRowId:{type:Number,default:null}});
 const emit=defineEmits(['close','posted']);
-const confirmingWaiver=ref(false),waiverReason=ref(''),waiverConfirmed=ref(false);
+const confirmingWaiver=ref(false),waiverReason=ref(''),waiverConfirmed=ref(false),identityConfirmed=ref(false);
 const loading=ref(false),posting=ref(false),error=ref(''),review=ref(null),dialog=ref(null);
 const args=()=>({sourcePayrollPeriodId:props.sourcePeriodId,baselineRowId:props.baselineRowId,...(props.compareRowId?{compareRowId:props.compareRowId}:{})});
 const money=v=>v==null?'Not confirmed':new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(v);
 const formatTimestamp=v=>new Date(v).toLocaleString('en-US',{timeZone:'America/Denver'});
-const load=async()=>{confirmingWaiver.value=false;waiverConfirmed.value=false;loading.value=true;error.value='';try{review.value=(await api.get(`/payroll/periods/${props.destinationPeriodId}/correction-review`,{params:args()})).data;}catch(e){error.value=e?.response?.data?.error?.message||e.message||'Unable to load the correction.';}finally{loading.value=false;}};
+const load=async()=>{review.value=null;identityConfirmed.value=false;confirmingWaiver.value=false;waiverConfirmed.value=false;loading.value=true;error.value='';try{review.value=(await api.get(`/payroll/periods/${props.destinationPeriodId}/correction-review`,{params:args()})).data;}catch(e){error.value=e?.response?.data?.error?.message||e.message||'Unable to load the correction.';}finally{loading.value=false;}};
 const postAdjustment=async()=>{if(posting.value||!review.value?.canPostAdjustment)return;posting.value=true;error.value='';try{const{data}=await api.post(`/payroll/periods/${props.destinationPeriodId}/correction-review/${review.value.adjustmentType === 'additional_pay' ? 'additional-pay' : 'reduction'}`,{...args(),reviewToken:review.value.reviewToken});if(!data.adjustmentId)throw new Error('The server did not confirm a saved adjustment. Refresh the review.');emit('posted',data);}catch(e){error.value=e?.response?.data?.error?.message||e.message||'The adjustment could not be posted.';review.value.canPostAdjustment=false;}finally{posting.value=false;}};
 const saveResolution=async resolution=>{
-  if(posting.value || (resolution==='waived' && (!waiverConfirmed.value || !waiverReason.value.trim())))return;
+  if(posting.value || (review.value?.identityReview && !identityConfirmed.value) || (resolution==='waived' && (!waiverConfirmed.value || !waiverReason.value.trim())))return;
   posting.value=true;error.value='';
-  try{const {data}=await api.post(`/payroll/periods/${props.destinationPeriodId}/correction-review/resolve`,{...args(),reviewToken:review.value.reviewToken,resolution,reason:resolution==='waived'?waiverReason.value:'Reviewed: no pay difference.',confirmed:true});if(!data.resolutionId)throw new Error('The server did not confirm a saved decision. Refresh the review.');emit('posted',data);}
+  try{const {data}=await api.post(`/payroll/periods/${props.destinationPeriodId}/correction-review/resolve`,{...args(),reviewToken:review.value.reviewToken,resolution,reason:resolution==='waived'?waiverReason.value:review.value.identityReview?'Confirmed same service after reviewing the client name change; original pay retained.':'Reviewed: no pay difference.',confirmed:true,...(review.value.identityReview?{identityConfirmed:identityConfirmed.value}:{})});if(!data.resolutionId)throw new Error('The server did not confirm a saved decision. Refresh the review.');emit('posted',data);}
   catch(e){error.value=e?.response?.data?.error?.message||e.message;confirmingWaiver.value=false;review.value.canWaive=false;review.value.canConfirmNoChange=false;}
   finally{posting.value=false;}
 };

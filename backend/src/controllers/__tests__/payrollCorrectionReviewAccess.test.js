@@ -21,3 +21,9 @@ it('requires payroll access for both resolution history and waiver writes',async
 it('records the signed-in waiver actor rather than a client-supplied account',async()=>{
  const r=req('POST');Object.assign(r.body,{actorUserId:777,agencyId:6,resolution:'waived',reason:'Reviewed',confirmed:true});const next=vi.fn();await savePayrollCorrectionResolution(r,response(),next);expect(next).not.toHaveBeenCalled();expect(m.resolve).toHaveBeenCalledWith(expect.objectContaining({agencyId:2,actorUserId:501,resolution:'waived',reason:'Reviewed',confirmed:true}));
 });
+
+it('forwards an explicit name-match confirmation while attributing the review to the authenticated reviewer',async()=>{
+ const r=req('POST');r.body={...r.body,resolution:'no_change',confirmed:true,identityConfirmed:true,actorUserId:999};
+ await savePayrollCorrectionResolution(r,response(),vi.fn());
+ expect(m.resolve).toHaveBeenCalledWith(expect.objectContaining({identityConfirmed:true,actorUserId:501,resolution:'no_change'}));
+});

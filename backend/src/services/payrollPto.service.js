@@ -634,6 +634,7 @@ export async function approvePtoRequestAndPostToPayroll({
   requestId,
   approvedByUserId,
   targetPayrollPeriodId = null,
+  approvalHours = null,
   overrideDeadline = true,
   overrideBalance = false
 }) {
@@ -641,7 +642,7 @@ export async function approvePtoRequestAndPostToPayroll({
   if(!req||Number(req.agency_id)!==Number(agencyId))throw Error('PTO request not found');
   await ensurePtoAccount({agencyId,userId:Number(req.user_id),updatedByUserId:approvedByUserId});
   const {policy,defaultPayRate}=await getAgencyPtoPolicy({agencyId});
-  return approveLeaveAtomically({agencyId,requestId,actorId:approvedByUserId,targetPayrollPeriodId,overrideBalance,policy,defaultPayRate});
+  return approveLeaveAtomically({agencyId,requestId,actorId:approvedByUserId,targetPayrollPeriodId,approvalHours,overrideBalance,policy,defaultPayRate});
 }
 
 /**

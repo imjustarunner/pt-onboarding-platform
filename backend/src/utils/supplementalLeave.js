@@ -20,3 +20,22 @@ export function validateLeaveItems(items){
  return items.map(i=>{const raw=i.request_date??i.requestDate??i.date??'',date=raw instanceof Date?raw.toISOString().slice(0,10):String(raw).slice(0,10),hours=Number(i.hours);
  if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||new Date(date+'T12:00:00Z').toISOString().slice(0,10)!==date||!Number.isFinite(hours)||hours<=0||hours>24)throw Error('Enter a valid use date and between 0 and 24 hours');return {date,hours};});
 }
+
+/** Allocate a partial approval to the earliest use dates, retaining every hour. */
+export function splitLeaveItems(items, approvalHours) {
+ const total = Math.round(items.reduce((sum,item)=>sum+item.hours,0)*100);
+ const value = approvalHours == null ? total/100 : Number(approvalHours);
+ const selected = Math.round(value*100);
+ if(!Number.isFinite(value) || selected<=0 || selected>total || Math.abs(value*100-selected)>1e-7) {
+  throw Object.assign(new Error('Enter approval hours greater than zero and no more than the requested hours, using at most two decimal places.'),{status:400});
+ }
+ let left=selected;
+ const approved=[],remaining=[];
+ for(const item of items) {
+  const hours=Math.round(item.hours*100),take=Math.min(left,hours);
+  if(take)approved.push({...item,hours:take/100});
+  if(hours>take)remaining.push({...item,hours:(hours-take)/100});
+  left-=take;
+ }
+ return {approved,remaining,approvedHours:selected/100,remainingHours:(total-selected)/100,totalHours:total/100};
+}

@@ -118,3 +118,29 @@ it('returns saved review decisions and catch-up edit permissions after reopening
   expect(next).not.toHaveBeenCalled();
   expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ rows: [expect.objectContaining({ id: 40, draft_reviewed: true })], imports: [expect.objectContaining({ id: 14, draft_review_allowed: false }), expect.objectContaining({ id: 15, draft_review_allowed: true })] }));
 });
+
+it('labels a unique changed client name as identity review rather than a fictitious code change',async()=>{
+ const {computeRawRunDiffRows}=await import('../payroll.controller.js');
+ const original=row({id:1,service_code:'90837',service_date:'2026-10-15',unit_count:1,note_status:'FINALIZED',patient_first_name:'Alexandra',row_fingerprint:'old',location:'Office'});
+ const replacement={...original,id:2,patient_first_name:'Alexandria',row_fingerprint:'new'};
+ const diff=computeRawRunDiffRows({baselineRows:[original],compareRows:[replacement]});
+ expect(diff).toHaveLength(1);expect(diff[0]).toMatchObject({changeType:'identity_changed',from_service_code:'90837',to_service_code:'90837',metadata_json:{baselineRowId:1,compareRowId:2}});
+});
+it('does not pair two different named clients into a code change or silently discard their differences',async()=>{
+ const {computeRawRunDiffRows}=await import('../payroll.controller.js');
+ const original=row({id:1,service_code:'90837',unit_count:1,note_status:'FINALIZED',patient_first_name:'Alex',row_fingerprint:'old'});
+ const diff=computeRawRunDiffRows({baselineRows:[original],compareRows:[{...original,id:2,service_code:'90834',patient_first_name:'Jordan',row_fingerprint:'new'}]});
+ expect(diff.some(d=>d.changeType==='service_code_changed')).toBe(false);expect(diff).toHaveLength(2);
+});
+it('keeps a genuine same-client code change reviewable',async()=>{
+ const {computeRawRunDiffRows}=await import('../payroll.controller.js');
+ const original=row({id:1,service_code:'90837',unit_count:1,note_status:'FINALIZED',row_fingerprint:'old'});
+ const diff=computeRawRunDiffRows({baselineRows:[original],compareRows:[{...original,id:2,service_code:'90834',row_fingerprint:'new'}]});
+ expect(diff).toHaveLength(1);expect(diff[0].changeType).toBe('service_code_changed');
+});
+it('does not offer a name confirmation when unmatched sessions are ambiguous',async()=>{
+ const {computeRawRunDiffRows}=await import('../payroll.controller.js');
+ const original=row({id:1,service_code:'90837',unit_count:1,note_status:'FINALIZED',patient_first_name:'Alex',row_fingerprint:'old'});
+ const diff=computeRawRunDiffRows({baselineRows:[original,{...original,id:3,patient_first_name:'Chris',row_fingerprint:'other'}],compareRows:[{...original,id:2,patient_first_name:'Jordan',row_fingerprint:'new'}]});
+ expect(diff.some(d=>d.changeType==='identity_changed')).toBe(false);expect(diff).toHaveLength(3);
+});

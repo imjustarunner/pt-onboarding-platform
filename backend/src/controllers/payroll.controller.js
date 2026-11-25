@@ -427,7 +427,7 @@ function rawAuditDeltaPairKey(delta, { ignoreCode = false, ignoreLocation = fals
   return `${provider}:${serviceDate}:${client}:${code}:${location}:${status}:${units}`;
 }
 
-function computeRawRunDiffRows({ baselineRows, compareRows }) {
+export function computeRawRunDiffRows({ baselineRows, compareRows }) {
   const baselinePool = new Map();
   for (const r of baselineRows || []) {
     const key = rowEntityKey(r);
@@ -552,7 +552,7 @@ function computeRawRunDiffRows({ baselineRows, compareRows }) {
   const addedByShort = new Map();  // shortKey → index into out
   const removedByShort = new Map();// shortKey → index into out
 
-  const pairAddedRemoved = ({ kind, ignoreCode = false, ignoreLocation = false }) => {
+  const pairAddedRemoved = ({ kind, ignoreCode = false, ignoreLocation = false, identityOnly = false }) => {
     const addedByFull = new Map();
     const removedByFull = new Map();
     const addedByShort = new Map();
@@ -579,6 +579,13 @@ function computeRawRunDiffRows({ baselineRows, compareRows }) {
       const added = out[addedIdx];
       const removed = out[removedIdx];
       if (!added || !removed) return;
+      // A changed client token requires an explicit identity review, never a
+      // financial code correction inferred from provider/date alone.
+      const sameClient = firstTokenForClient(added.patient_first_name) === firstTokenForClient(removed.patient_first_name);
+      const sameCode = rawAuditDeltaCodeForPair(added) === rawAuditDeltaCodeForPair(removed);
+      if (identityOnly ? sameClient || !sameCode : !sameClient) return;
+      if (identityOnly && (!firstTokenForClient(added.patient_first_name) || !firstTokenForClient(removed.patient_first_name))) return;
+      if (kind === 'service_code_changed' && sameCode) return;
       out[addedIdx] = null;
       out[removedIdx] = null;
       out.push({
@@ -607,14 +614,20 @@ function computeRawRunDiffRows({ baselineRows, compareRows }) {
 
     for (const [fk, addedIdx] of addedByFull) {
       const removedIdx = removedByFull.get(fk);
-      if (removedIdx !== undefined) applyPair(addedIdx, removedIdx);
+      if (!identityOnly && removedIdx !== undefined) applyPair(addedIdx, removedIdx);
     }
     for (const [sk, addedIdx] of addedByShort) {
       const removedIdx = removedByShort.get(sk);
-      if (removedIdx !== undefined) applyPair(addedIdx, removedIdx);
+      // Only offer a name review for a unique unmatched pair. Duplicate source
+      // sessions must not be silently paired with a different client.
+      const candidates = out.filter(o => o && ['added','removed'].includes(o.changeType)
+        && rawAuditDeltaPairKey(o, { ignoreCode, ignoreLocation, shortClient: true }) === sk);
+      if (identityOnly && candidates.filter(o => o.changeType === 'added').length === 1
+        && candidates.filter(o => o.changeType === 'removed').length === 1 && removedIdx !== undefined) applyPair(addedIdx, removedIdx);
     }
   };
 
+  pairAddedRemoved({ kind: 'identity_changed', identityOnly: true });
   pairAddedRemoved({ kind: 'service_code_changed', ignoreCode: true, ignoreLocation: false });
   pairAddedRemoved({ kind: 'location_changed', ignoreCode: false, ignoreLocation: true });
 
@@ -649,7 +662,8 @@ function computeRawRunDiffRows({ baselineRows, compareRows }) {
   // Pass 2: short key merge (handles null patient_first_name in old baseline imports)
   for (const [sk, addedIdx] of addedByShort) {
     const removedIdx = removedByShort.get(sk);
-    if (removedIdx !== undefined && out[addedIdx] && out[removedIdx]) {
+    if (removedIdx !== undefined && out[addedIdx] && out[removedIdx]
+      && !firstTokenForClient(out[addedIdx].patient_first_name) && !firstTokenForClient(out[removedIdx].patient_first_name)) {
       out[addedIdx] = null;
       out[removedIdx] = null;
     }
@@ -21916,6 +21930,7 @@ export const patchPtoRequest = async (req, res, next) => {
         requestId: id,
         approvedByUserId: req.user.id,
         targetPayrollPeriodId: Number(req.body?.targetPayrollPeriodId || 0) || null,
+        approvalHours: req.body?.approvalHours,
         overrideDeadline,
         overrideBalance
       });
@@ -21939,7 +21954,7 @@ export const patchPtoRequest = async (req, res, next) => {
       } catch { /* best-effort */ }
 
       const updated = await PayrollPtoRequest.findById(id);
-      res.json({ ...updated, items: await PayrollPtoRequest.listItemsForRequest(id) });
+      res.json({ ...updated, items: await PayrollPtoRequest.listItemsForRequest(id), approval: { approvedHours: result.approvedHours, remainingHours: result.remainingHours, remainderRequestId: result.remainderRequestId } });
       return;
     }
 
@@ -23805,7 +23820,7 @@ export const getSchoolSupportAccrualReview = async (req, res, next) => {
 export const savePayrollCorrectionResolution = async(req,res,next)=>{
   try {
     const args=await correctionReviewRequest(req,res);if(!args)return;
-    res.json(await resolvePayrollCorrection({...args,reviewToken:req.body?.reviewToken,actorUserId:req.user.id,resolution:req.body?.resolution,reason:req.body?.reason,confirmed:req.body?.confirmed}));
+    res.json(await resolvePayrollCorrection({...args,reviewToken:req.body?.reviewToken,actorUserId:req.user.id,resolution:req.body?.resolution,reason:req.body?.reason,confirmed:req.body?.confirmed,identityConfirmed:req.body?.identityConfirmed}));
   }catch(error){next(error);}
 };
 export const listPayrollCorrectionResolutions = async(req,res,next)=>{
