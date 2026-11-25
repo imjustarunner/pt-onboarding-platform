@@ -17,13 +17,13 @@ test('canonical recipient chooses its department instead of the school/support f
   assert.equal(resolveTicketInbox({ source_email_recipients: '[]', topic: 'payroll' }, [support, payroll]).id, 3);
 });
 
-test('Technology and Compliance retain department ticket routing while People Operations stays outside rollout', () => {
+test('Technology and Compliance retain department ticket routing and People Operations follows its shared department route', () => {
   for (const key of ['technology', 'compliance']) {
     const inbox = { id: 7, agency_id: 2, kind: 'shared', identity_key: key, from_email: `${key}@agency.test`, is_active: 1 };
     assert.equal(isManagedSupportIdentity(inbox, { agencyId: 2 }), true);
     assert.equal(resolveTicketInbox({ source_email_recipients: JSON.stringify([inbox.from_email]), topic: 'general' }, [support, inbox]).id, 7);
   }
-  assert.equal(isManagedSupportIdentity({ agency_id: 2, identity_key: 'po', from_email: 'po@agency.test', is_active: 1 }, { agencyId: 2 }), false);
+  assert.equal(isManagedSupportIdentity({ agency_id: 2, identity_key: 'po', from_email: 'po@agency.test', is_active: 1 }, { agencyId: 2 }), true);
 });
 
 test('group queue predicates preserve mailbox-less calls, sanitize ids, and exclude unpermitted departments', () => {
@@ -35,20 +35,20 @@ test('group queue predicates preserve mailbox-less calls, sanitize ids, and excl
   assert.match(sql.unread, /group_reply.send_status='sent'/);
 });
 
-function claimFixture({ claimedBy = null, affectedRows = 1, deny = false } = {}) {
+function claimFixture({ claimedBy = null, affectedRows = 1, deny = false, actorRole = 'support', groupKey = 'payroll' } = {}) {
   const calls = [];
   const db = {
     async beginTransaction() { calls.push('begin'); }, async commit() { calls.push('commit'); },
     async rollback() { calls.push('rollback'); }, release() { calls.push('release'); },
     async execute(sql, values) {
       calls.push({ sql, values });
-      if(sql.startsWith('SELECT role FROM users'))return [[{role:'support'}]];
-      if (sql.startsWith('SELECT')) return [[{ ...payroll, id: 22, agency_id: 2, support_ticket_id: 11, status: 'open', claimed_by_user_id: claimedBy }]];
+      if(sql.startsWith('SELECT role FROM users'))return [[{role:actorRole}]];
+      if (sql.startsWith('SELECT')) return [[{ ...payroll, identity_key: groupKey, id: 22, agency_id: 2, support_ticket_id: 11, status: 'open', claimed_by_user_id: claimedBy }]];
       return [{ affectedRows }];
     }
   };
   return { calls, dependencies: { database: { getConnection: async () => db }, assertAccess: async ({ groupKey, db: client }) => {
-    assert.equal(groupKey, 'payroll'); assert.equal(client, db);
+    assert.ok(['payroll','people_operations'].includes(groupKey)); assert.equal(client, db);
     if (deny) throw Object.assign(new Error('denied'), { status: 403 });
   } } };
 }
@@ -156,4 +156,13 @@ test('SMS Sent only lists the viewer’s accepted outbound texts and recovers mi
     await CommunicationConversation.list({ ...options, channel: 'email' });
     assert.doesNotMatch(queries[3].sql, /sent_sms.user_id/);
   } finally { pool.execute = original; }
+});
+
+test('People Operations staff can claim their shared email while payroll still requires its existing owner role', async () => {
+  const allowed=claimFixture({actorRole:'staff',groupKey:'people_operations'});
+  assert.equal((await claimGroupEmailConversation({conversationId:22,userId:8},allowed.dependencies)).ticketId,11);
+  const other=claimFixture({actorRole:'staff'});
+  await assert.rejects(claimGroupEmailConversation({conversationId:22,userId:8},other.dependencies),{status:403});
+  const denied=claimFixture({actorRole:'staff',groupKey:'people_operations',deny:true});
+  await assert.rejects(claimGroupEmailConversation({conversationId:22,userId:8},denied.dependencies),{status:403});
 });
