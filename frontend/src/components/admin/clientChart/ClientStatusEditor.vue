@@ -2,10 +2,11 @@
  <Teleport to="body"><div class="client-status-backdrop" @click.self="close"><section ref="dialog" class="client-status-dialog" role="dialog" aria-modal="true" aria-labelledby="client-status-title" tabindex="-1">
   <h3 id="client-status-title">Change client status</h3><p>{{client.full_name || client.initials || 'Client'}} · Current status: {{client.client_status_label || client.client_status_key || 'Not recorded'}}</p>
   <p v-if="loading" role="status">Loading this agency’s statuses…</p><p v-if="error" role="alert">{{error}}</p>
+  <p v-if="!loading && !error && !statuses.length" role="status">This chart’s agency has no active statuses available here. Set up client statuses for the chart’s owning agency, then reload.</p>
   <p>To end services, use Terminate client or Mark inactive at the bottom of the profile.</p>
-  <form @submit.prevent="save"><label>Client status<select v-model="selected" :disabled="loading||saving" required><option value="" disabled>Select a status…</option><option v-if="selected && !statuses.some(row=>String(row.id)===selected)" :value="selected" disabled>{{client.client_status_label || 'Saved legacy status'}} (current)</option><option v-for="status in statuses" :key="status.id" :value="String(status.id)">{{status.label}}</option></select></label>
+  <form @submit.prevent="save"><label>Client status<select v-model="selected" :disabled="loading||saving||!statuses.length" required><option value="" disabled>Select a status…</option><option v-if="selected && !statuses.some(row=>String(row.id)===selected)" :value="selected" disabled>{{client.client_status_label || 'Saved legacy status'}} (current)</option><option v-for="status in statuses" :key="status.id" :value="String(status.id)">{{status.label}}</option></select></label>
    <label v-if="terminating">Termination reason<textarea v-model="reason" required maxlength="2000" :disabled="saving" /></label>
-   <div><button type="submit" :disabled="!canSave">{{saving?'Saving…':'Save status'}}</button><button type="button" :disabled="saving" @click="close">Cancel</button><button v-if="!loading&&error" type="button" :disabled="saving" @click="load">Reload statuses</button></div>
+   <div><button type="submit" :disabled="!canSave">{{saving?'Saving…':'Save status'}}</button><button type="button" :disabled="saving" @click="close">Cancel</button><button v-if="!loading&&(error||!statuses.length)" type="button" :disabled="saving" @click="load">Reload statuses</button></div>
   </form>
  </section></div></Teleport>
 </template>

@@ -186,7 +186,8 @@
             v-model="searchQuery"
             type="text"
             placeholder="Search clients, providers, schools, codes…"
-            class="search-input cm-search-input"
+            aria-label="Search clients, providers, schools, or codes"
+            class="cm-search-input"
             @input="onSearchInput"
             @keydown.enter.prevent="applyFilters"
             data-tour="clients-search"
@@ -4232,15 +4233,6 @@ watch(() => currentPage.value, (newPage, oldPage) => {
   font-size: 13px;
   color: var(--text-primary);
   padding: 4px 0;
-}
-
-.search-input {
-  flex: 1;
-  min-width: 200px;
-  padding: 8px 12px;
-  border: 2px solid var(--border);
-  border-radius: 6px;
-  font-size: 14px;
 }
 
 .filter-select {
