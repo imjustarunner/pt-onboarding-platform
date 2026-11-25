@@ -172,7 +172,8 @@ it('opens the preserved contact history immediately, including who canceled, mis
   expect(wrapper.text()).toContain(`Receipt confirmed ${receiptTime}`);
   expect(wrapper.text()).not.toContain('2026-10-12 18:04:00');
   expect(wrapper.text()).toContain('No email on file'); expect(wrapper.text()).toContain('Missing email');
-  expect(wrapper.text()).toContain('does not represent a booked EHR session');
+  expect(wrapper.text()).toContain('saved school slot awaiting an appointment');
+  expect(wrapper.text()).toContain('School schedule');
   await wrapper.find('button[aria-label="Close school schedule details"]').trigger('click');
   expect(wrapper.emitted('close')).toHaveLength(1); expect(m.post).not.toHaveBeenCalled();
 });

@@ -26,7 +26,7 @@ No schema migration is added. Confirm existing school transition migration 1786 
 
 - The first candidate date had zero overlapping app appointments and zero recorded school cancellations in the read-only check. The booking preview still checks the full series and current conflicts.
 - The school transition suite passed 69 tests, including 14 native MySQL cases on a disposable local database. The cases verify actual appointment and school-location linkage, a stale source slot refusal, an atomic move, and explicit approval before adding capacity.
-- The frontend transition suite passed 100 tests, and the school weekly UI suite passed 10. The agenda tests cover loading saved slots, skipping closures and cancellations, blocking the wrong weekday or location, and invalidating a stale preview.
+- The frontend transition suite passed 100 tests, and the school weekly UI suite passed 10, and the school calendar suite passed 79. The agenda tests cover loading saved slots, skipping closures and cancellations, blocking the wrong weekday or location, and invalidating a stale preview.
 - The broader backend transition suite passed 123, skipped 16 and reported 14 failures. The same 14 failures reproduced against the unchanged base. No unrelated product code changed to address those failures.
 
 This branch is an implementation handoff. The pilot preview and approval must use an authorized staff session in the app after release. No production appointments, claims, school transition settings, or notifications were changed in this task.
