@@ -1,0 +1,14 @@
+{
+  "type": "append-only-automation-attribution-correction",
+  "recordedAt": "2026-11-25T15:23:42.465264+00:00",
+  "commit": "f098341c985453252c616223880c6b446a5cd15b",
+  "performedBy": "Codex release automation",
+  "authorizedAutomationMailbox": "ai@plottwistco.com",
+  "originalGitMetadata": {
+    "authorName": "imjustarunner",
+    "authorEmail": "michael@plottwistco.com",
+    "committerName": "imjustarunner",
+    "committerEmail": "michael@plottwistco.com"
+  },
+  "correction": "This release commit was created by the Codex agent. Cached checkout Git identity settings recorded the human account as author and committer; those fields do not mean that the human manually performed this agent work. Original Git objects and audit records are preserved. This annotation does not change authentication attribution for GitHub pushes or authorized Google Cloud operations."
+}
