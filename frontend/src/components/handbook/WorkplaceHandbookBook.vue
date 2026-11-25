@@ -29,7 +29,7 @@
     <div v-if="isSkillsGuide" class="care-orientation-banner"><strong>Skills in practice, with support.</strong><p>Explore connection, regulation and learning. Completing this orientation does not authorize a group or replace observed competence and licensed oversight.</p><button type="button" @click="selectSection('program-boundaries', true)">Our program &amp; group rules →</button></div>
     <div v-if="isFacilitiesGuide" class="care-orientation-banner"><strong>437 Windchime · Shared office</strong><p>Use the app for room requests and operations. Obtain current access credentials privately from authorized staff.</p><button type="button" @click="selectSection(metadata.facilities?.denverSectionSlug || 'windchime-opening-and-closing', true)">{{ metadata.facilities?.denverStatus === 'coming_soon' ? 'ITSCO Denver · Coming soon →' : 'Opening & closing →' }}</button></div>
 
-    <p v-if="missingTextCount" class="transfer-note"><span aria-hidden="true">◐</span> {{ isGuide ? 'Complete the company setup sections before publishing this guide for your team.' : metadata.template ? 'Company edition in preparation. Complete the company-specific sections before publishing this handbook for your team.' : 'We’re bringing the handbook into the app section by section. Sections marked “Text pending” are still being added; People Operations can help with those policies.' }}<a v-if="sourceUrl" :href="sourceUrl" target="_blank" rel="noopener noreferrer">Admin · Open original ↗</a></p>
+    <p v-if="missingTextCount" class="transfer-note"><span aria-hidden="true">◐</span> {{ isGuide ? 'Complete the company setup sections before publishing this guide for your team.' : metadata.template ? 'Company edition in preparation. Complete the company-specific sections before publishing this handbook for your team.' : 'We’re bringing the handbook into the app section by section. Sections marked “Text pending” are still being added; People Operations can help with those policies.' }}</p>
 
     <WorkplaceHandbookAssistant v-if="answerQuestion" ref="assistant" :ask="answerQuestion" :version="handbook.version" :preview="assistantPreview" :document-label="documentLabel" :anchor-prefix="anchorPrefix" @open="selectSection($event, true)" @reload="$emit('reload')" />
     <div ref="readerLayout" class="book-layout">
@@ -67,7 +67,7 @@
         <div v-else class="pending-section">
           <span class="pending-tag">Text pending</span>
           <p>{{ (metadata.requiredSections || metadata.template?.requiredSections)?.find(topic => topic.slug === selected.slug)?.prompt || 'This section is in the handbook’s contents. Its full text is still being added here.' }}</p>
-          <a v-if="sourceUrl" :href="sourceUrl" target="_blank" rel="noopener noreferrer">Read this section in the original handbook ↗</a>
+
         </div>
 
         <div v-if="children.length" class="chapter-sections"><h4>In this chapter</h4><button v-for="child in children" :key="child.slug" type="button" @click="selectSection(child.slug, true)"><span><strong>{{ child.title }}</strong><small v-if="sectionExcerpt(child)">{{ sectionExcerpt(child) }}</small></span><span aria-hidden="true">↗</span></button></div>
@@ -192,7 +192,6 @@ const upcomingTopics = computed(() => {
 });
 const updatesFor = slug => props.updates.filter(e => e.handbook_section_slug === slug || e.policy_section_slugs?.includes(slug) || e.related_section_slugs?.includes(slug));
 const sectionUpdates = computed(() => updatesFor(selected.value?.slug));
-const sourceUrl = computed(() => props.canOpenOriginal && /^https?:\/\//i.test(props.fullHandbookUrl) ? props.fullHandbookUrl : '');
 const documentRoute = inject(routeLocationKey, null);
 const safeHtml = value => {
   const prefix = documentRoute?.params?.organizationSlug ? `/${encodeURIComponent(documentRoute.params.organizationSlug)}` : '';

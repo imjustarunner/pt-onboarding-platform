@@ -3,6 +3,7 @@ import pool from '../config/database.js';
 import { isAssignableSupervisor } from '../utils/staffEligibility.js';
 import { composeWorkflow, jsonObject } from '../utils/hirePortalWorkflow.js';
 import { mergePrehireDocuments } from '../utils/prehireConfigSanitize.js';
+import { builtInHireDocument } from '../../../frontend/src/navigation/hireDocuments.js';
 
 export async function prepareHirePacket({ userId, agencyId, body }) {
   const [[agency]] = await pool.execute('SELECT prehire_settings FROM agencies WHERE id = ?', [agencyId]);
@@ -15,7 +16,7 @@ export async function prepareHirePacket({ userId, agencyId, body }) {
   workflow.resources = workflow.resources.filter(resource => resource.phase === 'pre_hire');
   const availableDocs = mergePrehireDocuments(jobConfig, { documents: settings.default_prehire_docs || [] }).documents;
   const selected = Array.isArray(body.selectedJobDocs) ? new Set(body.selectedJobDocs.map((d) => String(d.id))) : null;
-  const documents = selected ? availableDocs.filter((d) => selected.has(String(d.id))) : availableDocs;
+  const documents = (selected ? availableDocs.filter((d) => selected.has(String(d.id))) : availableDocs).filter(d => !builtInHireDocument(d) && d.kind !== 'acknowledgement');
   const fail = (message) => { throw Object.assign(new Error(message), { status: 400 }); };
   if (!job || (!String(job.description_text || '').trim() && !Object.keys(jsonObject(job.description_sections_json)).length)) fail('Attach the job description this person is being hired for before sending pre-hire.');
   if (workflow.supervisorUserId) {
@@ -52,10 +53,9 @@ export async function prepareHirePacket({ userId, agencyId, body }) {
       }
     }
   }
-  const packet = { workflow, documents, contractConfigId: Number(job.default_contract_config_id) || null, jobDescription: job ? { id: job.id, title: job.title, descriptionText: job.description_text, descriptionSections: jsonObject(job.description_sections_json), scheduleText: job.schedule_text } : null, handbookUrl: workflow.handbookUrl || settings.handbook_full_url || '',
+  const packet = { workflow, documents, contractConfigId: Number(job.default_contract_config_id) || null, jobDescription: job ? { id: job.id, title: job.title, descriptionText: job.description_text, descriptionSections: jsonObject(job.description_sections_json), scheduleText: job.schedule_text } : null,
     onboardingPackageId: null,
     prehirePackageId: Object.hasOwn(body, 'packageId') ? Number(body.packageId) || null : Number(preset?.prehirePackageId || jobConfig.prehirePackageId || settings.default_prehire_package_id) || null };
-  if (!packet.handbookUrl) fail('Add the workplace handbook viewer link in Hiring & Pre-Hire settings before sending.');
   for (const [key, type] of [['prehirePackageId','pre_hire'],['onboardingPackageId','onboarding']]) {
     if (!packet[key]) continue;
     const [[pkg]] = await pool.execute('SELECT agency_id, package_type, is_active FROM onboarding_packages WHERE id = ?', [packet[key]]);

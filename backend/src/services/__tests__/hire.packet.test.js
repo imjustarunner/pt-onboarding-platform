@@ -16,6 +16,13 @@ beforeEach(() => {
 });
 describe('packet readiness before inviting an applicant', () => {
   const request = (body = {}) => prepareHirePacket({ userId: 1, agencyId: 2, body });
+  it('does not require any external handbook configuration and omits obsolete duplicate documents', async () => {
+    delete settings.handbook_full_url;
+    job.prehire_config_json = { documents: [{ id: 'old-auth', title: 'Hiring: Authorization for Background Check', kind: 'company_document' }, { id: 'old-book', title: 'Employee Handbook Acknowledgement', kind: 'company_document' }, { id: 'identogo', title: 'Identogo', kind: 'company_document', bodyHtml: '<p>Fingerprinting instructions</p>' }] };
+    const packet = await request();
+    expect(packet.documents.map(d => d.id)).toEqual(['identogo']);
+    expect(packet).not.toHaveProperty('handbookUrl');
+  });
   it('retains the applied job description and inherits approved supervisory documents', async () => {
     const packet = await request({ portalWorkflow: { supervisorRole: true } });
     expect(packet.jobDescription).toMatchObject({ id: 3, title: 'Counselor', descriptionText: job.description_text });
@@ -29,7 +36,7 @@ describe('packet readiness before inviting an applicant', () => {
     settings.portal_workflow.resources = [{ id: 'w4', title: 'W4', phase: 'onboarding', kind: 'document' }];
     const packet = await request({ packageId: null, portalWorkflow: { handbookUrl: 'https://docs.google.com/document/d/current/preview' } });
     expect(packet.workflow.resources).toEqual([]); expect(packet.onboardingPackageId).toBeNull();
-    expect(packet.prehirePackageId).toBeNull(); expect(packet.handbookUrl).toContain('/current/');
+    expect(packet.prehirePackageId).toBeNull(); expect(packet).not.toHaveProperty('handbookUrl'); expect(packet.workflow).not.toHaveProperty('handbookUrl');
   });
   it('blocks a packet with no actual job description', async () => {
     job = null; await expect(request()).rejects.toThrow('job description');

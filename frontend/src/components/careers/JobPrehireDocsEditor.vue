@@ -50,12 +50,12 @@
       </div>
       <div class="jpde-grid">
         <label>Title
-          <input v-model="doc.title" class="input" type="text" placeholder="e.g. Handbook acknowledgement" />
+          <input v-model="doc.title" class="input" type="text" placeholder="e.g. Background check instructions" />
         </label>
         <label>What should the candidate do?
           <select v-model="doc.kind" class="input" @change="doc.kind === 'receipt' && (doc.templateId = null, doc.bodyHtml = '')">
             <option value="acknowledgement">Sign job description</option>
-            <option value="company_document">Company document to review &amp; sign</option>
+            <option value="company_document">Company document · fill and sign in the app</option>
             <option value="receipt">View, download &amp; acknowledge receipt (no signature)</option>
             <option value="upload">Candidate file upload</option>
             <option value="print_only">Printable instructions</option>
@@ -88,7 +88,7 @@
           <span class="jpde-field-hint">
             {{
               doc.kind === 'receipt' ? 'Candidate can view and download this file, then acknowledge receipt without signing.' : doc.kind === 'company_document'
-                ? 'Candidate sees this file in their portal and signs to acknowledge it. No external link needed.'
+                ? 'Candidate opens the PDF in the portal, fills configured fields or places text and a signature, then submits the signed copy.'
                 : 'Optional: give candidates your blank form to download before they upload their completed copy.'
             }}
           </span>

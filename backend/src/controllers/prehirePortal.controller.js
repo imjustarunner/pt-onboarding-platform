@@ -310,19 +310,6 @@ export const getPortal = async (req, res, next) => {
       backgroundCheckLegal: buildBackgroundCheckLegalCopy(agencyRaw || {}, {
         legalName: `${user.first_name || ''} ${user.last_name || ''}`.trim()
       }),
-      handbookLinks: await (async () => {
-        try {
-          const [sRows] = await pool.execute(`SELECT prehire_settings FROM agencies WHERE id = ? LIMIT 1`, [agencyRaw?.id]);
-          const raw = sRows[0]?.prehire_settings;
-          const settings = typeof raw === 'string' ? JSON.parse(raw) : (raw || {});
-          return {
-            acknowledgementUrl: String(settings.handbook_ack_url || '').trim() || null,
-            fullUrl: String(settings.handbook_full_url || '').trim() || null
-          };
-        } catch {
-          return { acknowledgementUrl: null, fullUrl: null };
-        }
-      })(),
       ...extras
     }));
   } catch (e) { next(e); }
@@ -1374,17 +1361,7 @@ export const recordPortalHandbookOpen = async (req, res, next) => {
       `INSERT INTO hiring_handbook_link_opens (user_id, agency_id, link_key) VALUES (?, ?, ?)`,
       [userId, agency.id, linkKey]
     );
-    if (linkKey === 'ack' || linkKey === 'full') {
-      const itemKey = linkKey === 'ack' ? 'handbook_ack' : 'handbook_full';
-      try {
-        await pool.execute(
-          `UPDATE hiring_prehire_checklist_items
-           SET completed_on = COALESCE(completed_on, CURDATE())
-           WHERE user_id = ? AND item_key = ?`,
-          [userId, itemKey]
-        );
-      } catch { /* ignore */ }
-    }
+    // Opening a reference is an analytics event, never a pre-hire completion.
     res.json({ ok: true });
   } catch (e) {
     if (e?.code === 'ER_NO_SUCH_TABLE') return res.json({ ok: true });

@@ -78,24 +78,10 @@
         </div>
       </div>
 
-      <!-- Workplace handbook links -->
-      <div v-if="phase === 'pre_hire'" class="hps-section">
-        <div class="hps-section-header">
-          <div class="hps-section-title">Workplace handbook links</div>
-          <div class="hps-section-sub">
-            Shown as a left-nav Workplace handbook link on the candidate portal. You can paste a URL or publish a handbook in Workplace Handbook admin — the portal will load it.
-          </div>
-        </div>
-        <div class="hps-field-group">
-          <div class="hps-field">
-            <label class="hps-label">External handbook acknowledgement (optional)</label>
-            <input v-model="form.handbook_ack_url" class="input" type="url" placeholder="https://…" /><p class="hps-help">To keep the acknowledgement in this app, use “Write / paste document” in Default pre-hire documents below. No external URL is needed for that document.</p>
-          </div>
-          <div class="hps-field">
-            <label class="hps-label">Full Workplace Handbook URL</label>
-            <input v-model="form.handbook_full_url" class="input" type="url" placeholder="https://…" />
-          </div>
-        </div>
+      <div class="hps-section">
+        <div class="hps-section-title">In-app workplace handbook</div>
+        <p class="hps-section-sub">Candidates can read the internal handbook during pre-hire. Review and signature are required during onboarding, using the published edition in the app.</p>
+        <router-link :to="handbookPath">Open workplace handbook</router-link>
       </div>
 
       <div v-if="phase === 'pre_hire'" class="hps-section">
@@ -289,6 +275,7 @@ import HireWorkflowEditor from './HireWorkflowEditor.vue';
 import { ref, computed, watch, onMounted } from 'vue';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
+import { useRoute } from 'vue-router';
 import JobPrehireDocsEditor from '../careers/JobPrehireDocsEditor.vue';
 
 const props = defineProps({
@@ -305,6 +292,8 @@ async function refreshPackages() {
   packageRefresh.value++;
 }
 const agencyStore = useAgencyStore();
+const route = useRoute();
+const handbookPath = computed(() => `${route?.params?.organizationSlug ? '/' + route.params.organizationSlug : ''}/workplace-handbook?agencyId=${agencyId.value}`);
 const agencyId = computed(() => {
   const scoped = Number(props.scopedAgencyId || 0);
   if (Number.isFinite(scoped) && scoped > 0) return scoped;
@@ -324,8 +313,6 @@ const form = ref({
   invite_email_subject: '',
   invite_email_body: '',
   role_package_mappings: [],
-  handbook_ack_url: '',
-  handbook_full_url: '',
   default_prehire_docs: [],
   portal_workflow: {},
   hire_packet_templates: []
@@ -400,8 +387,6 @@ const loadAll = async () => {
       invite_email_subject: s.invite_email_subject ?? '',
       invite_email_body: s.invite_email_body ?? '',
       role_package_mappings: Array.isArray(s.role_package_mappings) ? s.role_package_mappings : [],
-      handbook_ack_url: s.handbook_ack_url ?? '',
-      handbook_full_url: s.handbook_full_url ?? '',
       portal_workflow: s.portal_workflow || {},
       hire_packet_templates: s.hire_packet_templates || [],
       default_prehire_docs: Array.isArray(s.default_prehire_docs) ? s.default_prehire_docs : []

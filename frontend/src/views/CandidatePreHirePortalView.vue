@@ -867,10 +867,6 @@ const backgroundCheckLegalParagraphs = computed(() => {
     `I hereby consent to the Company's verification of all the information I have provided on my application form. I also agree to execute as a condition of employment or a condition of continued employment any additional written authorization necessary for the Company to obtain access to and copies of records pertaining to this information. I also hereby authorize the Company's access to any medical histories or records pertaining to me (and any other individuals who due to my employment may be covered by any Company medical or other insurance program). With regard to the foregoing disclosures, I hereby agree to release any person, company, or other entity from any and all causes of action that otherwise might arise from supplying the Company with information it may request pursuant to this release. I understand that any false answers or statements, or misrepresentations by omission, made by me on this application or any related document, will be sufficient for rejection of my application or for my immediate discharge should such falsifications or misrepresentations be discovered after I am employed.`
   ];
 });
-const handbookLinks = computed(() => portalData.value?.handbookLinks || {});
-const handbookSideLink = computed(() =>
-  handbookLinks.value.fullUrl || handbookLinks.value.acknowledgementUrl || null
-);
 const jobDescription = computed(() => portalData.value?.jobDescription || null);
 const hasJdSections = computed(() => Object.values(jobDescription.value?.descriptionSections || {}).some(v => Array.isArray(v) ? v.length > 0 : typeof v === 'string' && v.trim()));
 const jdPlainParagraphs = computed(() => splitPlainParagraphs(jobDescription.value?.descriptionText));

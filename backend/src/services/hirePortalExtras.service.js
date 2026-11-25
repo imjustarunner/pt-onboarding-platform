@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { builtInHireDocument } from '../../../frontend/src/navigation/hireDocuments.js';
 import { portalPacket } from './hirePortalWorkflow.service.js';
 import { mergePrehireDocuments } from '../utils/prehireConfigSanitize.js';
 import { sanitizeJobDescriptionSections } from '../utils/jobDescriptionSectionsSanitize.js';
@@ -103,7 +104,7 @@ export async function loadPortalPrehireExtras({ userId, agencyId, hiringProfile 
        ORDER BY id ASC`,
       [userId]
     );
-    extras.checklistItems = (rows || []).map((r) => ({
+    extras.checklistItems = (rows || []).filter(r => !['handbook_ack', 'handbook_full'].includes(r.item_key) && builtInHireDocument(r) !== 'handbook').map((r) => ({
       itemKey: r.item_key,
       title: r.title,
       instructions: r.instructions || '',
@@ -167,5 +168,6 @@ export async function loadPortalPrehireExtras({ userId, agencyId, hiringProfile 
     }
   } catch { /* ignore */ }
 
+  extras.prehireDocs = extras.prehireDocs.filter(d => !builtInHireDocument(d));
   return extras;
 }

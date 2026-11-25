@@ -1,50 +1,62 @@
 <template>
-  <div class="sph">
+  <div ref="workspaceRoot" class="sph">
     <ContractHandbookModal v-if="handbookReference" :open="true" v-bind="handbookReference" @close="handbookReference=null" />
     <header class="sph-head">
-      <div>
-        <button type="button" class="sph-back" @click="goBack">← Applicants</button>
-        <h1>Start pre-hire</h1>
-        <p role="status">{{ draftMessage }}</p><button v-if="draftSaveError" type="button" @click="flushDraft">Retry saving progress</button>
-        <p class="muted">Prepare one step at a time. Review the complete pre-hire experience before sending the invitation.</p>
-      </div>
+      <div class="sph-brandbar"><button type="button" class="sph-back" @click="goBack">← Applicants</button><PlotlineSignature context="Hiring workspace" product="PO" /></div>
+      <div class="sph-heading-row"><div><p class="sph-eyebrow">{{ agencyStore.currentAgency?.name || 'People operations' }} / Hiring</p><h1>Start pre-hire</h1><p class="muted">Prepare {{ candidateName === 'Candidate' ? 'their' : candidateName + '’s' }} next chapter, one step at a time.</p></div><div class="sph-save-state"><span class="sph-save-dot" :class="{ pending: draftDirty || draftSaving, failed: draftSaveError }" /><p role="status">{{ draftMessage }}</p><button v-if="draftSaveError" type="button" @click="flushDraft">Retry saving</button></div></div>
     </header>
 
-    <div v-if="loading" class="muted">Loading candidate…</div>
+    <div v-if="loading" class="sph-initial-loading" role="status"><div class="sph-skeleton" /><p>Opening candidate and job details…</p></div>
     <div v-else-if="error" class="error" role="alert">{{ error }} <button type="button" @click="load">Retry loading setup</button></div>
     <template v-else>
+      <div class="sph-context-strip"><span class="sph-avatar">{{ initials }}</span><div><strong>{{ candidateName }}</strong><span>{{ candidateEmail }}</span></div><div class="sph-context-job"><strong>{{ jobTitle || 'Job not linked' }}</strong><span>{{ locationLabel || 'Location not provided' }}</span></div><span class="sph-stage-badge">{{ stageLabel }}</span></div>
       <nav class="sph-steps" aria-label="Pre-hire setup"><button v-for="(label, i) in setupSteps" :key="label" type="button" :aria-current="setupStep === i ? 'step' : undefined" @click="setupStep = i"><span>{{ i + 1 }}</span>{{ label }}</button></nav>
       <p class="muted">Step {{ setupStep + 1 }} of {{ setupSteps.length }} · {{ setupSteps[setupStep] }}</p>
       <section v-show="setupStep === 0" class="sph-card">
         <h2>Confirm the person and job</h2>
-        <p class="sph-name">{{ candidateName }}</p>
-        <p class="muted">{{ candidateEmail }} · {{ jobTitle || 'Role not set' }}</p>
-        <p v-if="credentialLabel" class="muted">{{ credentialLabel }}</p>
-        <p v-if="locationLabel" class="muted">{{ locationLabel }}</p>
-        <a :href="careersEditPath" target="_blank" rel="noopener">Edit the job and its pre-hire defaults ↗</a>
+        <div class="sph-person-job-grid">
+          <article class="sph-summary-panel"><p class="sph-eyebrow">The person</p><h3>{{ candidateName }}</h3><dl class="sph-facts"><div v-for="fact in personFacts" :key="fact.label"><dt>{{ fact.label }}</dt><dd>{{ fact.value || 'Not provided' }}</dd></div></dl><a :href="candidateRecordPath" target="_blank" rel="noopener">Open candidate record, resume and interviews ↗</a></article>
+          <article class="sph-summary-panel"><p class="sph-eyebrow">The opportunity</p><h3>{{ jobTitle || 'No job posting linked' }}</h3><dl class="sph-facts"><div v-for="fact in jobFacts" :key="fact.label"><dt>{{ fact.label }}</dt><dd>{{ fact.value || 'Not provided' }}</dd></div></dl><a :href="careersEditPath" target="_blank" rel="noopener">Review the job and hiring defaults ↗</a></article>
+        </div>
+        <div class="sph-application-context"><article><h3>Application history</h3><p v-if="!detail?.applications?.length" class="muted">No submitted application history is available for this candidate.</p><ul v-else><li v-for="app in detail.applications" :key="app.submissionId"><strong>{{ app.jobTitle || 'Job application' }}</strong><span>{{ formatDate(app.submittedAt) }}</span><p v-if="app.coverLetterPreview">{{ app.coverLetterPreview }}</p></li></ul></article><article><h3>Candidate’s introduction</h3><p class="sph-description">{{ detail?.profile?.cover_letter_text || 'No cover letter text has been provided. Review the candidate record for any attached application materials.' }}</p></article></div>
+        <h3 class="sph-section-heading">Job description they will review</h3>
         <JobDescriptionSections v-if="detail?.jobDescription?.descriptionSections" :sections="detail.jobDescription.descriptionSections" :title="jobTitle" show-header compact />
         <p v-else class="sph-description">{{ detail?.jobDescription?.description_text || detail?.jobDescription?.descriptionText }}</p>
         <p v-if="currentPortalLink"><a :href="currentPortalLink" target="_blank" rel="noopener">Open {{ candidateName }}’s current portal ↗</a></p>
       </section>
 
-      <section v-show="setupStep === 1" id="prehire-workflow" class="sph-card" tabindex="-1">
-        <h2>Choose the pre-hire steps</h2>
-        <p class="muted">A saved setup combines your agency and job defaults. A document collection adds reusable documents. Review the actual contents below; changes here apply to this person.</p>
-        <label>Saved pre-hire setup<select v-model="packetTemplateId" @change="applyPacketTemplate"><option value="">Agency and job defaults</option><option v-for="p in settings.hire_packet_templates || []" :key="p.id" :value="p.id">{{ p.name }}</option></select></label>
-        <label>Saved document collection (optional)<select v-model="prehirePackageId"><option :value="null">Individual steps only</option><option v-for="p in packetPackages.filter(p => p.package_type === 'pre_hire')" :key="p.id" :value="p.id">{{ p.name }}</option></select></label>
-        <HirePackageContents documents-only :package-id="prehirePackageId" :edit-url="packagesPath" @loaded="onPackageLoaded" />
-        <p><a :href="settingsPath" target="_blank" rel="noopener">Edit saved setups and handbook ↗</a></p>
-        <h3>Built-in pre-hire steps</h3><ol><li v-for="item in builtInSteps" :key="item">{{ item }}</li></ol>
-        <label>Workplace handbook link<input v-model="portalWorkflow.handbookUrl" type="url" placeholder="https://docs.google.com/document/d/…/edit" /></label>
-        <a v-if="portalWorkflow.handbookUrl" :href="portalWorkflow.handbookUrl" target="_blank" rel="noopener">Preview handbook ↗</a>
-
-        <label>Assigned supervisor<select v-model="portalWorkflow.supervisorUserId"><option :value="null">Not assigned yet</option><option v-for="u in staffUsers.filter(u => Number(u.id) !== Number(userId) && isSupervisor(u))" :key="u.id" :value="u.id">{{ u.first_name }} {{ u.last_name }}</option></select></label>
-        <label class="sph-check"><input v-model="portalWorkflow.supervisorRole" type="checkbox" />This hire will perform supervisory duties</label>
-        <p v-if="portalWorkflow.supervisorRole" class="muted">Adds the supervisor role, the approved supervisory duties clause to the employment agreement, and the separate supervisor acknowledgement signature step.</p>
-        <HireWorkflowEditor v-model="portalWorkflow" :templates="packetDocumentTemplates" phase="pre_hire" :editor-url="documentsPath" heading="Additional pre-hire steps" />
+      <section v-show="setupStep === 1" class="sph-card">
+        <h2>Confirm role and supervision</h2>
+        <p class="muted">Choose whether this person will supervise other employees. This determines their agreement duties and the acknowledgment they sign.</p>
+        <fieldset class="sph-role-options"><legend>Will this hire perform supervisory duties?</legend>
+          <label :class="{ chosen: !portalWorkflow.supervisorRole }"><input v-model="portalWorkflow.supervisorRole" type="radio" :value="false" name="supervisory-role" /><span><strong>No supervisory duties</strong><small>Use the standard duties for this job.</small></span></label>
+          <label :class="{ chosen: portalWorkflow.supervisorRole }"><input v-model="portalWorkflow.supervisorRole" type="radio" :value="true" name="supervisory-role" /><span><strong>Yes, this hire will supervise others</strong><small>Include approved supervisory duties in the agreement and a separate supervisor acknowledgment to sign.</small></span></label>
+        </fieldset>
+        <p v-if="portalWorkflow.supervisorRole && (!portalWorkflow.supervisorTemplateId || !portalWorkflow.supervisorClause)" role="alert" class="sph-warn">Configure the approved supervisory clause and acknowledgment in hiring settings before sending.</p>
+        <label>Who will supervise this hire?<select v-model="portalWorkflow.supervisorUserId"><option :value="null">Not assigned yet</option><option v-for="u in staffUsers.filter(u => Number(u.id) !== Number(userId) && isSupervisor(u))" :key="u.id" :value="u.id">{{ u.first_name }} {{ u.last_name }}</option></select></label>
+        <p class="muted">Assigning this person’s supervisor does not give the new hire supervisory duties.</p>
       </section>
 
-      <section v-show="setupStep === 2" class="sph-card">
+      <section v-show="setupStep === 2" id="prehire-workflow" class="sph-card" tabindex="-1">
+        <h2>Select this person’s materials</h2>
+        <p class="muted">Start with the saved agency and job selections, then choose any extra documents or resources. Next, review one combined sequence in the order the candidate will see it.</p>
+        <label>Saved pre-hire setup<select v-model="packetTemplateId" @change="applyPacketTemplate"><option value="">Agency and job defaults</option><option v-for="p in settings.hire_packet_templates || []" :key="p.id" :value="p.id">{{ p.name }}</option></select></label>
+        <label>Saved document collection (optional)<select v-model="prehirePackageId"><option :value="null">Individual steps only</option><option v-for="p in packetPackages.filter(p => p.package_type === 'pre_hire')" :key="p.id" :value="p.id">{{ p.name }}</option></select></label>
+        <p v-if="prehirePackageId" class="muted">{{ collectionDocuments.length }} additional document(s) included. Forms already provided by the portal appear once in the review.</p>
+        <p v-if="collectionError" role="alert" class="error">{{ collectionError }} <button type="button" @click="loadCollection">Retry collection</button></p>
+        <p><a :href="settingsPath" target="_blank" rel="noopener">Manage saved hiring setups ↗</a></p>
+        <p class="sph-handbook-note">The internal workplace handbook is available as a reference in pre-hire. Its review and signature belong to onboarding. <a :href="handbookPath" target="_blank" rel="noopener">Open internal handbook ↗</a></p>
+      </section>
+
+      <section v-show="setupStep === 3" class="sph-card">
+        <h2>Review each candidate step</h2>
+        <p class="muted">Walk through each item, open its document, and review how the candidate completes it. These reviews confirm your setup; the candidate completes and signs their own work after receiving the invitation.</p>
+        <HireStepReview :steps="candidateSteps" :agency-id="agencyId" :job-id="jobId" @reviewed="stepsReviewed = $event" @agreement="setupStep = 4">
+          <template #job-description><JobDescriptionSections v-if="detail?.jobDescription?.descriptionSections" :sections="detail.jobDescription.descriptionSections" :title="jobTitle" compact /><p v-else class="sph-description">{{ detail?.jobDescription?.description_text || detail?.jobDescription?.descriptionText }}</p></template>
+        </HireStepReview>
+      </section>
+
+      <section v-show="setupStep === 4" class="sph-card">
         <h2>Agreement and cosigners</h2>
         <p class="muted">Review the person’s information and compensation, then generate the agreement they will receive.</p>
         <p><a :href="contractsPath" target="_blank" rel="noopener">Manage standard agreement terms and pay settings ↗</a> <button type="button" @click="refreshContractLibrary">Refresh contract settings</button></p>
@@ -134,8 +146,8 @@
         <label v-if="contractPreview && previewMatches && !contractPreview.unresolvedTokens?.length" class="sph-check"><input v-model="contractReviewed" type="checkbox" />I reviewed this agreement and its values.</label>
       </section>
 
-      <section v-show="setupStep === 1" class="sph-card">
-        <h2>Documents for this job</h2>
+      <section v-show="setupStep === 2" class="sph-card">
+        <h2>Documents selected for this job</h2>
         <p class="muted">
           Pulled from this candidate’s job posting (Careers → edit posting → Pre-hire documents),
           plus agency defaults. Titles come from those settings — you don’t re-enter them here.
@@ -148,17 +160,18 @@
           </p>
           <a :href="careersEditPath" target="_blank" rel="noopener">Edit job documents ↗</a>
         </div>
-        <label v-for="(doc, idx) in jobDocs" :key="doc.id || idx" class="sph-doc">
-          <input v-model="doc.selected" type="checkbox" />
-          <div>
-            <strong>{{ doc.title }}</strong>
-            <span class="sph-kind">{{ docKindLabel(doc.kind) }}</span>
-            <p v-if="doc.instructions" class="muted small">{{ doc.instructions }}</p>
-            <a v-if="doc.url" :href="doc.url" target="_blank" rel="noopener">Open document ↗</a>
-          </div>
-        </label>
-        <p><a :href="documentsPath" target="_blank" rel="noopener">Open the stored document library and form editor ↗</a></p>
-        <p class="muted small">PDFs with existing form fields can be filled and signed in the portal. Flat or scanned forms need a reusable field layout configured once in the document editor.</p>
+        <article v-for="(doc, idx) in availableJobDocs" :key="doc.id || idx" class="sph-doc sph-document-card">
+          <label class="sph-check"><input v-model="doc.selected" type="checkbox" /><strong>{{ doc.title }}</strong></label>
+          <p class="sph-kind">{{ docSource(doc) }} · {{ doc.templateId ? `Library template #${doc.templateId}` : 'Saved in this setup' }} · {{ jobDocumentActionLabel(doc) }}</p>
+          <p>{{ documentAction(doc) }}</p>
+          <p v-if="doc.instructions" class="muted small">{{ doc.instructions }}</p>
+          <HireSetupDocumentPreview v-if="doc.templateId || doc.bodyHtml || doc.filePath" :title="doc.title" :agency-id="agencyId" :job-id="jobId" :document-id="String(doc.id)" />
+          <a v-if="safeUrl(doc.url)" :href="safeUrl(doc.url)" target="_blank" rel="noopener">Open resource ↗</a>
+          <p v-if="!doc.templateId && !doc.bodyHtml && !doc.filePath && !safeUrl(doc.url)" class="sph-warn">No saved content is attached to this item. Open the job settings to add it.</p>
+          <a :href="docSource(doc) === 'Agency default' ? settingsPath : careersEditPath" target="_blank" rel="noopener">View or edit source settings ↗</a>
+        </article>
+        <p class="muted small">Documents written or uploaded in job settings are saved with that setup. They appear in the Documents Library only when they use a library template. Reusable templates can also be assigned during onboarding and other document workflows.</p>
+        <HireWorkflowEditor v-model="portalWorkflow" :templates="packetDocumentTemplates" :agency-id="agencyId" phase="pre_hire" heading="Add a step for this person" description="Add only what this hire needs before onboarding. Each item below explains what the candidate does and what the app saves." />
         <div class="sph-upload">
           <label>Upload additional files (stored on the employee file)
             <input type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,application/pdf,image/*" @change="onExtraFiles" />
@@ -180,7 +193,7 @@
         </div>
       </section>
 
-      <section v-show="setupStep === 2" class="sph-card">
+      <section v-show="setupStep === 4" class="sph-card">
         <h2>Contract cosigners</h2>
         <p class="muted">Each selected employee countersigns this employment contract after the candidate signs.</p>
         <div v-if="!signerAssignments.length" class="muted small" style="margin-bottom:10px;">
@@ -204,18 +217,18 @@
         </label>
       </section>
 
-      <section v-show="setupStep === 3" class="sph-card">
+      <section v-show="setupStep === 5" class="sph-card">
         <h2>Review {{ candidateName }}’s pre-hire experience</h2>
         <p>The invitation goes to <strong>{{ candidateEmail }}</strong>. Their portal includes:</p>
-        <ol><li v-for="item in builtInSteps" :key="item">{{ item }}</li><li v-for="item in portalWorkflow.resources || []" :key="item.id">{{ item.title }} · {{ item.required === false ? 'Optional' : 'Required' }}</li><li v-for="doc in jobDocs.filter(d => d.selected && d.kind !== 'acknowledgement')" :key="doc.id">{{ doc.title }} · {{ docKindLabel(doc.kind) }}</li></ol>
-        <HirePackageContents documents-only :package-id="prehirePackageId" :edit-url="packagesPath" />
+        <ol class="sph-final-sequence"><li v-for="item in candidateSteps" :key="item.key"><strong>{{ item.title }}</strong> · {{ item.action }}<span class="muted small">{{ item.source }}</span></li></ol>
+        <p>Workplace handbook: internal reference available during pre-hire; review and signed acknowledgment during onboarding.</p>
+        <p v-if="!stepsReviewed" class="error">Review each candidate step before sending.</p>
         <p>Agreement: {{ agreementBuilder?.options.find(option => option.value === agreementVariant)?.label || contractConfigs.find(c => c.id === contractConfigId)?.name || 'Choose an agreement' }} · {{ contractReviewed ? 'Preview reviewed' : 'Preview must be reviewed' }}</p>
         <p>Compensation: Category {{ contract.compensationCategory || 'not selected' }}, Level {{ contract.compensationLevel || 'not selected' }}</p>
         <p v-if="!contractReviewed || !previewMatches" class="error">Return to Contract &amp; cosigners, update the preview, and confirm you reviewed it.</p>
         <p>Cosigners: {{ chosenSignerNames || 'None selected' }}</p>
         <p v-if="extraFiles.length">Additional employee files: {{ extraFiles.map(f => f.title || f.name).join(', ') }}</p>
-        <p v-if="!portalWorkflow.handbookUrl" class="error">Attach the workplace handbook in step 2.</p>
-        <p v-if="missingResources.length" class="error">Attach the missing resources in step 2: {{ missingResources.map(r => r.title || 'Untitled step').join(', ') }}.</p>
+        <p v-if="missingResources.length" class="error">Attach the missing resources in Select materials: {{ missingResources.map(r => r.title || 'Untitled step').join(', ') }}.</p>
         <p v-if="currentPortalLink"><a :href="currentPortalLink" target="_blank" rel="noopener">View the current candidate portal ↗</a></p>
         <p class="muted">The final action prepares their documents and sends their agency portal invitation. Onboarding is prepared separately after pre-hire review.</p>
       </section>
@@ -223,8 +236,8 @@
       <p v-if="contractWarning" class="sph-warn">{{ contractWarning }}</p>
       <div class="sph-actions">
         <button type="button" class="btn btn-secondary" @click="setupStep ? setupStep-- : goBack()">{{ setupStep ? 'Back' : 'Cancel' }}</button>
-        <button v-if="setupStep < 3" type="button" class="btn btn-primary" :disabled="setupStep===2 && !probationChosen" @click="setupStep++">Continue →</button>
-        <button type="button" v-if="setupStep === 3" class="btn btn-primary" :disabled="sending || (!tokenLink && !readyToSend)" @click="tokenLink ? resendInvitation() : initiate()">
+        <button v-if="setupStep < setupSteps.length - 1" type="button" class="btn btn-primary"  :disabled="(setupStep === 3 && !stepsReviewed) || (setupStep === 4 && !probationChosen)" @click="setupStep++">Continue →</button>
+        <button type="button" v-if="setupStep === 5" class="btn btn-primary" :disabled="sending || (!tokenLink && !readyToSend)" @click="tokenLink ? resendInvitation() : initiate()">
           {{ sending ? 'Sending invitation…' : tokenLink ? 'Email portal link again' : 'Prepare and send pre-hire invitation' }}
         </button>
       </div>
@@ -242,7 +255,9 @@
 import { prehireIssueDestination } from '../../utils/nluPrehireForm.js';
 import CredentialPicker from '../../components/CredentialPicker.vue';
 import { isSupervisor } from '../../utils/helpers.js';
-import HirePackageContents from '../../components/hiring/HirePackageContents.vue';
+import HireSetupDocumentPreview from '../../components/hiring/HireSetupDocumentPreview.vue';
+import HireStepReview from '../../components/hiring/HireStepReview.vue';
+import { builtInHireDocument, hireResourceHelp } from '../../navigation/hireDocuments.js';
 import ContractServiceFocusSelect from '../../components/hiring/ContractServiceFocusSelect.vue';
 import ContractProbationChoice from '../../components/hiring/ContractProbationChoice.vue';
 import {PROVIDER_DESIGNATION_LABELS} from '../../constants/providerDesignationLevels.js';
@@ -255,7 +270,15 @@ import StandardAgreementApproval from '../../components/hiring/StandardAgreement
 import { CONTRACT_SERVICE_ROLE_FIELD_LABELS } from '../../constants/contractServiceRoles.js';
 import { computed, onMounted, onBeforeUnmount, nextTick, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router';
-import api from '../../services/api';
+import apiClient from '../../services/api';
+import PlotlineSignature from '../../components/plotline/PlotlineSignature.vue';
+// This workspace owns its loading states. Autosave and previews keep the page usable.
+const api = {
+  get: (url, config = {}) => apiClient.get(url, { ...config, skipGlobalLoading: true }),
+  post: (url, body, config = {}) => apiClient.post(url, body, { ...config, skipGlobalLoading: true }),
+  put: (url, body, config = {}) => apiClient.put(url, body, { ...config, skipGlobalLoading: true }),
+  patch: (url, body, config = {}) => apiClient.patch(url, body, { ...config, skipGlobalLoading: true })
+};
 import { prehireInviteDeliveryMessage } from '../../utils/prehireInviteDelivery.js';
 import { useAgencyStore } from '../../store/agency';
 import { mapSignerRolesWithDefaults } from '../../utils/hiringSignerDefaults.js';
@@ -265,6 +288,7 @@ const router = useRouter();
 const agencyStore = useAgencyStore();
 
 const loading = ref(true);
+const workspaceRoot = ref(null);
 const sending = ref(false);
 const error = ref('');
 const sendError = ref('');
@@ -330,21 +354,21 @@ const portalWorkflow = ref({});
 const packetTemplateId = ref('');
 const prehirePackageId = ref(null);
 const packageDetails = ref(null);
-function onPackageLoaded(value) { if (JSON.stringify(value) !== JSON.stringify(packageDetails.value)) packageDetails.value = value; }
 const packetPackages = ref([]);
 const packetDocumentTemplates = ref([]);
 const meaningfulWorkflow = (value) => Object.fromEntries(Object.entries(value || {}).filter(([, v]) => v !== '' && v != null));
 let baseWorkflow = {};
 let jobPrehirePackageId = null;
 function applyPacketTemplate() {
+  const personSupervision = Object.fromEntries(['supervisorRole', 'supervisorUserId'].filter(key => Object.hasOwn(portalWorkflow.value, key)).map(key => [key, portalWorkflow.value[key]]));
   const preset = (settings.value.hire_packet_templates || []).find(p => p.id === packetTemplateId.value);
   const resources = new Map((baseWorkflow.resources || []).map(r => [r.id, r]));
   for (const r of preset?.workflow?.resources || []) resources.set(r.id, r);
-  portalWorkflow.value = JSON.parse(JSON.stringify({ ...baseWorkflow, ...meaningfulWorkflow(preset?.workflow), resources: [...resources.values()] }));
+  portalWorkflow.value = JSON.parse(JSON.stringify({ supervisorRole: false, supervisorUserId: null, ...baseWorkflow, ...meaningfulWorkflow(preset?.workflow), ...personSupervision, resources: [...resources.values()] }));
   prehirePackageId.value = preset?.prehirePackageId || jobPrehirePackageId || settings.value.default_prehire_package_id || null;
   const excluded = new Set([...(baseWorkflow.excludedResourceIds || []), ...(preset?.workflow?.excludedResourceIds || [])]);
-  portalWorkflow.value.resources = (portalWorkflow.value.resources || []).filter(r => r.phase !== 'onboarding' && !excluded.has(r.id)).map(r => ({ ...r, phase: 'pre_hire' }));
-  portalWorkflow.value.handbookUrl ||= settings.value.handbook_full_url || '';
+  portalWorkflow.value.resources = (portalWorkflow.value.resources || []).filter(r => !builtInHireDocument(r) && r.phase !== 'onboarding' && !excluded.has(r.id)).map(r => ({ ...r, phase: 'pre_hire' }));
+  delete portalWorkflow.value.handbookUrl;
 }
 const includeSupervisor = ref(false);
 
@@ -377,6 +401,29 @@ const candidateName = computed(() => {
   return `${u.first_name || ''} ${u.last_name || ''}`.trim() || 'Candidate';
 });
 const candidateEmail = computed(() => detail.value?.user?.personal_email || detail.value?.user?.email || '—');
+const initials = computed(() => candidateName.value.split(/\s+/).map(part => part[0]).slice(0, 2).join(''));
+const candidateRecordPath = computed(() => orgPath(`/admin/hiring/applicants?agencyId=${agencyId.value}&candidateId=${userId.value}`));
+const stageLabel = computed(() => detail.value?.profile?.stage_label || String(detail.value?.user?.status || 'Preparing pre-hire').replaceAll('_', ' '));
+const formatDate = value => { const date = new Date(value); return value && Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat('en-US', { dateStyle: 'medium' }).format(date) : 'Date not provided'; };
+const languageList = computed(() => { try { const raw = detail.value?.profile?.fluent_languages_json; const values = typeof raw === 'string' ? JSON.parse(raw) : raw; return Array.isArray(values) ? values.join(', ') : ''; } catch { return ''; } });
+const personFacts = computed(() => [
+  { label: 'Personal email', value: candidateEmail.value === '—' ? '' : candidateEmail.value },
+  { label: 'Phone', value: detail.value?.user?.personal_phone || detail.value?.user?.phone_number },
+  { label: 'Credentials / license', value: credentialLabel.value },
+  { label: 'Languages', value: languageList.value },
+  { label: 'Hiring stage', value: stageLabel.value },
+  { label: 'Application source', value: detail.value?.profile?.source },
+  { label: 'Best time to contact', value: detail.value?.profile?.best_time_to_contact },
+  { label: 'Work username', value: detail.value?.user?.work_email || 'Chosen by candidate during pre-hire' }
+]);
+const jobFacts = computed(() => [
+  { label: 'Location', value: locationLabel.value },
+  { label: 'Role type', value: detail.value?.jobDescription?.roleType },
+  { label: 'Education / qualifications', value: detail.value?.jobDescription?.educationLevel },
+  { label: 'Schedule', value: detail.value?.jobDescription?.scheduleText },
+  { label: 'Assigned office', value: offices.value.find(o => Number(o.id) === Number(officeLocationId.value))?.name || 'Choose in Contract & cosigners' },
+  { label: 'Linked posting', value: detail.value?.jobDescription?.id ? `Posting #${detail.value.jobDescription.id}` : 'No posting linked' }
+]);
 const jobTitle = computed(() =>
   detail.value?.jobDescription?.title
   || detail.value?.profile?.applied_role
@@ -409,7 +456,7 @@ const settingsPath = computed(() => {
 const docKindLabel = (kind) => {
   switch (String(kind || '').toLowerCase()) {
     case 'receipt': return 'View, download & acknowledge receipt';
-    case 'company_document': return 'company document';
+    case 'company_document': return 'Fill and sign in the app';
     case 'upload': return 'candidate upload';
     case 'print_only': return 'printable';
     case 'reference': return 'external link';
@@ -567,7 +614,7 @@ const initiate = async () => {
       fd.append('docType', 'prehire_upload');
       await api.post(`/users/${userId.value}/admin-docs/upload`, fd);
     }
-    const templateIds = jobDocs.value
+    const templateIds = availableJobDocs.value
       .filter((d) => d.selected && d.templateId)
       .map((d) => Number(d.templateId))
       .filter(Boolean);
@@ -587,7 +634,7 @@ const initiate = async () => {
         packageId: prehirePackageId.value,
         portalWorkflow: portalWorkflow.value,
         documentTemplateIds: templateIds,
-        selectedJobDocs: jobDocs.value.filter((d) => d.selected),
+        selectedJobDocs: availableJobDocs.value.filter((d) => d.selected),
         signerAssignments: signers,
         contractTokens: tokens,
         compensationLevel: contract.compensationLevel,
@@ -628,20 +675,81 @@ const resendInvitation = async () => {
   } finally { sending.value = false; }
 };
 
-const setupSteps = ['Person & job', 'Pre-hire steps', 'Contract & cosigners', 'Review & invite'];
+const setupSteps = ['Person & job', 'Role & supervision', 'Select materials', 'Review each step', 'Contract & cosigners', 'Review & invite'];
 const setupStep = ref(0), currentPortalLink = ref('');
-const builtInSteps = ['Background check authorization', 'Job description · review and sign', 'Employment agreement · review and sign', 'Pre-employment information', 'Professional headshot', 'Workplace handbook · review', 'Final review and submission'];
+watch(setupStep, async () => {
+  if (loading.value) return;
+  await nextTick();
+  const section = [...(workspaceRoot.value?.querySelectorAll('.sph-card') || [])].find(card => card.style.display !== 'none');
+  const heading = section?.querySelector('h2');
+  if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll: true }); heading.scrollIntoView?.({ block: 'start', behavior: 'instant' }); }
+});
 const contractFields = [{ key: 'COMPANY_NAME', label: 'Employer name' }, { key: 'COMPANY_ADDRESS', label: 'Employer address' }, { key: 'JOB_TITLE', label: 'Job title' }, { key: 'ROLE_LABEL', label: 'Role label' }, { key: 'SERVICE_FOCUS', label: 'Service focus' }, { key: 'LICENSE_TYPE', label: 'License / credential' }, { key: 'ASSIGNED_OFFICE_NAME', label: 'Assigned office' }, { key: 'ASSIGNED_OFFICE_ADDRESS', label: 'Office address' }];
 const visibleContractFields = computed(()=>contractFields.filter(field=>contractTenant.value!=='isi'||field.key!=='SERVICE_FOCUS'));
 const contractOverrides = reactive({}), contractPreview = ref(null), contractReviewed = ref(false), previewBusy = ref(false), previewError = ref('');
 const showSchoolDays = computed(() => schoolDaysEnabled.value && /\bschools?\b/i.test(contractOverrides.SERVICE_FOCUS || ''));
 watch(showSchoolDays, visible => { if (!visible) contract.minDays = ''; });
 const contractsPath = computed(() => orgPath(`/admin/contracts?agencyId=${agencyId.value}&candidateUserId=${userId.value}&tab=library`));
-const packagesPath = computed(() => orgPath(`/admin/settings?agencyId=${agencyId.value}&category=workflow&item=packages`));
-const documentsPath = computed(() => orgPath(`/admin/documents?agencyId=${agencyId.value}`));
 const eligibleSupervisors = computed(() => staffUsers.value.filter(u => Number(u.id) !== Number(userId.value) && isSupervisor(u)));
 const nluSupervisionIncluded = computed(() => individualExpectations.value.includeSupervision ?? (includeSupervisor.value || !!portalWorkflow.value.supervisorUserId));
 const effectiveIncludeSupervisor = computed(() => contractTenant.value==='nlu' ? nluSupervisionIncluded.value : includeSupervisor.value);
+const handbookPath = computed(() => orgPath(`/workplace-handbook?agencyId=${agencyId.value}`));
+const jobId = computed(() => detail.value?.jobDescription?.id || detail.value?.profile?.job_description_id || null);
+const safeUrl = value => { try { const url = new URL(value); return url.protocol === 'https:' ? url.href : ''; } catch { return ''; } };
+const availableJobDocs = computed(() => jobDocs.value.filter(d => d.kind !== 'acknowledgement' && !builtInHireDocument(d)));
+const missingJobDocuments = computed(() => availableJobDocs.value.filter(d => d.selected && d.kind === 'company_document' && !d.templateId && !d.bodyHtml && !d.filePath));
+function docSource(doc) {
+  const config = detail.value?.jobDescription?.prehireConfig;
+  return (config?.documents || []).some(d => String(d.id) === String(doc.id)) ? 'Job posting' : 'Agency default';
+}
+function documentAction(doc) {
+  if (doc.templateId) return packetDocumentTemplates.value.find(t => Number(t.id) === Number(doc.templateId))?.document_action_type === 'review' ? 'The candidate opens this review-only template in the portal and confirms they have read it. No signature is requested.' : hireResourceHelp.document;
+  return ({ company_document: 'The candidate opens this document in the portal, fills in information or places text and a signature on the PDF, then submits the signed copy.', receipt: 'The candidate views or downloads the file and confirms receipt. No signature is requested.', upload: 'The candidate downloads the blank form if provided, completes it, and uploads their completed file.', reference: 'The candidate opens the website as an optional reference. No signature is requested.', print_only: 'The candidate reads or prints these instructions. No signature is requested.' })[doc.kind] || 'Review the document and follow its instructions.';
+}
+function jobDocumentActionLabel(doc) { return doc.templateId ? (packetDocumentTemplates.value.find(t => Number(t.id) === Number(doc.templateId))?.document_action_type === 'review' ? 'Read and acknowledge' : 'Fill and sign in the app') : docKindLabel(doc.kind); }
+const collectionError = ref('');
+let collectionRequest = 0;
+async function loadCollection() {
+  const current = ++collectionRequest; packageDetails.value = null; collectionError.value = '';
+  if (!prehirePackageId.value) return;
+  try {
+    const { data } = await api.get(`/onboarding-packages/${prehirePackageId.value}`);
+    if (current === collectionRequest) packageDetails.value = data;
+  } catch (e) { if (current === collectionRequest) collectionError.value = e.response?.data?.error?.message || 'Could not load the selected collection.'; }
+}
+watch(prehirePackageId, loadCollection);
+const collectionDocuments = computed(() => (packageDetails.value?.documents || []).filter(d => !builtInHireDocument(d)));
+const stepsReviewed = ref(false);
+const candidateSteps = computed(() => {
+  const result = [
+    { key: 'background', title: 'Background check authorization', action: 'Complete and sign the secure form', instructions: 'The candidate enters their authorization details and signs in the portal. This is provided by the app; a second authorization document from a saved collection is not assigned.' },
+    { key: 'job-description', title: 'Job description', action: 'Review and sign', instructions: 'The candidate reads the job description from this posting and signs to confirm.' },
+    { key: 'agreement', title: 'Employment agreement', action: 'Review and sign', instructions: 'The candidate reviews the personalized agreement prepared in Contract & cosigners and signs it. Selected cosigners then receive their signing tasks.' },
+    { key: 'work-email', title: 'Choose a work username', action: 'Select an available username', instructions: 'The candidate reserves a username. People Operations prepares account access separately.' },
+    { key: 'profile', title: 'Pre-employment information', action: 'Complete the information form', instructions: 'The candidate enters legal name, contact details, education, credentials and other requested information. They can save progress and return later.' },
+    { key: 'headshot', title: 'Professional headshot', action: 'Upload a photo', instructions: 'The candidate uploads a JPEG, PNG or WebP photo up to 10 MB. The photo is saved to their hire record and profile.' }
+  ].map(item => ({ source: 'Provided by the app', required: true, ...item }));
+  const templates = new Set();
+  const addTemplate = (id, title, source, required = true) => {
+    id = Number(id);
+    if (id && templates.has(id)) return;
+    if (id) templates.add(id);
+    const template = packetDocumentTemplates.value.find(t => Number(t.id) === id);
+    if (builtInHireDocument({ title }) || builtInHireDocument(template)) return;
+    const reviewOnly = template?.document_action_type === 'review';
+    result.push({ key: `template-${id || title}`, title, source, required, templateId: id || null, action: reviewOnly ? 'Read and acknowledge' : 'Fill and sign in the portal', instructions: reviewOnly ? 'The candidate opens the document and confirms they reviewed it. No signature is requested.' : hireResourceHelp.document, unavailable: !id });
+  };
+  // Match the portal: authored job documents, then assigned document tasks,
+  // then custom resources, and finally submission.
+  for (const doc of availableJobDocs.value.filter(d => d.selected && !d.templateId)) result.push({ key: `doc-${doc.id}`, title: doc.title, source: docSource(doc), required: !['reference', 'print_only'].includes(doc.kind), action: docKindLabel(doc.kind), instructions: [documentAction(doc), doc.instructions].filter(Boolean).join(' '), documentId: doc.bodyHtml || doc.filePath ? String(doc.id) : null, url: safeUrl(doc.url), unavailable: missingJobDocuments.value.includes(doc) });
+  for (const doc of collectionDocuments.value) addTemplate(doc.document_template_id, doc.document_name || doc.name || doc.title || 'Untitled document', packageDetails.value?.name || 'Saved collection');
+  if (portalWorkflow.value.supervisorRole) addTemplate(portalWorkflow.value.supervisorTemplateId, 'Supervisor acknowledgment', 'Supervisory role');
+  for (const resource of portalWorkflow.value.resources || []) if (resource.kind === 'document') addTemplate(resource.templateId, resource.title, 'Additional step', resource.required !== false);
+  for (const doc of availableJobDocs.value.filter(d => d.selected && d.templateId)) addTemplate(doc.templateId, doc.title, docSource(doc));
+  for (const resource of portalWorkflow.value.resources || []) if (resource.kind !== 'document' && !builtInHireDocument(resource)) result.push({ ...resource, key: resource.id, source: 'Additional step', url: safeUrl(resource.url), action: ({ video: 'Watch and confirm', link: 'Open and confirm completion', meeting: 'Book and enter confirmed time', acknowledgement: 'Read and sign an acknowledgment', upload: 'Complete and upload' })[resource.kind], instructions: [hireResourceHelp[resource.kind], resource.instructions].filter(Boolean).join(' '), unavailable: resource.required !== false && !safeUrl(resource.url) });
+  result.push({ key: 'review', title: 'Final review and submission', source: 'Provided by the app', action: 'Submit pre-hire for review', instructions: 'The candidate checks their completed work and submits it to People Operations. Onboarding begins after staff review.', required: false });
+  return result;
+});
 const assignedSupervisorName = computed(() => { const u = staffUsers.value.find(u => Number(u.id) === Number(portalWorkflow.value.supervisorUserId)); return u ? `${u.first_name} ${u.last_name}` : ''; });
 const contractCredential = computed({
   get: () => contractOverrides.CREDENTIAL ?? wizardTokens.value.CREDENTIAL ?? detail.value?.profile?.credential ?? '',
@@ -678,7 +786,7 @@ watch(previewInput, () => { contractReviewed.value = false; }, { deep: true });
 const missingResources = computed(() => (portalWorkflow.value.resources || []).filter(r => !r.title?.trim() || (r.kind === 'document' ? !r.templateId : r.required !== false && !r.url)));
 const probationRequired = computed(() => !!contractTenant.value && !/amendment|addendum|acknowledg/i.test(contractConfigs.value.find(c=>Number(c.id)===Number(contractConfigId.value))?.slug||''));
 const probationChosen = computed(() => !probationRequired.value || ['yes','no'].includes(contract.probationChoice) && (contractTenant.value!=='isi' || contract.probationChoice!=='yes' || !!contract.probationTerms.trim()));
-const readyToSend = computed(() => probationChosen.value && !uploadingFiles.value && !draftSaveError.value && !missingResources.value.length && !requiresActivation.value && compensationChosen.value && contractReviewed.value && previewMatches.value && contractPreview.value && !contractPreview.value.unresolvedTokens?.length && portalWorkflow.value.handbookUrl && (!prehirePackageId.value || Number(packageDetails.value?.id) === Number(prehirePackageId.value)));
+const readyToSend = computed(() => probationChosen.value && !requiresActivation.value && !uploadingFiles.value && !draftSaveError.value && !missingResources.value.length && !missingJobDocuments.value.length && (!portalWorkflow.value.supervisorRole || (portalWorkflow.value.supervisorClause && portalWorkflow.value.supervisorTemplateId)) && compensationChosen.value && contractReviewed.value && previewMatches.value && contractPreview.value && !contractPreview.value.unresolvedTokens?.length && stepsReviewed.value && (!prehirePackageId.value || Number(packageDetails.value?.id) === Number(prehirePackageId.value)));
 const chosenSignerNames = computed(() => [...signerAssignments.value.map(s => s.userId), adhocSignerUserId.value].filter(Boolean).map(id => { const u = staffUsers.value.find(u => String(u.id) === String(id)); return u ? `${u.first_name} ${u.last_name}` : ''; }).join(', '));
 async function resolveSetupIssue(message, tokenKey) {
   const destination=prehireIssueDestination(message);
@@ -689,7 +797,8 @@ async function resolveSetupIssue(message, tokenKey) {
     window.open(path, '_blank', 'noopener');
     return;
   }
-  setupStep.value=destination.step ?? 2;
+  const legacySetupStep = destination.step ?? 2;
+  setupStep.value = [0, 2, 4, 5][legacySetupStep] ?? 4;
   await nextTick();
   const element=(tokenKey && document.getElementById(`prehire-field-${tokenKey}`)) || document.getElementById(destination.id);
   if (!element) return;
@@ -745,7 +854,7 @@ const draftState = computed(() => ({ contract: { ...contract }, contractOverride
   contractConfigId: contractConfigId.value, officeLocationId: officeLocationId.value, includeSupervisor: includeSupervisor.value,
   signerAssignments: signerAssignments.value, adhocSignerUserId: adhocSignerUserId.value,
   prehirePackageId: prehirePackageId.value, packetTemplateId: packetTemplateId.value,
-  portalWorkflow: portalWorkflow.value, jobDocs: jobDocs.value, extraFiles: extraFiles.value.map(({ id, name, title }) => ({ id, name, title })), setupStep: setupStep.value }));
+  portalWorkflow: portalWorkflow.value, jobDocs: jobDocs.value.map(({ id, selected }) => ({ id, selected })), extraFiles: extraFiles.value.map(({ id, name, title }) => ({ id, name, title })), setupVersion: 2, setupStep: setupStep.value }));
 const savedDraft = ref('');
 let draftTimer, savingDraft;
 const draftDirty = computed(() => draftReady.value && JSON.stringify(draftState.value) !== savedDraft.value);
@@ -759,9 +868,15 @@ async function restoreDraft() {
     if (d.contract) Object.assign(contract, d.contract);
     if (d.contractOverrides) Object.assign(contractOverrides, d.contractOverrides);
     if (d.individualExpectations) individualExpectations.value = d.individualExpectations;
-    for (const [key, target] of Object.entries({ agreementVariant, contractConfigId, officeLocationId, includeSupervisor, signerAssignments, adhocSignerUserId, prehirePackageId, packetTemplateId, portalWorkflow, jobDocs, extraFiles, setupStep })) {
+    for (const [key, target] of Object.entries({ agreementVariant, contractConfigId, officeLocationId, includeSupervisor, signerAssignments, adhocSignerUserId, prehirePackageId, packetTemplateId, portalWorkflow, extraFiles, setupStep })) {
       if (d[key] !== undefined) target.value = d[key];
     }
+    // The draft owns selections; current job/agency settings own document content.
+    const savedSelections = new Map((d.jobDocs || []).map(doc => [String(doc.id), doc.selected !== false]));
+    jobDocs.value = jobDocs.value.map(doc => ({ ...doc, selected: savedSelections.has(String(doc.id)) ? savedSelections.get(String(doc.id)) : doc.selected }));
+    setupStep.value = d.setupVersion === 2 ? Math.max(0, Math.min(5, Number(d.setupStep) || 0)) : [0, 2, 4, 5][Number(d.setupStep) || 0] || 0;
+    delete portalWorkflow.value.handbookUrl;
+    portalWorkflow.value.resources = (portalWorkflow.value.resources || []).filter(r => !builtInHireDocument(r));
     if (agreementBuilder.value) applyAgreementVariant();
     // Always resolve source-owned office/address data against the current agency records.
     contractOverrides.COMPANY_ADDRESS = agencyAddress;
@@ -797,7 +912,7 @@ onMounted(load);
 <style scoped>
 .sph-program-rates{max-width:100%;overflow-x:auto;margin:16px 0}.sph-program-rates table{width:100%;min-width:500px;border-collapse:collapse}.sph-program-rates th,.sph-program-rates td{text-align:left;padding:9px;border-bottom:1px solid #d9e4de}.sph-program-rates caption{text-align:left;font-weight:700;padding:9px 0}
 
-.sph { max-width: 1080px; margin: 0 auto; padding: 24px 16px 64px; }
+.sph { width:100%; max-width:none; margin:0; padding:20px clamp(16px,3vw,48px) 48px; box-sizing:border-box; color:#243b53; font-family:'Plotline Inter',Inter,system-ui,sans-serif; background:#f7f8fa; min-height:100vh; }
 .sph-head h1 { margin: 6px 0 4px; }
 .sph-back { background: none; border: 0; color: #1a8c54; font-weight: 700; cursor: pointer; padding: 0; }
 .sph-card {
@@ -912,6 +1027,9 @@ onMounted(load);
 .small { font-size: 0.82rem; }
 .error { color: #b91c1c; font-weight: 650; }
 @media (max-width: 720px) { .sph-grid { grid-template-columns: 1fr; } }
-.sph-steps{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:24px 0}.sph-steps button{display:flex;gap:8px;align-items:center;padding:12px;border:1px solid #d5e0dc;border-radius:8px;background:white;color:#36564b;font:inherit;font-size:13px}.sph-steps button[aria-current=step]{background:#165c46;color:white}.sph-steps span{font-weight:700}.sph-preview{display:block;width:100%;height:660px;border:1px solid #d5dfdb;border-radius:8px;margin:20px 0;background:white}.sph-description{white-space:pre-line}.sph-card>label:not(.sph-check):not(.sph-doc){display:grid;gap:8px;margin:14px 0}.sph-card select,.sph-card>label input:not([type=checkbox]){padding:10px;border:1px solid #cad8d2;border-radius:6px;font:inherit;max-width:100%;background:white;color:#223d35}.sph-card li{padding:5px 0}.sph-card a{color:#165c46}.sph-actions{background:#fff;padding:16px;border-top:1px solid #d5dfdb}.sph-actions button:disabled{opacity:.5}@media(max-width:720px){.sph-steps{grid-template-columns:1fr 1fr}.sph-preview{height:480px}}
+.sph-steps{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;margin:24px 0}.sph-steps button{display:flex;gap:8px;align-items:center;padding:12px;border:1px solid #d5e0dc;border-radius:8px;background:white;color:#36564b;font:inherit;font-size:13px}.sph-steps button[aria-current=step]{background:#165c46;color:white}.sph-steps span{font-weight:700}.sph-preview{display:block;width:100%;height:660px;border:1px solid #d5dfdb;border-radius:8px;margin:20px 0;background:white}.sph-description{white-space:pre-line}.sph-card>label:not(.sph-check):not(.sph-doc){display:grid;gap:8px;margin:14px 0}.sph-card select,.sph-card>label input:not([type=checkbox]){padding:10px;border:1px solid #cad8d2;border-radius:6px;font:inherit;max-width:100%;background:white;color:#223d35}.sph-card li{padding:5px 0}.sph-card a{color:#165c46}.sph-actions{background:#fff;padding:16px;border-top:1px solid #d5dfdb}.sph-actions button:disabled{opacity:.5}@media(max-width:720px){.sph-steps{grid-template-columns:1fr 1fr}.sph-preview{height:480px}}
 .sph .btn{padding:12px 18px;border-radius:8px;border:1px solid #bfd2c9;font:inherit;font-weight:650;cursor:pointer}.sph .btn-primary{background:#165c46;color:#fff}.sph .btn-secondary{background:white;color:#165c46}.sph-check input,.sph-doc input[type=checkbox]{width:auto;flex:none}.sph-grid label.sph-check{flex-direction:row}.sph-card button:not(.btn):not(.sph-extra-remove){padding:8px 12px;border:1px solid #bfd2c9;border-radius:6px;background:#f5f9f7;color:#165c46;cursor:pointer}
+
+.sph h1,.sph h2,.sph h3,.sph label,.sph legend{color:#243b53}.sph h1{font-family:'Plotline Sora',system-ui,sans-serif;font-size:clamp(28px,3vw,40px);font-weight:600;letter-spacing:-1.2px}.sph h2{font-size:23px;letter-spacing:-.4px;margin:0 0 20px}.sph h3{font-size:18px}.sph p{line-height:1.7}.sph-head{padding-bottom:10px}.sph-brandbar,.sph-heading-row{display:flex;align-items:center;justify-content:space-between;gap:24px}.sph-brandbar{border-bottom:1px solid #dae1e8;margin-bottom:24px}.sph-brandbar :deep(.plotline-signature){padding:12px 0}.sph-back{color:#4a6177;font:600 13px 'Plotline Inter',system-ui,sans-serif}.sph-eyebrow{text-transform:uppercase;letter-spacing:.13em;font-size:11px;font-weight:700;color:#7b655a;margin:0 0 9px}.sph-save-state{display:flex;align-items:center;gap:9px;max-width:330px;font-size:12px;color:#62748a}.sph-save-state p{margin:0}.sph-save-dot{width:8px;height:8px;background:#578565;border-radius:50%;flex-shrink:0}.sph-save-dot.pending{background:#bc9254}.sph-save-dot.failed{background:#ad4a3e}.sph-context-strip{display:flex;align-items:center;gap:16px;padding:20px 24px;background:#fff;border:1px solid #dce3eb;border-radius:12px;margin:18px 0}.sph-avatar{display:grid;place-items:center;background:#e9edf4;color:#344f70;border-radius:50%;width:46px;height:46px;font-size:16px;font-weight:700;flex-shrink:0}.sph-context-strip div{display:grid;gap:6px;font-size:14px;min-width:0}.sph-context-strip div span{color:#697b8f;font-size:12px;overflow-wrap:anywhere}.sph-context-job{margin-left:auto;padding-left:24px;border-left:1px solid #e0e6ed}.sph-stage-badge{font-size:11px;background:#f1ece7;color:#745947;border-radius:20px;padding:7px 12px}.sph-card{border-color:#dce3eb;padding:clamp(20px,2.5vw,36px);box-shadow:0 2px 5px #243b5304}.sph-person-job-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px}.sph-summary-panel{padding:24px;background:#f8fafc;border:1px solid #e0e6ed;border-radius:10px}.sph-summary-panel h3{margin:0 0 20px;font-size:23px}.sph-facts{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin:0 0 24px}.sph-facts div{min-width:0}.sph-facts dt{font-size:11px;font-weight:600;color:#687b90;margin-bottom:5px}.sph-facts dd{margin:0;font-size:14px;overflow-wrap:anywhere;line-height:1.6}.sph-application-context{display:grid;grid-template-columns:1fr 1fr;gap:28px;margin:28px 0}.sph-application-context article{border-bottom:1px solid #e0e6ed;padding-bottom:20px}.sph-application-context ul{list-style:none;padding:0}.sph-application-context li{margin:12px 0;font-size:14px}.sph-application-context li span{display:block;color:#697b8f;font-size:12px}.sph-section-heading{margin:28px 0}.sph-steps button{font-size:12px;min-height:58px;color:#566c81;border-color:#dce3eb;cursor:pointer}.sph-steps button[aria-current=step]{background:#243b53;border-color:#243b53;color:#fff}.sph-steps button[aria-current=step] span{color:#e8c3aa}.sph .btn-primary{background:#243b53;border-color:#243b53}.sph .btn-secondary,.sph-card a{color:#365b7c}.sph-actions{position:relative;z-index:4;box-shadow:0 -4px 14px #243b5308;border:1px solid #dae2eb;border-radius:10px}.sph-role-options{border:0;padding:0;margin:28px 0;display:grid;grid-template-columns:1fr 1fr;gap:18px}.sph-role-options legend{margin-bottom:14px;font-weight:650;font-size:15px}.sph-role-options label{display:flex;align-items:flex-start;gap:14px;border:1px solid #cbd7e3;border-radius:10px;padding:24px;cursor:pointer}.sph-role-options label.chosen{background:#eef3f8;border-color:#476886}.sph-role-options input{width:22px;height:22px;margin:0;accent-color:#365b7c;flex-shrink:0}.sph-role-options span{display:grid;gap:8px}.sph-role-options small{font-weight:400;line-height:1.7;color:#65788c}.sph-document-card{display:block;padding:24px}.sph-document-card .sph-kind{margin-left:0}.sph input[type=checkbox]{width:22px;height:22px;min-width:22px;accent-color:#365b7c}.sph-handbook-note{padding:16px 20px;background:#eef3f8;border:1px solid #dce5ee;border-radius:8px;font-size:13px}.sph-final-sequence li{padding:12px 6px;border-bottom:1px solid #e4e9ef}.sph-final-sequence .small{display:block;margin-top:5px}.sph-initial-loading{padding:36px;border:1px solid #e0e6ed;border-radius:12px;background:white;margin-top:24px;color:#62748a}.sph-skeleton{height:84px;background:linear-gradient(90deg,#f1f4f8,#e8edf4,#f1f4f8);border-radius:8px}.sph button:focus-visible,.sph a:focus-visible{outline:3px solid #a8bdd1;outline-offset:3px}
+@media(max-width:1100px){.sph-steps{grid-template-columns:repeat(3,1fr)}}@media(max-width:760px){.sph{padding:12px}.sph-person-job-grid,.sph-application-context,.sph-role-options{grid-template-columns:1fr}.sph-heading-row{align-items:flex-start;flex-direction:column;gap:12px}.sph-context-strip{flex-wrap:wrap;padding:16px}.sph-context-job{margin-left:0;padding-left:0;border-left:0;flex-basis:100%}.sph-steps{grid-template-columns:repeat(2,1fr)}.sph-brandbar :deep(.plotline-signature>span){display:none}.sph-facts{gap:15px}.sph-summary-panel{padding:18px}}
 </style>

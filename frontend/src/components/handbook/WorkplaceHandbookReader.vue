@@ -30,13 +30,6 @@
             Published changes to the workplace handbook.
           </p>
         </div>
-        <a
-          v-if="sourceUrl"
-          class="doc-link"
-          :href="sourceUrl"
-          target="_blank"
-          rel="noopener"
-        >Admin · Original handbook ↗</a>
       </header>
       <p v-if="Number(agencyId)===6"><a href="/nlu/workplace-handbook" target="_blank" rel="noopener noreferrer">Open your NLU Workplace Handbook ↗</a>. Review the complete policy changes below, then read your own compensation amendment separately.</p>
 
@@ -173,7 +166,6 @@ const book = ref(null);
 const activeView = ref('updates');
 const showHistory = ref(false);
 async function openHistorySection(slug) { showHistory.value = false; await openSection(slug); }
-const sourceUrl = computed(() => canOpenOriginal.value && /^https?:\/\//i.test(fullHandbookUrl.value) ? fullHandbookUrl.value : '');
 let request = 0;
 
 function formatChanged(text) {

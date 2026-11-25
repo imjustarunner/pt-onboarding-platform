@@ -1,4 +1,5 @@
 import {validateCredentials} from './credentialDisplay.js';
+import { builtInHireDocument } from '../../../frontend/src/navigation/hireDocuments.js';
 export const PREEMPLOYMENT_FIELDS = [
   ['personal_email', 'Email', 'email', true],
   ['permanent_personal_email', 'Permanent personal email (if different)', 'email'],
@@ -31,7 +32,6 @@ const resourceKey = (value) => {
 export function sanitizeWorkflow(input) {
   const raw = jsonObject(input);
   return {
-    handbookUrl: safePortalUrl(raw.handbookUrl),
     bannerUrl: safePortalUrl(raw.bannerUrl), tagline: String(raw.tagline || '').slice(0, 160),
     supervisorName: String(raw.supervisorName || '').trim().slice(0, 180),
     supervisorUserId: Number(raw.supervisorUserId) > 0 ? Number(raw.supervisorUserId) : null,
@@ -39,7 +39,7 @@ export function sanitizeWorkflow(input) {
     supervisorTemplateId: Number(raw.supervisorTemplateId) > 0 ? Number(raw.supervisorTemplateId) : null,
     supervisorClause: String(raw.supervisorClause || '').trim().slice(0, 12000),
     excludedResourceIds: (Array.isArray(raw.excludedResourceIds) ? raw.excludedResourceIds : []).map(resourceKey).slice(0, 80),
-    resources: (Array.isArray(raw.resources) ? raw.resources : []).slice(0, 80).map((r, i) => ({
+    resources: (Array.isArray(raw.resources) ? raw.resources : []).slice(0, 80).filter(r => r && typeof r === 'object' && !builtInHireDocument(r)).map((r, i) => ({
       id: resourceKey(r.id || `resource-${i}`),
       title: String(r.title || '').trim().slice(0, 200),
       phase: r.phase === 'onboarding' ? 'onboarding' : 'pre_hire',
@@ -47,7 +47,7 @@ export function sanitizeWorkflow(input) {
       templateId: Number(r.templateId) > 0 ? Number(r.templateId) : null,
       url: safePortalUrl(r.url), required: r.required !== false,
       instructions: String(r.instructions || '').slice(0, 4000)
-    })).filter((r) => r.id && r.title)
+    })).filter((r) => r.id && r.title && !builtInHireDocument(r))
   };
 }
 export function composeWorkflow(agency, job, person) {

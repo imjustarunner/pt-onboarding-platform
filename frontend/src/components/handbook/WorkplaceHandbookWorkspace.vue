@@ -23,7 +23,7 @@
       <p v-if="view !== 'published' && reviewUpdates.length" class="review-note">{{ reviewUpdates.filter(e => e.status === 'draft').length }} existing draft updates are connected to the relevant sections for review. Publishing the handbook does not publish these draft updates.</p>
       <p v-if="shown && view !== 'published'" class="review-note">Handbook Q&amp;A becomes available in the published handbook view.</p>
       <WorkplaceHandbookBook v-if="shown" ref="book" :handbook="shown" :analytics="{ agencyId, surface: 'handbook', enabled: view === 'published' }" :updates="view === 'published' ? updates : reviewUpdates" :full-handbook-url="fullHandbookUrl" :can-open-original="workspace.access?.canOpenOriginal === true" :can-print="workspace.access?.canPrint === true" :answer-question="view === 'published' ? answerQuestion : null" @reload="load('published')" />
-      <p v-else>No in-app handbook has been supplied for this organization yet. Its existing updates and original handbook link remain available.</p>
+      <p v-else>No in-app handbook has been published for this organization yet. People Operations can prepare and publish the internal edition here.</p>
       <details v-if="workspace.source?.importNotes?.length" class="import-notes"><summary>Source review · {{ workspace.source.importNotes.length }} notes</summary><div v-for="note in workspace.source.importNotes" :key="note.key"><p>{{ note.message }}</p><details v-if="note.sourceExcerpts"><summary>Preserved source excerpts</summary><p v-for="(excerpt, index) in note.sourceExcerpts" :key="index">{{ excerpt.text }} <small>(Original p. {{ excerpt.sourcePage }})</small></p></details></div></details>
     </template>
   </section>

@@ -10,7 +10,6 @@ import {
   recordHandbookView,
   askHandbookQuestion,
   listHandbookQuestions,
-  setFullHandbookUrl,
   listDigests,
   getDigest,
   getPublishedDigestForAgency,
@@ -297,10 +296,9 @@ export const askQuestion = async (req, res, next) => {
 
 export const saveFullHandbookUrl = async (req, res, next) => {
   try {
-    if (!canAccessHandbookOriginal(req.user)) return res.status(403).json({ error: { message: 'Only admins and superadmins can manage the original handbook document.' } });
-    const agencyId = await assertAgencyAdmin(req.user, req.body.agencyId);
-    const doc = await setFullHandbookUrl(agencyId, req.body.url || req.body.fullHandbookUrl);
-    res.json(handbookResponseForReader({ document: doc }, req.user));
+    if (!canAccessHandbookOriginal(req.user)) return res.status(403).json({ error: { message: 'Handbook administration requires an authorized administrator.' } });
+    await assertAgencyAdmin(req.user, req.body.agencyId);
+    return res.status(410).json({ error: { message: 'External handbook links are retired. Edit and publish the in-app workplace handbook instead.' } });
   } catch (e) {
     if (e.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);

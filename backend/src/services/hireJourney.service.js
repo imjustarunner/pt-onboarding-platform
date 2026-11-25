@@ -1,5 +1,6 @@
 import { isStudentIntern } from './internMeetingPolicy.service.js';
 import pool from '../config/database.js';
+import { builtInHireDocument } from '../../../frontend/src/navigation/hireDocuments.js';
 
 export const parseMetadata = (value) => {
   try { const parsed = typeof value === 'string' ? JSON.parse(value) : value; return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}; }
@@ -37,7 +38,9 @@ export async function journeyTasks(userId, status, db = pool) {
        AND (task_type != 'custom' OR JSON_EXTRACT(metadata, '$.checklistItemId') IS NOT NULL)
        AND (document_action_type IS NULL OR document_action_type != 'countersignature')
        AND status NOT IN ('overridden', 'archived', 'deleted') ORDER BY created_at, id`, [userId]);
-  return rows.map((t) => ({
+  // The in-app, versioned handbook signature replaces legacy template tasks.
+  // Original task records and any signatures remain untouched.
+  return rows.filter(t => builtInHireDocument(t) !== 'handbook').map((t) => ({
     id: t.id, taskType: t.task_type, actionType: t.document_action_type,
     title: t.title, description: t.description, status: t.status, dueDate: t.due_date,
     referenceId: t.reference_id, metadata: parseMetadata(t.metadata),

@@ -46,14 +46,14 @@ describe('handbook reader', () => {
     expect(w.get('.purpose-signature').text()).toContain('Next Level Up');
     w.unmount();
   });
-  it('defaults to in-app reading and only reveals the original with explicit admin capabilities', async () => {
+  it('uses only the in-app handbook even with legacy original-document capabilities', async () => {
     const url = 'https://docs.google.com/document/d/original-handbook';
     const w = mount(Book, { props: { handbook, fullHandbookUrl: url } });
     expect(w.find('.handbook-book').classes()).toContain('handbook-screen-only');
     expect(w.find(`a[href="${url}"]`).exists()).toBe(false);
     await w.setProps({ canOpenOriginal: true, canPrint: true });
     expect(w.find('.handbook-book').classes()).not.toContain('handbook-screen-only');
-    expect(w.get(`a[href="${url}"]`).text()).toContain('Admin');
+    expect(w.find(`a[href="${url}"]`).exists()).toBe(false);
     await w.setProps({ fullHandbookUrl: 'javascript:alert(1)' });
     expect(w.find('a[href^="javascript:"]').exists()).toBe(false);
     w.unmount();
@@ -63,7 +63,7 @@ describe('handbook reader', () => {
     api.get.mockResolvedValue({ data: { handbook, entries: [], fullHandbookUrl: url, access: { canOpenOriginal: true, canPrint: true } } });
     const w = mount(Reader, { props: { accessMode, token: 'invite', agencyId: 2 } });
     await flushPromises();
-    expect(w.find(`a[href="${url}"]`).exists()).toBe(accessMode === 'auth');
+    expect(w.find(`a[href="${url}"]`).exists()).toBe(false);
     expect(w.find('.handbook-book').classes().includes('handbook-screen-only')).toBe(accessMode === 'token');
     expect(w.getComponent(Book).props('canPrint')).toBe(accessMode === 'auth');
     if (accessMode === 'auth') {
@@ -88,7 +88,7 @@ describe('handbook reader', () => {
     const http = { get: vi.fn().mockResolvedValue({ data: { available: true, handbook, fullHandbookUrl: 'https://docs.google.com/document/d/original-handbook', access: { canOpenOriginal: true, canPrint: true } } }) };
     const w = mount(Portal, { props: { http, token: 'candidate/token' } });
     await flushPromises();
-    expect(http.get).toHaveBeenCalledWith('/prehire-portal/candidate%2Ftoken/resources/handbook');
+    expect(http.get).toHaveBeenCalledWith('/prehire-portal/candidate%2Ftoken/resources/handbook?reference=1');
     expect(w.get('.book-page').text()).toContain('Welcome to our community.');
     expect(w.getComponent(Book).props('canPrint')).toBe(false);
     expect(w.find('a[href^="https://docs.google.com"]').exists()).toBe(false);
@@ -112,7 +112,8 @@ describe('handbook reader', () => {
     expect(w.emitted('available').at(-1)).toEqual([false]);
     expect(w.emitted('version').at(-1)).toEqual([null]);
     await w.setProps({ referenceOnly: false }); await flushPromises();
-    expect(w.findComponent(Book).exists()).toBe(false);
+    expect(w.findComponent(Book).exists()).toBe(true);
+    expect(w.emitted('available').at(-1)).toEqual([false]);
     w.unmount();
   });
   it('lets an optional reader recover from a loading failure or contact the team without suggesting acknowledgement', async () => {

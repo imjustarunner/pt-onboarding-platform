@@ -160,11 +160,12 @@ describe('original handbook access', () => {
     expect(body.digest.published_at).toEqual(publishedAt);
     expect(body.access).toEqual({ canOpenOriginal: false, canPrint: false });
   });
-  it.each(['admin', 'super_admin', 'superadmin'])('retains original access for an authorized %s', async role => {
+  it.each(['admin', 'super_admin', 'superadmin'])('retires external links for %s while retaining in-app printing', async role => {
     setupPublished();
     const res = { json: vi.fn() };
     await getPublished({ user: { id: 7, role }, query: { agencyId: 2 }, params: {} }, res, vi.fn());
-    expect(res.json.mock.calls[0][0]).toMatchObject({ fullHandbookUrl: original, handbook: { document: { full_handbook_url: original } }, access: { canOpenOriginal: true, canPrint: true } });
+    expect(JSON.stringify(res.json.mock.calls[0][0])).not.toContain(original);
+    expect(res.json.mock.calls[0][0].access).toEqual({ canOpenOriginal: false, canPrint: true });
   });
   it('still rejects an admin from a different organization', async () => {
     setupPublished(); User.getAgencies.mockResolvedValue([{ id: 3 }]);
@@ -198,20 +199,26 @@ describe('original handbook access', () => {
     expect(res.status).toHaveBeenCalledWith(403);
     expect(setFullHandbookUrl).not.toHaveBeenCalled();
   });
+  it('retires external link updates for administrators without modifying the stored source', async () => {
+    assertAgencyAdmin.mockResolvedValue(2);
+    const res = { json: vi.fn(), status: vi.fn().mockReturnThis() };
+    await saveFullHandbookUrl({ user: { id: 7, role: 'admin' }, body: { agencyId: 2, url: original } }, res, vi.fn());
+    expect(res.status).toHaveBeenCalledWith(410); expect(setFullHandbookUrl).not.toHaveBeenCalled();
+  });
   it('does not mutate shared payloads or discard dates while redacting nested URLs', () => {
     const payload = { fullHandbookUrl: original, history: [{ document: { full_handbook_url: original }, published_at: publishedAt }] };
     const result = handbookResponseForReader(payload);
     expect(JSON.stringify(result)).not.toContain(original);
     expect(result.history[0].published_at).toBe(publishedAt);
     expect(payload.history[0].document.full_handbook_url).toBe(original);
-    expect(handbookResponseForReader(payload, { role: 'admin' }).fullHandbookUrl).toBe(original);
+    expect(handbookResponseForReader(payload, { role: 'admin' }).fullHandbookUrl).toBeUndefined();
   });
   it('removes original document links from candidate workflow steps and settings while retaining acknowledgement receipts', () => {
     const receipt = '/prehire-portal/token/workflow/onboarding/handbook/file';
     const payload = { handbookLinks: { fullUrl: original, acknowledgementUrl: receipt }, workflow: { config: { handbookUrl: original }, steps: { pre_hire: [{ kind: 'handbook', url: original }], onboarding: [{ kind: 'handbook', url: original, submission: { receiptPath: receipt } }] } } };
     const result = handbookResponseForReader(payload);
     expect(JSON.stringify(result)).not.toContain(original);
-    expect(result.handbookLinks.acknowledgementUrl).toBe(receipt);
+    expect(result.handbookLinks.acknowledgementUrl).toBeNull();
     expect(result.workflow.steps.onboarding[0].submission.receiptPath).toBe(receipt);
     expect(payload.handbookLinks.fullUrl).toBe(original);
   });

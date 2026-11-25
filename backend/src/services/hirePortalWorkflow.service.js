@@ -5,6 +5,7 @@ import { persistSchoolServiceAvailability } from './schoolServiceAvailability.se
 import {normalizeFocusAgeValues} from '../utils/providerFacetNormalization.js';
 import { FACET_FIELD_ALIASES } from '../constants/clinicalFacetFields.js';
 import pool from '../config/database.js';
+import { builtInHireDocument } from '../../../frontend/src/navigation/hireDocuments.js';
 import {createHash} from 'node:crypto';
 import ProviderPublicProfile from '../models/ProviderPublicProfile.model.js';
 import { hiringCommunicationContext } from './hiringCommunication.service.js';
@@ -24,13 +25,15 @@ export async function portalPacket(userId, agencyId, db = pool) {
   const [[job]] = await db.execute(`SELECT jd.prehire_config_json FROM hiring_profiles hp
     JOIN hiring_job_descriptions jd ON jd.id = hp.job_description_id AND jd.agency_id = ? WHERE hp.candidate_user_id = ?`, [agencyId, userId]);
   const settings = jsonObject(agency?.prehire_settings);
-  return { workflow: composeWorkflow(settings.portal_workflow, jsonObject(job?.prehire_config_json).workflow), documents: null, ...retained,
-    handbookUrl: retained?.handbookUrl || settings.handbook_full_url || settings.portal_workflow?.handbookUrl || '' };
+  const { handbookUrl: legacyHandbook, ...packet } = retained || {};
+  return { ...packet, documents: Array.isArray(packet.documents) ? packet.documents.filter(d => !builtInHireDocument(d)) : null,
+    workflow: packet.workflow ? composeWorkflow(packet.workflow) : composeWorkflow(settings.portal_workflow, jsonObject(job?.prehire_config_json).workflow) };
 }
 
-export async function portalStepSubmissions(userId, { completionOnly = false } = {}) {
-  const [rows] = await pool.execute(`SELECT phase, step_key, ${completionOnly ? `CASE WHEN step_key LIKE '${PREHIRE_OVERRIDE_PREFIX}%' THEN encrypted_value END AS encrypted_value,` : 'encrypted_value,'} completed_at FROM hire_portal_submissions WHERE user_id = ?`, [userId]);
-  return Object.fromEntries(rows.map((r) => [`${r.phase}:${r.step_key}`, { value: completionOnly && !r.step_key.startsWith(PREHIRE_OVERRIDE_PREFIX) ? {} : JSON.parse(decryptGuardianIntake(jsonObject(r.encrypted_value))), completedAt: r.completed_at }]));
+export async function portalStepSubmissions(userId, { completionOnly = false, handbookMetadata = false } = {}) {
+  const valueColumn = !completionOnly ? 'encrypted_value,' : `CASE WHEN step_key LIKE '${PREHIRE_OVERRIDE_PREFIX}%'${handbookMetadata ? " OR step_key = 'handbook'" : ''} THEN encrypted_value END AS encrypted_value,`;
+  const [rows] = await pool.execute(`SELECT phase, step_key, ${valueColumn} completed_at FROM hire_portal_submissions WHERE user_id = ?`, [userId]);
+  return Object.fromEntries(rows.map((r) => [`${r.phase}:${r.step_key}`, { value: !completionOnly || r.step_key.startsWith(PREHIRE_OVERRIDE_PREFIX) || (handbookMetadata && r.step_key === 'handbook' && r.encrypted_value) ? JSON.parse(decryptGuardianIntake(jsonObject(r.encrypted_value))) : {}, completedAt: r.completed_at }]));
 }
 
 export function requiredSubmissionKeys(steps, hasWorkEmail = false) {
@@ -164,16 +167,16 @@ export async function onboardingContactForAgency(agencyId) {
     email, title: 'Clinical Practice Assistant', photoPath: contact?.profile_photo_path || null };
 }
 
-export async function buildPortalWorkflow({ user, agencyId, tasks, prehireTasks, extras, backgroundCheck, handbookUrl, hireAccountMode, journey, progressOnly = false }) {
+export async function buildPortalWorkflow({ user, agencyId, tasks, prehireTasks, extras, backgroundCheck, hireAccountMode, journey, progressOnly = false }) {
   const packet = await portalPacket(user.id, agencyId);
   const config = packet.workflow || {};
-  const submissions = await portalStepSubmissions(user.id, { completionOnly: progressOnly });
+  const submissions = await portalStepSubmissions(user.id, { completionOnly: progressOnly, handbookMetadata: user.status === 'ONBOARDING' });
   const stored = (phase, key) => submissions[`${phase}:${key}`];
   const prehireClosed = !!journey.prehireCompletedAt || ['PREHIRE_REVIEW', 'ONBOARDING'].includes(user.status);
   const onboardingClosed = !!journey.onboardingCompletedAt;
   const steps = { pre_hire: [], onboarding: [] };
   const add = (phase, step) => steps[phase].push({ required: true, ...step });
-  const pTasks = uniquePortalTasks(user.status === 'ONBOARDING' ? prehireTasks : tasks);
+  const pTasks = uniquePortalTasks(user.status === 'ONBOARDING' ? prehireTasks : tasks).filter(t => !['background', 'handbook', 'job-description'].includes(builtInHireDocument(t)));
   const hiringChoices=await hiringCommunicationContext(agencyId,user.id);
   for(const phase of ['pre_hire','onboarding'])add(phase,{key:'hiring-notifications',kind:'hiring-notifications',title:'Hiring notification preference',required:false,complete:!!hiringChoices.reviewedAt,communicationChoices:hiringChoices});
   const contract = (pTasks || []).filter((t) => t.metadata?.contractGeneration || t.metadata?.employmentContract || t.metadata?.autoFromSendPreHire);
@@ -188,11 +191,10 @@ export async function buildPortalWorkflow({ user, agencyId, tasks, prehireTasks,
   if(user.status==='ONBOARDING' && !usernameComplete)add('onboarding',{key:'work-email',kind:'work-email',title:'Choose your work username',complete:false});
   if (!prehireClosed || stored('pre_hire', 'profile')) add('pre_hire', { key: 'profile', kind: 'profile', title: 'Pre-employment information', complete: !!stored('pre_hire', 'profile')?.completedAt });
   if (!prehireClosed || stored('pre_hire', 'headshot')) add('pre_hire', { key: 'headshot', kind: 'headshot', title: 'Your professional headshot', complete: !!stored('pre_hire', 'headshot')?.completedAt });
-  const handbook = packet.handbookUrl || handbookUrl;
-  add('pre_hire', { key: 'handbook', kind: 'handbook', title: 'Workplace handbook · Reference', required: false, instructions: 'Search and reference the handbook here at any time. You will review and acknowledge it during onboarding.', url: handbook, complete: !!stored('pre_hire', 'handbook')?.completedAt });
+  // Pre-hire handbook access lives in the reference navigation, outside steps.
   for (const doc of extras.prehireDocs || []) {
     // Template-backed documents already have a signing task; do not ask twice.
-    if (doc.kind === 'acknowledgement') continue; // Legacy alias for the built-in job-description signature.
+    if (doc.kind === 'acknowledgement' || builtInHireDocument(doc)) continue;
     if (doc.templateId && (pTasks || []).some((t) => Number(t.referenceId) === Number(doc.templateId))) continue;
     add('pre_hire', { key: `doc-${doc.id}`, kind: 'document', title: doc.title, doc, required: doc.kind !== 'reference' && doc.kind !== 'print_only', complete: !!doc.signed });
   }
@@ -228,12 +230,14 @@ export async function buildPortalWorkflow({ user, agencyId, tasks, prehireTasks,
     add('onboarding',{key:'staff-communications',kind:'staff-communications',title:'Your texting choices and enrollments',
       communicationChoices:choices,complete:!!stored('onboarding','staff-communications')?.completedAt && !choices.needsReview});
   }
-  for (const task of uniquePortalTasks(user.status === 'ONBOARDING' ? tasks : [])) add('onboarding', { key: `task-${task.id}`, kind: 'task', title: task.title, task, required: !!task.isRequired, complete: task.status === 'completed' });
+  for (const task of uniquePortalTasks(user.status === 'ONBOARDING' ? tasks : []).filter(t => builtInHireDocument(t) !== 'handbook')) add('onboarding', { key: `task-${task.id}`, kind: 'task', title: task.title, task, required: !!task.isRequired, complete: task.status === 'completed' });
   if (user.status === 'ONBOARDING') {
     const { onboardingGuideSteps } = await import('./companyDocumentLearning.service.js');
     for (const step of await onboardingGuideSteps(user, agencyId, pool, { closed: onboardingClosed })) add('onboarding', step);
   }
-  add('onboarding', { key: 'handbook', kind: 'handbook', title: 'Review the workplace handbook', instructions: 'Review the handbook and the policies that apply to your role, then sign your acknowledgment of the published edition. Use search or Ask the handbook for help finding a policy.', url: handbook, complete: !!stored('onboarding', 'handbook')?.completedAt });
+  const handbookSubmission = stored('onboarding', 'handbook');
+  const handbookComplete = !!handbookSubmission?.completedAt && (onboardingClosed || Number(handbookSubmission.value?.handbookVersionId) > 0);
+  add('onboarding', { key: 'handbook', kind: 'handbook', title: 'Review the workplace handbook', instructions: 'Review the in-app handbook and the policies that apply to your role, then sign your acknowledgment of the published edition. Use search or Ask the handbook for help finding a policy.', complete: handbookComplete, submission: handbookComplete ? handbookSubmission.value : null });
   for (const resource of config.resources || []) {
     if (resource.kind === 'document') {
       const assigned = (resource.phase === 'pre_hire' ? pTasks : tasks).find((t) => t.taskType === 'document' && Number(t.referenceId) === Number(resource.templateId));

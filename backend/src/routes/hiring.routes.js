@@ -1,5 +1,6 @@
 import {packetPreviewJobFile} from '../controllers/hirePacketPreview.controller.js';
 import {markPrehireComplete,getPrehireRequirements,postPrehireRequirementOverride} from '../controllers/hirePrehireCompletion.controller.js';
+import { previewHireDocument } from '../controllers/hireDocumentPreview.controller.js';
 import {getPeopleOperationsNotificationRecipients,putPeopleOperationsNotificationRecipients} from '../controllers/peopleOperationsNotificationRecipients.controller.js';
 import {rehearsalBootstrap,rehearsalI9,rehearsalLink} from '../controllers/itscoRehearsal.controller.js';
 import { packetPreviewOptions, packetPreviewReference, packetPreviewContract } from '../controllers/hirePacketPreview.controller.js';
@@ -130,6 +131,7 @@ router.get('/packet-preview/job-file', packetPreviewJobFile);
 router.get('/rehearsal', rehearsalBootstrap);
 router.get('/rehearsal/i9', rehearsalI9);
 router.get('/packet-preview/options', packetPreviewOptions);
+router.get('/packet-preview/document', previewHireDocument);
 router.get('/packet-preview/reference', packetPreviewReference);
 router.post('/packet-preview/contract', packetPreviewContract);
 

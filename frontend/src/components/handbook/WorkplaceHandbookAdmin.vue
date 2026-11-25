@@ -19,13 +19,7 @@
 
     <section v-show="activeView === 'updates'" class="digest-workspace">
 
-    <label v-if="access.canOpenOriginal" class="field glass">
-      <span>Original handbook link · admins and superadmins only</span>
-      <div class="row">
-        <input v-model="fullUrl" class="input" placeholder="https://…" />
-        <button type="button" class="btn" :disabled="busy" @click="saveUrl">Save link</button>
-      </div>
-    </label>
+
 
     <p v-if="error" class="err">{{ error }}</p>
     <p v-if="success" class="ok">{{ success }}</p>
@@ -206,20 +200,6 @@ async function createNew() {
   }
 }
 
-async function saveUrl() {
-  busy.value = true;
-  try {
-    await api.put('/provider-update/handbook/full-url', {
-      agencyId: Number(props.agencyId),
-      url: fullUrl.value
-    });
-    success.value = 'Full handbook link saved.';
-  } catch (e) {
-    error.value = e?.response?.data?.error?.message || 'Save failed';
-  } finally {
-    busy.value = false;
-  }
-}
 
 async function saveDigestMeta(throwOnError = false) {
   if (!current.value?.digest?.id) return;

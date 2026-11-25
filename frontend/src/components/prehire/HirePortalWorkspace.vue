@@ -7,7 +7,7 @@
         <button v-if="onboarding" :class="{ selected: phase === 'pre_hire' && section === 'steps' }" @click="switchPhase('pre_hire')"><Icon />Pre-Hire <span class="nav-check">✓</span></button>
         <button :class="{ selected: section === 'steps' && phase === currentPhase }" @click="switchPhase(currentPhase)"><Icon :name="onboarding ? 'people' : 'document'" />{{ onboarding ? 'Onboarding' : 'Pre-Hire' }}</button>
         <button v-if="onboarding" :class="{ selected: section === 'access' }" @click="navigate('access')"><Icon name="lock" />Accounts &amp; Access</button>
-        <button v-if="referenceHandbook && currentPhase === 'pre_hire'" :class="{ selected: section === 'handbook' }" @click="navigate('handbook')"><Icon name="book" /><span>Workplace handbook<small>Optional reference</small></span></button>
+        <button v-if="currentPhase === 'pre_hire'" :class="{ selected: section === 'handbook' }" @click="navigate('handbook')"><Icon name="book" /><span>Workplace handbook<small>Optional reference</small></span></button>
         <button :class="{ selected: section === 'documents' }" @click="navigate('documents')"><Icon />My Documents</button>
         <button :class="{ selected: section === 'messages' }" @click="navigate('messages')"><Icon name="message" />Messages</button>
         <button :class="{ selected: section === 'help' }" @click="navigate('help')"><Icon name="help" />Help</button>
@@ -142,7 +142,6 @@ const closed = computed(() => phase.value === 'pre_hire' ? prehireClosed.value :
 const usernameEditable=computed(()=>!candidate.value.workEmail && !props.data.journey?.onboardingCompletedAt
   && ['PENDING_SETUP','PREHIRE_OPEN','PREHIRE_REVIEW','ONBOARDING'].includes(candidate.value.status));
 const workspaceRoot = ref(null), stepHeading = ref(null), referenceHeading = ref(null);
-const referenceHandbook = computed(() => workflow.value.steps?.pre_hire?.find(s => s.kind === 'handbook'));
 const steps = computed(() => (workflow.value.steps?.[phase.value] || []).filter(s => phase.value !== 'pre_hire' || s.kind !== 'handbook'));
 const progress = computed(() => workflow.value.progress?.[phase.value] || { total: 0, completed: 0, percent: 0 });
 const stepIndex = computed(() => Math.max(0, steps.value.findIndex(s => s.key === selectedKey.value)));

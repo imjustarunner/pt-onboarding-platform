@@ -27,7 +27,19 @@ beforeEach(() => {
 });
 afterEach(() => wrapper?.unmount());
 const button = text => wrapper.findAll('button').find(b => b.text().includes(text));
+const reviewCandidateSteps = async () => {
+  await wrapper.findAll('.sph-steps button')[3].trigger('click');
+  const review = wrapper.getComponent({ name: 'HireStepReview' });
+  for (let i = 0; i < review.props('steps').length; i++) await review.get('.review-actions .primary').trigger('click');
+};
 describe('hire setup wizards', () => {
+  it('keeps setup-error links connected to the correct stages after adding the guided review', async () => {
+    wrapper = mount(StartPreHire, { global: { stubs: { RouterLink: true } } }); await flushPromises();
+    await wrapper.vm.resolveSetupIssue('Choose a pay category before previewing.');
+    expect(wrapper.get('.sph-steps button[aria-current=step]').text()).toContain('Contract & cosigners');
+    await wrapper.vm.resolveSetupIssue('Attach this resource before sending.');
+    expect(wrapper.get('.sph-steps button[aria-current=step]').text()).toContain('Select materials');
+  });
   it('restores an old NLU draft into one service-based agreement with four categories and visible role selections', async () => {
     const defaultGet = http.get.getMockImplementation();
     http.get.mockImplementation(async url => {
@@ -110,6 +122,45 @@ describe('hire setup wizards', () => {
     expect(wrapper.findAll('label').find(l => l.text() === 'Employer address').get('input').element.value).toBe(officeDefaults.agency.address);
   });
 
+  it('shows Plotline branding, candidate context and the source of job documents', async () => {
+    const normalGet = http.get.getMockImplementation();
+    http.get.mockImplementation(async url => url === '/hiring/candidates/2' ? { data: { user: { first_name: 'Elena', last_name: 'Cruz', email: 'elena@example.org', phone_number: '555-0101' }, profile: { credential: 'LPC', source: 'Careers website', cover_letter_text: 'I enjoy supporting students.' }, jobDescription: { id: 7, title: 'Counselor', descriptionText: 'School counseling', city: 'Denver', state: 'CO', prehireConfig: { documents: [{ id: 'identogo', title: 'Identogo', kind: 'company_document', bodyHtml: '<p>Instructions</p>' }] } } } } : normalGet(url));
+    wrapper = mount(StartPreHire, { global: { stubs: { RouterLink: true } } }); await flushPromises();
+    expect(wrapper.get('.plotline-signature').text()).toContain('plotline');
+    expect(wrapper.get('.sph-context-strip').text()).toContain('Elena Cruz');
+    expect(wrapper.get('.sph-person-job-grid').text()).toContain('555-0101');
+    expect(wrapper.get('.sph-person-job-grid').text()).toContain('Careers website');
+    expect(wrapper.get('.sph-application-context').text()).toContain('I enjoy supporting students.');
+    const card = wrapper.get('.sph-document-card'); expect(card.text()).toContain('Identogo'); expect(card.text()).toContain('Job posting');
+    expect(card.findComponent({ name: 'HireSetupDocumentPreview' }).props()).toMatchObject({ documentId: 'identogo', jobId: 7 });
+    expect(wrapper.find('input[type=url][placeholder*="docs.google"]').exists()).toBe(false);
+    expect(wrapper.text()).not.toContain('stored document library');
+    expect(wrapper.getComponent({ name: 'HireStepReview' }).props('steps').map(s => s.title)).not.toContain('Workplace handbook');
+  });
+  it('does not invoke the fullscreen loader when navigating setup tabs or saving their draft', async () => {
+    wrapper = mount(StartPreHire, { global: { stubs: { RouterLink: true } } }); await flushPromises();
+    await wrapper.findAll('.sph-steps button')[1].trigger('click');
+    await wrapper.findAll('.sph-steps button')[0].trigger('click');
+    await wrapper.findAll('.sph-steps button')[2].trigger('click');
+    const leave = onBeforeRouteLeave.mock.calls.at(-1)[0]; expect(await leave()).toBe(true);
+    expect(http.get.mock.calls.every(([, config]) => config?.skipGlobalLoading === true)).toBe(true);
+    expect(http.put.mock.calls.at(-1)[2]).toMatchObject({ skipGlobalLoading: true });
+    expect(wrapper.get('.sph-context-strip').isVisible()).toBe(true);
+    expect(wrapper.find('.sph-initial-loading').exists()).toBe(false);
+  });
+  it('keeps supervision choices while applying a saved setup and collapses duplicate collection forms', async () => {
+    const normalGet = http.get.getMockImplementation();
+    http.get.mockImplementation(async url => url === '/hiring/settings' ? { data: { default_prehire_package_id: 8, hire_packet_templates: [{ id: 'standard', name: 'Standard', workflow: { supervisorClause: 'Approved duties', supervisorTemplateId: 12 } }] } } : url === '/onboarding-packages/8' ? { data: { id: 8, name: 'Pre-hire', documents: [{ document_template_id: 20, document_name: 'Hiring: Authorization for Background Check' }, { document_template_id: 21, document_name: 'Workplace handbook' }, { document_template_id: 22, document_name: 'Additional release' }] } } : normalGet(url));
+    wrapper = mount(StartPreHire, { global: { stubs: { RouterLink: true } } }); await flushPromises();
+    await wrapper.findAll('input[name=supervisory-role]')[1].setValue(true);
+    await wrapper.findAll('label').find(l => l.text().startsWith('Saved pre-hire setup')).get('select').setValue('standard'); await flushPromises();
+    expect(wrapper.findAll('input[name=supervisory-role]')[1].element.checked).toBe(true);
+    const steps = wrapper.getComponent({ name: 'HireStepReview' }).props('steps');
+    expect(steps.filter(s => /background check authorization/i.test(s.title))).toHaveLength(1);
+    expect(steps.map(s => s.title)).not.toContain('Hiring: Authorization for Background Check');
+    expect(steps.map(s => s.title)).not.toContain('Workplace handbook');
+    expect(steps.map(s => s.title)).toContain('Additional release');
+  });
   it('uses the person’s saved onboarding collection and steps when preparing promotion', async () => {
     const original = http.get.getMockImplementation();
     http.get.mockImplementation(async url => url.endsWith('hire-packages') ? { data: { phases: { onboarding: { packageId: 9, workflow: { resources: [{ id: 'orientation', phase: 'onboarding', title: 'Personal orientation', kind: 'link', url: 'https://example.org/orientation' }], excludedResourceIds: ['w4'] } } } } } : original(url));
@@ -231,13 +282,13 @@ describe('hire setup wizards', () => {
   });
   it('isolates prehire, previews the contract and invalidates approval after an edit', async () => {
     wrapper = mount(StartPreHire, { global: { stubs: { RouterLink: true } } }); await flushPromises();
-    expect(wrapper.findAll('.sph-steps button')).toHaveLength(4);
+    expect(wrapper.findAll('.sph-steps button')).toHaveLength(6);
     expect(wrapper.text()).not.toContain('Onboarding package');
     expect(wrapper.findAll('a').some(a => a.attributes('href') === 'https://app.itsco.health/pre-hire/existing')).toBe(true);
-    await wrapper.findAll('.sph-steps button')[1].trigger('click');
+    await wrapper.findAll('.sph-steps button')[2].trigger('click');
     expect(wrapper.find('.workflow-editor').text()).toContain('Welcome video');
     expect(wrapper.find('.workflow-editor').text()).not.toContain('W4');
-    await wrapper.findAll('.sph-steps button')[2].trigger('click');
+    await wrapper.findAll('.sph-steps button')[4].trigger('click');
     const jobTitleInput = wrapper.findAll('label').find(label => label.text() === 'Job title').get('input');
     expect(jobTitleInput.element.value).toBe('Counselor');
     await jobTitleInput.setValue('School Counselor');
@@ -253,24 +304,27 @@ describe('hire setup wizards', () => {
     expect(wrapper.find('iframe[title="Candidate employment agreement preview"]').attributes('srcdoc')).toContain('Elena Cruz');
     const reviewed = wrapper.findAll('label').find(l => l.text().includes('I reviewed this agreement')).get('input');
     await reviewed.setValue(true);
-    await wrapper.findAll('.sph-steps button')[3].trigger('click');
+    await reviewCandidateSteps();
+    await wrapper.findAll('.sph-steps button')[5].trigger('click');
     expect(button('Prepare and send').attributes('disabled')).toBeUndefined();
-    await wrapper.findAll('.sph-steps button')[2].trigger('click');
+    await wrapper.findAll('.sph-steps button')[4].trigger('click');
     await wrapper.findAll('label').find(l => l.text().startsWith('Min hours / week')).get('input').setValue('10');
     expect(wrapper.text()).toContain('Required available-to-book time: 13 hours / week. Expected to schedule: 13 hours / week');
     expect(wrapper.text()).toContain('Values changed. Update the preview');
-    await wrapper.findAll('.sph-steps button')[3].trigger('click');
+    await reviewCandidateSteps();
+    await wrapper.findAll('.sph-steps button')[5].trigger('click');
     expect(button('Prepare and send').attributes('disabled')).toBeDefined();
     expect(http.post).toHaveBeenCalledTimes(1); // navigating never sends an invitation
   });
   it('shows failed delivery and retries just the email without recreating the prehire packet', async () => {
     wrapper = mount(StartPreHire, { global: { stubs: { RouterLink: true } } }); await flushPromises();
-    await wrapper.findAll('.sph-steps button')[2].trigger('click');
+    await wrapper.findAll('.sph-steps button')[4].trigger('click');
     await wrapper.findAll('label').find(l => l.text().startsWith('Pay category')).get('select').setValue('2');
     await wrapper.findAll('label').find(l => l.text().startsWith('Pay level')).get('select').setValue('2');
     await button('Update contract preview').trigger('click'); await flushPromises();
     await wrapper.findAll('label').find(l => l.text().includes('I reviewed this agreement')).get('input').setValue(true);
-    await wrapper.findAll('.sph-steps button')[3].trigger('click');
+    await reviewCandidateSteps();
+    await wrapper.findAll('.sph-steps button')[5].trigger('click');
     http.post.mockResolvedValueOnce({ data: { passwordlessTokenLink: 'https://app.itsco.health/pre-hire/created', email: { status: 'failed', reason: 'send_failed' } } });
     await button('Prepare and send').trigger('click'); await flushPromises();
     expect(wrapper.findAll('[role="status"]').map(node => node.text()).join(" ")).toContain('invitation was not sent');
@@ -307,6 +361,18 @@ describe('hire setup wizards', () => {
 });
 
 describe('saved pre-hire progress', () => {
+  it('restores document selections using current job content instead of a stale draft copy', async () => {
+    const normalGet = http.get.getMockImplementation();
+    http.get.mockImplementation(async url => url === '/hiring/candidates/2' ? { data: { user: { first_name: 'Elena', last_name: 'Cruz' }, jobDescription: { id: 7, title: 'Counselor', prehireConfig: { documents: [{ id: 'instructions', title: 'Current fingerprint instructions', kind: 'company_document', bodyHtml: '<p>Current text</p>' }] } } } } : url.endsWith('/prehire-draft') ? { data: { revision: 1, draft: { setupStep: 1, jobDocs: [{ id: 'instructions', title: 'Obsolete form', bodyHtml: '<p>Old text</p>', selected: false }] } } } : normalGet(url));
+    wrapper = mount(StartPreHire, { global: { stubs: { RouterLink: true } } }); await flushPromises();
+    expect(wrapper.get('.sph-document-card').text()).toContain('Current fingerprint instructions');
+    expect(wrapper.text()).not.toContain('Obsolete form');
+    expect(wrapper.get('.sph-document-card input').element.checked).toBe(false);
+    expect(wrapper.find('.sph-steps button[aria-current=step]').text()).toContain('Select materials');
+    await wrapper.get('.sph-document-card input').setValue(true);
+    expect(await onBeforeRouteLeave.mock.calls.at(-1)[0]()).toBe(true);
+    expect(http.put.mock.calls.at(-1)[1].draft.jobDocs).toEqual([{ id: 'instructions', selected: true }]);
+  });
   it('restores the selections and hours while keeping agency addresses current and review unapproved', async () => {
     const normalGet = http.get.getMockImplementation();
     http.get.mockImplementation(async url => url.endsWith('/prehire-draft') ? { data: { revision: 4, draft: {

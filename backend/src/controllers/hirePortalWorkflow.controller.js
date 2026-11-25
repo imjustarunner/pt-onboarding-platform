@@ -55,6 +55,7 @@ export async function saveWorkflowStep(req, res, next) {
       if (!ctx.step || !['handbook', 'link', 'video', 'meeting', 'acknowledgement'].includes(ctx.step.kind)) fail('This item is completed by its form, upload or signature.', 403);
       if (req.body?.acknowledged !== true) fail('Confirm that you have completed this step.');
       if (ctx.step.kind === 'handbook') {
+        if (ctx.phase !== 'onboarding') fail('Handbook acknowledgment is completed during onboarding.', 403);
         const handbook = await getPublishedHandbook(ctx.agencyId);
         if (!handbook?.version?.id || !handbook.sections?.length) fail('People Operations needs to publish the in-app handbook before it can be acknowledged.');
         if (Number(req.body?.handbookVersionId) !== Number(handbook.version.id)) fail('The handbook has changed. Reopen it and review the current version before acknowledging.', 409);

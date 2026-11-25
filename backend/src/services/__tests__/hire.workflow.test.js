@@ -46,13 +46,25 @@ describe('packet composition and validation', () => {
   });
 });
 describe('phase manifest', () => {
-  it('repairs a missing legacy handbook from agency settings without replacing retained choices', async () => {
+  it.each([false, true])('requires a versioned internal acknowledgment during active onboarding (versioned: %s)', async versioned => {
+    const value = versioned ? { handbookVersionId: 7 } : { url: 'https://example.org/old-handbook', acknowledged: true };
+    mocks.execute.mockImplementation(async sql => sql.includes('FROM hire_portal_submissions') ? [[{ phase: 'onboarding', step_key: 'handbook', encrypted_value: encryptGuardianIntake(JSON.stringify(value)), completed_at: '2026-09-26' }]] : [[]]);
+    const input = { user: { id: 1, status: 'ONBOARDING', work_email: 'hire@example.test' }, agencyId: 2, tasks: [], prehireTasks: [], extras: {}, backgroundCheck: {}, journey: { prehireCompletedAt: '2026-09-01' } };
+    const manifest = await buildPortalWorkflow(input);
+    expect(manifest.steps.onboarding.find(s => s.kind === 'handbook').complete).toBe(versioned);
+    expect(manifest.steps.pre_hire.some(s => s.kind === 'handbook')).toBe(false);
+    const progress = await buildPortalWorkflow({ ...input, progressOnly: true });
+    expect(progress.progress.onboarding.completed).toBe(manifest.progress.onboarding.completed);
+    const closed = await buildPortalWorkflow({ ...input, journey: { ...input.journey, onboardingCompletedAt: '2026-10-01' } });
+    expect(closed.steps.onboarding.find(s => s.kind === 'handbook').complete).toBe(true);
+  });
+  it('ignores legacy external handbook URLs in settings and retained packets', async () => {
     mocks.execute.mockImplementation(async sql => sql.includes('config_json FROM') ? [[{ config_json: { workflow: { resources: [] } } }]]
       : sql.includes('prehire_settings FROM') ? [[{ prehire_settings: { handbook_full_url: 'https://docs.google.com/document/d/handbook/edit' } }]] : [[]]);
-    expect((await portalPacket(1, 2)).handbookUrl).toBe('https://docs.google.com/document/d/handbook/edit');
+    expect(await portalPacket(1, 2)).not.toHaveProperty('handbookUrl');
     mocks.execute.mockImplementation(async sql => sql.includes('config_json FROM') ? [[{ config_json: { handbookUrl: 'https://example.org/retained-handbook', workflow: { resources: [] } } }]]
       : sql.includes('prehire_settings FROM') ? [[{ prehire_settings: { handbook_full_url: 'https://example.org/new-handbook' } }]] : [[]]);
-    expect((await portalPacket(1, 2)).handbookUrl).toBe('https://example.org/retained-handbook');
+    expect(await portalPacket(1, 2)).not.toHaveProperty('handbookUrl');
   });
   it('includes username, personal information and headshot in prehire, while password setup stays in onboarding', async () => {
     mocks.execute.mockImplementation(async (sql) => sql.includes('config_json FROM') ? [[{ config_json: { workflow: { resources: [] }, handbookUrl: 'https://drive.google.com/file/d/book/view' } }]] : [[]]);
@@ -60,11 +72,12 @@ describe('phase manifest', () => {
     expect(manifest.steps.pre_hire[0].kind).toBe('hiring-notifications');
     expect(manifest.steps.pre_hire[0].required).toBe(false);
     expect(manifest.steps.pre_hire[1].kind).toBe('background');
-    expect(manifest.steps.pre_hire.map(s => s.kind)).toEqual(expect.arrayContaining(['profile', 'headshot', 'handbook']));
+    expect(manifest.steps.pre_hire.map(s => s.kind)).toEqual(expect.arrayContaining(['profile', 'headshot']));
     expect(manifest.steps.onboarding.map(s => s.kind)).not.toContain('profile');
     expect(manifest.steps.pre_hire.map(s => s.kind)).toContain('work-email');
     expect(manifest.steps.onboarding.map(s => s.kind)).not.toContain('work-email');
-    expect(manifest.steps.pre_hire.find(s => s.kind === 'handbook').required).toBe(false);
+    expect(manifest.steps.pre_hire.map(s => s.kind)).not.toContain('handbook');
+    expect(manifest.steps.onboarding.find(s => s.kind === 'handbook')).toMatchObject({ required: true });
     expect(manifest.steps.onboarding.at(-2)).toMatchObject({ kind: 'account', complete: false });
     expect(manifest.steps.onboarding.at(-1).kind).toBe('review');
     expect(manifest.progress.pre_hire.allDone).toBe(false);
@@ -74,7 +87,7 @@ describe('phase manifest', () => {
     const manifest = await buildPortalWorkflow({ user: { id: 1, status: 'ONBOARDING' }, agencyId: 2, tasks: [], prehireTasks: [], extras: {}, backgroundCheck: { signed: true }, journey: { prehireCompletedAt: '2026-09-01' } });
     expect(manifest.steps.pre_hire.map(s => s.kind)).not.toContain('profile');
     expect(manifest.steps.pre_hire.map(s => s.kind)).not.toContain('headshot');
-    expect(manifest.steps.pre_hire.find(s => s.kind === 'handbook')).toMatchObject({ required: false, complete: false });
+    expect(manifest.steps.pre_hire.map(s => s.kind)).not.toContain('handbook');
     expect(manifest.steps.onboarding.find(s => s.kind === 'handbook')).toMatchObject({ required: true, complete: false });
   });
 });
@@ -182,7 +195,7 @@ it('checks saved onboarding tasks and acknowledgements before password preparati
   mocks.getJourney.mockResolvedValue({ prehireCompletedAt: '2026-09-01' });
   mocks.journeyTasks.mockResolvedValue([{ id: 9, phase: 'onboarding', isRequired: true, status: 'pending' }]);
   mocks.execute.mockImplementation(async sql => sql.includes('FROM hire_portal_submissions')
-    ? [['handbook','user-setup','staff-communications'].map(step_key => ({ phase: 'onboarding', step_key, encrypted_value: encryptGuardianIntake('{}'), completed_at: '2026-09-26' }))] : [[]]);
+    ? [['handbook','user-setup','staff-communications'].map(step_key => ({ phase: 'onboarding', step_key, encrypted_value: encryptGuardianIntake(JSON.stringify(step_key === 'handbook' ? { handbookVersionId: 7 } : {})), completed_at: '2026-09-26' }))] : [[]]);
   await expect(assertOnboardingPasswordReady(1, 2)).rejects.toMatchObject({ code: 'ONBOARDING_INCOMPLETE' });
   mocks.journeyTasks.mockResolvedValue([{ id: 9, phase: 'onboarding', isRequired: true, status: 'completed' }]);
   await expect(assertOnboardingPasswordReady(1, 2)).resolves.toBeUndefined();

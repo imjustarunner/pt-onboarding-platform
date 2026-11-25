@@ -45,6 +45,8 @@ import { createAndSendReferenceRequests } from '../services/hiringReferenceReque
 import { resolveHiringReferenceConsent } from '../services/hiringReferenceConsent.service.js';
 import { sanitizeCareersPageJson } from '../utils/careersPageSanitize.js';
 import { sanitizePrehireConfig, mergePrehireDocuments } from '../utils/prehireConfigSanitize.js';
+import { builtInHireDocument } from '../../../frontend/src/navigation/hireDocuments.js';
+import { handbookResponseForReader } from '../services/workplaceHandbookAccess.js';
 import {
   parseJobDescriptionSections,
   sanitizeJobDescriptionSections
@@ -3861,7 +3863,7 @@ export const getHiringSettings = async (req, res, next) => {
     );
     const raw = rows[0]?.prehire_settings;
     const settings = typeof raw === 'string' ? JSON.parse(raw) : (raw || {});
-    res.json({ agencyId, settings });
+    res.json(handbookResponseForReader({ agencyId, settings }, req.user));
   } catch (e) { next(e); }
 };
 
@@ -3879,8 +3881,6 @@ export const updateHiringSettings = async (req, res, next) => {
       'invite_email_subject',
       'invite_email_body',
       'role_package_mappings',
-      'handbook_ack_url',
-      'handbook_full_url',
       'default_prehire_docs',
       'portal_workflow',
       'hire_packet_templates'
@@ -3919,7 +3919,7 @@ export const updateHiringSettings = async (req, res, next) => {
       'UPDATE agencies SET prehire_settings = ? WHERE id = ?',
       [JSON.stringify(merged), agencyId]
     );
-    res.json({ agencyId, settings: merged });
+    res.json(handbookResponseForReader({ agencyId, settings: merged }, req.user));
   } catch (e) { next(e); }
 };
 
@@ -4329,6 +4329,7 @@ export const sendPreHire = async (req, res, next) => {
       try {
         const tmpl = await DocumentTemplate.findById(templateId);
         if (!tmpl || (tmpl.agency_id && Number(tmpl.agency_id) !== Number(agencyId)) || tmpl.is_active === 0) throw new Error(`Document ${templateId} is unavailable in this organization.`);
+        if (builtInHireDocument(tmpl)) continue;
         if (likelyBuilderContractId && (templateId === libraryContractId || isEmploymentAgreementTitle(tmpl.name))) continue;
         const task = await TaskAssignmentService.assignDocumentTask({
           title: tmpl.name,
@@ -4541,14 +4542,6 @@ export const sendPreHire = async (req, res, next) => {
           scheduledOn: d.scheduledOn || null
         }))
       ];
-      if (prehireSettings?.handbook_ack_url) {
-        seedItems.push({
-          itemKey: 'handbook_ack',
-          title: 'Employee Handbook acknowledgement',
-          instructions: 'Open and review the handbook acknowledgement.',
-          scheduledOn: null
-        });
-      }
       for (const item of seedItems) {
         checklistTitles.push(item.title);
         try {
