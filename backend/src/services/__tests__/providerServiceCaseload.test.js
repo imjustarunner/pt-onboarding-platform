@@ -13,8 +13,9 @@ import { clientServiceAssignments } from '../../utils/clientServiceAssignments.j
 
 // Execute the production SQL against disposable fictional records. No app DB is used.
 const fixture = String.raw`
-import sqlite3,json,sys
+import sqlite3,json,sys,re
 request=json.load(sys.stdin);db=sqlite3.connect(':memory:');db.row_factory=sqlite3.Row
+db.create_function('REGEXP',2,lambda pattern,value: bool(re.search(pattern.replace('[[:space:]]',r'\s'),value)))
 db.create_function('CONCAT',-1,lambda *parts: ''.join('' if part is None else str(part) for part in parts))
 db.create_function('CONCAT_WS',-1,lambda sep,*parts: sep.join(str(part) for part in parts if part is not None))
 schema='''
@@ -55,6 +56,9 @@ db.executescript('''
 ALTER TABLE agencies ADD is_active INTEGER DEFAULT 1;
 ALTER TABLE agencies ADD is_archived INTEGER DEFAULT 0;
 ALTER TABLE clients ADD default_service_location_id INTEGER;
+ALTER TABLE clients ADD is_demo INTEGER DEFAULT 0;
+ALTER TABLE clients ADD created_via_dev_fill INTEGER DEFAULT 0;
+ALTER TABLE clients ADD termination_reason TEXT;
 ALTER TABLE client_agency_assignments ADD default_service_location_id INTEGER;
 ''')
 for i in range(1,10):db.execute("INSERT INTO clients(id,agency_id,provider_id,organization_id,initials,status,client_type) VALUES(?,?,?,?,?,'ACTIVE','clinical')",(i,3 if i in (5,6) else 2,8 if i==1 else None,30,'F'+str(i)))
@@ -164,4 +168,22 @@ it('reads the service for the selected agency and does not borrow a linked agenc
  extraSeed=`INSERT INTO client_service_enrollments VALUES(29,6,3,9,'counseling',1,'active',0,'Counseling');`;
  expect((await Client.findByAgencyId(2,{directoryAssignments:true})).find(row=>row.id===6)).toMatchObject({directory_provider_id:8,provider_name:'Michael Synthetic'});
  expect((await Client.findByAgencyId(3,{directoryAssignments:true})).find(row=>row.id===6)).toMatchObject({directory_provider_id:9,provider_name:'Other Synthetic'});
+});
+
+it('includes only real inactive charts in the paginated directory and keeps them out of current totals',async()=>{
+ extraSeed=`
+  INSERT INTO client_statuses VALUES (1,'Current','current'),(2,'Terminated','terminated');
+  UPDATE clients SET client_status_id=1 WHERE id=1;
+  UPDATE clients SET status='ARCHIVED',client_status_id=2 WHERE id IN (2,3,4,5,6,7);
+  UPDATE clients SET is_demo=1 WHERE id=3;
+  UPDATE clients SET compliance_archived_at='2026-01-01' WHERE id=4;
+  UPDATE clients SET termination_reason='fake client' WHERE id=6;
+  UPDATE clients SET client_status_id=1 WHERE id=7;
+ `;
+ const scope={agency_ids:[2],directoryPage:{page:1,perPage:50}};
+ const included=await Client.findAll({...scope,includeInactive:true});
+ expect(ids(included.items)).toEqual([1,2,8,9]);
+ expect(included.summary).toMatchObject({total:4,completed:3,attention:0,pending:0});
+ const excluded=await Client.findAll({...scope,hideInactive:true});
+ expect(ids(excluded.items)).toEqual([1,8,9]);
 });

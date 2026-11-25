@@ -1,3 +1,4 @@
+import { realInactiveClientSql } from '../utils/clientInactivePolicy.js';
 import { readDirectoryPage } from '../utils/clientDirectoryPage.js';
 import { clientDirectoryProviderJoin, formatClientDirectoryProvider } from '../utils/clientDirectoryProvider.js';
 import { clientServiceAssignmentSql } from '../utils/clientServiceAssignmentSql.js';
@@ -453,8 +454,8 @@ class Client {
       query += ' AND c.compliance_archived_at IS NULL';
     }
 
+    if (options.hideInactive) query += ` AND NOT ${realInactiveClientSql}`;
     if(options.clientDirectoryMode){
-      const {realInactiveClientSql}=await import('../utils/clientInactivePolicy.js');
       query+=options.clientDirectoryMode==='inactive'?` AND ${realInactiveClientSql}`:` AND NOT ${realInactiveClientSql}`;
       if(options.clientDirectoryMode==='inactive'&&options.previousProviderId){
         query+=` AND (c.provider_id=? OR c.termination_last_provider_id=? OR EXISTS(SELECT 1 FROM client_provider_assignments pp WHERE pp.client_id=c.id AND pp.provider_user_id=?)
@@ -463,7 +464,10 @@ class Client {
       }
     }
     if (options.directoryPage) {
-      if (!options.includeArchived && String(status || '').toUpperCase()!=='ARCHIVED') query+=" AND UPPER(COALESCE(c.status,''))<>'ARCHIVED'";
+      if (!options.includeArchived && String(status || '').toUpperCase() !== 'ARCHIVED') {
+        const active = "UPPER(COALESCE(c.status,''))<>'ARCHIVED'";
+        query += options.includeInactive ? ` AND (${active} OR ${realInactiveClientSql})` : ` AND ${active}`;
+      }
       if (options.clientStatusKey && !client_status_id) {query+=' AND LOWER(cs.status_key)=?';values.push(options.clientStatusKey);}
       if (options.demo==='only') query+=' AND (COALESCE(c.is_demo,0)=1 OR COALESCE(c.created_via_dev_fill,0)=1)';
       if (options.demo==='exclude') query+=' AND COALESCE(c.is_demo,0)<>1 AND COALESCE(c.created_via_dev_fill,0)<>1';

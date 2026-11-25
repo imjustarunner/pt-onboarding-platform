@@ -293,6 +293,10 @@
           <input type="checkbox" v-model="skillsOnly" @change="applyFilters" />
           <span>Skills clients only</span>
         </label>
+        <label v-if="canBackofficeEdit" class="cm-inline-checkbox">
+          <input type="checkbox" v-model="includeInactive" @change="applyFilters" />
+          <span>Include Inactive</span>
+        </label>
         <select v-model="referralEntryFilter" @change="applyFilters" class="filter-select" aria-label="Referring company">
           <option value="">All referring companies</option>
           <option v-for="entry in referralFilterEntries" :key="entry.id" :value="entry.id">{{ entry.name }}</option>
@@ -386,16 +390,16 @@
     <ClientPortalInviteDialog v-if="portalInviteClientIds.length" :client-ids="portalInviteClientIds" @close="portalInviteClientIds = []" />
     <div v-if="canUpdateCharts && filteredClients.length" class="bulk-left" style="margin:12px 0;flex-wrap:wrap">
       <button class="btn btn-secondary btn-sm" type="button" :disabled="loading || selectingAllMatching" @click="selectAllMatchingClients">
-        {{ selectingAllMatching ? 'Selecting…' : `Select all ${totalCountForDisplay} matching clients` }}
+        {{ selectingAllMatching ? 'Selecting…' : 'Select all matching active clients' }}
       </button>
       <button v-if="selectedIds.size && recordImportQueue.length" class="btn btn-primary btn-sm" type="button" :disabled="loading || selectingAllMatching" @click="openChartUpdates()">Bring selected clients up to date ({{ recordImportQueue.length }})</button>
     </div>
-    <div v-if="canInvitePortal && filteredClients.length" class="bulk-left" style="margin:12px 0;flex-wrap:wrap">
+    <div v-if="canInvitePortal && activeFilteredClients.length" class="bulk-left" style="margin:12px 0;flex-wrap:wrap">
       <span>Portal invitations: filter by provider, school, or status, then select clients.</span>
-      <button class="btn btn-secondary btn-sm" type="button" :disabled="loading || filteredClients.length > 200" @click="openPortalInvites(filteredClients.map(c => c.id))">
-        {{ usingServerPagination ? 'Invite clients on this page' : 'Invite all matching clients' }} ({{ filteredClients.length }})
+      <button class="btn btn-secondary btn-sm" type="button" :disabled="loading || activeFilteredClients.length > 200" @click="openPortalInvites(activeFilteredClients.map(c => c.id))">
+        {{ usingServerPagination ? 'Invite clients on this page' : 'Invite all matching clients' }} ({{ activeFilteredClients.length }})
       </button>
-      <small v-if="filteredClients.length > 200">Narrow the filters or select up to 200 clients at a time.</small>
+      <small v-if="activeFilteredClients.length > 200">Narrow the filters or select up to 200 clients at a time.</small>
     </div>
     <!-- Initial empty load — only show full loading screen when we have nothing yet -->
     <div v-if="loading && clients.length === 0" class="loading">Loading clients…</div>
@@ -581,11 +585,11 @@
             @click="pinClientPanel(client)"
             @contextmenu="followUpTask?.openContextMenu($event, client)"
             class="client-row cm-client-row"
-            :class="{ 'cm-client-row--active': quickViewClient?.id === client.id, 'cm-client-row--pinned': quickViewClient?.id === client.id && quickViewPinned }"
+            :class="{ 'cm-client-row--inactive': isInactive(client), 'cm-client-row--active': quickViewClient?.id === client.id, 'cm-client-row--pinned': quickViewClient?.id === client.id && quickViewPinned }"
             :style="getClientRowStyle(client)"
           >
             <td class="select-cell" @click.stop>
-              <input type="checkbox" :checked="selectedIds.has(client.id)" @change.stop="toggleSelected(client.id)" />
+              <input v-if="!isInactive(client)" type="checkbox" :checked="selectedIds.has(client.id)" @change.stop="toggleSelected(client.id)" />
             </td>
             <td
               data-label="Name" class="initials-cell col-initials"
@@ -597,6 +601,7 @@
             >
               <ClientAgencyLogo :agency="clientAgencyBrand(client)" class="cm-client-agency-logo" />
               <span class="cm-initials-badge" :style="getInitialsStyle(client)">{{ getClientDisplay(client) }}</span>
+              <span v-if="isInactive(client)" class="cm-inactive-badge">Inactive</span>
               <span
                 v-if="nameDuplicateClientIds.has(client.id)"
                 class="cm-dupe-chip"
@@ -634,7 +639,7 @@
               </span>
             </td>
             <td v-if="columnPrefs.provider" data-label="Clinician">
-              <button v-if="canBackofficeEdit" type="button" class="cm-provider-label cm-provider-assign" :style="getProviderLabelStyle(client)" :aria-label="`${client.provider_name ? 'Manage' : 'Assign'} provider for ${getClientDisplay(client)}`" @click.stop="openDirectoryAssignment(client)">
+              <button v-if="canBackofficeEdit && !isInactive(client)" type="button" class="cm-provider-label cm-provider-assign" :style="getProviderLabelStyle(client)" :aria-label="`${client.provider_name ? 'Manage' : 'Assign'} provider for ${getClientDisplay(client)}`" @click.stop="openDirectoryAssignment(client)">
                 {{ client.provider_name || 'Unassigned' }}
               </button>
               <span v-else class="cm-provider-label" :style="getProviderLabelStyle(client)">
@@ -680,6 +685,8 @@
               <details class="cm-row-actions" @toggle="positionRowMenu" @click.stop @keydown.esc="$event.currentTarget.open=false">
                 <summary class="btn btn-secondary btn-sm cm-kebab-btn" aria-label="More actions">⋮</summary>
               <div class="cm-action-menu" @click.capture="closeRowMenu($event)">
+              <button v-if="isInactive(client)" type="button" class="btn btn-secondary btn-sm" @click.stop="openClientDetail(client)">Open client</button>
+              <template v-else>
               <button type="button" class="btn btn-secondary btn-xs" @click.stop="followUpTask?.open(client);closeRowMenu($event)">Follow-up task</button>
               <button v-if="canUpdateCharts && requiresClientRecordImport(client)" type="button" class="btn btn-secondary btn-xs" @click.stop="openChartUpdates(client);closeRowMenu($event)">Bring up to date</button>
               <QuickPostClientToExchange v-if="canBackofficeEdit" :client="client" @posted="loadSideCounts" />
@@ -700,6 +707,7 @@
                 <button type="button" class="btn btn-secondary btn-sm" @click.stop="openClientDetail(client)">Open client</button>
                 <button v-if="canBackofficeEdit" type="button" class="btn btn-secondary btn-sm" :aria-pressed="!!Number(client.is_demo)" @click.stop="toggleClientDemo(client,!Number(client.is_demo));closeRowMenu($event)">{{Number(client.is_demo)?'Demo: on — turn off':'Demo: off — turn on'}}</button>
                 <div v-if="canMarkInactive" class="client-end-services"><button type="button" class="btn btn-danger btn-sm" @click.stop="terminationClient = client;closeRowMenu($event)">Mark inactive / final follow-up</button></div>
+              </template>
               </div>
               </details>
             </td>
@@ -1499,10 +1507,11 @@ const clientSummary = computed(() => {
   return summarizeClients(filteredClients.value);
 });
 
-const getClientRowStyle = (client) => rowAccentStyle(client, { platformMode: usingServerPagination.value });
+const isInactive = client => ['inactive', 'terminated'].includes(String(client?.client_status_key || '').toLowerCase());
+const getClientRowStyle = (client) => isInactive(client) ? {} : rowAccentStyle(client, { platformMode: usingServerPagination.value });
 const getAffiliationBadgeStyle = (client) => affiliationBadgeStyle(client, { platformMode: usingServerPagination.value });
 const getInitialsStyle = (client) => initialsStyle(client, { platformMode: usingServerPagination.value });
-const getStatusPillStyle = (client) => statusPillStyle(client);
+const getStatusPillStyle = (client) => isInactive(client) ? {} : statusPillStyle(client);
 const getDocumentStatusTone = (client) => documentStatusTone(client);
 const getDocumentStatusIcon = (client) => {
   const tone = documentStatusTone(client);
@@ -1669,6 +1678,7 @@ const devFillFilter = ref('exclude');
 const organizationFilter = ref('');
 const providerFilter = ref('');
 const skillsOnly = ref(false);
+const includeInactive = ref(true);
 const sortBy = ref('submission_date-desc');
 
 const DATE_SORT_FIELDS = new Set(['submission_date', 'last_activity_at', 'referral_date']);
@@ -1735,7 +1745,7 @@ function clientAgencyBrand(client) {
 const chartUpdateQueue = ref(null);
 const recordImportQueue = computed(() => {
   const selected = [...selectedClientRecords.value.values()].filter(row => selectedIds.value.has(row.id));
-  return (selected.length ? selected : filteredClients.value).filter(requiresClientRecordImport);
+  return (selected.length ? selected : activeFilteredClients.value).filter(requiresClientRecordImport);
 });
 function openChartUpdates(client = null) {
   chartUpdateQueue.value = client ? [client].filter(requiresClientRecordImport) : [...recordImportQueue.value];
@@ -2494,8 +2504,7 @@ const fetchClients = async ({ background = false } = {}) => {
     const params = new URLSearchParams();
     const scopedAgencyId = effectiveAgencyScopeId.value;
     if (scopedAgencyId) params.append('agency_id', String(scopedAgencyId));
-    // Archived clients are managed in Settings -> Archive, not in the main client area.
-    params.append('includeArchived', 'false');
+    if (canBackofficeEdit.value) params.set('includeInactive', String(includeInactive.value));
     if (referralEntryFilter.value) { params.append('referral_entry_id', referralEntryFilter.value); params.append('referral_direction', referralDirectionFilter.value); }
     if (clientStatusFilter.value) params.append('client_status_id', clientStatusFilter.value);
     if (workflowStatusFilter.value) params.append('status', workflowStatusFilter.value);
@@ -2544,7 +2553,8 @@ const fetchClients = async ({ background = false } = {}) => {
     const tenantById = new Map((allTenantFilters.value || []).map((t) => [Number(t?.id), t]));
     const orgById = new Map((linkedOrganizations.value || []).map((o) => [Number(o?.id), o]));
     clients.value = (Array.isArray(raw) ? raw : [])
-      .filter((c) => String(c?.status || '').toUpperCase() !== 'ARCHIVED')
+      .filter(c => String(c?.status || '').toUpperCase() !== 'ARCHIVED'
+        || (canBackofficeEdit.value && includeInactive.value && isInactive(c)))
       .filter((c) => matchesParsedSearch(c, parsed))
       .map((c) => {
       const orgId = Number(c?.organization_id);
@@ -2713,6 +2723,8 @@ const filteredClients = computed(() => {
   return filtered;
 });
 
+const activeFilteredClients = computed(() => filteredClients.value.filter(client => !isInactive(client)));
+
 const totalPages = computed(() => {
   if (usingServerPagination.value) {
     const total = Number(serverTotal.value || 0);
@@ -2735,7 +2747,7 @@ const totalCountForDisplay = computed(() => {
 });
 
 const allPageSelected = computed(() => {
-  const page = pagedClients.value || [];
+  const page = (pagedClients.value || []).filter(client => !isInactive(client));
   if (!page.length) return false;
   for (const c of page) {
     if (!selectedIds.value.has(c.id)) return false;
@@ -2757,7 +2769,7 @@ const toggleSelected = (id) => {
 const toggleSelectAllPage = (evt) => {
   const checked = !!evt?.target?.checked;
   const set = new Set(selectedIds.value);
-  for (const c of pagedClients.value || []) {
+  for (const c of (pagedClients.value || []).filter(client => !isInactive(client))) {
     if (checked) { set.add(c.id); selectedClientRecords.value.set(c.id, c); }
     else set.delete(c.id);
   }
@@ -2770,7 +2782,7 @@ async function selectAllMatchingClients() {
   try {
     const matches = new Map();
     if (!usingServerPagination.value) {
-      for (const client of filteredClients.value) matches.set(client.id, client);
+      for (const client of filteredClients.value.filter(client => !isInactive(client))) matches.set(client.id, client);
     } else {
       const params = new URLSearchParams(lastClientRequestParams);
       params.set('paginate', 'true'); params.set('per_page', '200');
@@ -2783,7 +2795,7 @@ async function selectAllMatchingClients() {
         if (!Number.isFinite(total) || (!rows.length && loaded < total)) throw new Error('The matching client list was incomplete. Please retry.');
         loaded += rows.length;
         for (const client of rows) {
-          if (String(client.status || '').toUpperCase() !== 'ARCHIVED' && matchesParsedSearch(client, parsedSearch.value)) matches.set(client.id, client);
+          if (!isInactive(client) && String(client.status || '').toUpperCase() !== 'ARCHIVED' && matchesParsedSearch(client, parsedSearch.value)) matches.set(client.id, client);
         }
       }
     }
@@ -3426,7 +3438,7 @@ const openClientFromQuery = async () => {
   }
 };
 
-const listPreferences = { platformTenantFilter, clientStatusFilter, workflowStatusFilter, devFillFilter, organizationFilter, providerFilter, skillsOnly, sortBy, pageSize, renewalFlagFilter, summaryFilter, cmViewMode };
+const listPreferences = { platformTenantFilter, clientStatusFilter, workflowStatusFilter, devFillFilter, organizationFilter, providerFilter, skillsOnly, sortBy, pageSize, renewalFlagFilter, summaryFilter, cmViewMode, includeInactive };
 const listPreferencesKey = computed(() => `client-management-preferences-v2:${authStore.user?.id || 'anon'}`);
 function restoreListPreferences() {
   try { const saved = JSON.parse(localStorage.getItem(listPreferencesKey.value) || '{}'); for (const [key, target] of Object.entries(listPreferences)) if (Object.hasOwn(saved,key) && typeof saved[key] === typeof target.value) target.value = saved[key]; } catch { /* Preferences are optional. */ }
@@ -3436,7 +3448,7 @@ watch(displayMode, () => { if (usingServerPagination.value && sortParts().field 
 const workspaceState = {
   clients, clientStatuses, availableProviders, linkedOrganizations, serverTotal, serverSummary,
   searchQuery, parsedSearch, clientStatusFilter, workflowStatusFilter, devFillFilter,
-  organizationFilter, providerFilter, skillsOnly, sortBy, currentPage, pageSize, platformTenantFilter,
+  organizationFilter, providerFilter, skillsOnly, includeInactive, sortBy, currentPage, pageSize, platformTenantFilter,
   renewalFlagFilter, cmViewMode, pendingIntakeCount, exchangeListingCount, nameDuplicateGroupCount,
   referralEntryFilter, referralDirectionFilter, referralFilterEntries, schoolSearchQuery
 };
@@ -3621,6 +3633,10 @@ watch(() => currentPage.value, (newPage, oldPage) => {
 </script>
 
 <style scoped>
+.cm-inline-checkbox { display: inline-flex; align-items: center; gap: 8px; }
+.cm-clients-table .cm-client-row--inactive td { background: #eef0f3; }
+[data-theme="dark"] .cm-clients-table .cm-client-row--inactive td { background: #29323c; }
+.cm-inactive-badge { display: inline-block; margin-inline-start: 6px; border-radius: 999px; padding: 3px 8px; background: #dce0e5; color: #344054; font-weight: 600; }
 .cm-client-agency-logo { width: 22px; height: 22px; object-fit: contain; vertical-align: middle; margin-right: 6px; border-radius: 5px; }
 .cm-row-actions { position: relative; }
 .cm-row-actions summary { cursor: pointer; list-style: none; }

@@ -6,7 +6,7 @@ export function normalizeNamePart(value) {
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .replace(/['’`]/g, '')
-    .replace(/[^a-z0-9\s-]/g, ' ')
+    .replace(/[^\p{L}\p{N}\s-]/gu, ' ')
     .replace(/-+/g, '-')
     .replace(/\s+/g, ' ')
     .trim();
@@ -46,8 +46,8 @@ export function fullNameMatchKey(fullName) {
 }
 
 export function looksLikeInitialsOnly(fullName, initials) {
-  const compact = String(fullName || '').replace(/[^a-zA-Z]/g, '').toUpperCase();
-  const init = String(initials || '').replace(/[^a-zA-Z]/g, '').toUpperCase();
+  const compact = String(fullName || '').replace(/[^\p{L}]/gu, '').toUpperCase();
+  const init = String(initials || '').replace(/[^\p{L}]/gu, '').toUpperCase();
   if (!compact) return true;
   if (init && compact === init) return true;
   return compact.length <= 3;
@@ -62,6 +62,27 @@ export function normalizeDob(value) {
   const dt = new Date(raw);
   if (Number.isNaN(dt.getTime())) return '';
   return dt.toISOString().slice(0, 10);
+}
+
+export function hasMatchingClientBirthDate(a, b) {
+  const date = normalizeDob(a.date_of_birth);
+  if (!date || date.startsWith('0000-') || date !== normalizeDob(b.date_of_birth)) return false;
+  const parsed = new Date(`${date}T00:00:00Z`);
+  return Number.isFinite(+parsed) && parsed.toISOString().slice(0, 10) === date;
+}
+
+export function hasMatchingClientIdentity(a, b) {
+  if (!hasMatchingClientBirthDate(a, b)) return false;
+  const name = fullNameMatchKey(a.full_name);
+  return Boolean(name && name === fullNameMatchKey(b.full_name)
+    && !looksLikeInitialsOnly(a.full_name) && !looksLikeInitialsOnly(b.full_name));
+}
+
+export function requireMatchingClientIdentities(records) {
+  const [first, ...others] = records;
+  if (others.some(record => !hasMatchingClientIdentity(first, record))) {
+    throw Object.assign(new Error('Charts must have the same legal name and birth date before they can be merged or linked. Review and correct the chart details first.'), { status: 409 });
+  }
 }
 
 function confidenceForMembers(members) {

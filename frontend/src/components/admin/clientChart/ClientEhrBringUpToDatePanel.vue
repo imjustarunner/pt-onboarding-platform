@@ -23,7 +23,7 @@
         <span v-for="section in visibleSections" :key="section.key" class="ehr-chip" :class="statusClass(status[section.key])">{{ section.label }} · {{ sectionStatusLabel(section.key) }}</span>
       </div>
       <section v-for="section in visibleSections" :key="section.key" class="ehr-section" :aria-label="section.label">
-        <template v-if="section.key === 'insurance'"><label class="ehr-label">Payment basis<select aria-label="Payment basis" v-model="coverageMode" :disabled="busy"><option value="insurance">Insurance</option><option v-if="!delegatedImport" value="self_pay">Self-pay — agreed client rate</option><option value="no_policy">No policy to import</option></select></label><ClientImportSelfPayFields v-if="coverageMode==='self_pay'" v-model="selfPay" :agency-id="agencyId" :client-id="clientId" :disabled="busy || sectionLocked('insurance')" /></template>
+        <template v-if="section.key === 'insurance'"><label class="ehr-label">Payment basis<select ref="paymentBasisControl" aria-label="Payment basis" v-model="coverageMode" :disabled="busy"><option value="insurance">Insurance</option><option v-if="!delegatedImport" value="self_pay">Self-pay — agreed client rate</option><option value="no_policy">No policy to import</option></select></label><ClientImportSelfPayFields v-if="coverageMode==='self_pay'" v-model="selfPay" :agency-id="agencyId" :client-id="clientId" :disabled="busy || sectionLocked('insurance')" /></template>
         <div v-if="section.key==='insurance' && coverageMode==='insurance'" class="ehr-coverage-pastes">
           <div v-for="position in ['primary','secondary']" :key="position">
             <label class="ehr-label">{{ position==='primary'?'Primary insurance':'Secondary insurance (optional)' }} paste
@@ -322,6 +322,12 @@ const eligibleGuardianMatch = computed(() => {
 });
 const pendingPatientInfo = computed(() => !props.historicalImport && !!sectionTexts.demographics.trim() && status.demographics !== 'imported');
 watch(eligibleGuardianMatch, match => { preparePrimaryGuardian.value = !!match; });
+const paymentBasisControl = ref(null);
+function reviewInsurance() {
+  const control = paymentBasisControl.value?.[0];
+  control?.scrollIntoView?.({ block:'center' });
+  control?.focus?.();
+}
 function reviewPatientInfo() {
   error.value = 'Confirm who owns the phone and email, then import Patient info before preparing the client’s account.';
   const control = contactOwnerControl.value?.[0] || contactOwnerControl.value;
@@ -734,7 +740,7 @@ async function reviewPlan() {
 }
 
 async function reloadAssignments(){await assignmentsPanel.value?.refresh?.();return true;}
-defineExpose({ prepareLeave,importAll,reloadAssignments });
+defineExpose({ prepareLeave,importAll,reloadAssignments,reviewInsurance });
 
 async function importSupplementary(key) {
   const result = await api.post(`/clients/${props.clientId}/chart-import/sections/${key}`, { text: sectionTexts[key], ...(['insurance','payer'].includes(key) ? { position: payerPosition.value } : {}),

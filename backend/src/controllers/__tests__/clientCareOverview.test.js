@@ -44,7 +44,7 @@ it('returns only insurance labels to a provider and checks disclosure membership
   expect(next).not.toHaveBeenCalled();
   const [payload] = res.json.mock.calls[0];
   expect(payload).toMatchObject({
-    billing: null, disclosure: { includesViewer: true },
+    billing: null, disclosure: { signedAt: '2026-11-12', providerIds: [9, 11] },
     intakeAt: '2026-11-12T17:00:00Z', sessions: { lastAt: '2026-11-20', nextAt: '2026-11-29' }
   });
   expect(payload.policies).toEqual([
@@ -64,6 +64,6 @@ it('projects billing verification and payment status without exposing transactio
   expect(next).not.toHaveBeenCalled();
   const [payload] = res.json.mock.calls[0];
   expect(payload.billing).toEqual({payment:{cardOnFile:true,medicaid:true},verification:{current:true,verifiedAt:'2026-11-23'},verificationUnavailable:false});
-  expect(payload.disclosure.includesViewer).toBe(false);
+  expect(payload.disclosure.providerIds).toEqual([9, 11]);
   expect(JSON.stringify(payload)).not.toContain('redact-');
 });

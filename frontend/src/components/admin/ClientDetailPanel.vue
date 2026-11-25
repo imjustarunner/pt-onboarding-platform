@@ -203,6 +203,7 @@
             :status-label="isClientArchived ? 'Inactive' : displayStatusLabel"
             :program-label="overviewProgramLabel"
             :care-team-label="primaryProviderLabel"
+            :care-team-provider-id="primaryOverviewProvider?.provider_user_id"
             :care-team-meta="careTeamGlanceMeta"
             :session-count-label="sessionCountLabel"
             :last-session-label="lastSessionLabel"
@@ -3717,8 +3718,10 @@ const primaryInsuranceLabel = computed(() => {
   return name || '';
 });
 
+const primaryOverviewProvider = computed(() => effectiveOverviewProviders.value.find(provider => provider?.is_primary)
+  || effectiveOverviewProviders.value[0]);
 const primaryProviderLabel = computed(() => {
-  const primary = (effectiveOverviewProviders.value || []).find((p) => p?.is_primary) || (effectiveOverviewProviders.value || [])[0];
+  const primary = primaryOverviewProvider.value;
   if (primary) {
     const last = String(primary.provider_last_name || '').trim();
     const first = String(primary.provider_first_name || '').trim();
