@@ -10,13 +10,19 @@ const fail = (status, message) => Object.assign(Error(message), { status });
 const nameKey = value => String(value || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]/gu,'');
 const day = value => value instanceof Date ? value.toISOString().slice(0,10) : String(value || '').slice(0,10);
 const wordsOf = value => String(value || '').trim().split(/\s+/).filter(Boolean);
-const isMergeable = row => !['ARCHIVED','TERMINATED'].includes(row.status) && Number(row.is_archived)!==1 && !hasTerminalClientStatus(row) && row.records_import_status !== 'complete';
+const isMergeable = row => !['ARCHIVED','TERMINATED'].includes(row.status) && !row.compliance_archived_at && !hasTerminalClientStatus(row) && row.records_import_status !== 'complete';
 function sameClientEvidence(row, name, dob) {
   if (day(row.date_of_birth) && dob && day(row.date_of_birth) !== dob) return false;
   if (nameKey(name) && nameKey(row.full_name) === nameKey(name)) return true;
   const incoming = wordsOf(name), saved = wordsOf(row.full_name);
+  const agrees = (a, b) => {
+    const left = nameKey(a), right = nameKey(b);
+    return !!left && !!right && (left === right || (
+      Math.min(left.length, right.length) >= 3 && (left.startsWith(right) || right.startsWith(left))
+    ));
+  };
   return !!dob && day(row.date_of_birth) === dob && incoming.length >= 2 && saved.length >= 2
-    && (nameKey(saved[0]) === nameKey(incoming[0]) || nameKey(saved.at(-1)) === nameKey(incoming.at(-1)));
+    && agrees(saved[0], incoming[0]) && agrees(saved.at(-1), incoming.at(-1));
 }
 async function agencyFor(req) {
   if (!['super_admin','admin','support'].includes(req.user?.role)) throw fail(403,'Account support access required');
@@ -41,11 +47,11 @@ export async function getClientImportCandidates(req,res,next){try{
   if(email){clauses.push("(LOWER(TRIM(c.email))=? OR EXISTS(SELECT 1 FROM client_guardians cg JOIN users u ON u.id=cg.guardian_user_id WHERE cg.client_id=c.id AND LOWER(TRIM(u.email))=? AND u.role IN ('client_guardian','client'))) ");values.push(email,email);}
   if(phone.length===10){clauses.push("EXISTS(SELECT 1 FROM client_contact_affiliations cca JOIN agency_contacts ac ON ac.id=cca.agency_contact_id WHERE cca.client_id=c.id AND ac.agency_id=c.agency_id AND ac.phone IN (?,?))");values.push('+1'+phone,phone);}
   if(!clauses.length)return res.set('Cache-Control','no-store').json({candidates:[]});
-  const [rows]=await pool.execute(`SELECT c.id,c.full_name,c.date_of_birth,c.status,c.is_archived,s.status_key AS client_status_key,
+  const [rows]=await pool.execute(`SELECT c.id,c.full_name,c.date_of_birth,c.status,c.compliance_archived_at,s.status_key AS client_status_key,
     ${importStateColumn} FROM clients c LEFT JOIN client_statuses s ON s.id=c.client_status_id WHERE c.agency_id=? AND (${clauses.join(' OR ')}) ORDER BY LOWER(TRIM(c.full_name))=LOWER(?) DESC,c.status='ARCHIVED',c.id DESC LIMIT 25`,[...values,name]);
   const key=nameKey;
   const similarName=value=>{const parts=String(value||'').trim().split(/\s+/);return words.length>1&&parts.length>1&&key(parts[0]).slice(0,3)===key(words[0]).slice(0,3)&&key(parts.at(-1))===key(words.at(-1));};
-  const candidates=rows.map(row=>({id:row.id,full_name:row.full_name,status:row.status,date_of_birth:day(row.date_of_birth),canMerge:isMergeable(row)&&sameClientEvidence(row,name,dob),kind:similarName(row.full_name)||key(row.full_name)===key(name)||dob&&day(row.date_of_birth)===dob?'possible_duplicate':'shared_household',reason:key(row.full_name)===key(name)?'Same legal name':dob&&day(row.date_of_birth)===dob?'Same birth date':similarName(row.full_name)?'Similar first and last name':'Shared address or contact details — review possible sibling'}));
+  const candidates=rows.map(row=>({id:row.id,full_name:row.full_name,status:row.status,date_of_birth:day(row.date_of_birth),canMerge:isMergeable(row)&&sameClientEvidence(row,name,dob),kind:similarName(row.full_name)||key(row.full_name)===key(name)||dob&&day(row.date_of_birth)===dob?'possible_duplicate':'shared_household',reason:key(row.full_name)===key(name)?'Same legal name':dob&&day(row.date_of_birth)===dob?'Same birth date':similarName(row.full_name)?'Similar first and last name':'Shared address or contact details · possible household connection'}));
   await logAuditEvent(req,{actionType:'client_import_candidates_viewed',agencyId,targetType:'agency',targetId:agencyId,metadata:{candidateCount:candidates.length}});
   res.set('Cache-Control','no-store').json({candidates});
 }catch(error){next(error);}}
@@ -63,7 +69,7 @@ export async function mergeClientRecordsImport(req, res, next) {
     }
     db = await pool.getConnection();
     await db.beginTransaction();
-    const [[client]] = await db.execute(`SELECT c.id,c.agency_id,c.full_name,c.date_of_birth,c.status,c.is_archived,c.organization_id,c.client_type,
+    const [[client]] = await db.execute(`SELECT c.id,c.agency_id,c.full_name,c.date_of_birth,c.status,c.compliance_archived_at,c.organization_id,c.client_type,
       s.status_key AS client_status_key,${importStateColumn}
       FROM clients c JOIN agencies a ON a.id=c.agency_id LEFT JOIN client_statuses s ON s.id=c.client_status_id
       WHERE c.id=? AND c.agency_id=? AND a.is_active=1 AND COALESCE(a.is_archived,0)=0 FOR UPDATE`, [clientId,agencyId]);

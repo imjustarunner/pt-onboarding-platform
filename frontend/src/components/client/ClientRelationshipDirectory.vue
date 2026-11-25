@@ -31,7 +31,7 @@
         <div v-if="canEdit">
           <button v-if="!showSearch" type="button" class="btn btn-secondary btn-sm" @click="openSearch">Link a sibling</button>
           <div v-else class="relationship-search">
-            <p>Confirm the sibling relationship before linking a chart. Each chart keeps its own access permissions.</p>
+            <p>Shared contact details or addresses can suggest a household connection. Confirm the person is a sibling before linking their chart.</p>
             <div class="relationship-search-controls">
               <label>Sibling name <input v-model.trim="search" type="search" placeholder="Search by name or initials" @keydown.enter.prevent="findSiblings" /></label>
               <button type="button" class="btn btn-secondary btn-sm" :disabled="searching" @click="findSiblings">Search</button>
@@ -43,7 +43,7 @@
               <li v-for="candidate in candidates" :key="candidate.id">
                 <strong>{{ candidate.name }}</strong>
                 <small>Chart #{{ candidate.id }}<span v-if="candidate.reason"> · {{ candidate.reason }}</span></small>
-                <button type="button" class="relationship-link" :disabled="saving" @click="changeSibling(candidate.id)">Link sibling</button>
+                <button type="button" class="relationship-link" :disabled="saving" @click="changeSibling(candidate.id)">Confirm as sibling</button>
               </li>
             </ul>
           </div>
