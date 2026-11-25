@@ -139,7 +139,7 @@ class Appointment {
     return this.mapRow(rows?.[0]);
   }
 
-  static async listForAgencyInWindow({ agencyId, windowStart, windowEnd, providerUserId = null, clientId = null }) {
+  static async listForAgencyInWindow({ agencyId, windowStart, windowEnd, providerUserId = null, clientId = null, order = 'history' }) {
     const cid = Number(clientId || 0);
     if (cid) {
       const p = [cid, Number(agencyId), windowEnd, windowStart];
@@ -154,7 +154,7 @@ class Appointment {
         q += ` AND a.provider_user_id = ?`;
         p.push(Number(providerUserId));
       }
-      q += ` ORDER BY a.start_at DESC LIMIT 100`;
+      q += order === 'upcoming' ? ` ORDER BY a.start_at ASC,a.id ASC LIMIT 100` : ` ORDER BY a.start_at DESC LIMIT 100`;
       const [rows] = await pool.execute(q, p);
       return (await visibleClinicalWork(rows || [], { db: pool, kind: 'appointment' })).map((r) => this.mapRow(r));
     }

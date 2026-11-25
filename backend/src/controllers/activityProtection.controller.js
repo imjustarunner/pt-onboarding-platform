@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import pool from '../config/database.js';
-import { accountSecurityState, requireAccountSession } from '../services/accountSecurity.service.js';
+import { accountSecurityState, requireAccountSession, primaryProof } from '../services/accountSecurity.service.js';
+import { mayRecoverOwnFileHold } from '../services/solePrivacyReviewerRecovery.service.js';
 import { PROTECTION_POLICY, protectionActor, protectionError, protectionEvent, lockProtectionState, protectFileResource } from '../services/activityProtection.service.js';
 import { appendSecurityEvidence, mirrorSecurityEvidence } from '../services/securityEvidence.service.js';
 import { MFA_STAFF_ROLES } from '../utils/accountSecurity.js';
@@ -42,33 +43,52 @@ export const reviewQueue=async(req,res,next)=>{try{
  if(cursor)conditions.push('(a.occurred_at<? OR (a.occurred_at=? AND a.id<?))');
  const [alerts]=await pool.execute(`SELECT a.*,u.email actor_email FROM activity_protection_alerts a LEFT JOIN users u ON u.id=a.user_id ${conditions.length?`WHERE ${conditions.join(' AND ')}`:''} ORDER BY a.occurred_at DESC,a.id DESC LIMIT 101`,cursor?[new Date(cursor.at),new Date(cursor.at),cursor.id]:[]);
  const [tickets]=await pool.execute("SELECT t.*,u.email actor_email FROM activity_protection_tickets t LEFT JOIN users u ON u.id=t.user_id WHERE t.status='pending' ORDER BY t.created_at LIMIT 100");
- res.json({alerts:alerts.slice(0,100),tickets,status,policy:PROTECTION_POLICY,nextCursor:alerts.length>100?Buffer.from(JSON.stringify({at:new Date(alerts[99].occurred_at).toISOString(),id:alerts[99].id,status})).toString('base64url'):null});
+ res.json({alerts:alerts.slice(0,100),tickets,status,reviewerUserId:req.user.id,selfRecoveryAllowed:!req.user?.switchedFromUserId&&tickets.some(ticket=>Number(ticket.user_id)===Number(req.user.id))&&await mayRecoverOwnFileHold(req.user.id),policy:PROTECTION_POLICY,nextCursor:alerts.length>100?Buffer.from(JSON.stringify({at:new Date(alerts[99].occurred_at).toISOString(),id:alerts[99].id,status})).toString('base64url'):null});
 }catch(e){next(e);}};
 export const pendingFileRequests=async(req,res,next)=>{try{
  res.setHeader('Cache-Control','no-store');
- const [tickets]=await pool.execute("SELECT t.id,t.user_id,t.reason,t.created_at,t.requested_units,u.email actor_email FROM activity_protection_tickets t LEFT JOIN users u ON u.id=t.user_id WHERE t.kind='client_file' AND t.status='pending' ORDER BY t.created_at,t.id LIMIT 100");
- res.json({tickets});
+ const [tickets]=await pool.execute(`SELECT t.id,t.user_id,t.reason,t.created_at,t.requested_units,u.email actor_email,s.held_at,
+   (SELECT a.reason FROM activity_protection_alerts a WHERE a.user_id=t.user_id AND a.kind='client_file'
+    AND a.reason<>'review_hold' AND a.occurred_at>=s.held_at ORDER BY a.occurred_at,a.id LIMIT 1) hold_reason
+   FROM activity_protection_tickets t LEFT JOIN users u ON u.id=t.user_id
+   LEFT JOIN activity_protection_state s ON s.user_id=t.user_id AND s.kind='client_file'
+   WHERE t.kind='client_file' AND t.status='pending' ORDER BY t.created_at,t.id LIMIT 100`);
+ const selfRecoveryAllowed=!req.user?.switchedFromUserId && await mayRecoverOwnFileHold(req.user.id);
+ res.json({tickets,selfRecoveryAllowed});
 }catch(e){next(e);}};
-async function freshReviewer(req){
+async function freshReviewer(req,{force=false}={}){
  const state=await accountSecurityState(req);
- if(!state.required)return; // Optional rollout also applies to reviewers; role and self-approval checks remain.
+ if(!state.required&&!force)return; // Ordinary reviews retain the existing rollout policy.
  // Remembered-device proof alone is not enough to approve exceptions.
  const [[proof]]=await pool.execute('SELECT verified_at,device_id FROM account_mfa_sessions WHERE session_key=?',[req.sessionSecurity?.key||'']);
- if(!state.verified||!proof||proof.device_id||Date.now()-new Date(proof.verified_at).getTime()>5*60000)throw protectionError('Enter a fresh authenticator code without remembering the device, then return to review.','MFA_FRESH_REQUIRED');
+ const verifiedAt=new Date(proof?.verified_at).getTime();
+ if(!state.verified||!proof||proof.device_id||!Number.isFinite(verifiedAt)||verifiedAt>Date.now()+30000||Date.now()-verifiedAt>5*60000)throw protectionError('Enter a fresh authenticator code without remembering the device, then return to review.','MFA_FRESH_REQUIRED');
 }
 export const reviewTicket=async(req,res,next)=>{let db;try{
- await freshReviewer(req);
  const decision=req.body?.decision, defaults={keep_holding:'Reviewed request; keep the existing file-access hold.',dismissed:'Dismissed this request; the file-access hold remains.',reset:'Reviewed routine work; reset the file-access hold and usage window.'};
  const note=String(req.body?.note||defaults[decision]||'').trim(),units=Number(req.body?.units);
  if(!['approved','denied','keep_holding','dismissed','reset'].includes(decision)||note.length<10||note.length>1000)throw protectionError('Add a review explanation (10–1000 characters).','INVALID_REVIEW');
  const [[target]]=await pool.execute('SELECT user_id FROM activity_protection_tickets WHERE id=?',[req.params.id]);if(!target)throw protectionError('Request not found.');
- if(Number(target.user_id)===protectionActor(req))throw protectionError('Another designated privacy reviewer must review your request.','SELF_APPROVAL_FORBIDDEN');
- db=await pool.getConnection();await db.beginTransaction();await lockProtectionState(db,target.user_id,'client_file');
+ const ownRequest=Number(target.user_id)===protectionActor(req)||Number(target.user_id)===Number(req.user.id);
+ if(req.body?.soleReviewerRecovery===true&&!ownRequest)throw protectionError('This recovery request belongs to a different account. Sign in directly to the account requesting recovery.','ACCOUNT_CHANGED');
+ let recoveryVerification='fresh_authenticator';
+ if(ownRequest){
+  if(req.user.switchedFromUserId||req.body?.soleReviewerRecovery!==true||req.body?.confirmOwnFileAccess!==true||decision!=='reset'||typeof req.body?.note!=='string'||note.length<20)throw protectionError('Another designated privacy reviewer must review your request, or use the sole-reviewer recovery option when eligible.','SELF_APPROVAL_FORBIDDEN');
+  if(req.authClaims?.authMethod==='google'){
+   try{await primaryProof(req,null);recoveryVerification='recent_google_sign_in';}
+   catch(error){if(error.code!=='PRIMARY_VERIFICATION_REQUIRED')throw error;await freshReviewer(req,{force:true});}
+  }else await freshReviewer(req,{force:true});
+ }else await freshReviewer(req);
+ db=await pool.getConnection();await db.beginTransaction();
+ if(ownRequest&&!await mayRecoverOwnFileHold(req.user.id,{database:db,lock:true}))throw protectionError('Owner recovery is available only to the sole active designated privacy reviewer. Another reviewer must handle this request.','SELF_APPROVAL_FORBIDDEN');
+ const held=await lockProtectionState(db,target.user_id,'client_file');
+ if(ownRequest&&!held.held_at)throw protectionError('There is no active file-access hold to restore.','NO_FILE_HOLD');
  const [[ticket]]=await db.execute("SELECT * FROM activity_protection_tickets WHERE id=? AND kind='client_file' AND status='pending' FOR UPDATE",[req.params.id]);if(!ticket)throw protectionError('This request has already been reviewed.');
+ if(ownRequest&&Number(ticket.user_id)!==Number(req.user.id))throw protectionError('This request changed. Refresh it before continuing.','SELF_APPROVAL_FORBIDDEN');
  if(decision==='approved'&&(!Number.isInteger(units)||units<1||units>Math.min(ticket.requested_units,PROTECTION_POLICY.approvalMaxUnits)))throw protectionError('The approved quantity must be within the requested limit.');
  await db.execute(`UPDATE activity_protection_tickets SET status=?,reviewer_id=?,reviewed_at=UTC_TIMESTAMP(3),review_note=?,allowed_units=?,expires_at=CASE WHEN ?='approved' THEN UTC_TIMESTAMP(3)+INTERVAL 60 MINUTE ELSE NULL END WHERE id=?`,[decision,req.user.id,note,decision==='approved'?units:0,decision,ticket.id]);
  if(decision==='approved'||decision==='reset')await db.execute("UPDATE activity_protection_state SET held_at=NULL WHERE user_id=? AND kind='client_file'",[ticket.user_id]);
- const event=protectionEvent(req,'file_access_reviewed',decision,{ticketId:ticket.id,targetUserId:ticket.user_id,units:decision==='approved'?units:0,usageWindowReset:decision==='reset'});const eventId=await appendSecurityEvidence(event,db,{mirror:false});await db.commit();mirrorSecurityEvidence(event,eventId);
+ const event=protectionEvent(req,ownRequest?'sole_reviewer_file_access_recovery':'file_access_reviewed',decision,{ticketId:ticket.id,targetUserId:ticket.user_id,units:decision==='approved'?units:0,usageWindowReset:decision==='reset',...(ownRequest?{soleReviewerRecovery:true,reviewerCount:1,reason:note,verificationMethod:recoveryVerification}:{})});const eventId=await appendSecurityEvidence(event,db,{mirror:false});await db.commit();mirrorSecurityEvidence(event,eventId);
  res.json({reviewed:true,decision});
 }catch(e){if(db)await db.rollback();next(e);}finally{db?.release();}};
 export const reviewAlert=async(req,res,next)=>{let db;try{

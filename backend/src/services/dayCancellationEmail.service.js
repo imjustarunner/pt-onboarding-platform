@@ -37,11 +37,10 @@ async function providerForAgency(database, agencyId, providerId) {
 
 /** One sender contract for booked families, assigned-day families and schools. */
 export async function resolveDayCancellationEmail({ agencyId, providerId, providerAuthored, actorUserId,
-  reviewedCancellationToken, reviewedCancellationItemKey }, overrides = {}) {
+  reviewedCancellationToken, reviewedCancellationItemKey, school = false }, overrides = {}) {
   const d = { database: pool,
     agency: async id => (await import('../models/Agency.model.js')).default.findById(id),
     domain: async id => (await import('./tenantMessageMailboxes.service.js')).inferAgencyMailDomain(id),
-    personal: async args => (await import('./emailSendMailbox.service.js')).resolveEmailSendMailbox(args),
     messages: async id => (await import('./tenantMessageMailboxes.service.js')).resolveMessagesSendMailbox(id),
     ...overrides };
   const provider = await providerForAgency(d.database, agencyId, providerId);
@@ -50,15 +49,23 @@ export async function resolveDayCancellationEmail({ agencyId, providerId, provid
   const supportEmail = `support@${domain}`;
   if (!agency || !validEmail(providerEmail) || !validEmail(supportEmail)) throw fail('Configure the provider work email and agency support mailbox.');
   if (providerAuthored && Number(actorUserId) !== Number(providerId)) throw fail('Provider-authored email must come from the provider’s reviewed action.');
-  const mailbox = providerAuthored ? await d.personal({ agencyId, userId: providerId }) : await d.messages(agencyId);
-  if (!mailbox?.identity?.id || Number(mailbox.identity.agency_id) !== Number(agencyId) || Number(mailbox.identity.is_active) === 0) throw fail('The cancellation sender is unavailable in this agency.');
+  // A reviewed company cancellation uses the company's shared sender for both
+  // SSO and password-based staff. The provider's personal mailbox remains theirs;
+  // its account type must not block the family's operational cancellation notice.
+  const mailbox = await d.messages(agencyId);
+  const expectedSender = `messages@${domain}`;
+  if (!mailbox?.identity?.id || Number(mailbox.identity.agency_id) !== Number(agencyId)
+    || Number(mailbox.identity.is_active) !== 1 || !['messages', 'messages_at_tenant'].includes(mailbox.identity.identity_key)
+    || email(mailbox.identity.from_email) !== expectedSender || email(mailbox.fromEmail || mailbox.identity.from_email) !== expectedSender) {
+    throw fail('The company Messages sender is unavailable or does not match this agency.');
+  }
   const providerName = [provider.preferred_name || provider.first_name, provider.last_name].filter(Boolean).join(' ') || 'Your provider';
   const displayName = providerAuthored ? providerName : `${agency.official_name || agency.name} Care Team`;
   const supervisors = await supervisorEmails(d.database, agencyId, providerId);
   const cc = [...new Set([supportEmail, ...supervisors].filter(address => address && address !== providerEmail))];
   return { senderIdentityId: mailbox.identity.id, fromDisplayNameOverride: displayName,
     replyToOverride: supportEmail, cc, providerEmail, supportEmail,
-    portalEmailBrand: { ...enrollmentMailBrand({ agency, domain, school: true }), replyTo: supportEmail, displayName },
+    portalEmailBrand: { ...enrollmentMailBrand({ agency, domain, school }), replyTo: supportEmail, displayName },
     source: 'manual', ...(reviewedCancellationToken ? { reviewedCancellationToken } : {}),
     ...(reviewedCancellationItemKey ? { reviewedCancellationItemKey } : {}) };
 }

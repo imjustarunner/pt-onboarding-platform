@@ -64,8 +64,24 @@ export async function previewDayCancellationEmail(req, res, next) {
     if (!agencyId) throw Object.assign(new Error('Choose the agency for this letter.'), { status: 400 });
     await authorizeDayCancellation(req.user, Number(req.params.providerId), [agencyId]);
     const { previewCancellationEmail } = await import('../services/cancellationEmailPreview.service.js');
+    let school=false,clientId=null,learning=false;
+    if(req.body?.reviewToken){
+      // Resolve branding from the actor-owned review, never a browser-supplied
+      // client ID, school flag, or company-wide school feature.
+      const {review}=await dayCancellation.resume({providerId:Number(req.params.providerId),date:req.body.date,token:req.body.reviewToken},req.user,authorizeDayCancellation);
+      const item=review?.items.find(item=>item.key===req.body.itemKey && Number(item.agencyId)===agencyId);
+      if(!item)throw Object.assign(new Error('This email is not part of your cancellation review.'),{status:404});
+      school=['school','school_roster'].includes(item.kind);
+      clientId=Number(item.clients?.[0]?.clientId)||null;
+      if(item.kind==='appointment'){
+        const appointment=await (await import('../models/Appointment.model.js')).default.findById(item.id);
+        if(!appointment || Number(appointment.agencyId)!==agencyId)throw Object.assign(new Error('This appointment is no longer available.'),{status:404});
+        await appointmentAccess(req.user,appointment);
+        learning=['learning','tutoring'].includes(String(appointment.businessType||'').toLowerCase());
+      }
+    }
     res.set('Cache-Control', 'no-store');
-    res.json(await previewCancellationEmail({ agencyId, subject: req.body?.subject, text: req.body?.text }));
+    res.json(await previewCancellationEmail({ agencyId, subject: req.body?.subject, text: req.body?.text, school,clientId,learning }));
   } catch (e) { if (e.status) return res.status(e.status).json({ error: { message: e.message } }); next(e); }
 }
 export async function applyDayCancellation(req, res, next) {

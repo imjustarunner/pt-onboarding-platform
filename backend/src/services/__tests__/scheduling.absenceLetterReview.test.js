@@ -53,3 +53,17 @@ it('rejects object text and invalid preview subjects instead of turning them int
   await expect(rewriteAbsenceLetter({ text: {} })).rejects.toHaveProperty('status', 400);
   await expect(previewCancellationEmail({ agencyId: 2, subject: 'Bad\nsubject', text: 'Body' })).rejects.toHaveProperty('status', 400);
 });
+
+it.each([false,true])('shows school coordination only for an explicitly school-related preview (%s)',async school=>{
+ const result=await previewCancellationEmail({agencyId:3,subject:'Session canceled',text:'See you next time.',school},{agency:async()=>({id:3,name:'Inner Strength',feature_flags:{clinicalChartEnabled:true}}),domain:async()=> 'innerstrengthin.com'});
+ expect(result.html.includes('School coordination through SchoolCareBridge')).toBe(school);
+});
+
+it.each([
+ {clinical:true,name:'Private care',displayName:'AuricWell Portal',replyTo:'support@example.test',products:['AuricWell · clinical portal']},
+ {clinical:true,name:'School care',displayName:'AuricWell Portal',replyTo:'support@example.test',products:['SchoolCareBridge · school coordination']},
+ {clinical:false,name:'Next Level Up',displayName:'Next Level Up Portal',replyTo:'support@example.test',products:[]}
+])('renders the canonical client brand in the HTML example for $name',async brand=>{
+ const context=vi.fn(async()=>({brand}));const result=await previewCancellationEmail({agencyId:2,clientId:8,subject:'Update',text:'See you next time.'},{agency:async()=>({id:2,name:'Example'}),context});
+ expect(context).toHaveBeenCalledWith({agencyId:2,clientId:8});expect(result.html).toContain(brand.name);expect(result.html.includes('SchoolCareBridge')).toBe(brand.products.some(p=>p.startsWith('SchoolCareBridge')));
+});

@@ -157,3 +157,18 @@ it('reuses an unchanged series preview while advancing review steps, with the se
  api.post.mockReset().mockResolvedValue({data:{preview:{seriesChange:{reviewToken:'current'}}}});await change.refreshPreview();await change.refreshPreview();expect(api.post).toHaveBeenCalledTimes(1);
  change.facts.officeReservationDisposition='release';await change.refreshPreview();expect(api.post).toHaveBeenCalledTimes(2);
 });
+
+it('lists nearest replacement sessions first across timezones and uses upcoming order before the server limit',async()=>{
+ const change=useAppointmentChange();await change.openWizard({appointmentId:4,context:{clientId:8}});change.facts.eventType='canceled';
+ api.post.mockResolvedValue({data:{preview:{appointment:{agencyId:2}}}});
+ api.get.mockResolvedValue({data:{appointments:[
+  {id:15,status:'confirmed',startAt:'2027-11-09 23:00:00'},
+  {id:6,status:'scheduled',startAt:'2026-11-25T17:00:00-07:00'},
+  {id:5,status:'confirmed',startAt:'2026-11-25 23:00:00'},
+  {id:4,status:'confirmed',startAt:'2026-11-25 17:00:00'},
+  {id:7,status:'canceled_by_provider',startAt:'2026-11-25 17:00:00'},
+  {id:8,status:'scheduled',startAt:'invalid'}
+ ]}});await change.goNext();
+ expect(change.replacements.value.map(a=>a.id)).toEqual([5,6,15]);
+ expect(api.get).toHaveBeenCalledWith('/appointments',expect.objectContaining({params:expect.objectContaining({order:'upcoming',agencyId:2,clientId:8})}));
+});

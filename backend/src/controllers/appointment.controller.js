@@ -94,7 +94,8 @@ export const listAppointments = async (req, res, next) => {
       windowStart: `${windowStart} 00:00:00`,
       windowEnd: end,
       providerUserId: req.query.providerId ? Number(req.query.providerId) : null,
-      clientId: req.query.clientId ? Number(req.query.clientId) : null
+      clientId: req.query.clientId ? Number(req.query.clientId) : null,
+      order: req.query.order === 'upcoming' ? 'upcoming' : 'history'
     });
     res.json(await schedulingResponseForUser(req.user, agencyId, { ok: true, appointments: rows }));
   } catch (e) {

@@ -4,11 +4,11 @@ import api from '../../services/api';
 import { prepareEmailPreview } from '../../utils/emailPreview';
 
 const props = defineProps({ message: { type: Object, required: true }, label: { type: String, default: 'Email' },
-  baseUrl: { type: String, required: true }, agencyId: Number, audience: String, disabled: Boolean, readOnly: Boolean });
+  baseUrl: { type: String, required: true }, agencyId: Number, audience: String, reviewContext: Object, disabled: Boolean, readOnly: Boolean });
 const emit = defineEmits(['update:text', 'busy']);
 const working = ref(false), error = ref(''), previewOpen = ref(false), preview = ref(null), previewSource = ref('');
 const tones = [['warmer', 'Warmer'], ['formal', 'More formal'], ['shorter', 'Fewer words'], ['longer', 'More words'], ['regenerate', 'Rewrite']];
-const source = computed(() => JSON.stringify([props.agencyId, props.message.subject, props.message.text]));
+const source = computed(() => JSON.stringify([props.agencyId, props.reviewContext, props.message.subject, props.message.text]));
 const previewCurrent = computed(() => previewSource.value === source.value);
 watch(source, () => { error.value = ''; });
 
@@ -30,7 +30,7 @@ async function showPreview() {
   previewOpen.value = true; working.value = true; emit('busy', true); error.value = '';
   const before = source.value;
   try {
-    const { data } = await api.post(`${props.baseUrl}/email-preview`, { agencyId: props.agencyId, subject: props.message.subject, text: props.message.text }, { skipGlobalLoading: true });
+    const { data } = await api.post(`${props.baseUrl}/email-preview`, { agencyId: props.agencyId, subject: props.message.subject, text: props.message.text, ...props.reviewContext }, { skipGlobalLoading: true });
     if (before !== source.value) return;
     if (typeof data?.html !== 'string') throw new Error('The example email could not be loaded. Your draft is unchanged.');
     preview.value = prepareEmailPreview(data.html); previewSource.value = before;

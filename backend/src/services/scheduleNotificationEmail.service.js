@@ -33,7 +33,8 @@ export async function sendScheduleNotificationEmail({ agencyId, appointment = nu
       const envelope=await resolveDayCancellationEmail({agencyId,providerId:proof.providerId,
         providerAuthored:proof.plan.facts.providerAuthored,actorUserId:proof.actorUserId,
         reviewedCancellationToken:proof.reviewedCancellationToken,reviewedCancellationItemKey:proof.reviewedCancellationItemKey});
-      return sendEmailFromIdentity({...input,...envelope,html:renderPortalEmail({brand:envelope.portalEmailBrand,...message})});
+      const brand={...envelope.portalEmailBrand,...context.brand,replyTo:envelope.replyToOverride,displayName:envelope.fromDisplayNameOverride};
+      return sendEmailFromIdentity({...input,...envelope,portalEmailBrand:brand,html:renderPortalEmail({brand,...message})});
     }
     if(items.length && items.every(item=>item.payload?.individualCancellationReview)) {
       const input={...message,agencyId,templateType:'session_cancellation'};
@@ -41,7 +42,8 @@ export async function sendScheduleNotificationEmail({ agencyId, appointment = nu
       if(!proof)throw new Error('The signed cancellation email is missing its persisted recipient review.');
       const envelope=await resolveDayCancellationEmail({agencyId,providerId:proof.providerId,
         providerAuthored:proof.plan.facts.providerAuthored,actorUserId:proof.actorUserId});
-      return sendEmailFromIdentity({...input,...envelope,html:renderPortalEmail({brand:envelope.portalEmailBrand,...message})});
+      const brand={...envelope.portalEmailBrand,...context.brand,replyTo:envelope.replyToOverride,displayName:envelope.fromDisplayNameOverride};
+      return sendEmailFromIdentity({...input,...envelope,portalEmailBrand:brand,html:renderPortalEmail({brand,...message})});
     }
     // These are booking/cancellation updates. The morning reminder preference is
     // checked by the reminder senders, while these retain schedule_changes and
