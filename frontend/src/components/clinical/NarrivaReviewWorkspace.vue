@@ -24,7 +24,7 @@ const instrumentLabel=value=>({phq9:'PHQ-9',phqa:'PHQ-A',gad7:'GAD-7',psc17:'PSC
         <header><h2>{{ review?.status === 'stale' ? 'Previous draft' : 'Draft under review' }}</h2><p>{{ review?.status === 'stale' ? 'Your source content changed. Run checks again to update the draft.' : 'Review this wording alongside the findings. Confirmed additions will be used to update the final note.' }}</p></header>
         <section v-for="(text,title) in sections" :key="title"><h3>{{ title }}</h3><p>{{ text }}</p></section>
       </article>
-      <div class="narriva-review-findings"><div v-if="busy && preview" class="narriva-pending-checks"><h2>Checking the draft</h2><ul><li v-for="check in NARRIVA_CHECKS" :key="check.id">{{ check.label }}<span>Reviewing</span></li></ul></div><slot /></div>
+      <div class="narriva-review-findings"><div v-if="busy && preview" class="narriva-pending-checks"><h2>Checking the draft</h2><ul><li v-for="check in NARRIVA_CHECKS" :key="check.id">{{ ['90791','H0031'].includes(review?.documentationCode) && check.id === 'participation_plan' ? 'Assessment Recommendations' : review?.clientPresent === false && check.id === 'participation_plan' ? 'Progress & Plan' : check.label }}<span>Reviewing</span></li></ul></div><slot /></div>
     </div>
   </section>
 </template>

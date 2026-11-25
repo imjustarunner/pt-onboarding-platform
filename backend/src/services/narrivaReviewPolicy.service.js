@@ -11,8 +11,8 @@ export const NARRIVA_QUALITY_CRITERIA=[
  {id:'follow_up_specificity',label:'Actionable follow-up',points:15,instruction:'States a specific next action, practice, coordination or follow-up recommendation supported by this encounter, rather than only continue treatment.'},
  {id:'assessment_integration',label:'Assessment findings used in care',points:5,instruction:'When a separate assessment is referenced, documents its actual findings or how the assessment informs this encounter or plan. Do not infer results from a linked file.'}
 ];
-export function narrivaQualityCriteria(serviceCode) {
- if(!['90791','H0031'].includes(String(serviceCode || '').toUpperCase()))return NARRIVA_QUALITY_CRITERIA;
+export function narrivaQualityCriteria(serviceCode,{clientPresent=null}={}) {
+ const isIntake=['90791','H0031'].includes(String(serviceCode || '').toUpperCase());
  const intake={
   intervention_specificity:['Diagnostic assessment activities','Identifies the diagnostic interview, history gathering, collateral interview or screening interpretation actually performed in this assessment.'],
   clinical_rationale:['Reason for diagnostic assessment','Connects reported symptoms and functional impairment with the need for diagnostic evaluation.'],
@@ -21,7 +21,11 @@ export function narrivaQualityCriteria(serviceCode) {
   goal_linkage:['Identified treatment needs','Identifies assessment-supported clinical needs or treatment recommendations. An existing treatment plan is not a prerequisite.'],
   follow_up_specificity:['Assessment recommendations and next steps','States supported diagnostic follow-up, further differential assessment, treatment planning or level-of-care recommendations.']
  };
- return NARRIVA_QUALITY_CRITERIA.map(item=>intake[item.id]?{...item,label:intake[item.id][0],instruction:intake[item.id][1],notApplicable:item.id==='response_specificity'}:item);
+ const criteria=isIntake
+  ? NARRIVA_QUALITY_CRITERIA.map(item=>intake[item.id]?{...item,label:intake[item.id][0],instruction:intake[item.id][1],notApplicable:item.id==='response_specificity'}:item)
+  : NARRIVA_QUALITY_CRITERIA;
+ if(clientPresent!==false)return criteria;
+ return criteria.map(item=>item.id==='response_specificity'?{...item,notApplicable:true,label:'Client participation rating',instruction:'Client is documented as absent. Client participation and intervention-response ratings are excluded. Return supported:null and an empty evidence array.'}:item);
 }
 export const NARRIVA_CHECKS=[
  ['risk_safety','Risk & Safety'],['service_code','Service Code & Documentation'],
@@ -40,11 +44,11 @@ const nonempty=value=>typeof value==='string' && value.trim().length>0;
 const normalizedEvidence=value=>String(value || '').trim();
 const completeMandatoryChecks=checks=>Array.isArray(checks)&&checks.length===NARRIVA_CHECKS.length&&NARRIVA_CHECKS.every(([id])=>checks.filter(c=>c.id===id).length===1&&checks.some(c=>c.id===id&&c.status==='passed'&&(!c.findings||c.findings.length===0)));
 /** Quality is supplemental: neither points nor a bypass can replace a required check. */
-export function deriveNarrivaScoring({qualityEvidence={},assessmentMentioned=null,narrative='',checks=[],reviewStatus=null,qualityBypass=null,serviceCode=null}={}) {
+export function deriveNarrivaScoring({qualityEvidence={},assessmentMentioned=null,narrative='',checks=[],reviewStatus=null,qualityBypass=null,serviceCode=null,clientPresent=null}={}) {
  const source=normalizedEvidence(narrative);
- const criteria=narrivaQualityCriteria(serviceCode).map(criterion=>{
+ const criteria=narrivaQualityCriteria(serviceCode,{clientPresent}).map(criterion=>{
   const applicable=!criterion.notApplicable && (criterion.id!=='assessment_integration'||assessmentMentioned!==false);
-  if(!applicable)return {id:criterion.id,label:criterion.label,earned:0,possible:0,status:'not_applicable',evidence:[],message:criterion.notApplicable?'Participation and intervention-response ratings are inapplicable to an initial assessment.':'No separate assessment is referenced. Excluded from the available points.'};
+  if(!applicable)return {id:criterion.id,label:criterion.label,earned:0,possible:0,status:'not_applicable',evidence:[],message:criterion.notApplicable?(clientPresent===false?'Client participation and intervention-response ratings are inapplicable when the client is absent.':'Participation and intervention-response ratings are inapplicable to an initial assessment.'):'No separate assessment is referenced. Excluded from the available points.'};
   const supplied=qualityEvidence?.[criterion.id];
   const evidence=Array.isArray(supplied?.evidence)?[...new Set(supplied.evidence.filter(quote=>typeof quote==='string'&&normalizedEvidence(quote).length>=16&&normalizedEvidence(quote).split(/\s+/).length>=3&&source.includes(normalizedEvidence(quote))).map(normalizedEvidence))].slice(0,3):[];
   const met=supplied?.supported===true&&evidence.length>0&&(criterion.id!=='assessment_integration'||assessmentMentioned===true);
@@ -129,7 +133,7 @@ export function deriveNarrivaCheck(id,{facts,encounter,clinical,service},{standa
   const expectations=intake
    ? [['followUpDocumented','assessment recommendations or follow-up plan']]
    : [['engagementDocumented','engagement'],['responseDocumented','response to interventions'],['progressDocumented','benefit, progress or barriers'],['goalsDocumented','treatment goals'],['followUpDocumented','follow-up plan']];
-  for(const [key,label] of expectations)required(facts[key]===true,key,`Document ${label} using the actual session evidence.`);
+  for(const [key,label] of expectations.filter(([key])=>encounter.clientPresent!==false || !['engagementDocumented','responseDocumented'].includes(key)))required(facts[key]===true,key,`Document ${label} using the actual session evidence.`);
  }
  result.status=result.findings.length?'action_required':'passed';
  result.actions=[...new Set(result.findings.map(f=>f.action))];return result;

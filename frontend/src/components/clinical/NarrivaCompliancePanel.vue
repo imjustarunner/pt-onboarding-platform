@@ -52,7 +52,7 @@ const props = defineProps({ review: { type: Object, default: null }, busy: Boole
 const emit = defineEmits(['retry', 'resolve', 'action']);
 const reasons = reactive({}), openBypass = ref('');
 watch(() => props.review?.id, () => { openBypass.value=''; for(const key of Object.keys(reasons))delete reasons[key]; });
-const checks = computed(() => NARRIVA_CHECKS.map((item, index) => ({ ...item, ...(props.review?.checks || []).find(check => check.id === item.id), label: ['90791','H0031'].includes(props.review?.documentationCode) && item.id === 'participation_plan' ? 'Assessment Recommendations' : item.label, status: (props.review?.checks || []).find(check => check.id === item.id)?.status || (props.busy && !props.review && index === 0 ? 'running' : 'pending') })));
+const checks = computed(() => NARRIVA_CHECKS.map((item, index) => ({ ...item, ...(props.review?.checks || []).find(check => check.id === item.id), label: ['90791','H0031'].includes(props.review?.documentationCode) && item.id === 'participation_plan' ? 'Assessment Recommendations' : props.review?.clientPresent === false && item.id === 'participation_plan' ? 'Progress & Plan' : item.label, status: (props.review?.checks || []).find(check => check.id === item.id)?.status || (props.busy && !props.review && index === 0 ? 'running' : 'pending') })));
 const scoring = computed(() => {
   if (['unavailable','failed','running','pending'].includes(props.review?.status)) return null;
   const value = props.review?.scoring;

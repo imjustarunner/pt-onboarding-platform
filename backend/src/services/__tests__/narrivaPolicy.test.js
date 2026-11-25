@@ -41,6 +41,19 @@ describe('Narriva exact-content evidence policy',()=>{
   expect(scored.possible).toBe(80);
   expect(scored.score).toBe(100);
  });
+ it.each(['90846','H0032','H0004'])('skips client participation and response for a documented client-absent %s encounter',code=>{
+  const input=good();input.service.code=code;input.encounter.clientPresent=false;input.encounter.participants='Guardian without client';
+  input.facts.clientPresent=false;input.facts.engagementDocumented=null;input.facts.responseDocumented=null;
+  expect(deriveNarrivaCheck('participation_plan',input).status).toBe('passed');
+  input.encounter.clientPresent=true;
+  expect(deriveNarrivaCheck('participation_plan',input).findings.map(f=>f.id)).toEqual(['participation_plan:engagementDocumented','participation_plan:responseDocumented']);
+  const narrative='Synthetic collateral report describes concerns and the clinician’s documented plan.';
+  const evidence=Object.fromEntries(NARRIVA_QUALITY_CRITERIA.map(item=>[item.id,{supported:true,evidence:[narrative]}]));
+  evidence.response_specificity={supported:null,evidence:[]};
+  const scored=deriveNarrivaScoring({serviceCode:code,clientPresent:false,narrative,assessmentMentioned:false,qualityEvidence:evidence});
+  expect(scored.criteria.find(item=>item.id==='response_specificity')).toMatchObject({possible:0,status:'not_applicable'});
+  expect(scored.score).toBe(100);
+ });
  it.each(['currentRisk','riskUncertain'])('requires risk follow-up or an audited provider Keep-as-is decision for %s',key=>{
   const input=good();input.facts[key]=true;const result=deriveNarrivaCheck('risk_safety',input);
   expect(result.riskAssessmentRequired).toBe(true);expect(result.findings[0].canBypass).toBe(true);
