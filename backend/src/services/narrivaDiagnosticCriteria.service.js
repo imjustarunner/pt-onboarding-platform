@@ -83,13 +83,14 @@ async function persistCriteria(req,source,result,parentId=null) {
 }
 export async function listNarrivaDiagnosticCriteria(req) {
  const agencyId=positiveId(req.query.agencyId),clientId=positiveId(req.params.clientId || req.query.clientId);
- await requireNarrivaClient(req.user,agencyId,clientId);
- let sessionId=null,authorId=null;
+ let sessionId=null,authorId=null,authorizedNoteReviewer=false;
  if(positiveId(req.query.noteId)){
   const source=await loadNarrivaSource(req.user,{agencyId,noteId:positiveId(req.query.noteId),phase:'output'});
-  if(Number(source.client.id)!==clientId)throw narrivaError(404,'Note not found for this client.');
+  if(Number(source.client.id)!==clientId || Number(source.agencyId)!==agencyId)throw narrivaError(404,'Note not found for this client.');
+  authorizedNoteReviewer=true;
   sessionId=source.source.clinical_session_id;authorId=source.source.created_by_user_id;
  }
+ await requireNarrivaClient(req.user,agencyId,clientId,{authorizedNoteReviewer});
  let rows;try{[rows]=await clinicalPool.execute(`SELECT * FROM clinical_diagnostic_criteria_reviews WHERE agency_id=? AND client_id=? ${sessionId?'AND clinical_session_id=? AND author_user_id=?':''} ORDER BY id DESC LIMIT 100`,[agencyId,clientId,...(sessionId?[sessionId,authorId]:[])]);}catch(error){if(error.code==='ER_NO_SUCH_TABLE')return {reviews:[],internalOnly:true,available:false};throw error;}
  const [assignments]=await pool.execute("SELECT supervisee_id,supervisor_id FROM supervisor_assignments WHERE agency_id=? AND supervisor_type='clinical'",[agencyId]);
  const agencyReviewer=['admin','agency_admin','super_admin'].includes(req.user.role) || [true,1,'1'].includes(req.user.has_supervisor_privileges);

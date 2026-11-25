@@ -14,7 +14,7 @@ import {validateCriteriaEvidence,reviewNarrivaDiagnosticCriteria,listNarrivaDiag
 import {diagnosticCriteriaStatus} from '../../../../frontend/src/utils/diagnosticCriteriaReview.js';
 let source;
 beforeEach(()=>{
- vi.clearAllMocks();source={agencyId:2,draftId:31,source:{clinical_session_id:21,created_by_user_id:7},client:{id:12},inputText:'The caregiver described repeated symptom episodes over several months.',identifiers:[],confirmedClinicalContext:{diagnoses:[{code:'F41.1',justification:'Reported symptoms and functional impact.'}]}};
+ vi.clearAllMocks();m.access.mockResolvedValue(undefined);source={agencyId:2,draftId:31,source:{clinical_session_id:21,created_by_user_id:7},client:{id:12},inputText:'The caregiver described repeated symptom episodes over several months.',identifiers:[],confirmedClinicalContext:{diagnoses:[{code:'F41.1',justification:'Reported symptoms and functional impact.'}]}};
  m.load.mockResolvedValue(source);m.guidance.mockResolvedValue({guidance:'Author guidance without a complete licensed criteria reference.',guidanceHash:'training-revision'});m.model.mockResolvedValue({text:'{"criteria":[]}'});m.clinical.mockResolvedValue([{insertId:81}]);m.main.mockResolvedValue([[]]);
 });
 it('does not turn invented criteria or unsupported clinical assertions into checked symptoms',()=>{
@@ -39,4 +39,14 @@ it('leaves supervised writers without an internal note flag while exposing the r
 it('shows the internal review in the medical chart for a licensed self-signing author',async()=>{
  m.clinical.mockResolvedValue([[{id:81,draft_id:31,author_user_id:7,icd10_code:'F41.1',result_encrypted:'encrypted:'+JSON.stringify({criteria:[],summary:{status:'incomplete'}})}]]);m.main.mockResolvedValue([[]]);
  expect((await listNarrivaDiagnosticCriteria({user:{id:7,role:'provider',credential:'MA, LPC'},params:{clientId:12},query:{agencyId:2}})).reviews).toHaveLength(1);
+});
+
+it('uses verified note-review authorization for an assigned supervisor without requiring a separate care assignment',async()=>{
+ m.access.mockImplementation(async(_user,_agency,_client,options)=>{if(!options?.authorizedNoteReviewer)throw Object.assign(new Error('Care assignment required'),{status:403});});
+ m.clinical.mockResolvedValue([[{id:81,draft_id:31,author_user_id:7,icd10_code:'F41.1',result_encrypted:'encrypted:'+JSON.stringify({criteria:[],summary:{status:'incomplete'}})}]]);m.main.mockResolvedValue([[{supervisee_id:7,supervisor_id:9}]]);
+ const result=await listNarrivaDiagnosticCriteria({user:{id:9,role:'provider',credential:'LPC'},params:{clientId:12},query:{agencyId:2,noteId:44}});
+ expect(m.load).toHaveBeenCalledWith(expect.objectContaining({id:9}),{agencyId:2,noteId:44,phase:'output'});expect(m.access).toHaveBeenCalledWith(expect.anything(),2,12,{authorizedNoteReviewer:true});expect(result.reviews).toHaveLength(1);
+});
+it('does not transfer a valid note-review grant to another client',async()=>{
+ await expect(listNarrivaDiagnosticCriteria({user:{id:9,role:'provider',credential:'LPC'},params:{clientId:99},query:{agencyId:2,noteId:44}})).rejects.toMatchObject({status:404});expect(m.clinical).not.toHaveBeenCalled();
 });
