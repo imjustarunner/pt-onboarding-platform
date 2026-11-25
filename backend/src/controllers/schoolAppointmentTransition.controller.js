@@ -1,3 +1,4 @@
+import { moveUnbookedSchoolSlot } from '../services/schoolPilotSlotMove.service.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import { addDaysYmd } from '../utils/scheduleRecurrence.js';
@@ -11,7 +12,7 @@ import {
 const fail=(status,message)=>Object.assign(new Error(message),{status});
 const access=(req,manage=false)=>schoolTransitionAccess({actor:req.user,schoolId:req.params.schoolId,providerId:req.params.providerId,manage});
 export const schoolTransitionHandler=work=>async(req,res,next)=>{
-  try {await work(req,res);} catch(raw){const error=schoolTransitionSchemaError(raw);if(error.status)return res.status(error.status).json({error:{message:error.message}});next(error);}
+  try {await work(req,res);} catch(raw){const error=schoolTransitionSchemaError(raw);if(error.status)return res.status(error.status).json({error:{message:error.message,code:error.code}});next(error);}
 };
 export const listTransitionSchools=schoolTransitionHandler(async(req,res)=>{
   const agencyId=Number(req.query.agencyId),providerId=Number(req.query.providerId),role=String(req.user?.role||'').toLowerCase();
@@ -69,4 +70,11 @@ export const linkSchoolTransitionAppointments=schoolTransitionHandler(async(req,
 export const putSchoolBookedSession=schoolTransitionHandler(async(req,res)=>{
   const context=await access(req);
   res.json(await moveSchoolBookedSession({context,appointmentId:req.params.appointmentId,actorUserId:req.user.id,input:req.body||{}}));
+});
+
+export const postSchoolSlotMove=schoolTransitionHandler(async(req,res)=>{
+  const context=await access(req);
+  if (!context.canManage && (String(req.user.role).toLowerCase()==='school_staff' || Number(req.user.id)!==context.providerId))
+    throw fail(403,'Only the assigned provider or scheduling staff can move the school slot.');
+  res.json(await moveUnbookedSchoolSlot({context,actorUserId:req.user.id,input:req.body||{}}));
 });

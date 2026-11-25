@@ -241,8 +241,8 @@ const showScheduleDisclaimer = computed(() => {
 });
 
 const loadingSubtext = computed(() => {
-  if (props.providerViewMode) return 'Pulling your caseload and soft schedule for this day.';
-  return 'Pulling caseload + soft schedules for this day.';
+  if (props.providerViewMode) return 'Loading your caseload and schedule for this day.';
+  return 'Loading the caseload and schedule for this day.';
 });
 
 const confirmAddProvider = async () => {

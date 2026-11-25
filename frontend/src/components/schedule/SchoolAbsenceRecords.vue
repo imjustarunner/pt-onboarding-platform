@@ -15,11 +15,11 @@ watch(() => [props.clientId, props.records], async () => {
 }, { immediate:true });
 const attention = row => row.canceled !== false && (!row.delivery?.sent || ['held','skipped','failed','suppressed'].some(k => row.delivery?.[k] > 0));
 const allConfirmed = row => { const sent = (row.delivery?.deliveries || []).filter(d => d.status === 'sent'); return sent.length > 0 && sent.every(d => d.receiptConfirmedAt); };
-const label = row => row.canceled === false ? 'Soft schedule' : attention(row) ? 'Canceled · contact needs attention' : allConfirmed(row) ? 'Canceled · receipt confirmed' : 'Canceled · email sent (receipt unconfirmed)';
+const label = row => row.canceled === false ? 'Saved school slot' : attention(row) ? 'Canceled · contact needs attention' : allConfirmed(row) ? 'Canceled · receipt confirmed' : 'Canceled · email sent (receipt unconfirmed)';
 </script>
 <template>
-  <section v-if="rows.length || error" class="school-absence-records" aria-label="School soft schedule and cancellation history">
-    <h3 v-if="showHeading">{{ schedule ? 'SCHOOL soft schedule' : 'School session cancellation notes' }}</h3>
+  <section v-if="rows.length || error" class="school-absence-records" aria-label="School schedule and cancellation history">
+    <h3 v-if="showHeading">{{ schedule ? 'School schedule' : 'School session cancellation notes' }}</h3>
     <p v-if="error" role="alert">{{ error }}</p>
     <details v-for="row in rows" :key="row.key || row.id" :open="expanded" :class="{ attention:attention(row), sent:row.canceled !== false && !attention(row) }">
       <summary>{{ row.date }} · {{ row.clientName }} · {{ row.schoolName }} · {{ label(row) }}<span v-for="slot in row.slots || []" :key="slot.id"> · {{ slot.startTime?.slice(0,5) || 'Time not entered' }}{{ slot.endTime ? `–${slot.endTime.slice(0,5)}` : '' }}</span></summary>

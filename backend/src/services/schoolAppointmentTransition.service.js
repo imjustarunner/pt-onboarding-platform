@@ -10,7 +10,7 @@ import { readAppointmentRecord } from './appointmentRecord.service.js';
 import { occurrenceTime } from './auricwell/schedulingTime.js';
 import { createSchoolDayClosures } from './schoolDayClosures.service.js';
 import { addDaysYmd } from '../utils/scheduleRecurrence.js';
-import { utcDateToZonedYmd, utcMysqlToIso, wallMysqlToUtcMysql, isValidTimeZone } from '../utils/zonedWallTime.util.js';
+import { utcDateToZonedYmd, utcMysqlToIso, wallMysqlToUtcMysql, utcMysqlToZonedWallMysql, isValidTimeZone } from '../utils/zonedWallTime.util.js';
 
 const fail = (status,message) => Object.assign(new Error(message),{status});
 const staffRoles = new Set(['admin','support','super_admin','superadmin']);
@@ -102,7 +102,7 @@ export async function saveSchoolTransition({context,actorUserId,input,dbPool=poo
     await db.execute('SELECT id FROM agencies WHERE id=? FOR UPDATE',[context.agencyId]);
     const current=await readSchoolTransition({...context,db});
     if(Number(input.revision)!==Number(current?.revision||0)) throw fail(409,'The transition changed. Refresh before saving.');
-    const rollout=await clientSessionBookingAccess(context.agencyId,context.providerId,db);
+    const rollout=await clientSessionBookingAccess(context.agencyId,context.providerId,db,{actorUserId});
     if(!rollout.enabled) throw fail(409,rollout.reason);
     const [[earliest]]=await db.execute(`SELECT MIN(a.start_at) first_start FROM school_schedule_appointment_links l JOIN appointments a ON a.id=l.appointment_id
       WHERE l.agency_id=? AND l.school_organization_id=? AND l.provider_user_id=?`,[context.agencyId,context.schoolId,context.providerId]);
@@ -117,15 +117,15 @@ export async function saveSchoolTransition({context,actorUserId,input,dbPool=poo
 }
 
 /** Source identity is explicit: names and same-day appointments never establish a link. */
-export async function schoolAgendaLinkContext({db=pool,agencyId,providerId,clientId,date,schoolId,slotId=null,lock=false}) {
+export async function schoolAgendaLinkContext({db=pool,agencyId,providerId,clientId,date,schoolId,slotId=null,lock=false,planningTime=null,actorUserId=null}) {
   const aid=positive(agencyId,'practice'),sid=positive(schoolId,'school'),pid=positive(providerId,'provider'),cid=positive(clientId,'client');
   schoolTransitionDate(date);
   await requireSchoolTransitionSchema({db});
   const transition=await readSchoolTransition({agencyId:aid,schoolId:sid,providerId:pid,db});
   if(!transition || date<transition.effectiveDate) throw fail(409,'Review the school transition effective date before linking this appointment.');
-  const rollout=await clientSessionBookingAccess(aid,pid,db);
+  const rollout=await clientSessionBookingAccess(aid,pid,db,{actorUserId});
   if(!rollout.enabled) throw fail(409,rollout.reason);
-  const [slots]=await db.execute(`SELECT s.id,s.weekday,s.client_id FROM soft_schedule_slots s JOIN clients c ON c.id=s.client_id AND c.agency_id=?
+  const [slots]=await db.execute(`SELECT s.id,s.weekday,s.client_id,s.start_time,s.end_time FROM soft_schedule_slots s JOIN clients c ON c.id=s.client_id AND c.agency_id=?
     WHERE s.school_organization_id=? AND s.provider_user_id=? AND s.client_id=? ${slotId?'AND s.id=?':''}
     AND (EXISTS (SELECT 1 FROM client_organization_assignments coa WHERE coa.client_id=c.id AND coa.organization_id=s.school_organization_id AND coa.is_active=TRUE)
       OR c.organization_id=s.school_organization_id)
@@ -134,26 +134,51 @@ export async function schoolAgendaLinkContext({db=pool,agencyId,providerId,clien
   const weekday=new Intl.DateTimeFormat('en-US',{weekday:'long',timeZone:'UTC'}).format(new Date(`${date}T12:00:00Z`));
   const candidates=slotId?slots:slots.filter(slot=>slot.weekday===weekday);
   if(candidates.length!==1) throw fail(409,candidates.length?'Choose the exact school slot for this client.':'Save and select this client’s school slot before linking the appointment.');
+  if (planningTime) {
+    const slot = candidates[0];
+    if (slot.weekday !== weekday || String(slot.start_time || '').slice(0, 5) !== planningTime.start
+        || String(slot.end_time || '').slice(0, 5) !== planningTime.end) throw fail(409, 'The school slot no longer matches the planned day and time.');
+    const [[assignment]] = await db.execute(`SELECT psa.id FROM provider_school_assignments psa
+      WHERE psa.school_organization_id=? AND psa.provider_user_id=? AND psa.day_of_week=? AND psa.is_active=1
+      AND (psa.start_time IS NULL OR psa.start_time<=?) AND (psa.end_time IS NULL OR psa.end_time>=?)
+      AND EXISTS(SELECT 1 FROM clients c WHERE c.id=? AND c.agency_id=? AND c.compliance_archived_at IS NULL AND UPPER(COALESCE(c.status,'')) NOT IN ('ARCHIVED','INACTIVE','TERMINATED')
+        AND (EXISTS (SELECT 1 FROM client_provider_assignments ca WHERE ca.client_id=c.id AND ca.organization_id=psa.school_organization_id
+          AND ca.provider_user_id=psa.provider_user_id AND ca.service_day=? AND ca.is_active=1)
+          OR (c.organization_id=psa.school_organization_id AND c.provider_id=psa.provider_user_id AND c.service_day=?
+            AND NOT EXISTS(SELECT 1 FROM client_provider_assignments ca WHERE ca.client_id=c.id AND ca.organization_id=psa.school_organization_id))))
+      LIMIT 1${lock?' FOR UPDATE':''}`, [sid,pid,weekday,planningTime.start,planningTime.end,cid,aid,weekday,weekday]);
+    if (!assignment) throw fail(409, 'Confirm the client’s assigned school day and the provider’s school hours before booking.');
+  }
   return {slotId:Number(candidates[0].id),planningWeekday:candidates[0].weekday,schoolId:sid,agencyId:aid,providerId:pid,clientId:cid,effectiveDate:transition.effectiveDate};
 }
 
-export async function linkSchoolAppointment({db=pool,agencyId,schoolId,slotId,appointmentId,actorUserId,seriesKey=null}) {
+export async function linkSchoolAppointment({db=pool,agencyId,schoolId,slotId,appointmentId,actorUserId,seriesKey=null,planningTime=null}) {
   if(db===pool) {
     const connection=await pool.getConnection();
     try {
       await connection.beginTransaction();
       await connection.execute('SELECT id FROM agencies WHERE id=? FOR UPDATE',[agencyId]);
-      const result=await linkSchoolAppointment({db:connection,agencyId,schoolId,slotId,appointmentId,actorUserId,seriesKey});
+      const result=await linkSchoolAppointment({db:connection,agencyId,schoolId,slotId,appointmentId,actorUserId,seriesKey,planningTime});
       await connection.commit();return result;
     }catch(error){await connection.rollback();throw error;}finally{connection.release();}
   }
   const id=positive(appointmentId,'appointment');
-  const [[appointment]]=await db.execute(`SELECT a.*,sl.school_organization_id FROM appointments a
+  const [[appointment]]=await db.execute(`SELECT a.*,sl.school_organization_id
+    ${planningTime?',sl.place_of_service school_pos,sl.is_active school_location_active':''} FROM appointments a
     LEFT JOIN agency_service_locations sl ON sl.id=a.service_location_id AND sl.agency_id=a.agency_id WHERE a.id=? AND a.agency_id=? FOR UPDATE`,[id,agencyId]);
   if(!appointment || Number(appointment.school_organization_id)!==Number(schoolId)) throw fail(409,'The appointment must use this school’s service location.');
+  if (planningTime) {
+    const zone = appointment.source_timezone || 'America/Denver';
+    const start = utcMysqlToZonedWallMysql(iso(appointment.start_at), zone);
+    const end = utcMysqlToZonedWallMysql(iso(appointment.end_at), zone);
+    if (appointment.modality !== 'IN_PERSON' || appointment.school_pos !== '03' || !Number(appointment.school_location_active)
+        || start?.slice(11,16) !== planningTime.start || end?.slice(11,16) !== planningTime.end) {
+      throw fail(409, 'The actual appointment must match the active in-person school location and saved slot time.');
+    }
+  }
   const [participants]=await db.execute('SELECT client_id FROM appointment_participants WHERE appointment_id=? AND client_id IS NOT NULL FOR UPDATE',[id]);
   if(participants.length!==1) throw fail(409,'Link individual school appointments with exactly one client.');
-  const context=await schoolAgendaLinkContext({db,agencyId,schoolId,slotId,lock:true,providerId:appointment.provider_user_id,clientId:participants[0].client_id,
+  const context=await schoolAgendaLinkContext({db,agencyId,schoolId,slotId,lock:true,planningTime,actorUserId,providerId:appointment.provider_user_id,clientId:participants[0].client_id,
     date:utcDateToZonedYmd(new Date(iso(appointment.start_at)),appointment.source_timezone||'America/Denver')});
   const [[existing]]=await db.execute('SELECT slot_id,agency_id,school_organization_id,provider_user_id,client_id FROM school_schedule_appointment_links WHERE appointment_id=? FOR UPDATE',[id]);
   if(existing) {

@@ -142,3 +142,56 @@ describe('reviewed agenda creation', () => {
     expect(deps.book).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('school schedule pilot', () => {
+  const slot = { id: 11, school_organization_id: 70, client_id: 41, weekday: 'Monday',
+    assigned_school_day: 1, start_time: '09:00:00', end_time: '09:50:00' };
+  const school = { id: 9, name: 'Example school', school_organization_id: 70, place_of_service: '03' };
+  const row = { rowId: 'school-slot-11', schoolSlotId: 11, clientId: 41, date: '2026-10-19',
+    startTime: '09:00', endTime: '09:50', tenantServiceId: 3, serviceLocationId: 9,
+    modality: 'IN_PERSON', recurrence: 'WEEKLY', occurrenceCount: 3 };
+
+  beforeEach(() => {
+    deps.loadContext.mockResolvedValue({ ...context(), locations: [...context().locations, school],
+      schoolSlots: [slot, { ...slot, id: 12, start_time: null }, { ...slot, id: 13, assigned_school_day: 0 }] });
+    deps.schoolPilotExceptions = vi.fn(async () => ({
+      closures: [{ schoolOrgId: 70, date: '2026-10-26' }],
+      absences: [{ school_id: 70, client_id: 41, absence_date: '2026-11-02' }]
+    }));
+    service = createAuricwellAgendaImporter(deps);
+  });
+
+  it('loads only populated timed slots and links the recurring dates that can be booked', async () => {
+    const options = await service.options({ actor, agencyId: 2, providerId: 19 });
+    expect(options.schoolPilotRows).toEqual([{
+      schoolSlotId: 11, clientId: 41, weekday: 'Monday', startTime: '09:00', endTime: '09:50', serviceLocationId: 9
+    }]);
+    const input = { ...base(), schoolPilot: true, rows: [row] };
+    const preview = await service.preview({ actor, input });
+    expect(preview.rows[0].skippedDates.map(skip => skip.date)).toEqual(['2026-10-26', '2026-11-02']);
+    expect(deps.book).not.toHaveBeenCalled();
+    const result = await service.commit({ actor, input: { ...input, rows: preview.rows, previewToken: preview.previewToken, confirm: true } });
+    expect(result.createdCount).toBe(1);
+    expect(deps.book.mock.calls[0][0].row).toMatchObject({ schoolPilot: true, recurrence: 'WEEKLY', startAt: '2026-10-19 15:00:00' });
+    expect(deps.linkSchool).toHaveBeenCalledWith(expect.objectContaining({
+      schoolId: 70, slotId: 11, appointmentId: 100, seriesKey: expect.any(String), actorUserId: actor.id
+    }));
+  });
+
+  it.each([{ date: '2026-10-20' }, { serviceLocationId: 5 }, { clientId: 42 }, { startTime: '09:15' }])
+  ('refuses a mismatched school slot before booking: %j', async change => {
+    const preview = await service.preview({ actor, input: { ...base(), schoolPilot: true, rows: [{ ...row, ...change }] } });
+    expect(preview.previewToken).toBeNull();
+    expect(preview.rows[0].errors[0]).toContain('saved school, weekday and time');
+    expect(deps.book).not.toHaveBeenCalled();
+  });
+
+  it('invalidates a preview when a closure changes the booked dates', async () => {
+    const input = { ...base(), schoolPilot: true, rows: [row] };
+    const preview = await service.preview({ actor, input });
+    deps.schoolPilotExceptions.mockResolvedValue({ closures: [], absences: [] });
+    await expect(service.commit({ actor, input: { ...input, confirm: true, previewToken: preview.previewToken } }))
+      .rejects.toMatchObject({ code: 'AGENDA_PREVIEW_STALE' });
+    expect(deps.book).not.toHaveBeenCalled();
+  });
+});

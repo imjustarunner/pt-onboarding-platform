@@ -16,6 +16,7 @@ vi.mock('../appointmentScheduleNotice.service.js',()=>({appointmentScheduleNotic
 vi.mock('../appointmentReminder.service.js',()=>({cancelPendingReminders:vi.fn(),listReminders:vi.fn(async()=>[]),listCommunications:vi.fn(async()=>[])}));
 vi.mock('../providerCalendarBusy.service.js',()=>({readProviderCalendarBusy:vi.fn(async()=>[])}));
 vi.mock('../privateReplacementSlots.service.js',()=>({readPrivateReplacementSlots:vi.fn(async()=>[])}));
+import { moveUnbookedSchoolSlot } from '../schoolPilotSlotMove.service.js';
 import Appointment from '../../models/Appointment.model.js';
 import {readSchoolTransition,saveSchoolTransition,schoolAgendaLinkContext,linkSchoolAppointment,listSchoolBookedSessions,moveSchoolBookedSession,assertLinkedSchoolSlotPlanningEdits,requireSchoolTransitionSchema} from '../schoolAppointmentTransition.service.js';
 const schema=`codex_school_transition_${process.pid}_${Date.now()}`;
@@ -32,21 +33,23 @@ describe.skipIf(!process.env.SCHOOL_TRANSITION_TEST_MYSQL_PORT)('school transiti
    'CREATE TABLE agencies(id INT PRIMARY KEY,name VARCHAR(60),organization_type VARCHAR(20),timezone VARCHAR(60))',
    'CREATE TABLE users(id INT PRIMARY KEY,first_name VARCHAR(60),last_name VARCHAR(60))',
    'CREATE TABLE tenant_services(id INT UNSIGNED PRIMARY KEY)',
-   'CREATE TABLE clients(id INT PRIMARY KEY,agency_id INT,organization_id INT,provider_id INT,initials VARCHAR(20),identifier_code VARCHAR(30))',
-   'CREATE TABLE provider_school_assignments(id INT PRIMARY KEY,school_organization_id INT,provider_user_id INT,day_of_week VARCHAR(20),is_active BOOLEAN,start_time TIME,end_time TIME)',
-   'CREATE TABLE agency_service_locations(id INT PRIMARY KEY,agency_id INT,school_organization_id INT)',
+   'CREATE TABLE clients(id INT PRIMARY KEY,agency_id INT,organization_id INT,provider_id INT,initials VARCHAR(20),identifier_code VARCHAR(30),status VARCHAR(30),service_day VARCHAR(20),compliance_archived_at DATETIME,client_status_id INT,updated_by_user_id INT,is_demo BOOLEAN,created_via_dev_fill BOOLEAN,termination_reason VARCHAR(80),terminated_at DATETIME,terminated_by_user_id INT,termination_last_provider_id INT,termination_last_provider_name VARCHAR(60),termination_effective_date DATE,updated_at DATETIME)',
+   'CREATE TABLE client_agency_assignments(client_id INT,agency_id INT,is_active BOOLEAN)',
+   'CREATE TABLE client_statuses(id INT PRIMARY KEY,status_key VARCHAR(30))',
+   'CREATE TABLE provider_school_assignments(id INT PRIMARY KEY,school_organization_id INT,provider_user_id INT,day_of_week VARCHAR(20),is_active BOOLEAN,start_time TIME,end_time TIME,slots_total INT DEFAULT 2,slots_available INT DEFAULT 0)',
+   "CREATE TABLE agency_service_locations(id INT PRIMARY KEY,agency_id INT,school_organization_id INT,place_of_service VARCHAR(2) DEFAULT '03',is_active BOOLEAN DEFAULT 1)",
    'CREATE TABLE client_organization_assignments(client_id INT,organization_id INT,is_active BOOLEAN)',
-   'CREATE TABLE client_provider_assignments(client_id INT,organization_id INT,provider_user_id INT,is_active BOOLEAN)',
+   'CREATE TABLE client_provider_assignments(client_id INT,organization_id INT,provider_user_id INT,is_active BOOLEAN,id INT AUTO_INCREMENT PRIMARY KEY,service_day VARCHAR(20),created_by_user_id INT,updated_by_user_id INT,UNIQUE(client_id,organization_id,provider_user_id,service_day))',
    'CREATE TABLE organization_affiliations(agency_id INT,organization_id INT,is_active BOOLEAN)',
    'CREATE TABLE school_profiles(school_organization_id INT,district_name VARCHAR(60))',
    'CREATE TABLE company_events(id INT,agency_id INT,organization_id INT,district_name VARCHAR(60),event_type VARCHAR(60),title VARCHAR(60),description TEXT,starts_at DATETIME,ends_at DATETIME,timezone VARCHAR(60),created_at DATETIME,created_by_user_id INT,is_active BOOLEAN,school_event_status VARCHAR(30))',
    'CREATE TABLE client_schedule_termination_jobs(id INT,client_id INT,completed_at DATETIME)',
-   'CREATE TABLE office_events(id INT,booked_provider_id INT,assigned_provider_id INT,client_id INT,status VARCHAR(30),start_at DATETIME,end_at DATETIME)',
+   'CREATE TABLE office_events(id INT,booked_provider_id INT,assigned_provider_id INT,client_id INT,status VARCHAR(30),start_at DATETIME,end_at DATETIME,updated_at DATETIME,session_context_json JSON)',
    'CREATE TABLE supervision_sessions(id INT,status VARCHAR(30),start_at DATETIME,end_at DATETIME,supervisor_user_id INT,co_facilitator_user_id INT,session_type VARCHAR(30),supervisee_user_id INT)',
    'CREATE TABLE supervision_session_attendees(session_id INT,user_id INT,is_required BOOLEAN,status VARCHAR(30))',
    'CREATE TABLE clinical_sessions(id INT PRIMARY KEY,appointment_id INT)',
    'CREATE TABLE clinical_notes(id INT PRIMARY KEY,clinical_session_id INT,is_deleted BOOLEAN,provider_signed_at DATETIME)',
-   'CREATE TABLE provider_schedule_events(id INT PRIMARY KEY,start_at DATETIME,end_at DATETIME,status VARCHAR(30),updated_by_user_id INT)'
+   'CREATE TABLE provider_schedule_events(id INT PRIMARY KEY,start_at DATETIME,end_at DATETIME,status VARCHAR(30),updated_by_user_id INT,provider_id INT,agency_id INT,recurrence_series_id VARCHAR(64),recurrence_frequency VARCHAR(16))'
   ])await db.query(sql);
   for(const file of ['979_unified_appointments.sql','238_school_portal_soft_schedule_slots.sql','1786_school_appointment_transition.sql']){
    const contents=await readFile(new URL(`../../../../database/migrations/${file}`,import.meta.url),'utf8');for(const sql of splitSqlStatements(contents)){await db.query(sql);if(/CREATE TRIGGER school_schedule_slot_identity_detach/.test(sql))createSafetyTrigger=sql;}
@@ -54,24 +57,61 @@ describe.skipIf(!process.env.SCHOOL_TRANSITION_TEST_MYSQL_PORT)('school transiti
   await db.query(`ALTER TABLE appointments ADD service_location_id INT,ADD source_timezone VARCHAR(60),ADD product_origin VARCHAR(30),ADD location_label VARCHAR(100),ADD service_code VARCHAR(30),ADD addon_service_codes_json JSON,ADD office_booking_request_id INT,ADD cancellation_policy_id INT,ADD cancel_deadline_at DATETIME,ADD cancellation_reason TEXT,ADD cancellation_fee_cents INT,ADD cancellation_recommendation_json JSON,ADD canceled_at DATETIME,ADD canceled_by_user_id INT,ADD others_present_names VARCHAR(500),ADD video_room_mode VARCHAR(30),ADD notification_mode VARCHAR(30)`);
   await db.query("INSERT INTO agencies VALUES(450,'Synthetic practice','agency','America/Denver'),(451,'Synthetic school','school','America/Denver'),(452,'Other school','school','America/Denver')");
   await db.query("INSERT INTO users VALUES(7,'Synthetic','Provider'),(12,'Synthetic','School staff'),(99,'Synthetic','Admin')");
-  await db.query('INSERT INTO agency_service_locations VALUES(10,450,451),(20,450,452)');
+  await db.query('INSERT INTO agency_service_locations(id,agency_id,school_organization_id) VALUES(10,450,451),(20,450,452)');
   await db.query('INSERT INTO organization_affiliations VALUES(450,451,1)');
   await db.query("INSERT INTO school_profiles VALUES(451,'Synthetic district')");
-  await db.query("INSERT INTO provider_school_assignments VALUES(1,451,7,'Monday',1,'08:00','15:00'),(2,451,7,'Tuesday',1,'08:00','15:00')");
+  await db.query("INSERT INTO provider_school_assignments(id,school_organization_id,provider_user_id,day_of_week,is_active,start_time,end_time) VALUES(1,451,7,'Monday',1,'08:00','15:00'),(2,451,7,'Tuesday',1,'08:00','15:00')");
  });
  beforeEach(async()=>{
   for(const table of ['school_schedule_appointment_links','school_schedule_transitions','appointment_participants','appointment_billing','appointments','soft_schedule_slots','clients','client_provider_assignments','client_organization_assignments','clinical_notes','clinical_sessions','provider_schedule_events','company_events'])await db.query(`DELETE FROM ${table}`);
-  await db.query("INSERT INTO clients VALUES(1,450,451,7,'AA','SYN-AA'),(2,450,451,7,'BB','SYN-BB'),(3,999,451,7,'XX','OTHER-PRACTICE')");
-  await db.query('INSERT INTO client_organization_assignments VALUES(1,451,1),(2,451,1),(3,451,1)');await db.query('INSERT INTO client_provider_assignments VALUES(1,451,7,1),(2,451,7,1)');
+  await db.query("INSERT INTO clients(id,agency_id,organization_id,provider_id,initials,identifier_code) VALUES(1,450,451,7,'AA','SYN-AA'),(2,450,451,7,'BB','SYN-BB'),(3,999,451,7,'XX','OTHER-PRACTICE')");
+  await db.query('INSERT INTO client_organization_assignments VALUES(1,451,1),(2,451,1),(3,451,1)');await db.query('INSERT INTO client_provider_assignments(client_id,organization_id,provider_user_id,is_active) VALUES(1,451,7,1),(2,451,7,1)');
   await db.query("INSERT INTO soft_schedule_slots(id,school_organization_id,weekday,provider_user_id,slot_index,start_time,end_time,client_id,created_by_user_id,updated_by_user_id) VALUES(10,451,'Monday',7,1,'09:00','10:00',1,99,99),(11,451,'Monday',7,2,NULL,NULL,2,99,99)");
   await db.query("INSERT INTO appointments(id,agency_id,provider_user_id,start_at,end_at,status,source,service_location_id,source_timezone,product_origin,service_code,provider_schedule_event_id) VALUES(100,450,7,'2028-11-06 16:00:00','2028-11-06 17:00:00','scheduled','school_weekly',10,'America/Denver','full_suite','90837',77)");
-  await db.query("INSERT INTO appointment_participants(appointment_id,client_id,role) VALUES(100,1,'client')");await db.query("INSERT INTO provider_schedule_events VALUES(77,'2028-11-06 16:00:00','2028-11-06 17:00:00','ACTIVE',99)");
+  await db.query("INSERT INTO appointment_participants(appointment_id,client_id,role) VALUES(100,1,'client')");await db.query("INSERT INTO provider_schedule_events(id,start_at,end_at,status,updated_by_user_id,provider_id,agency_id) VALUES(77,'2028-11-06 16:00:00','2028-11-06 17:00:00','ACTIVE',99,7,450)");
   m.rollout.mockResolvedValue({enabled:true});m.clinical.mockClear();m.notices.mockClear();m.notifications.mockClear();
  });
  afterAll(async()=>{await db?.end();if(admin){await admin.query(`DROP DATABASE ${schema}`);await admin.end();}});
  const activate=()=>saveSchoolTransition({context,actorUserId:99,input:{effectiveDate:'2028-11-01',revision:0,reviewed:true},dbPool:db});
  const link=()=>linkSchoolAppointment({agencyId:450,schoolId:451,slotId:10,appointmentId:100,actorUserId:99,seriesKey:'synthetic-series'});
  const list=()=>listSchoolBookedSessions({context,startDate:'2028-11-06',endDate:'2028-11-13',db});
+ it('moves a standing slot and releases the original capacity only after confirming a full target day', async () => {
+  await db.query("INSERT IGNORE INTO agencies VALUES(2,'Synthetic ITSCO','agency','America/Denver')");
+  await db.query("UPDATE clients SET agency_id=2,service_day='Monday' WHERE id=1");
+  await db.query("UPDATE client_provider_assignments SET service_day='Monday' WHERE client_id=1");
+  await db.query("UPDATE provider_school_assignments SET slots_total=1,slots_available=0 WHERE id=1");
+  await db.query("UPDATE provider_school_assignments SET slots_total=0,slots_available=0 WHERE id=2");
+  await db.query("INSERT INTO agency_service_locations(id,agency_id,school_organization_id) VALUES(11,2,451)");
+  const input = { slotId: 10, clientId: 1, fromDay: 'Monday', toDay: 'Tuesday', startTime: '10:00', endTime: '11:00', reviewed: true };
+  const move = patch => moveUnbookedSchoolSlot({ dbPool: db, context: { ...context, agencyId: 2, schoolName: 'Synthetic school' },
+    actorUserId: 99, input: { ...input, ...patch } });
+  await expect(move()).rejects.toMatchObject({ code: 'SCHOOL_SLOT_CAPACITY_CONFIRMATION' });
+  expect((await db.query('SELECT client_id FROM soft_schedule_slots WHERE id=10'))[0][0].client_id).toBe(1);
+  const result = await move({ addCapacity: true });
+  expect(result).toMatchObject({ weekday: 'Tuesday', addedCapacity: true });
+  expect((await db.query('SELECT client_id FROM soft_schedule_slots WHERE id=10'))[0][0].client_id).toBeNull();
+  expect((await db.query('SELECT weekday,client_id FROM soft_schedule_slots WHERE id=?',[result.slotId]))[0][0]).toEqual({ weekday: 'Tuesday', client_id: 1 });
+  expect((await db.query('SELECT id,slots_total,slots_available FROM provider_school_assignments ORDER BY id'))[0]).toEqual([
+    { id:1, slots_total:1, slots_available:1 }, { id:2, slots_total:1, slots_available:0 }
+  ]);
+  expect((await db.query('SELECT service_day,is_active FROM client_provider_assignments WHERE client_id=1 ORDER BY id'))[0])
+    .toEqual([{ service_day:'Monday', is_active:0 }, { service_day:'Tuesday', is_active:1 }]);
+  await expect(move({ addCapacity: true })).rejects.toMatchObject({ status:409 });
+  await db.query('DELETE FROM agency_service_locations WHERE id=11');
+  await db.query('UPDATE provider_school_assignments SET slots_total=2,slots_available=0');
+ });
+ it('links an actual appointment only when the physical location, slot time and assigned weekday match', async () => {
+  await activate();
+  await db.query("UPDATE client_provider_assignments SET service_day='Monday' WHERE client_id=1");
+  await db.query("UPDATE appointments SET modality='IN_PERSON' WHERE id=100");
+  const reviewedLink = (start, end) => linkSchoolAppointment({agencyId:450,schoolId:451,slotId:10,
+    appointmentId:100,actorUserId:99,planningTime:{start,end}});
+  await expect(reviewedLink('09:15','10:00')).rejects.toThrow('actual appointment must match');
+  await db.query("UPDATE agency_service_locations SET place_of_service='11' WHERE id=10");
+  try { await expect(reviewedLink('09:00','10:00')).rejects.toThrow('in-person school location'); }
+  finally { await db.query("UPDATE agency_service_locations SET place_of_service='03' WHERE id=10"); }
+  await expect(reviewedLink('09:00','10:00')).resolves.toMatchObject({slotId:10,alreadyLinked:false});
+ });
  it('applies the actual migration with foreign keys, explicit cutover, reviewed identity, and idempotent links',async()=>{
   expect(await readSchoolTransition({...context,db})).toBeNull();await expect(link()).rejects.toThrow('effective date');
   await activate();expect(await link()).toMatchObject({alreadyLinked:false});expect(await link()).toMatchObject({alreadyLinked:true});

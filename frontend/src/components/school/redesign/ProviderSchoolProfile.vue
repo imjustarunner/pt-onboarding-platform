@@ -167,7 +167,7 @@
             <div class="panel-title">Day</div>
             <SchoolDayBar v-model="selectedWeekday" :days="dayBarDays" />
             <div v-if="!selectedWeekday" class="muted">
-              Select a day to open the soft schedule.
+              Select a day to open the schedule.
             </div>
           </div>
 
@@ -176,9 +176,9 @@
             class="panel"
             data-tour="school-provider-soft-schedule-panel"
           >
-            <div class="panel-title">Soft schedule ({{ selectedWeekday }})</div>
+            <div class="panel-title">Schedule ({{ selectedWeekday }})</div>
             <div v-if="messagesOpen" class="muted">
-              Soft schedule is collapsed while messaging is open.
+              Schedule is collapsed while messaging is open.
             </div>
             <SoftScheduleEditor
               v-else
@@ -191,7 +191,7 @@
               @save="saveSoftSlots"
               @move="moveSoftSlot"
             />
-            <SchoolWeeklyBooking v-if="canSelfEditAvailability && !messagesOpen" :school-organization-id="schoolOrganizationId" :provider-user-id="providerUserId" :weekday="selectedWeekday" :revision="softSlots" />
+            <SchoolWeeklyBooking v-if="canSelfEditAvailability && !messagesOpen" :school-organization-id="schoolOrganizationId" :provider-user-id="providerUserId" :weekday="selectedWeekday" :revision="softSlots" @booked="fetchSoftSlots" />
             <SchoolBookedSessions v-if="!messagesOpen" :school-organization-id="schoolOrganizationId" :provider-user-id="providerUserId" :revision="softSlots" />
             <div v-if="skillsMeetingsLoading" class="muted" style="margin-top: 10px;">Loading skills group meetings…</div>
             <div v-else-if="skillsMeetingsError" class="muted" style="margin-top: 10px;">{{ skillsMeetingsError }}</div>
@@ -871,7 +871,7 @@ const fetchSoftSlots = async () => {
     );
     softSlots.value = Array.isArray(r.data?.slots) ? r.data.slots : [];
   } catch (e) {
-    softError.value = e.response?.data?.error?.message || 'Failed to load soft schedule';
+    softError.value = e.response?.data?.error?.message || 'Failed to load the schedule';
     softSlots.value = [];
   } finally {
     softLoading.value = false;
@@ -889,7 +889,7 @@ const saveSoftSlots = async (slots) => {
     );
     await fetchSoftSlots();
   } catch (e) {
-    softError.value = e.response?.data?.error?.message || 'Failed to save soft schedule';
+    softError.value = e.response?.data?.error?.message || 'Failed to save the schedule';
   } finally {
     softSaving.value = false;
   }

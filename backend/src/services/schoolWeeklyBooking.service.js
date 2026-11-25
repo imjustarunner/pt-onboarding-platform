@@ -78,7 +78,7 @@ export async function schoolWeeklyContext({ actor, schoolId, providerUserId, wee
   const rollout = await clientSessionBookingAccess(agencyId, pid);
   if (!rollout.enabled) return { enabled: false, reason: rollout.reason, slots: [], services: [] };
   const location = await AgencyServiceLocation.findByAgencyAndSchool(agencyId, sid);
-  if (!location) return { enabled: false, reason: 'An administrator must connect this school to an active service location before booking.', slots: [], services: [] };
+  if (!location || (agencyId === 2 && location.place_of_service !== '03')) return { enabled: false, reason: 'An administrator must connect this school to an active service location before booking.', slots: [], services: [] };
   const services = await TenantService.listForAgency(agencyId);
   const allowedIds = await StaffServiceAssignment.listServiceIdsForUser(agencyId, pid);
   const medicalCodes = new Map((await AgencyMedicalServiceCode.listByAgency(agencyId,{includeInactive:true})).map(code=>[code.serviceCode,code]));
@@ -91,14 +91,17 @@ export async function schoolWeeklyContext({ actor, schoolId, providerUserId, wee
   });
   const [slots] = await pool.execute(`SELECT s.id,s.client_id,s.start_time,s.end_time,c.initials
     FROM soft_schedule_slots s JOIN clients c ON c.id=s.client_id
-    WHERE s.school_organization_id=? AND s.provider_user_id=? AND s.weekday=?
+    WHERE s.school_organization_id=? AND s.provider_user_id=? AND s.weekday=? AND c.agency_id=?
+      AND c.compliance_archived_at IS NULL
+      AND UPPER(COALESCE(c.status,'')) NOT IN ('ARCHIVED','INACTIVE','TERMINATED')
       AND s.start_time IS NOT NULL AND s.end_time IS NOT NULL
       AND (EXISTS (SELECT 1 FROM client_provider_assignments cpa JOIN client_organization_assignments coa
         ON coa.client_id=cpa.client_id AND coa.organization_id=cpa.organization_id AND coa.is_active=TRUE
         WHERE cpa.client_id=s.client_id AND cpa.organization_id=s.school_organization_id
-          AND cpa.provider_user_id=s.provider_user_id AND cpa.service_day=s.weekday AND cpa.is_active=TRUE)
-        OR (c.organization_id=s.school_organization_id AND c.provider_id=s.provider_user_id AND c.service_day=s.weekday))
-    ORDER BY s.slot_index`, [sid, pid, weekday]);
+          AND cpa.provider_user_id=s.provider_user_id AND BINARY cpa.service_day=BINARY s.weekday AND cpa.is_active=TRUE)
+        OR (c.organization_id=s.school_organization_id AND c.provider_id=s.provider_user_id AND BINARY c.service_day=BINARY s.weekday
+          AND NOT EXISTS (SELECT 1 FROM client_provider_assignments cpa WHERE cpa.client_id=c.id AND cpa.organization_id=s.school_organization_id)))
+    ORDER BY s.slot_index`, [sid, pid, weekday, agencyId]);
   const agency = await Agency.findById(agencyId);
   const timeZone = String(agency?.timezone || school.timezone || 'America/Denver');
   const today = new Intl.DateTimeFormat('en-CA', { timeZone, year:'numeric',month:'2-digit',day:'2-digit' }).format(new Date());
@@ -112,5 +115,6 @@ export async function schoolWeeklyContext({ actor, schoolId, providerUserId, wee
 export async function reviewSchoolWeeklyLink(context,body,slotId) {
   if(!context.transition) return null;
   return schoolAgendaLinkContext({agencyId:context.agencyId,schoolId:context.schoolId,providerId:context.providerUserId,
-    clientId:body.participants[0].clientId,date:body.startAt.slice(0,10),slotId});
+    clientId:body.participants[0].clientId,date:body.startAt.slice(0,10),slotId,
+    ...(context.agencyId === 2 ? { planningTime: { start: body.startAt.slice(11,16), end: body.endAt.slice(11,16) } } : {}) });
 }

@@ -19,6 +19,7 @@ const digest = value => createHash('sha256').update(JSON.stringify(value)).diges
 const normName = value => String(value || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
 const sqlTime = value => value instanceof Date ? value.toISOString().slice(0, 19).replace('T', ' ') : String(value || '').replace('T', ' ').replace(/Z$/, '').slice(0, 19);
 const validId = value => Number.isSafeInteger(Number(value)) && Number(value) > 0 ? Number(value) : null;
+const schoolWeekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 const recurrences = new Set(['ONCE', 'WEEKLY', 'BIWEEKLY']);
 const sourceFor = row => `aw_agenda:${digest([row.agencyId, row.providerId, row.clientId, row.startAt, row.endAt, row.tenantServiceId, row.serviceLocationId, row.modality]).slice(0, 50)}`;
 function calendarIdentity(appointment, row) {
@@ -54,7 +55,10 @@ async function loadContext({ actor, agencyId, providerId }) {
   const locations = await AgencyServiceLocation.listByAgency(agencyId);
   let schoolSlots = [];
   if (locations.some(location => Number(location.school_organization_id))) {
-    [schoolSlots] = await pool.execute(`SELECT s.id,s.school_organization_id,s.client_id,s.weekday,s.start_time,s.end_time
+    [schoolSlots] = await pool.execute(`SELECT s.id,s.school_organization_id,s.client_id,s.weekday,s.start_time,s.end_time,
+      EXISTS (SELECT 1 FROM provider_school_assignments psa
+        WHERE psa.school_organization_id=s.school_organization_id AND psa.provider_user_id=s.provider_user_id
+          AND BINARY psa.day_of_week=BINARY s.weekday AND psa.is_active=1) AS assigned_school_day
       FROM soft_schedule_slots s JOIN clients c ON c.id=s.client_id AND c.agency_id=?
       WHERE s.provider_user_id=? ORDER BY s.school_organization_id,s.weekday,s.slot_index LIMIT 1000`, [agencyId, providerId]);
   }
@@ -114,7 +118,8 @@ async function canonicalBook({ actor, row, acknowledgeSameDayServices }) {
     serviceCode: row.serviceCode, startAt: `${row.startAt.replace(' ', 'T')}Z`, endAt: `${row.endAt.replace(' ', 'T')}Z`,
     timeZone: row.timeZone, modality: row.modality, serviceLocationId: row.serviceLocationId,
     participants: [{ clientId: row.clientId, role: 'client' }], recurrence: 'ONCE', occurrenceCount: 1,
-    source: row.source, title: 'Session', createProviderScheduleEvent: true, acknowledgeSameDayServices
+    source: row.source, title: 'Session', createProviderScheduleEvent: true, acknowledgeSameDayServices,
+    ...(row.schoolPilot ? { sendBookingNotice: false, notificationMode: 'off' } : {})
   } }, response, error => { throw error; });
   if (status >= 400 || !body?.appointment?.id) throw Object.assign(fail(status >= 400 ? status : 500, body?.error?.message || 'The appointment could not be completed.', body?.error?.code), { createdAppointmentIds: body?.createdAppointmentIds || [] });
   return body.appointment;
@@ -141,7 +146,7 @@ async function completeFacets({ actor, row, appointment }) {
   return appointment;
 }
 
-async function importLock({ agencyId, providerId }, work) {
+export async function withAgendaImportLock({ agencyId, providerId }, work) {
   const connection = await pool.getConnection(), key = `aw-agenda-import:${agencyId}:${providerId}`;
   let acquired = false;
   try {
@@ -166,12 +171,38 @@ function strictInstant(date, time, timeZone) {
   return instant;
 }
 
+async function schoolPilotExceptions({ agencyId, providerId, startDate, endDate }) {
+  const { createSchoolDayClosures } = await import('./schoolDayClosures.service.js');
+  const [closures, [absences]] = await Promise.all([
+    createSchoolDayClosures().listProviderSchoolDayClosures({ providerId, agencyIds: [agencyId], startDate, endDate }),
+    pool.execute(`SELECT school_id,client_id,DATE_FORMAT(absence_date,'%Y-%m-%d') absence_date
+      FROM school_day_absence_history WHERE agency_id=? AND provider_id=? AND absence_date>=? AND absence_date<?`,
+    [agencyId, providerId, startDate, endDate])
+  ]);
+  return { closures, absences };
+}
+
+function schoolPilotSource(slot, locations, clients) {
+  const schoolId = Number(slot.school_organization_id);
+  const matches = locations.filter(location => Number(location.school_organization_id) === schoolId
+    && String(location.place_of_service) === '03');
+  const startTime = String(slot.start_time || '').slice(0, 5);
+  const endTime = String(slot.end_time || '').slice(0, 5);
+  const clientId = Number(slot.client_id);
+  if (!Number(slot.assigned_school_day) || !schoolWeekdays.includes(slot.weekday)
+      || !clients.some(client => Number(client.id) === clientId)
+      || matches.length !== 1 || !agendaClock(startTime) || !agendaClock(endTime) || endTime <= startTime) return null;
+  return { schoolSlotId: Number(slot.id), clientId, weekday: slot.weekday, startTime, endTime,
+    serviceLocationId: Number(matches[0].id) };
+}
+
 export function createAuricwellAgendaImporter(overrides = {}) {
   const deps = {
-    loadContext, findExisting, checkConflict, book: canonicalBook, completeFacets, lock: importLock,
+    loadContext, findExisting, checkConflict, book: canonicalBook, completeFacets, lock: withAgendaImportLock,
     clientLock: (row, work) => withClientSchedulingLock([row.clientId], work),
     sameDay: async ({ actor, row, existing }) => sameDayServiceWarnings({ agencyId: row.agencyId, user: actor, participants: [{ clientId: row.clientId, role: 'client' }], occurrences: [{ startAt: `${row.startAt.replace(' ', 'T')}Z` }], timeZone: row.timeZone, excludeAppointmentId: existing?.id || 0 }),
     checkSchool: async input => (await import('./schoolAppointmentTransition.service.js')).schoolAgendaLinkContext(input),
+    schoolPilotExceptions,
     linkSchool: async input => (await import('./schoolAppointmentTransition.service.js')).linkSchoolAppointment(input),
     sign: claims => jwt.sign(claims, config.jwt.secret, { expiresIn: '15m', audience: 'auricwell-agenda-import' }),
     verify: token => jwt.verify(token, config.jwt.secret, { audience: 'auricwell-agenda-import' }),
@@ -184,6 +215,7 @@ export function createAuricwellAgendaImporter(overrides = {}) {
       clients: context.clients.map(client => ({ id: Number(client.id), label: client.full_name || client.initials || `Client #${client.id}` })),
       services: context.services.map(service => ({ id: service.id, name: service.name, serviceCode: service.serviceCode, modality: service.modality })),
       locations: context.locations.map(location => ({ id: Number(location.id), name: location.name, placeOfService: location.place_of_service, schoolId: Number(location.school_organization_id) || null })),
+      schoolPilotRows: (context.schoolSlots || []).map(slot => schoolPilotSource(slot, context.locations, context.clients)).filter(Boolean),
       schoolSlots: (context.schoolSlots || []).map(slot => ({ id: Number(slot.id), schoolId: Number(slot.school_organization_id), clientId: Number(slot.client_id), weekday: slot.weekday,
         label: `${slot.weekday} ${String(slot.start_time || '').slice(0, 5)}–${String(slot.end_time || '').slice(0, 5)} · slot #${slot.id}` })) };
   }
@@ -195,7 +227,17 @@ export function createAuricwellAgendaImporter(overrides = {}) {
     if (!isValidTimeZone(timeZone)) throw fail(400, 'Choose the agenda’s IANA time zone explicitly.');
     const supplied = input.rows || parseAuricwellAgendaPaste(input.text, weekStart);
     if (!Array.isArray(supplied) || !supplied.length || supplied.length > 100) throw fail(400, 'Review between 1 and 100 appointment rows at a time.');
-    const defaults = input.defaults || {}, rows = [], occurrences = [], seen = new Map();
+    const schoolPilot = input.schoolPilot === true;
+    if (schoolPilot && timeZone !== context.timeZone) throw fail(400, 'Use the practice time zone for school appointments.');
+    const defaults = schoolPilot ? {} : input.defaults || {};
+    const rows = [], occurrences = [], seen = new Map();
+    // Limit exception reads to the dates that reviewed rows may create.
+    let exceptions;
+    if (schoolPilot) {
+      const weeks = Math.min(52, Math.max(1, ...supplied.map(row => Number(row?.occurrenceCount) || 1)));
+      exceptions = await deps.schoolPilotExceptions({ agencyId, providerId, startDate: weekStart,
+        endDate: addAgendaDays(weekStart, Math.ceil(weeks) * 7) });
+    }
     for (const [index, suppliedRow] of supplied.entries()) {
       if (suppliedRow.include === false) continue;
       const row = {
@@ -249,20 +291,43 @@ export function createAuricwellAgendaImporter(overrides = {}) {
         row.recurrence = String(suppliedRow.recurrence || defaults.recurrence || '').toUpperCase();
         row.occurrenceCount = row.recurrence === 'ONCE' ? 1 : Number(suppliedRow.occurrenceCount || defaults.occurrenceCount);
         if (!recurrences.has(row.recurrence) || !Number.isInteger(row.occurrenceCount) || row.occurrenceCount < 1 || row.occurrenceCount > 52) throw fail(400, 'Choose once, weekly, or every two weeks and an explicit count from 1 to 52.');
+        if (schoolPilot) {
+          if (String(service.businessType || '').toLowerCase() === 'tutoring' || row.serviceCode === 'TUTORING')
+            throw fail(400, 'Choose the clinical service already planned for this school client.');
+          const slot = context.schoolSlots?.find(item => Number(item.id) === row.schoolSlotId);
+          const source = slot && schoolPilotSource(slot, context.locations, context.clients);
+          const weekday = schoolWeekdays[new Date(`${row.date}T12:00:00Z`).getUTCDay() - 1];
+          if (!source || source.clientId !== clientId || source.serviceLocationId !== row.serviceLocationId
+              || source.weekday !== weekday || source.startTime !== row.startTime || source.endTime !== row.endTime
+              || row.modality !== 'IN_PERSON' || row.recurrence !== 'WEEKLY') {
+            throw fail(409, 'Use this client’s saved school, weekday and time for weekly booking. To change the standing day, update their school assignment first and reload the slots.');
+          }
+        }
         const expanded = expandAppointmentRecurrence({ startAt: `${row.date} ${row.startTime}:00`, endAt: `${row.date} ${row.endTime}:00`, timeZone, recurrence: row.recurrence, occurrenceCount: row.occurrenceCount });
         row.schoolSlotId = validId(suppliedRow.schoolSlotId);
         row.newCount = 0; row.existingCount = 0;
+        if (schoolPilot) row.skippedDates = [];
         const seriesKey = expanded.length > 1 ? seriesFor({ ...row, agencyId, providerId }) : null;
         for (const [recurrenceIndex, occurrence] of expanded.entries()) {
-          const candidate = { ...row, agencyId, providerId, timeZone, seriesKey, recurrenceIndex, date: occurrence.startAt.slice(0, 10),
+          const candidate = { ...row, schoolPilot, agencyId, providerId, timeZone, seriesKey, recurrenceIndex, date: occurrence.startAt.slice(0, 10),
             startAt: strictInstant(occurrence.startAt.slice(0, 10), row.startTime, timeZone), endAt: strictInstant(occurrence.endAt.slice(0, 10), row.endTime, timeZone) };
           if (Date.parse(`${candidate.startAt.replace(' ', 'T')}Z`) <= deps.now()) throw fail(400, 'The agenda import creates future appointments. Review historical sessions separately.');
+          if (schoolPilot) {
+            const closed = exceptions.closures.some(item => Number(item.schoolOrgId) === candidate.schoolId && item.date === candidate.date);
+            const absent = exceptions.absences.some(item => Number(item.school_id) === candidate.schoolId
+              && Number(item.client_id) === clientId && item.absence_date === candidate.date);
+            if (closed || absent) {
+              row.skippedDates.push({ date: candidate.date, reason: closed ? 'School closed or sessions prohibited' : 'School session already canceled' });
+              continue;
+            }
+          }
           candidate.source = sourceFor(candidate);
           if (seen.has(candidate.source)) throw fail(409, `This appointment is repeated in row ${seen.get(candidate.source)}. Remove the duplicate row.`);
           for (const prior of occurrences) if (prior.startAt < candidate.endAt && prior.endAt > candidate.startAt) throw fail(409, `This time overlaps another imported appointment in row ${prior.rowNumber}.`);
           if (candidate.schoolId) {
             if (timeZone !== context.timeZone) throw fail(400, 'Use the practice time zone for school agenda appointments.');
-            const school = await deps.checkSchool({ agencyId, providerId, clientId, schoolId: candidate.schoolId, slotId: row.schoolSlotId, date: candidate.date });
+            const school = await deps.checkSchool({ agencyId, providerId, clientId, schoolId: candidate.schoolId, slotId: row.schoolSlotId, date: candidate.date,
+              ...(schoolPilot ? { actorUserId: actor.id, planningTime: { start: row.startTime, end: row.endTime } } : {}) });
             candidate.schoolSlotId = Number(school.slotId); row.schoolSlotId = Number(school.slotId);
             candidate.schoolTransitionState = digest(school);
           }
@@ -281,15 +346,15 @@ export function createAuricwellAgendaImporter(overrides = {}) {
         }
       } catch (error) { row.errors.push(error.message); }
       row.warnings = [...new Set(row.warnings)];
-      row.status = row.errors.length ? 'blocked' : row.newCount ? 'ready' : 'existing';
+      row.status = row.errors.length ? 'blocked' : row.newCount ? 'ready' : row.existingCount ? 'existing' : 'skipped';
     }
     if (!rows.length) throw fail(400, 'Select at least one appointment row to import.');
     const plan = occurrences.map(({ agencyId, providerId, clientId, startAt, endAt, tenantServiceId, serviceLocationId, modality, source, seriesKey, recurrence, recurrenceIndex, schoolSlotId, schoolTransitionState }) => ({ agencyId, providerId, clientId, startAt, endAt, tenantServiceId, serviceLocationId, modality, source, seriesKey, recurrence, recurrenceIndex, schoolSlotId, schoolTransitionState }));
     const claims = { kind: 'auricwell-agenda-preview', actorId: Number(actor.id), agencyId, providerId, weekStart, timeZone,
-      planHash: digest(plan), snapshotHash: digest([context.provider, context.clients, context.services, context.locations, context.schoolSlots]),
+      planHash: digest([schoolPilot, plan]), snapshotHash: digest([context.provider, context.clients, context.services, context.locations, context.schoolSlots]),
       existingStates: Object.fromEntries(occurrences.filter(row => row.existingState).map(row => [row.source, row.existingState])) };
     const summary = { rows: rows.length, appointments: occurrences.length, newAppointments: rows.reduce((sum, row) => sum + (row.newCount || 0), 0), existingAppointments: rows.reduce((sum, row) => sum + (row.existingCount || 0), 0), blockedRows: rows.filter(row => row.errors.length).length, sameDayWarning: rows.some(row => row.warnings.length) };
-    return { rows, summary, occurrences, claims, previewToken: issueToken && !summary.blockedRows ? deps.sign(claims) : null, expiresInSeconds: 900 };
+    return { rows, summary, occurrences, claims, previewToken: issueToken && occurrences.length && !summary.blockedRows ? deps.sign(claims) : null, expiresInSeconds: 900 };
   }
 
   async function preview({ actor, input }) {
@@ -318,9 +383,16 @@ export function createAuricwellAgendaImporter(overrides = {}) {
           await deps.clientLock(row, async () => {
             const existing = await deps.findExisting(row);
             await deps.checkConflict(row, existing);
+            if (row.schoolPilot) {
+              const school = await deps.checkSchool({ agencyId: row.agencyId, providerId: row.providerId,
+                clientId: row.clientId, schoolId: row.schoolId, slotId: row.schoolSlotId, date: row.date,
+                actorUserId: actor.id, planningTime: { start: row.startTime, end: row.endTime } });
+              if (digest(school) !== row.schoolTransitionState) throw fail(409, 'The school schedule changed. Preview the appointments again.');
+            }
             appointment = existing || await deps.book({ actor, row, acknowledgeSameDayServices: input.acknowledgeSameDayServices === true });
             appointment = await deps.completeFacets({ actor, row, appointment });
-            if (row.schoolId) await deps.linkSchool({ agencyId: row.agencyId, schoolId: row.schoolId, slotId: row.schoolSlotId, appointmentId: appointment.id, actorUserId: actor.id, seriesKey: row.seriesKey });
+            if (row.schoolId) await deps.linkSchool({ agencyId: row.agencyId, schoolId: row.schoolId, slotId: row.schoolSlotId, appointmentId: appointment.id, actorUserId: actor.id, seriesKey: row.seriesKey,
+              ...(row.schoolPilot ? { planningTime: { start: row.startTime, end: row.endTime } } : {}) });
             appointments.push({ id: Number(appointment.id), clientId: row.clientId, rowId: row.rowId, startAt: row.startAt, existing: !!existing });
           });
         } catch (error) {

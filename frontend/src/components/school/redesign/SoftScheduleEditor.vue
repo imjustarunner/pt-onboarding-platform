@@ -2,9 +2,9 @@
   <div class="editor" data-tour="school-soft-schedule">
     <div class="header">
       <div>
-        <div class="title">Regular school planning times</div>
+        <div class="title">Schedule</div>
         <div class="subtitle">
-          Save a client and planning time before booking weekly appointments. Linked bookings appear in Booked school sessions, where time changes update the actual appointment.
+          Save a client and time to reserve a school slot. Book the weekly appointments to add them to the calendar.
         </div>
       </div>
       <button class="btn btn-primary btn-sm" type="button" :disabled="saving" @click="save">
@@ -13,7 +13,7 @@
     </div>
 
     <div v-if="error" class="error">{{ error }}</div>
-    <p v-if="draftSlots.some(slot=>slot.appointment_linked)" class="subtitle">Linked slots are now shown as actual appointments in Booked school sessions. Their capacity and history are retained.</p>
+    <p v-if="draftSlots.some(slot=>slot.appointment_linked)" class="subtitle">Linked slots appear under Booked school sessions. Their school capacity stays reserved.</p>
 
     <div class="rows">
       <div
@@ -35,6 +35,7 @@
               </option>
             </select>
           </label>
+          <small v-if="s.client_id" class="subtitle">Saved slot · appointment not booked</small>
         </div>
 
         <div class="time">

@@ -62,8 +62,8 @@ describe('school weekly booking',()=>{
   const result=await schoolWeeklyContext(request);
   expect(result).toMatchObject({enabled:true,agencyId:450,serviceLocationId:99,slots:[slot],services:[{id:8,serviceCode:'90834'}]});
   const slotSql=pool.execute.mock.calls.find(([sql])=>sql.includes('FROM soft_schedule_slots'));
-  expect(slotSql[1]).toEqual([451,1433,'Monday']);
-  expect(slotSql[0]).toContain('cpa.service_day=s.weekday');
+  expect(slotSql[1]).toEqual([451,1433,'Monday',450]);
+  expect(slotSql[0]).toContain('BINARY cpa.service_day=BINARY s.weekday');
  });
  it.each([{actor:{id:1465,role:'school_staff'}},{providerUserId:1439}])('denies school staff and another provider’s schedule',async patch=>{
   await expect(schoolWeeklyContext({...request,...patch})).rejects.toMatchObject({status:403});

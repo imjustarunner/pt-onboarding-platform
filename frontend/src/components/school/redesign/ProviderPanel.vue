@@ -92,7 +92,7 @@
       <SoftScheduleEditor
         v-if="!hideSoftSchedule"
         class="schedule"
-        :slots="slots"
+        :slots="scheduleSlots"
         :caseload-clients="caseloadClients"
         :client-label-mode="clientLabelMode"
         :highlight-client-id="isHighlightedProvider ? highlightClientId : null"
@@ -100,8 +100,8 @@
         :error="error"
         @save="$emit('save-slots', $event)"
       />
-      <SchoolWeeklyBooking v-if="canBookWeekly && !hideSoftSchedule" :school-organization-id="schoolOrganizationId" :provider-user-id="provider.provider_user_id" :weekday="weekday" :revision="slots" />
-      <SchoolBookedSessions v-if="!hideSoftSchedule" :school-organization-id="schoolOrganizationId" :provider-user-id="provider.provider_user_id" :revision="slots" />
+      <SchoolWeeklyBooking v-if="canBookWeekly && !hideSoftSchedule" :school-organization-id="schoolOrganizationId" :provider-user-id="provider.provider_user_id" :weekday="weekday" :revision="slots" @booked="recordLinkedSlot" />
+      <SchoolBookedSessions v-if="!hideSoftSchedule" :school-organization-id="schoolOrganizationId" :provider-user-id="provider.provider_user_id" :revision="scheduleSlots" />
     </div>
   </div>
 </template>
@@ -159,6 +159,16 @@ watch(
 );
 
 const emit = defineEmits(['open-client', 'save-slots', 'open-provider', 'request-availability']);
+const linkedDuringView = ref([]);
+const scheduleSlots = computed(() => props.slots.map(slot => linkedDuringView.value.includes(Number(slot.id))
+  ? { ...slot, appointment_linked: true } : slot));
+watch(() => [props.schoolOrganizationId, props.provider?.provider_user_id, props.weekday, props.slots], () => {
+  linkedDuringView.value = [];
+});
+function recordLinkedSlot({ slotId, linked }) {
+  if (linked) linkedDuringView.value = [...linkedDuringView.value, slotId];
+}
+
 
 const selectedSection = ref('all');
 const collapsed = ref(false);

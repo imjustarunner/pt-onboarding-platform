@@ -12,12 +12,12 @@ onBeforeUnmount(() => { dialog.value?.close?.(); returnFocus?.focus?.(); });
 <template>
   <dialog ref="dialog" class="school-soft-dialog" aria-labelledby="school-soft-title" @cancel.prevent="emit('close')">
     <header>
-      <div><p class="eyebrow">SCHOOL soft schedule</p><h2 id="school-soft-title">{{ block.clientName }}</h2></div>
+      <div><p class="eyebrow">School schedule</p><h2 id="school-soft-title">{{ block.clientName }}</h2></div>
       <button type="button" aria-label="Close school schedule details" autofocus @click="emit('close')">×</button>
     </header>
     <div class="content">
       <p><strong>{{ block.schoolName }}</strong> · {{ block.displayDate }} · {{ block.timeLabel }}{{ block.untimed ? '' : ` (${block.displayTimeZone})` }}</p>
-      <p v-if="!block.record.explanation">This entry comes from the SCHOOL soft schedule. It does not represent a booked EHR session. Until the EHR transition, Cancel day can notify the client or guardian about your absence.</p>
+      <p v-if="!block.record.explanation">This is a saved school slot awaiting an appointment. Cancel day can notify the client or guardian about your absence.</p>
       <SchoolAbsenceRecords :records="[block.record]" schedule expanded :show-heading="false" />
     </div>
     <footer>

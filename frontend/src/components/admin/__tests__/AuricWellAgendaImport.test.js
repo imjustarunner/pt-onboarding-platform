@@ -57,3 +57,33 @@ describe('AuricWell agenda review', () => {
     wrapper.unmount();
   });
 });
+
+it('loads a timed school slot and asks before adding capacity when the weekday changes', async () => {
+  api.get.mockResolvedValue({ data: {
+    ...options, locations: [{ id: 9, schoolId: 70, name: 'Example school', placeOfService: '03' }],
+    schoolSlots: [{ id: 11, schoolId: 70, clientId: 41, label: 'Monday 09:00–09:50' }],
+    schoolPilotRows: [{ schoolSlotId: 11, clientId: 41, weekday: 'Monday', startTime: '09:00', endTime: '09:50', serviceLocationId: 9 }]
+  } });
+  api.post.mockRejectedValueOnce({ response: { data: { error: {
+    code: 'SCHOOL_SLOT_CAPACITY_CONFIRMATION', message: 'Add one slot at Example school on Tuesday to move this client?'
+  } } } });
+  api.post.mockResolvedValueOnce({ data: { slotId: 12, weekday: 'Tuesday', addedCapacity: true } });
+  const wrapper = await setup();
+  await button(wrapper, 'Load school slots').trigger('click');
+  const monday = wrapper.get('input[aria-label="Date for row 1"]').element.value;
+  const tuesday = new Date(`${monday}T12:00:00Z`);
+  tuesday.setUTCDate(tuesday.getUTCDate() + 1);
+  await wrapper.get('input[aria-label="Date for row 1"]').setValue(tuesday.toISOString().slice(0, 10));
+  expect(wrapper.text()).toContain('Move this client from Monday to Tuesday at Example school?');
+  await button(wrapper, 'Move saved school slot').trigger('click');
+  await flushPromises();
+  expect(api.post).toHaveBeenLastCalledWith('/school-appointment-transition/70/providers/19/move-slot',
+    expect.objectContaining({ slotId: 11, fromDay: 'Monday', toDay: 'Tuesday', addCapacity: false }));
+  expect(wrapper.text()).toContain('Add one slot at Example school on Tuesday');
+  await button(wrapper, 'Add one slot and move').trigger('click');
+  await flushPromises();
+  expect(api.post).toHaveBeenLastCalledWith('/school-appointment-transition/70/providers/19/move-slot',
+    expect.objectContaining({ slotId: 11, addCapacity: true, reviewed: true }));
+  expect(button(wrapper, 'Create reviewed').element.disabled).toBe(true);
+  wrapper.unmount();
+});

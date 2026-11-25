@@ -50,6 +50,7 @@
 import { ref, watch } from 'vue';
 import api from '../../../services/api';
 const props = defineProps({ schoolOrganizationId:{type:[Number,String],required:true}, providerUserId:{type:[Number,String],required:true}, weekday:{type:String,required:true}, revision:{type:Array,default:()=>[]} });
+const emit = defineEmits(['booked']);
 const context=ref(null), slotId=ref(''), tenantServiceId=ref(''), startMode=ref('next_week'), startDate=ref(''), occurrenceCount=ref(8);
 const busy=ref(false), error=ref(''), success=ref(''), sameDayWarning=ref(''), completed=ref(false);
 const url=()=>`/school-portal/${props.schoolOrganizationId}/days/${encodeURIComponent(props.weekday)}/providers/${props.providerUserId}/weekly-booking`;
@@ -72,7 +73,8 @@ async function book(acknowledgeSameDayServices) {
     const response=await api.post(url(),{slotId:slotId.value,tenantServiceId:tenantServiceId.value,startMode:startMode.value,startDate:startDate.value,occurrenceCount:occurrenceCount.value,acknowledgeSameDayServices});
     completed.value=true;
     const count=response.data?.appointments?.length || 1;
-    success.value=`${count} weekly appointment${count===1?'':'s'} booked. Review them on your calendar${context.value?.transition ? ' and refresh Booked school sessions.' : '.'}`;
+    emit('booked', { slotId: Number(slotId.value), linked: !!context.value?.transition });
+    success.value=`${count} weekly appointment${count===1?'':'s'} booked. Review them on your calendar${context.value?.transition ? ' and in Booked school sessions.' : '.'}`;
   } catch(e) {
     const data=e.response?.data;
     if(data?.error?.code==='SAME_DAY_SERVICE_WARNING') sameDayWarning.value=data.error.message;

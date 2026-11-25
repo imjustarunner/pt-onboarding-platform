@@ -2,7 +2,7 @@ import { wallMysqlToUtcMysql } from '../utils/zonedWallTime.util.js';
 import { composeAbsenceLetter } from './dayAbsenceNarrative.service.js';
 
 // Shared by booked appointments and pre-EHR school schedule notices.
-export const DAY_ABSENCE_EXPLANATION = 'This session is displaying due to SCHOOL soft schedule. It does not currently reflect an EHR session. You may cancel your day and your clients/guardians will be notified by email. Use urgent Cancel day for weather, sickness, or unexpected absences.';
+export const DAY_ABSENCE_EXPLANATION = 'This is a saved school slot awaiting an appointment. Cancel day can notify the client or guardian by email. Use urgent Cancel day for weather, sickness, or unexpected absences.';
 
 export function absenceDate(date) {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(date))
