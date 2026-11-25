@@ -95,7 +95,7 @@ const encounterSummary=computed(()=>[
 ]);
 const originalConsent=computed(()=>context.value?.note?.consentEvidence || (encounter.consentConfirmed?{confirmed:true,label:'Participation consent recorded by the author'}:{confirmed:false,label:'Participation consent not recorded in this note'}));
 function completedSignature(data,kind,openNext=false){
- const receipt={...data,agencyId:agencyId.value,draftId:draftId.value,kind,openNext};savedSignature.value=receipt;emit('signed',receipt);
+ const receipt={...data,agencyId:agencyId.value,draftId:data.draftId ?? draftId.value,kind,openNext};savedSignature.value=receipt;emit('signed',receipt);
  clearTimeout(completionTimer);completionTimer=setTimeout(()=>{if(!disposed)emit('finished',receipt);},1800);
 }
 const sections=computed(()=>{
@@ -188,12 +188,35 @@ const selectionKey=()=>JSON.stringify(selection.value);
 
 function currentRatings(){return Object.entries(ratings).filter(([,value])=>value!=='' && value!=null).map(([objectiveId,value])=>({objectiveId:Number(objectiveId),scaleValue:Object.hasOwn(objectiveDispositions,value)?null:Number(value),disposition:Object.hasOwn(objectiveDispositions,value)?value:'rated',raterKind:'clinician'}));}
 function metadata(){return {...(output.value.meta || {}),writerMode:mode.value,includeInteractiveComplexity:selectedComplexity.value,underlyingServiceCode:underlyingCode.value || null,smartNotes:smart.value,sessionContext:{...encounter,sourceTimezone:context.value?.session?.sourceTimezone},narrivaContext:{...(output.value.meta?.narrivaContext || {}),assessmentKind:assessmentKind.value,assessmentKindConfirmed:assessmentKindConfirmed.value,diagnosesConfirmed:diagnosesConfirmed.value,...(initialIntakeDocumentation.value && (intakeDocumentationReviewed.value!==null || !finalizedNarriva.value) ? {intakeDocumentationReviewed:intakeDocumentationReviewed.value===true} : {}),writerMode:mode.value,underlyingServiceCode:underlyingCode.value || null,assessmentEvidence:assessmentEvidence.value,consentConfirmed:encounter.consentConfirmed,modality:encounter.modality,participantsDetail:encounter.participantsDetail,clientLocationDescription:encounter.clientLocationDescription,presentingProblem:presentingProblem.value,presentingProblemOverride:sessionPresentingProblemOverride.value,interactiveComplexitySelected:selectedComplexity.value,riskAssessmentIncluded:riskIncluded.value,riskAssessmentRequired:requiredRisk.value,riskAssessmentCompleted:riskCompleted.value},structuredChart:{...(output.value.meta?.structuredChart || {}),diagnoses:output.value.meta?.structuredChart?.diagnoses ?? context.value?.clinicalContext?.diagnoses ?? context.value?.treatmentPlan?.diagnoses ?? [],diagnosticJustification:output.value.meta?.structuredChart?.diagnosticJustification ?? context.value?.clinicalContext?.diagnosticJustification ?? context.value?.treatmentPlan?.diagnosticJustification ?? '',riskAssessment:mode.value!=='smart_notes' ? (assessmentChart.value.riskAssessment || emptyRiskAssessment()) : {...(output.value.meta?.structuredChart?.riskAssessment || {}),patientDeniesAll:false,items:Object.fromEntries(riskDomains.map(key=>[key,{status:riskChoices[key]?'selected':'',option:riskChoices[key]}])),notes:riskText.value}},objectiveRatings:[...(output.value.meta?.objectiveRatings || []).filter(row=>row.raterKind && row.raterKind!=='clinician'),...currentRatings()]};}
-function draftPayload(){return {agencyId:agencyId.value,clientId:context.value?.client?.id,clinicalSessionId:context.value?.session?.id || null,officeEventId:context.value?.session?.officeEventId || null,dateOfService:encounter.dateOfService,serviceCode:encounter.serviceCode,writerMode:mode.value,inputText:mode.value!=='manual'?generationInput():narrative.value || Object.entries(sections.value).map(([title,text])=>`${title}: ${text}`).join('\n'),outputJson:{...output.value,sections:{...sections.value,...(mode.value==='manual' && encounter.consentConfirmed ? {'Consent for services':encounterConsentStatement(encounter)} : {}),...(hasRatingSummary.value?{[ratingSectionTitle]:savedRatingsText.value}:{})},meta:metadata()}};}
+function authoredRecordSections() {
+  return {
+    ...sections.value,
+    ...(mode.value === 'manual' && encounter.consentConfirmed ? { 'Consent for services': encounterConsentStatement(encounter) } : {}),
+    ...(hasRatingSummary.value ? { [ratingSectionTitle]: savedRatingsText.value } : {})
+  };
+}
+function chartMetadata() {
+  const meta = metadata();
+  if (aidKind(encounterAid.value) !== 'intake') return meta;
+  const chart = meta.structuredChart;
+  const primary = chart.diagnoses.find(dx => Number(dx.is_primary) === 1) || chart.diagnoses[0];
+  chart.intakeDiagnoses = chart.diagnoses.map(dx => ({ ...dx, icd10_code: dx.icd10_code || dx.code }));
+  if (primary?.justification) chart.diagnosticJustification = primary.justification;
+  return meta;
+}
+function draftPayload() {
+  return {
+    agencyId: agencyId.value, clientId: context.value?.client?.id, clinicalSessionId: context.value?.session?.id || null,
+    officeEventId: context.value?.session?.officeEventId || null, dateOfService: encounter.dateOfService, serviceCode: encounter.serviceCode,
+    writerMode: mode.value, inputText: mode.value !== 'manual' ? generationInput()
+      : narrative.value || Object.entries(sections.value).map(([title, text]) => `${title}: ${text}`).join('\n'),
+    outputJson: { ...output.value, sections: output.value.meta?.generationReceipt ? chartRecordSections.value : authoredRecordSections(), meta: chartMetadata() }
+  };
+}
 function markDirty(){if(hydrating || disposed || readOnly.value)return;pendingAuthorSignature=null;dirty.value=true;revision++;accurate.value=false;necessary.value=false;preflightSource.value='';invalidate({preserve:review.value?.phase==='pre_generation'});if(recoveryActorUserId && !canRetainClinicalRecovery(recoveryIdentity(),recoverySnapshot()))recoveryWarning.value='This draft cannot be kept for app-lock recovery because the memory buffer is full or the text is too large. Save it before leaving or locking the app.';else recoveryWarning.value='';clearTimeout(saveTimer);saveTimer=setTimeout(()=>{void save();},600);}
 const chartRecordSections=computed(()=>{
-  const {outputJson}=draftPayload();
-  const chart=outputJson.meta.structuredChart;
-  let record=intakeSectionsForRecord(outputJson.sections,{
+  const chart=chartMetadata().structuredChart;
+  let record=intakeSectionsForRecord(authoredRecordSections(),{
     mentalStatusExam:chart.mentalStatusExam,riskAssessment:chart.riskAssessment,skipMse:!mseRequired.value,
     ...(aidKind(encounterAid.value)==='intake' ? {diagnoses:chart.diagnoses,diagnosticJustification:chart.diagnosticJustification} : {})
   });
@@ -205,6 +228,7 @@ const chartRecordSections=computed(()=>{
   return record;
 });
 async function save(explicit=false){
+  if(signing.value && !explicit)return false;
   if(recoveryNeedsSave.value && explicit!==true){stashRecovery();return false;}
   if(serviceVerificationError.value){error.value=serviceVerificationError.value;stashRecovery();return false;}
   if(serviceChanged.value){error.value='Confirm the service-code change below before saving or generating.';stashRecovery();return false;}
@@ -252,7 +276,8 @@ async function load(){
   }catch(e){if(current===generation)error.value=e.response?.data?.error?.message || 'This note is unavailable for your account.';}finally{if(current===generation){hydrating=false;loading.value=false;}}
 }
 async function setDefault(value){preferenceSaving.value=true;preferenceError.value='';try{const {data}=await api.value.patch('/narriva/preferences',{agencyId:agencyId.value,defaultMode:value});defaultMode.value=data.defaultMode || data.preferences?.defaultMode || value;}catch{preferenceError.value='Your default could not be saved. The current note is preserved.';}finally{preferenceSaving.value=false;}}
-async function checks({phase=preGenerationRequired.value && !generatedCurrent.value?'pre_generation':'output'}={}){
+async function checks({phase=preGenerationRequired.value && !generatedCurrent.value?'pre_generation':'output',forSigning=false}={}){
+  if(signing.value && !forSigning)return;
   if(finalizedNarriva.value)phase='output';
  if(encounter.serviceCode==='H0031' && assessmentKind.value!==(assessmentContext.value?.automaticKind || 'initial') && !assessmentKindConfirmed.value){error.value='Confirm the selected assessment type before submitting.';return;}
   if(readOnly.value || preparingReview.value || reviewBusy.value || (phase==='pre_generation' ? !generationInput().trim() : !hasContent.value || !prepared.value))return;
@@ -359,7 +384,7 @@ async function sign(){
         reviewAnchor.value?.scrollIntoView?.({block:'start'});
         return;
       }
-      await checks({phase:'output'});
+      await checks({phase:'output',forSigning:true});
       if(current!==generation)return;
       if(!reviewComplete.value){
         error.value=reviewError.value || 'Review the findings below before signing.';
@@ -372,14 +397,7 @@ async function sign(){
     if(current!==generation || !accurate.value || !necessary.value)return;
     const signatureRevision=revision;
     const {outputJson}=draftPayload();
-    const intake=aidKind(encounterAid.value)==='intake';
-    const chart={...outputJson.meta.structuredChart,diagnoses:outputJson.meta.structuredChart.diagnoses.map(dx=>({...dx}))};
-    outputJson.meta.structuredChart=chart;
-    if(intake){
-      chart.intakeDiagnoses=chart.diagnoses.map(dx=>({...dx,icd10_code:dx.icd10_code || dx.code}));
-      const primary=chart.diagnoses.find(dx=>Number(dx.is_primary)===1) || chart.diagnoses[0];
-      if(primary?.justification)chart.diagnosticJustification=primary.justification;
-    }
+    const chart=outputJson.meta.structuredChart;
     const recordSections=chartRecordSections.value;
     let note=pendingAuthorSignature?.note;
     if(!note){
@@ -397,6 +415,10 @@ async function sign(){
       if(!note.id)throw new Error('Saved note was not confirmed');
       if(signatureRevision!==revision)return;
       pendingAuthorSignature={note,reviewId:null};
+    }
+    if(note.provider_signed_at){
+      finishAuthorSignature({signedAt:note.provider_signed_at,noteId:Number(note.id)},note,recordSections);
+      return;
     }
     const sameReview=pendingAuthorSignature.reviewId && review.value?.id===pendingAuthorSignature.reviewId;
     const result=mode.value==='manual' ? null : sameReview && ['passed','bypassed','action_required'].includes(review.value.status)
@@ -428,18 +450,26 @@ async function sign(){
     });
     if(current!==generation)return;
     if(!signed.data.signedAt)throw new Error('Signature was not confirmed');
-    notice.value='Note signed and saved to the chart.';
-    dirty.value=false;
-    pendingAuthorSignature=null;
-    discardClinicalRecovery(recoveryIdentity());
-    context.value={...context.value,note:{...note,readOnly:true}};
-    output.value.sections=recordSections;
-    narrative.value='';
-    completedSignature({...signed.data,noteId:Number(note.id)},'author');
+    finishAuthorSignature({...signed.data,noteId:Number(note.id)},note,recordSections);
   }catch(e){
     if(current===generation)error.value=e.response?.data?.error?.message || e.message || 'The note was preserved, but signing was not completed.';
   }finally{if(current===generation)signing.value=false;}
 }
+function finishAuthorSignature(result,note,recordSections) {
+  clearTimeout(saveTimer);
+  const signedDraftId=draftId.value;
+  notice.value='Note signed and saved to the chart.';
+  dirty.value=false;
+  pendingAuthorSignature=null;
+  discardClinicalRecovery(recoveryIdentity());
+  context.value={...context.value,note:{...note,readOnly:true}};
+  draftId.value=null;
+  output.value.sections=recordSections;
+  narrative.value='';
+  invalidate();
+  completedSignature({...result,draftId:signedDraftId},'author');
+}
+
 async function cosign(quick=false,openNext=false){
   if(signing.value || !canCosign.value || !cosignAttested.value || quick && (review.value?.status!=='passed' || review.value?.quickSignEligible!==true))return;
   const current=generation,source=context.value.review;signing.value=true;error.value='';

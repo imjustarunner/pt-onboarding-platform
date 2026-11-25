@@ -453,6 +453,26 @@ describe('author signing of a previously reviewed chart copy',()=>{
   expect((await readNarrivaReview(clinician,chart.id,2)).status).toBe('passed');
   expect(m.audit).toHaveBeenCalledWith(expect.anything(),expect.objectContaining({metadata:expect.objectContaining({originatingOutputReviewId:originalId,reviewId:chart.id})}));
  });
+ it('preserves the unchanged author review when signing creates the original chart revision',async()=>{
+  await reviewedDraft('clinical_90791_intake_plan','90791');
+  const chart=await createNarrivaReview(req(clinician));
+  const modelCalls=m.model.mock.calls.length;
+  source.source.provider_signed_at='2026-11-10';
+  source.source.clinical_version_number=1;
+  source.meta.attestation={finalCopyReviewed:true};
+  expect((await readNarrivaReview(clinician,chart.id,2)).status).toBe('passed');
+  expect(m.model).toHaveBeenCalledTimes(modelCalls);
+  source.clinical.riskRequiredFromPriorReview=true;
+  expect((await readNarrivaReview(clinician,chart.id,2)).status).toBe('stale');
+ });
+ it('does not reuse the author review after an amendment has been approved',async()=>{
+  await reviewedDraft('clinical_90791_intake_plan','90791');
+  const chart=await createNarrivaReview(req(clinician));
+  source.source.provider_signed_at='2026-11-10';
+  source.source.clinical_version_number=2;
+  source.meta.attestation={finalCopyReviewed:true};
+  expect((await readNarrivaReview(clinician,chart.id,2)).status).toBe('stale');
+ });
  it.each([true,false])('compares the original saved source for an older review, unchanged=%s',async unchanged=>{
   const id=await reviewedDraft('clinical_h0004_note','H0004');
   const row=rows.get(id);

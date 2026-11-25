@@ -26,6 +26,16 @@ it('requires frequency and duration evidence as well as a symptom minimum',()=>{
  expect(diagnosticCriteriaStatus(criteria).status).toBe('incomplete');criteria[1].duration='The assessed interval';expect(diagnosticCriteriaStatus(criteria).status).toBe('supported');
  criteria.push({id:'unknown',kind:'exclusion',status:'unconfirmed',minimum:null,thresholdSourceValid:false});expect(diagnosticCriteriaStatus(criteria).status).toBe('incomplete');
 });
+it('uses verified individual requirements and leaves conflicting minimums unconfirmed',()=>{
+ const criteria=[
+  {id:'a',group:'symptoms',kind:'symptom',status:'present',minimum:1,thresholdSourceValid:true},
+  {id:'b',group:'symptoms',kind:'symptom',status:'present',minimum:2,thresholdSourceValid:true},
+  {id:'impact',kind:'impairment',status:'present',sourceHash:'verified-reference'}
+ ];
+ expect(diagnosticCriteriaStatus(criteria)).toMatchObject({status:'incomplete',present:1,required:1});
+ criteria[1].minimum=1;
+ expect(diagnosticCriteriaStatus(criteria)).toMatchObject({status:'supported',present:2,required:2});
+});
 it('stores optional results encrypted in a separate internal table and never updates note or export content',async()=>{
  const result=await reviewNarrivaDiagnosticCriteria({user:{id:7},body:{agencyId:2,draftId:31,icd10Code:'F41.1'}});
  expect(result).toMatchObject({status:'reference_unavailable',internalOnly:true,id:81});const [sql,args]=m.clinical.mock.calls.find(([sql])=>sql.startsWith('INSERT'));expect(sql).toContain('INSERT INTO clinical_diagnostic_criteria_reviews');expect(args.at(-1)).toMatch(/^encrypted:/);expect(m.clinical.mock.calls.some(([query])=>/UPDATE clinical_notes|UPDATE clinical_note_drafts/.test(query))).toBe(false);expect(m.model.mock.calls[0][0].privacyContext).toEqual({synthetic:true});
