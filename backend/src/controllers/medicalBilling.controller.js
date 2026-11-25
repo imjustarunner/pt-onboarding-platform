@@ -106,6 +106,16 @@ import { loadReviewDocument, formatNoteEntriesForExport } from '../services/clin
 import { assertNarrivaRiskBeforeSignature } from '../services/narrivaRiskAssessment.service.js';
 import { assertNoPendingClinicalServiceChange } from '../utils/clinicalServiceChangePolicy.js';
 
+async function createIntakePlanTodo(note) {
+  try {
+    const { queueIntakeTreatmentPlan } = await import('../services/intakeTreatmentPlanWork.service.js');
+    return await queueIntakeTreatmentPlan(note);
+  } catch {
+    console.warn('[signClinicalNote] Initial treatment-plan task will be retried through My Work.');
+    return null;
+  }
+}
+
 async function completeNoteAidSigningWorkflow(note) {
   await recordSignedTermination(note);
   const meta = typeof note.metadata_json === 'string' ? JSON.parse(note.metadata_json) : note.metadata_json || {};
@@ -357,7 +367,11 @@ export async function proposeNarrivaChartDraft(req,res,next) {
     // Workspace revisions produce suggestions from an existing signed plan without editing it.
     await verifyNarrivaPlanEditor(req,agencyId,clientId,req.body.chartDraft===true?planId:null);
     const { suggestNarrivaPlanDraft }=await import('../services/narrivaPlanDraft.service.js');
+    const sourceId = parseIntValue(req.body.sourceIntakeNoteId);
+    const intakeEvidence = sourceId ? await (await import('../services/intakeTreatmentPlanWork.service.js'))
+      .intakeEvidenceForPlan({ noteId: sourceId, agencyId, clientId, userId: req.user.id }) : '';
     const proposal=await suggestNarrivaPlanDraft({
+      intakeEvidence,
       input:req.body.draft, includeOther:req.body.includeOther===true, completePlan:req.body.completePlan===true,
       revision: typeof req.body.revisionInstructions === 'string' ? req.body.revisionInstructions.slice(0,4000) : ''
     });
@@ -2033,9 +2047,10 @@ export const signClinicalNote = async (req, res, next) => {
       const retryMeta = typeof note.metadata_json === 'string' ? JSON.parse(note.metadata_json) : note.metadata_json;
       if (retryMeta?.source === H0002_SOURCE) await draftClaimAfterSignature(req, note);
       const terminationTodo = await completeNoteAidSigningWorkflow(note);
+      const intakePlanTodo = await createIntakePlanTodo(note);
       await reviewSubmittedNote(req,note);
       const achievementTasks = await queueSignedObjectiveAchievements(note);
-      return res.json({ ok: true, noteId, signedAt: note.provider_signed_at, terminationTodo, achievementTasks });
+      return res.json({ ok: true, noteId, signedAt: note.provider_signed_at, terminationTodo, intakePlanTodo, achievementTasks });
     }
     const sourceMeta=parseObject(note.metadata_json);
     const sessionMeta = parseObject(lockedSession?.metadata_json);
@@ -2273,10 +2288,11 @@ export const signClinicalNote = async (req, res, next) => {
     }
     await completeH0002Screening({ ...note, metadata_json: meta }, signedAtIso);
     const terminationTodo = await completeNoteAidSigningWorkflow({ ...note, provider_signed_at: signedAtIso, metadata_json: meta });
+    const intakePlanTodo = await createIntakePlanTodo(persisted);
     if (!nonBillable) await draftClaimAfterSignature(req, note);
     try { const {onSignedNoteCopay}=await import('../services/familyLedger/copayAttendance.js'); await onSignedNoteCopay({agencyId:note.agency_id,noteId:note.id,providerUserId:req.user.id}); } catch { console.warn('[signClinicalNote] Copay attendance needs billing review'); }
     await reviewSubmittedNote(req,persisted);
-    return res.json({ ok: true, noteId, contentHash: hash, signedAt: persisted.provider_signed_at, providerSignature:{actorUserId:req.user.id,signerLabel:signerLabel || `Account ${req.user.id}`,signedAt:persisted.provider_signed_at,revisionId:originalRevision.id,contentHash:originalRevision.content_hash,evidence:{ipAddressRecorded:!!meta.attestation.ipAddress,userAgentRecorded:!!meta.attestation.userAgent}}, revisionId: originalRevision.id, revisionContentHash: originalRevision.content_hash, queueSynchronizationPending: !queueSynchronized, terminationTodo, achievementTasks });
+    return res.json({ ok: true, noteId, contentHash: hash, signedAt: persisted.provider_signed_at, providerSignature:{actorUserId:req.user.id,signerLabel:signerLabel || `Account ${req.user.id}`,signedAt:persisted.provider_signed_at,revisionId:originalRevision.id,contentHash:originalRevision.content_hash,evidence:{ipAddressRecorded:!!meta.attestation.ipAddress,userAgentRecorded:!!meta.attestation.userAgent}}, revisionId: originalRevision.id, revisionContentHash: originalRevision.content_hash, queueSynchronizationPending: !queueSynchronized, terminationTodo, intakePlanTodo, achievementTasks });
   } catch (e) {
     if (signingDb) { await signingDb.rollback(); signingDb.release(); signingDb=null; }
     next(e);

@@ -195,8 +195,25 @@
           <span v-if="approvalError" class="na-delete-err">{{ approvalError }}</span>
         </div>
 
-        <TherapyNotesQuickGenerator v-if="therapyNotesWriterOnly && !hasActualSessionContext && !signedNoteViewerId" :agency="{ id: Number(noteAidAgencyId || currentAgencyId), name: agencyLookup[noteAidAgencyId || currentAgencyId] }" />
+        <section v-if="intakePlanWork" class="na-session-picker">
+          <div class="na-aid-picker-head">
+            <button type="button" class="na-aid-picker-back" @click="closeNoteWorkspace">← My Work</button>
+            <strong>Initial treatment plan</strong>
+          </div>
+          <p>{{ intakePlanWork.clientName }} · Intake date {{ intakePlanWork.date }}</p>
+          <p v-if="loadingIntakePlan" role="status">Loading the signed intake…</p>
+          <p v-if="approvalError" class="na-delete-err" role="alert">{{ approvalError }}</p>
+          <template v-if="intakePlanWork.treatmentPlanPrepared && intakePlanWork.treatmentPlanId">
+            <button v-if="clientProfileHref" type="button" class="na-btn-outline" @click="returnToTreatmentPlanChart">Review saved plan in chart</button>
+            <TreatmentPlanApprovalPanel :agency-id="intakePlanWork.agencyId" :client-id="intakePlanWork.clientId"
+              :plan-id="intakePlanWork.treatmentPlanId" @updated="onIntakePlanSigned" />
+          </template>
+          <button v-else type="button" class="na-btn-primary" :disabled="loadingIntakePlan" @click="openIntakePlanWork(intakePlanWork)">Open treatment plan</button>
+          <span v-if="approvalMessage" role="status">{{ approvalMessage }}</span>
+        </section>
+
         <template v-else-if="showStartPage">
+        <p v-if="approvalError" class="na-delete-err" role="alert">{{ approvalError }}</p>
         <NoteAidStartPage
           :heading="demoPresentation?.heading || ''"
           :description="demoPresentation?.description || ''"
@@ -219,7 +236,11 @@
             <button type="button" class="na-aid-picker-back" @click="cancelActualSessionPicker">← Back</button>
             <strong>Start a note from an actual session</strong>
           </div>
-          <p class="na-field-hint">Choose the session from the client’s to-do list. Its client, date, and service stay attached to the note.</p>
+          <p class="na-field-hint">Choose the correct appointment to start documenting.</p>
+          <div v-if="unlinkedWorkItem" class="na-workspace-actions">
+            <span>This task has no appointment or claim.</span>
+            <button type="button" class="na-btn-outline" :disabled="removingWorkItem" @click="onWorkQueueDeleteDraft(unlinkedWorkItem)">Remove from My Work</button>
+          </div>
           <p v-if="approvalError" class="na-delete-err" role="alert">{{ approvalError }}</p>
           <NoteAidDocumentationQueue
             :agency-id="noteAidAgencyId || currentAgencyId"
@@ -1371,7 +1392,7 @@
                     : (isTreatmentSummaryAid ? 'Save document' : 'Sign')) }}
               </button>
               <button
-                v-if="nextInQueueItem"
+                v-if="nextInQueueItem || canOfferInitialPlan"
                 type="button"
                 class="na-btn-outline"
                 :disabled="!displayPanels.length || approvingNote || !canConfirmAndSign || !bothAttestationsChecked"
@@ -1397,7 +1418,7 @@
                       : 'Sign and open next in progress')) }}
               </button>
               <button
-                v-if="hasSameClientNext"
+                v-if="hasSameClientNext || canOfferInitialPlan"
                 type="button"
                 class="na-btn-outline"
                 :disabled="!displayPanels.length || approvingNote || !canConfirmAndSign || !bothAttestationsChecked"
@@ -1535,8 +1556,9 @@
     <NoteAidTreatmentPlanImportReview
       v-if="effectiveClientId && chartAgencyIdForSave"
       :open="showPlanImportReview"
-      :agency-id="chartAgencyIdForSave"
+      :agency-id="intakePlanWork?.agencyId || chartAgencyIdForSave"
       :client-id="effectiveClientId"
+      :source-intake-note-id="intakePlanWork?.sourceIntakeNoteId || null"
       :initial-text="pastedPlanText"
       :plan-id="planDraftEditorId"
       :mode="planImportReviewMode"
@@ -1639,7 +1661,6 @@ import NarrivaCompliancePanel from '../../components/clinical/NarrivaComplianceP
 import NarrivaInlineFinding from '../../components/clinical/NarrivaInlineFinding.vue';
 import TreatmentPlanApprovalPanel from '../../components/clinical/TreatmentPlanApprovalPanel.vue';
 import { mergeSessionDiagnosis, sessionDiagnosisEntryMode, canSelectSessionDiagnosis } from '../../utils/narrivaClinicalContext.js';
-import TherapyNotesQuickGenerator from '../../components/clinical/TherapyNotesQuickGenerator.vue';
 import { evaluateTreatmentPlanForEncounter } from '../../utils/treatmentPlanEncounterEligibility.js';
 import { resolveNarrivaToolForService } from '../../utils/narrivaGeneratorMappings.js';
 import { normalizeHistoricalMse } from '../../utils/noteAidMseHistory.js';
@@ -1675,6 +1696,7 @@ import {
   fetchWorkQueueFromApi,
   syncWorkQueueToApi,
   appendWorkQueueToApi,
+  removeWorkQueueItemFromApi,
   clearWorkQueueOnApi,
   matchTodoClientFromSearchRows,
   namesLikelySamePerson,
@@ -1693,6 +1715,7 @@ import {
   normalizeDocStatus,
   sessionDedupeKey,
   workQueueSessionKey as queueItemSessionKey,
+  isUnlinkedWorkQueueItem,
   sortWorkQueueItems
 } from '../../utils/noteAidDocumentationStatus.js';
 import { hasAuthoredDraftPayload, hasAuthoredStructuredChart } from '../../utils/noteDraftContent.js';
@@ -2216,6 +2239,11 @@ async function onStandalonePlanApplied() {
   await loadRecent();
 }
 const workQueueItems = useNoteAidWorkQueue(() => authStore.user?.id);
+const intakePlanWork = computed(() => workQueueItems.value.find(item => item.sourceIntakeNoteId && item.id === activeWorkQueueItemId.value) || null);
+const unlinkedWorkItem = ref(null);
+const removingWorkItem = ref(false);
+const loadingIntakePlan = ref(false);
+let intakePlanLoadSequence = 0;
 const highlightedWorkNote = ref(null);
 const workQueueLoading = ref(false);
 const workQueueLoadError = ref('');
@@ -4455,7 +4483,10 @@ function cancelAidPicker() {
 }
 
 async function closeNoteWorkspace() {
+  const closingIntakePlan = !!intakePlanWork.value;
   showActualSessionPicker.value = false;
+  unlinkedWorkItem.value = null;
+  showPlanImportReview.value = false;
   closeSupervisorReview();
   if (draftId.value && !chartNoteReadOnly.value) {
     try { await autosave(); } catch { /* ignore */ }
@@ -4488,8 +4519,14 @@ async function closeNoteWorkspace() {
   selectedClientId.value = null;
   selectedClient.value = null;
   resetClientClinicalContext();
-  await clearDraftFromRouteQuery();
-  syncRouteNoteClient(null);
+  if (closingIntakePlan) {
+    const query = { ...route.query };
+    for (const key of ['workQueueId', 'clientId', 'dateOfService', 'launchIntent']) delete query[key];
+    await router.replace({ query }).catch(() => {});
+  } else {
+    await clearDraftFromRouteQuery();
+    syncRouteNoteClient(null);
+  }
 }
 
 const libraryUserId = computed(() => authStore.user?.id || null);
@@ -5217,6 +5254,8 @@ const nextSameClientInQueueItem = computed(() => {
       && Number(i.clientId || 0) === cid
   ) || null;
 });
+
+const canOfferInitialPlan = computed(() => isIntakeOutput.value && assessmentKind.value !== 'additional' && !planOnFile.value);
 
 const hasSameClientNext = computed(
   () => !!(nextSameClientInProgressRow.value || nextSameClientInQueueItem.value)
@@ -7147,6 +7186,7 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
       await api.post(`/medical-billing/notes/${noteId}/review`,{agencyId:Number(noteAidAgencyId.value||currentAgencyId.value),contentReviewConfirmed:true,contentHash:hash},{skipGlobalLoading:true});
     }
     let terminationTodo = null;
+    let intakePlanTodo = null;
     let providerSignatureAt = null;
     const openTerminationAfterSign = ['now', 'after_progress'].includes(terminationNextStep.value);
     if (shouldAutosign && createdNote?.provider_signed_at) {
@@ -7180,6 +7220,7 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
         providerSignatureAt = signRes.data.signedAt;
         pendingChartSignature=null;
         terminationTodo = signRes?.data?.terminationTodo || null;
+        intakePlanTodo = signRes?.data?.intakePlanTodo || null;
         if (terminationTodo) {
           workQueueItems.value = [...workQueueItems.value.filter((row) => row.id !== terminationTodo.id), normalizeWorkQueueItemStatus(terminationTodo)];
           saveWorkQueue(authStore.user?.id, workQueueItems.value);
@@ -7217,7 +7258,10 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
       : (isTreatmentSummaryAid.value
         ? 'Treatment Summary saved. Download/print PDF, then complete provider and clinical supervisor signatures.'
         : `Signed as medically necessary and saved to clinical records.${claimDraftMsg}`);
-    const nextQueue = nextInQueueItem.value;
+    if (intakePlanTodo) {
+      workQueueItems.value = [...workQueueItems.value.filter(row => row.id !== intakePlanTodo.id), normalizeWorkQueueItemStatus(intakePlanTodo)];
+    }
+    const nextQueue = intakePlanTodo || nextInQueueItem.value;
     const nextProgress = nextInProgressRow.value;
     const nextSameClientProgress = nextSameClientInProgressRow.value;
     const nextSameClientQueue = nextSameClientInQueueItem.value;
@@ -7243,6 +7287,10 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
     }
     if (terminationTodo) approvalMessage.value = 'Progress note signed. A termination note to-do has been added.';
 
+    if (mode === 'same_client' && intakePlanTodo) {
+      await activateWorkQueueItem(intakePlanTodo);
+      return;
+    }
     if (mode === 'same_client' && (nextSameClientProgress || nextSameClientQueue)) {
       approvalMessage.value = signedMsg;
       if (nextSameClientProgress) {
@@ -8032,7 +8080,13 @@ watch(selectedClientId, () => {
 
 watch([selectedClientId,dateOfService,sessionClinicalSessionId,sessionOfficeEventId,noteAidAgencyId],(next,previous)=>{ if((Number(next[0]) || Number(previous?.[0])) && canUseTool.value && currentAgencyId.value)refreshPayerServiceChoices(); });
 
-const onPlanImportSaved = async (plan) => {
+const onPlanImportSaved = async (plan, { finalized = false } = {}) => {
+  if (intakePlanWork.value && plan?.id) {
+    patchActiveWorkQueueStatus(DOC_STATUS.STARTED, { treatmentPlanId: plan.id, treatmentPlanPrepared: finalized });
+    showPlanImportReview.value = false;
+    approvalMessage.value = finalized ? 'Treatment plan ready for provider signature.' : 'Treatment plan draft saved.';
+    return;
+  }
   // Saving creates a new retained plan version. Reopening the original planId
   // from the launch URL showed the old text even though the save succeeded.
   const planLaunch = String(route.query?.noteAid || route.query?.note_aid || '') === 'psychotherapy_plan'
@@ -8241,6 +8295,7 @@ function resolveSignedClinicalNoteId(itemOrRow = {}) {
     || 0
   );
   if (direct) return direct;
+  if (itemOrRow.serverId && isUnlinkedWorkQueueItem(itemOrRow)) return null;
   const rowId = String(itemOrRow.id || '');
   const signedRowMatch = rowId.match(/^signed_(\d+)$/);
   if (signedRowMatch) return Number(signedRowMatch[1]);
@@ -8317,6 +8372,7 @@ function applySignedSessionsToQueue(signedSessions = []) {
   }
   if (sessionByKey.size || sessionByDraftId.size) {
     workQueueItems.value = (workQueueItems.value || []).map((item) => {
+      if (item.sourceIntakeNoteId || isUnlinkedWorkQueueItem(item)) return item;
       const k = queueItemSessionKey(item);
       const byKey = k && sessionByKey.get(k);
       const byDraft = item.draftId && sessionByDraftId.get(Number(item.draftId));
@@ -8343,24 +8399,23 @@ async function onWorkQueueDeleteDraft(item) {
   if (status === DOC_STATUS.SIGNED) return;
 
   // Not-started shell: remove entirely (wrong tenant / mistaken import).
-  if (status === DOC_STATUS.NOT_STARTED && !item.draftId) {
-    if (!window.confirm('Remove this ToDo from the work queue?')) return;
-    workQueueItems.value = (workQueueItems.value || []).filter(
-      (row) => String(row.id) !== String(item.id)
-    );
-    if (String(activeWorkQueueItemId.value) === String(item.id)) {
-      activeWorkQueueItemId.value = null;
+  if (status === DOC_STATUS.NOT_STARTED && isUnlinkedWorkQueueItem(item)) {
+    if (removingWorkItem.value || !window.confirm('Remove this ToDo from the work queue?')) return;
+    removingWorkItem.value = true;
+    approvalError.value = '';
+    try {
+      const key = String(item.clientKey || item.id);
+      ++workQueueSyncSeq;
+      await removeWorkQueueItemFromApi(authStore.user?.id, item);
+      ++workQueueSyncSeq;
+      workQueueItems.value = workQueueItems.value.filter(row => String(row.clientKey || row.id) !== key);
+      if (activeWorkQueueItemId.value === item.id || unlinkedWorkItem.value?.id === item.id) await closeNoteWorkspace();
+      approvalMessage.value = 'Removed from My Work.';
+    } catch (error) {
+      approvalError.value = error.response?.data?.error?.message || 'The task could not be removed. Try again.';
+    } finally {
+      removingWorkItem.value = false;
     }
-    const serverId = Number(item.serverId || 0);
-    if (serverId > 0) {
-      await api.delete(`/clinical-notes/work-queue/${serverId}`, { skipGlobalLoading: true }).catch(() => null);
-    }
-    if (!(workQueueItems.value || []).length) {
-      await clearWorkQueueOnApi(authStore.user?.id).catch(() => {});
-    } else {
-      persistWorkQueue();
-    }
-    approvalMessage.value = 'ToDo removed from the work queue.';
     return;
   }
 
@@ -8720,6 +8775,7 @@ async function activateWorkQueueItem(item) {
   if (!item) return;
   if (item.draftOnly && item.rawDraft) { await loadDraftIntoWorkspace(item.rawDraft); return; }
   showActualSessionPicker.value = false;
+  unlinkedWorkItem.value = null;
   const incomingStatus = deriveWorkQueueDocStatus(item);
   const isFinished = incomingStatus === DOC_STATUS.SIGNED || incomingStatus === DOC_STATUS.COMPLETED;
   const isNewProgress = !item.draftId && !isFinished && !resolveSignedClinicalNoteId(item) && !props.demoPresentation
@@ -8730,6 +8786,7 @@ async function activateWorkQueueItem(item) {
     selectedQueueAgencyId.value = Number(item.agencyId || 0) || null;
     selectedClientId.value = Number(item.clientId || 0) || null;
     showActualSessionPicker.value = true;
+    if (isUnlinkedWorkQueueItem(item)) unlinkedWorkItem.value = item;
     approvalMessage.value = 'Choose the actual session from the client’s to-do list before starting this progress note.';
     return;
   }
@@ -8916,6 +8973,14 @@ async function activateWorkQueueItem(item) {
     }
   }
 
+  if (item.sourceIntakeNoteId) {
+    await router.replace({ query: { ...route.query, workQueueId: item.id } });
+    if (seq !== workQueueActivateSeq) return;
+    selectedAidId.value = '';
+    if (!item.treatmentPlanPrepared) await openIntakePlanWork(item);
+    return;
+  }
+
   if (item.noteKind === 'intake') {
     const hit = findNoteAidByToolOrCode({ serviceCode: item.serviceCode || '90791' });
     if (hit) {
@@ -9078,6 +9143,51 @@ async function activateWorkQueueItem(item) {
     void openRequiredRenewal();
     void scrollNoteMainToTop();
   }
+}
+
+async function openIntakePlanWork(item) {
+  if (!item?.sourceIntakeNoteId) return;
+  const request = ++intakePlanLoadSequence;
+  loadingIntakePlan.value = true;
+  approvalError.value = '';
+  try {
+    const { data } = await api.get(`/medical-billing/notes/${item.sourceIntakeNoteId}`, {
+      params: { agencyId: item.agencyId }, skipGlobalLoading: true
+    });
+    if (request !== intakePlanLoadSequence || activeWorkQueueItemId.value !== item.id) return;
+    const note = data?.note;
+    if (!note?.providerSignedAt || Number(note.clientId) !== Number(item.clientId) || Number(note.agencyId) !== Number(item.agencyId)) {
+      throw new Error('The signed intake is unavailable for this treatment plan.');
+    }
+    const chart = note.structuredChart || note.metadata?.structuredChart || {};
+    const sections = extractSections(note.outputJson);
+    const diagnoses = (Array.isArray(chart.diagnoses) && chart.diagnoses.length ? chart.diagnoses : intakeDiagnoses(sections)).map(diagnosis => ({
+      ...diagnosis, icd10_code: diagnosis.icd10_code || diagnosis.code || diagnosis.icd10Code,
+      is_primary: diagnosis.is_primary ?? diagnosis.isPrimary
+    }));
+    const seed = generatedTreatmentPlan(sections, {
+      effectiveDate: toWorkQueueDateOnly(note.dateOfService || item.date),
+      diagnoses, diagnosticJustification: chart.diagnosticJustification || diagnoses.find(dx => dx.is_primary)?.justification || ''
+    });
+    planDraftInitialPlan.value = item.treatmentPlanId ? null : { ...seed, title: 'Initial treatment plan', sourceToolId: 'note_aid_intake_generated' };
+    planDraftEditorId.value = item.treatmentPlanId || null;
+    planDraftEditorMode.value = item.treatmentPlanId ? 'draft' : 'generated';
+    planUpdaterRenewalReason.value = '';
+    planUpdaterProgressExcerpt.value = '';
+    pastedPlanText.value = '';
+    showPlanImportReview.value = true;
+  } catch (error) {
+    if (request === intakePlanLoadSequence && activeWorkQueueItemId.value === item.id) approvalError.value = error.response?.data?.error?.message || error.message || 'The signed intake could not be loaded.';
+  } finally {
+    if (request === intakePlanLoadSequence) loadingIntakePlan.value = false;
+  }
+}
+
+async function onIntakePlanSigned(approval) {
+  if (!approval?.providerApproved || !intakePlanWork.value) return;
+  markActiveWorkQueueItemCompleted();
+  await closeNoteWorkspace();
+  approvalMessage.value = 'Treatment plan signed. Supervisor review is next.';
 }
 
 async function ensureWorkQueueDraft(item) {

@@ -20,6 +20,8 @@ export async function signPlanProviderReview(req, res, next) {
     const plan = await scopedPlan(req);
     await attestTreatmentPlanProvider({ user: req.user, plan, contentHash: req.body.contentHash, reviewedAndAccurate: req.body.reviewedAndAccurate });
     await logNoteAidChartEvent(req, { agencyId: plan.agency_id, clientId: plan.client_id, action: 'clinical_treatment_plan_provider_signed', metadata: { planId: plan.id, contentHash: req.body.contentHash } });
+    try { await (await import('../services/intakeTreatmentPlanWork.service.js')).completeIntakePlanWork(plan); }
+    catch { console.warn('[treatment-plan] Provider signature recorded. My Work could not be updated.'); }
     res.json({ approval: await getTreatmentPlanApproval(plan) });
   } catch (error) { next(error); }
 }

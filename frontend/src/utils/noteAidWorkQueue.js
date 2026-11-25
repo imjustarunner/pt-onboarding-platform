@@ -236,6 +236,23 @@ export async function appendWorkQueueToApi(userId, items) {
   return { saved, merged };
 }
 
+export async function removeWorkQueueItemFromApi(userId, item) {
+  const key = String(item.clientKey || item.id);
+  return writeWorkQueue(userId, async () => {
+    const cached = loadWorkQueue(userId).find(row => String(row.clientKey || row.id) === key);
+    let serverId = Number(cached?.serverId || item.serverId);
+    if (!serverId) {
+      const { data } = await api.get('/clinical-notes/work-queue', { skipGlobalLoading: true });
+      const remote = normalizeApiItems(data?.items).find(row => String(row.clientKey || row.id) === key);
+      serverId = Number(remote?.serverId);
+    }
+    if (serverId) await api.delete(`/clinical-notes/work-queue/${serverId}`, { skipGlobalLoading: true });
+    const remaining = loadWorkQueue(userId).filter(row => String(row.clientKey || row.id) !== key);
+    saveWorkQueue(userId, remaining);
+    return remaining;
+  });
+}
+
 export async function clearWorkQueueOnApi(userId) {
   clearAllWorkQueues(userId);
   await writeWorkQueue(userId, () => api.delete('/clinical-notes/work-queue', { skipGlobalLoading: true }));

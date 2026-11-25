@@ -429,6 +429,7 @@ const props = defineProps({
   planId: { type: [Number, String], default: null },
   mode: { type: String, default: 'import' },
   initialPlan: { type: Object, default: null },
+  sourceIntakeNoteId: { type: Number, default: null },
   renewalReason: { type: String, default: '' },
   progressExcerpt: { type: String, default: '' }
 });
@@ -470,7 +471,7 @@ const finalizationAlert = ref(null);
 const scoreEntered = value => Number.isInteger(Number(value)) && Number(value) >= 1 && Number(value) <= 10;
 const objectiveNeedsNarrivaRewrite = objective => !objective.skipScale &&
   !(scoreEntered(objective.scaleTarget) && String(objective.kioskPrompt || '').trim());
-const planAuthoring = computed(() => props.embedded || usesChartDraft.value || isUpdaterMode.value);
+const planAuthoring = computed(() => props.embedded || usesChartDraft.value || isUpdaterMode.value || !!props.sourceIntakeNoteId);
 const hasProposedObjectiveChanges = computed(() => model.value?.goals.some(goal => goal.objectives.some(o =>
   o.renewalRecommendation && (o.suggestedObjective || o.suggestedInterventions.length))));
 let editScope = 0;
@@ -649,11 +650,12 @@ function applyPlanRecord(plan) {
   const sourceParsed = plan.recordsImportSource?.parsed || {};
   const sourceDiagnoses = plan.diagnoses?.length ? plan.diagnoses : sourceParsed.diagnoses || [];
   loadedPlanId.value = plan.id || null;
-  usesChartDraft.value = !isUpdaterMode.value && (props.embedded || !!(plan.status === 'draft' && plan.chartDraft && !plan.providerApproved));
+  usesChartDraft.value = !isUpdaterMode.value && (props.embedded || !!(plan.status === 'draft' && (plan.chartDraft || props.sourceIntakeNoteId) && !plan.providerApproved));
   importedDraftId.value = plan.status === 'draft' && (String(plan.source_tool_id || '').startsWith('client_records_import:') || plan.source_tool_id === 'client_creation_record_import') ? plan.id : null;
   const dxFromLinks = (plan.planDiagnoses || plan.plan_diagnoses || []).map((d, i) => ({
     icd10Code: d.icd10_code || d.icd10Code || '',
     description: d.description || '',
+    justification: d.justification || '',
     isPrimary: Number(d.is_primary) === 1 || i === 0
   }));
   const discharge = String(plan.discharge_plan || plan.dischargePlan || '');
@@ -676,6 +678,7 @@ function applyPlanRecord(plan) {
         ? sourceDiagnoses.map((d, i) => ({
           icd10Code: d.icd10Code || d.icd10_code || '',
           description: d.description || '',
+          justification: d.justification || '',
           isPrimary: !!(d.isPrimary ?? d.is_primary) || i === 0
         }))
         : [{ icd10Code: '', description: '', isPrimary: true }]),
@@ -832,7 +835,7 @@ async function runNarrivaPlan(gi, oi, revisionInstructions = '') {
   try {
     const {data}=await api.post('/medical-billing/treatment-plans/narriva-suggestions',{
       agencyId:Number(props.agencyId),clientId:Number(props.clientId),planId:loadedPlanId.value,chartDraft:usesChartDraft.value,
-      draft:payload, includeOther, completePlan:!single, revisionInstructions
+      sourceIntakeNoteId: props.sourceIntakeNoteId || undefined, draft:payload, includeOther, completePlan:!single, revisionInstructions
     },{skipGlobalLoading:true,timeout:90000});
     if (run!==editScope || model.value!==working || (single && working.goals[gi]?.objectives[oi]!==selected)) return;
     if (JSON.stringify(draftPayload(selectedGoals))!==snapshot || includeOtherQuestions.value!==includeOther) throw new Error('The draft changed while Narriva was working. Request suggestions again for the updated text.');
@@ -1115,6 +1118,9 @@ watch(
     attestAiReviewed.value = false;
     if (isUpdaterMode.value || isDraftEditor.value) {
       void loadPlan().then(() => {
+        if (props.sourceIntakeNoteId && !props.planId && !props.initialPlan?.goals?.some(goal => goal.goalText?.trim())) {
+          void runNarrivaPlan();
+        }
         if (isUpdaterMode.value && (props.progressExcerpt || props.renewalReason || pasteText.value.trim())) {
           // Auto-propose when updater opens with context; provider still reviews.
           void runUpdaterPropose();
@@ -1212,9 +1218,9 @@ async function save({ finalize = true } = {}) {
       diagnosticJustification: String(model.value.diagnosticJustification || '').trim() || null,
       diagnoses: (model.value.diagnoses || []).map((d, i) => ({
         ...d,
-        justification: i === 0 || d.isPrimary
-          ? String(model.value.diagnosticJustification || '').trim()
-          : ''
+        justification: d.isPrimary || !(model.value.diagnoses || []).some(row => row.isPrimary) && i === 0
+          ? String(model.value.diagnosticJustification || d.justification || '').trim()
+          : String(d.justification || '').trim()
       })),
       goals: model.value.goals.map((g, i) => ({
         goalIndex: i + 1,
@@ -1236,7 +1242,7 @@ async function save({ finalize = true } = {}) {
         }))
       }))
     });
-    emit('saved', res?.data?.plan || null);
+    emit('saved', res?.data?.plan || null, { finalized: !!finalize });
   } catch (e) {
     const code = e.response?.data?.error?.code;
     if (code === 'intake_not_finalized') {

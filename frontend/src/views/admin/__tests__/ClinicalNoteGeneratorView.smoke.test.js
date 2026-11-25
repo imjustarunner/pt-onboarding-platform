@@ -103,6 +103,43 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     finally { wrapper.unmount(); }
   });
 
+  it('opens the initial plan from My Work with the signed intake date, diagnoses and plan goals', async () => {
+    const {wrapper,state}=await workspace('');
+    const task = {id:'intake_plan_7_22',serverId:120,agencyId:7,clientId:22,clientName:'Synthetic Client',
+      sourceIntakeNoteId:171,noteKind:'treatment_plan',date:'2026-09-12',status:'not_started'};
+    state.workQueueItems=[task];
+    vi.mocked(api.get).mockImplementation(async url => ({data: url==='/medical-billing/notes/171' ? {note:{
+      clientId:22,agencyId:7,providerSignedAt:'2026-11-25',dateOfService:'2026-09-12',
+      outputJson:{sections:{'Presenting Problem':'Synthetic concern','Goal 1':'Build a study routine','Objective 1.1':'Use a checklist weekly'}},
+      structuredChart:{ diagnoses:[{icd10_code:'Z55.3',description:'Synthetic school concern',is_primary:1,justification:'Documented impacts'}] }
+    }} : {}}));
+    try {
+      await state.activateWorkQueueItem(task);
+      await flushPromises();
+      expect(state.showPlanImportReview).toBe(true);
+      expect(state.planDraftInitialPlan).toMatchObject({effectiveDate:'2026-09-12',presentingProblem:'Synthetic concern',
+        diagnoses:[{icd10Code:'Z55.3',justification:'Documented impacts'}],goals:[{goalText:'Build a study routine'}]});
+      expect(vi.mocked(api.post).mock.calls.some(([url])=>url==='/clinical-notes/drafts')).toBe(false);
+    } finally {wrapper.unmount();}
+  });
+
+  it('offers removal in the appointment picker for an unlinked not-started task', async () => {
+    const {wrapper,state}=await workspace('');
+    const item={id:'unlinked_task_23',serverId:23,status:'not_started',agencyId:7,clientId:22,clientName:'Synthetic Client'};
+    state.workQueueItems=[item];
+    const confirm=vi.spyOn(window,'confirm').mockReturnValue(true);
+    vi.mocked(api.delete).mockClear();
+    try {
+      await state.activateWorkQueueItem(item);
+      await nextTick();
+      expect(wrapper.text()).toContain('This task has no appointment or claim.');
+      await state.onWorkQueueDeleteDraft(item);
+      expect(api.delete).toHaveBeenCalledWith('/clinical-notes/work-queue/23',expect.anything());
+      expect(api.delete).not.toHaveBeenCalledWith('/clinical-notes/work-queue',expect.anything());
+      expect(state.workQueueItems).toEqual([]);
+    } finally {confirm.mockRestore();wrapper.unmount();}
+  });
+
   it('reopens the saved plan version after a draft save instead of following the old launch ID', async () => {
     const {wrapper,state,router}=await workspace();
     await router.replace({path:'/note-aid',query:{noteAid:'psychotherapy_plan',planId:'54',clientId:'22',agencyId:'7'}});

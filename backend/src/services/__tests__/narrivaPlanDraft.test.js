@@ -1,4 +1,5 @@
 import {expect,it,vi} from 'vitest';
+import { queueIntakeTreatmentPlan, intakePlanSource } from '../intakeTreatmentPlanWork.service.js';
 import {normalizeNarrivaPlanDraft,suggestNarrivaPlanDraft} from '../narrivaPlanDraft.service.js';
 
 const objective=(text, fields={})=>({
@@ -45,4 +46,29 @@ it('completes a third goal even when the writer omits that goal, without supplyi
   expect(generate.mock.calls[0][0].prompt).not.toContain('Add Goal 3 for');
   draft.goals[0].objectives[0].scaleCurrent=null;
   expect(()=>normalizeNarrivaPlanDraft(draft,{finalize:true})).toThrow(/baseline from 1 to 10 for objective 1\.1/i);
+});
+
+it('queues an initial treatment plan from the signed encounter date and deduplicates retries', async () => {
+  const intake = { id: 47, agency_id: 2, client_id: 29, created_by_user_id: 8, provider_signed_by_user_id: 8,
+    provider_signed_at: '2026-11-25', metadata_json: JSON.stringify({ serviceCode: '90791', dateOfService: '2026-09-12', narrivaContext: { assessmentKind: 'initial' } }) };
+  const queue = { findByClientKeyForUser: vi.fn(async () => null), createIfMissingForUser: vi.fn(async (_user, item) => item) };
+  const db = { execute: vi.fn(async () => [[{ full_name: 'Synthetic Client' }]]) };
+  const clinical = { execute: vi.fn(async () => [[]]) };
+  const deps = { db, clinical, queue, checkArchive: async entries => entries };
+  const task = await queueIntakeTreatmentPlan(intake, deps);
+  expect(task).toMatchObject({id:'intake_plan_2_29',date:'2026-09-12',status:'not_started',noteKind:'treatment_plan',sourceIntakeNoteId:47});
+  expect(task).not.toHaveProperty('clinicalSessionId');
+  queue.findByClientKeyForUser.mockResolvedValue(task);
+  expect(await queueIntakeTreatmentPlan(intake, deps)).toEqual(task);
+  expect(queue.createIfMissingForUser).toHaveBeenCalledTimes(1);
+  expect(intakePlanSource({...intake, provider_signed_at:null})).toBeNull();
+  expect(intakePlanSource({...intake, metadata_json:{serviceCode:'H0031',dateOfService:'2026-09-12',narrivaContext:{assessmentKind:'additional'}}})).toBeNull();
+});
+
+it('sends only predefined themes from signed intake evidence to the treatment-plan writer', async () => {
+  const generate = vi.fn(async () => ({text:JSON.stringify({objectives:[{ref:'1.1',objectiveText:'Practice a mood tracking routine.'}]})}));
+  await suggestNarrivaPlanDraft({input:plan(), intakeEvidence:'Synthetic Name reported sadness and sleep problems during a screening.', generate});
+  const prompt = generate.mock.calls[0][0].prompt;
+  expect(prompt).toContain('"intakeThemes":["mood","sleep"]');
+  expect(prompt).not.toContain('Synthetic Name');
 });

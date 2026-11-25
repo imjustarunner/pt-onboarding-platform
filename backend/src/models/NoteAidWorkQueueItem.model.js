@@ -108,6 +108,9 @@ export function toApiItem(row) {
     clinicalSessionId: row.clinical_session_id != null ? Number(row.clinical_session_id) : null,
     taskId: row.task_id != null ? Number(row.task_id) : null,
     draftId: !missingDraft && row.draft_id != null ? Number(row.draft_id) : null,
+    sourceIntakeNoteId: safeInt(payload.sourceIntakeNoteId),
+    treatmentPlanId: safeInt(payload.treatmentPlanId),
+    treatmentPlanPrepared: payload.treatmentPlanPrepared === true,
     clinicalNoteId: row.clinical_note_id != null ? Number(row.clinical_note_id) : null,
     date: toDateOnly(row.date_of_service),
     serviceCode: row.service_code || null,
@@ -137,6 +140,9 @@ export function toApiItem(row) {
 
 function buildPayloadFromItem(item = {}) {
   return {
+    sourceIntakeNoteId: safeInt(item.sourceIntakeNoteId),
+    treatmentPlanId: safeInt(item.treatmentPlanId),
+    treatmentPlanPrepared: item.treatmentPlanPrepared === true,
     clientName: String(item.clientName || item.client_name || '').trim(),
     action: String(item.action || '').trim(),
     importedFromEhr: item.importedFromEhr === true,
@@ -227,6 +233,7 @@ class NoteAidWorkQueueItem {
       `DELETE FROM note_aid_work_queue_items
        WHERE ((status = 'signed' AND signed_at IS NOT NULL AND signed_at < (NOW() - INTERVAL ${h} HOUR))
           OR (status = 'completed' AND completed_at IS NOT NULL AND completed_at < (NOW() - INTERVAL ${h} HOUR)))
+         AND LEFT(client_key,12) <> 'intake_plan_'
          AND NOT EXISTS (SELECT 1 FROM clinical_work_archive_resources r JOIN clinical_work_archives a ON a.id=r.archive_id
            WHERE r.resource_type='work_queue' AND r.resource_id=note_aid_work_queue_items.id AND a.restored_at IS NULL)`
     );
@@ -370,7 +377,7 @@ class NoteAidWorkQueueItem {
       return this.listForUser(uid, { purgeExpired: false });
     }
     const [existingRows] = await pool.execute(
-      `SELECT id, client_key, clinical_session_id, office_event_id FROM note_aid_work_queue_items WHERE user_id = ?`,
+      `SELECT id, client_key, clinical_session_id, office_event_id, status FROM note_aid_work_queue_items WHERE user_id = ?`,
       [uid]
     );
     const byKey = new Map((existingRows || []).map((r) => [String(r.client_key), Number(r.id)]));
@@ -378,6 +385,8 @@ class NoteAidWorkQueueItem {
     const activeRows = await visibleClinicalWork(existingRows || [], { db: pool, kind: 'work_queue' });
     const activeIds = new Set(activeRows.map(row => Number(row.id)));
     const keepIds = new Set((existingRows || []).filter(row => !activeIds.has(Number(row.id))).map(row => Number(row.id)));
+    const completedIntakePlans = new Set((existingRows || []).filter(row =>
+      row.status === 'completed' && String(row.client_key).startsWith('intake_plan_')).map(row => Number(row.id)));
     const out = [];
 
     for (const item of list) {
@@ -389,7 +398,7 @@ class NoteAidWorkQueueItem {
         rowId = safeInt(item.id);
         vals.clientKey = byId.get(rowId) || vals.clientKey;
       }
-      if (rowId && byId.has(rowId) && !activeIds.has(rowId)) continue;
+      if (rowId && (completedIntakePlans.has(rowId) || (byId.has(rowId) && !activeIds.has(rowId)))) continue;
 
       let saved;
       if (rowId) {
@@ -405,7 +414,7 @@ class NoteAidWorkQueueItem {
     const toDelete = (existingRows || [])
       // A delayed browser snapshot cannot remove newly discovered scheduled
       // work. Explicit row removal / Clear remain the intentional delete paths.
-      .filter((row) => !row.clinical_session_id && !row.office_event_id)
+      .filter((row) => !row.clinical_session_id && !row.office_event_id && !String(row.client_key).startsWith('intake_plan_'))
       .map((r) => Number(r.id))
       .filter((id) => id && !keepIds.has(id));
     if (toDelete.length) {
@@ -462,7 +471,10 @@ class NoteAidWorkQueueItem {
     const uid = safeInt(userId);
     const rowId = safeInt(id);
     if (!uid || !rowId) return 0;
-    await assertClinicalWorkActive({ id: rowId, archiveResourceType: 'work_queue' });
+    const current = await this.findByIdForUser({ id: rowId, userId: uid });
+    if (!current) return 0;
+    if (current.sourceIntakeNoteId) throw Object.assign(new Error('Finish the treatment plan to clear this task.'), { status: 409 });
+    await assertClinicalWorkActive({ ...current, id: rowId, archiveResourceType: 'work_queue' });
     const [result] = await pool.execute(
       `DELETE FROM note_aid_work_queue_items WHERE id = ? AND user_id = ?`,
       [rowId, uid]
@@ -473,7 +485,7 @@ class NoteAidWorkQueueItem {
   static async clearForUser(userId) {
     const uid = safeInt(userId);
     if (!uid) return 0;
-    const [existing] = await pool.execute('SELECT id FROM note_aid_work_queue_items WHERE user_id=?', [uid]);
+    const [existing] = await pool.execute("SELECT id FROM note_aid_work_queue_items WHERE user_id=? AND LEFT(client_key,12) <> 'intake_plan_'", [uid]);
     const active = await visibleClinicalWork(existing || [], { db: pool, kind: 'work_queue' });
     if (!active.length) return 0;
     const [result] = await pool.execute(

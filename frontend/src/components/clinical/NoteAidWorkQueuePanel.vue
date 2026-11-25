@@ -71,7 +71,7 @@
         class="na-wq-mode"
         :class="{ on: queueMode === 'notes' }"
         :aria-selected="queueMode === 'notes' ? 'true' : 'false'"
-        @click="setQueueMode('notes')"
+        @click="showAllNotes"
       >
         Notes To Do
       </button>
@@ -246,7 +246,7 @@
 import { computed, ref, watch } from 'vue';
 import NoteReviewActions from './NoteReviewActions.vue';
 import { NOTE_REVIEW_STATUS, readableReviewMessage } from '../../utils/noteReviewWork.js';
-import {
+import { isUnlinkedWorkQueueItem,
   DOC_STATUS,
   deriveWorkQueueDocStatus,
   filterWorkQueueForRightPanel,
@@ -363,6 +363,11 @@ function persistSort() {
   }
   emit('update:sortBy', localSortField.value);
   emit('update:sortDir', localSortDir.value);
+}
+
+function showAllNotes() {
+  if (statusFilter.value) toggleStatusFilter(statusFilter.value);
+  setQueueMode('notes');
 }
 
 function setQueueMode(mode) {
@@ -601,6 +606,7 @@ function connectionIconSvg(item) {
 }
 
 function typeLabel(item) {
+  if (item.sourceIntakeNoteId) return 'Treatment plan';
   const code = String(item?.serviceCode || '').trim();
   const kind = String(item?.noteKind || 'progress').replace(/_/g, ' ');
   if (code) return `${kind} (${code})`;
@@ -608,8 +614,10 @@ function typeLabel(item) {
 }
 
 function canRemoveQueueItem(item) {
+  if (item.sourceIntakeNoteId) return false;
   const status = docStatus(item);
-  return status === DOC_STATUS.NOT_STARTED || status === DOC_STATUS.STARTED;
+  if (status === DOC_STATUS.NOT_STARTED) return isUnlinkedWorkQueueItem(item);
+  return status === DOC_STATUS.STARTED && !!item.draftId;
 }
 
 function removeQueueTitle(item) {
