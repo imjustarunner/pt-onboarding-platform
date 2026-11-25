@@ -1,6 +1,7 @@
 import pool from '../config/database.js';
 import { departmentalGroupKeysForUser, normalizeDepartmentalGroupKey } from './departmentalGroupPolicy.js';
 import { accessProfileSchemaReady, readAgencyAccess } from './agencyAccessProfiles.service.js';
+import { canAccessPeopleOperations } from './peopleOperationsAccess.service.js';
 export { DEPARTMENTAL_GROUPS, groupKeyForIdentity, departmentalGroupKeysForUser } from './departmentalGroupPolicy.js';
 
 export async function listUserDepartmentalGroupKeys({ agencyId, userId, db = pool }) {
@@ -10,7 +11,11 @@ export async function listUserDepartmentalGroupKeys({ agencyId, userId, db = poo
     FROM users u JOIN user_agencies ua ON ua.user_id=u.id
     JOIN agencies a ON a.id=ua.agency_id AND a.is_active=1 AND COALESCE(a.is_archived,0)=0
     WHERE u.id=? AND ua.agency_id=? LIMIT 1`, [userId, agencyId]);
-  return departmentalGroupKeysForUser(await scopeDepartmentalStaff(rows[0], agencyId, db));
+  const keys = departmentalGroupKeysForUser(await scopeDepartmentalStaff(rows[0], agencyId, db))
+    .filter(key => key !== 'people_operations');
+  // Use the current company grant for both direct and platform-only staff.
+  if (await canAccessPeopleOperations(userId, agencyId, db)) keys.push('people_operations');
+  return keys;
 }
 
 export async function scopeDepartmentalStaff(row, agencyId, db = pool) {

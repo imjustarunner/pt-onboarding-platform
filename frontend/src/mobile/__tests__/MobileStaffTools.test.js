@@ -101,3 +101,12 @@ it('keeps a ticket open after a failed close',async()=>{vi.spyOn(window,'confirm
 it('shows SMS as a back-and-forth thread with the contact, staff sender, main number and readable status',async()=>{
  const sms={...ticket,key:'sms:8',kind:'sms',id:8,status:'open',title:'Synthetic contact'};api.get.mockImplementation(async url=>({data:url.endsWith('/feed')?{items:[sms]}:{detail:{conversation:{subject:'Synthetic contact',status:'open',inbox_display_name:'QA main number'},messages:[{id:1,direction:'inbound',from:{name:'Synthetic contact'},body_text:'Incoming text'},{id:2,direction:'outbound',author_first_name:'Jordan',author_last_name:'QA',body_text:'Reply from staff',send_status:'sent'}]}}}));wrapper=mount(Support,{props});await flushPromises();expect(wrapper.get('.ms-row').text()).toContain('Open');await wrapper.get('.ms-row').trigger('click');await flushPromises();expect(wrapper.get('.ms-sms-heading').text()).toContain('Texting with Synthetic contact');expect(wrapper.get('.ms-sms-heading').text()).toContain('QA main number');expect(wrapper.get('.ms-inbound').text()).toContain('Incoming text');expect(wrapper.get('.ms-outbound').text()).toContain('Jordan QA');expect(wrapper.get('.ms-outbound').text()).toContain('Sent');
 });
+
+for (const canWork of [false, true]) it(`uses server People Operations authority on mobile (${canWork})`, async () => {
+  api.get.mockImplementation(async url => ({data: url.endsWith('/feed') ? {items:[ticket]} : {detail:{ticket:{subject:'Private request', topic:'people_operations', people_operations_can_work:canWork}, messages:[]}}}));
+  wrapper=mount(Support,{props}); await flushPromises(); await wrapper.get('.ms-row').trigger('click'); await flushPromises();
+  expect(Boolean(button('Claim ticket'))).toBe(canWork);
+  expect(Boolean(button('Close ticket'))).toBe(canWork);
+  expect(wrapper.find('input[type="checkbox"]').exists()).toBe(canWork);
+  expect(wrapper.find('textarea').exists()).toBe(true);
+});

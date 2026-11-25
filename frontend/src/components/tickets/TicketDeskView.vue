@@ -1136,30 +1136,32 @@ const myUserId = computed(() => authStore.user?.id || null);
 const role = computed(() => String(authStore.user?.role || '').toLowerCase());
 const isSchoolStaff = computed(() => role.value === 'school_staff');
 const isSuperAdmin = computed(() => role.value === 'super_admin');
+const peopleOpsCanWork = computed(() => String(selected.value?.topic || '').toLowerCase()==='people_operations'
+  ? selected.value?.people_operations_can_work === true : null);
 const canClaim = computed(() =>
-  ['admin','support','super_admin'].includes(role.value)
+  peopleOpsCanWork.value ?? ['admin','support','super_admin'].includes(role.value)
 );
 const canClose = computed(() =>
-  canAccessTicketDesk(authStore.user, selected.value?.agency_id || agencyStore.currentAgency?.id)
+  peopleOpsCanWork.value ?? canAccessTicketDesk(authStore.user, selected.value?.agency_id || agencyStore.currentAgency?.id)
 );
 const canInternal = computed(() =>
-  canAccessTicketDesk(authStore.user, selected.value?.agency_id || agencyStore.currentAgency?.id)
+  peopleOpsCanWork.value ?? canAccessTicketDesk(authStore.user, selected.value?.agency_id || agencyStore.currentAgency?.id)
 );
 const canSetPriority = computed(() =>
-  ['admin', 'support', 'super_admin', 'clinical_practice_assistant'].includes(role.value)
+  peopleOpsCanWork.value ?? ['admin', 'support', 'super_admin', 'clinical_practice_assistant'].includes(role.value)
 );
 const canAnswer = computed(() =>
-  ['admin', 'support', 'super_admin'].includes(role.value)
+  peopleOpsCanWork.value ?? ['admin', 'support', 'super_admin'].includes(role.value)
 );
-const canSelectSharedSender = computed(() => canAccessTicketDesk(authStore.user, selected.value?.agency_id || props.agencyId || agencyStore.currentAgency?.id));
+const canSelectSharedSender = computed(() => peopleOpsCanWork.value ?? canAccessTicketDesk(authStore.user, selected.value?.agency_id || props.agencyId || agencyStore.currentAgency?.id));
 const isEmailTicket = computed(() =>
   (selected.value?.source_channel==='email'||selected.value?.source_channel==='public_web'&&!!selected.value?.source_email_from) && selected.value?.created_by_source_key !== 'office_kiosk_support'
 );
 const canAssignOthers = computed(() =>
-  ['admin', 'support', 'super_admin'].includes(role.value)
+  peopleOpsCanWork.value !== false && ['admin', 'support', 'super_admin'].includes(role.value)
 );
 const canForward = computed(() =>
-  ['admin', 'support', 'super_admin'].includes(role.value)
+  peopleOpsCanWork.value === null && ['admin', 'support', 'super_admin'].includes(role.value)
 );
 
 const tickets = ref([]);

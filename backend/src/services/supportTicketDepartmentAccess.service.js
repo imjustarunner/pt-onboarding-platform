@@ -2,12 +2,14 @@ import pool from '../config/database.js';
 import {canWorkPlotlineSupport} from './plotlineSupportAccess.service.js';
 import {PLOTLINE_SUPPORT_SOURCE} from '../utils/plotlineSupport.js';
 import { DEPARTMENTAL_GROUPS, groupKeyForIdentity, listUserDepartmentalGroupKeys } from './departmentalGroupAccess.service.js';
+import { peopleOperationsAgencyIds } from './peopleOperationsAccess.service.js';
 
-const specialized = new Set(['billing', 'payroll', 'credentialing', 'technology']);
+const specialized = new Set(['billing', 'payroll', 'credentialing', 'technology', 'people_operations']);
 const addresses = value => new Set((String(typeof value === 'object' ? JSON.stringify(value) : value || '').toLowerCase()
   .match(/[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9.-]+\.[a-z]{2,}/g) || []));
 
 export async function ticketDepartmentKeys(ticket, db = pool) {
+  if (ticket?.agency_id && String(ticket.topic || '').toLowerCase() === 'people_operations') return ['people_operations'];
   if (ticket?.source_channel !== 'email' || !ticket.agency_id) return [];
   const recipients = addresses(ticket.source_email_recipients);
   if (recipients.size) {
@@ -60,7 +62,10 @@ export async function appendDepartmentTicketVisibility({ userId, where, params, 
     params.push(...departmentalParams, ...allowedParams);
   }
   if (requireDepartment) {
-    where.push(`(${[...allowedMatches, 't.created_by_user_id=?', 't.claimed_by_user_id=?'].join(' OR ')})`);
-    params.push(...allowedParams, userId, userId);
+    const peopleOperations = await peopleOperationsAgencyIds(userId, db);
+    const peopleOperationsMatch = peopleOperations.length
+      ? [`(LOWER(COALESCE(t.topic,''))='people_operations' AND t.agency_id IN (${peopleOperations.map(() => '?').join(',')}))`] : [];
+    where.push(`(${[...allowedMatches, ...peopleOperationsMatch, 't.created_by_user_id=?', 't.claimed_by_user_id=?'].join(' OR ')})`);
+    params.push(...allowedParams, ...peopleOperations, userId, userId);
   }
 }

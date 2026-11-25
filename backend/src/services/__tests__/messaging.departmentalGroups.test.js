@@ -25,8 +25,6 @@ describe('departmental identities and permissions', () => {
       { owner_user_id: 12, identity_key: 'payroll' },
       { kind: 'shared', identity_key: 'personal_12', from_email: 'payroll@agency.test' },
       { kind: 'shared', identity_key: 'login_12', from_email: 'payroll@agency.test' },
-      { kind: 'shared', identity_key: 'people_operations', from_email: 'po@agency.test' },
-      { kind: 'shared', identity_key: 'po', from_email: 'peopleoperations@agency.test' },
       { identity_key: 'notifications', from_email: 'notifications@agency.test' }
     ]) expect(groupKeyForIdentity(identity)).toBeNull();
   });
@@ -44,16 +42,21 @@ describe('departmental identities and permissions', () => {
     await expect(assertDepartmentalGroupAccess({ agencyId: 3, userId: 12, groupKey: 'payroll' })).rejects.toMatchObject({ status: 403 });
   });
   it('gives agency administrators access without relying on Google delivery preferences', () => {
-    expect(departmentalGroupKeysForUser({ ...staff, role: 'admin', has_billing_access: 1 })).toEqual(Object.keys(DEPARTMENTAL_GROUPS));
+    expect(departmentalGroupKeysForUser({ ...staff, role: 'admin', has_billing_access: 1 })).toEqual(Object.keys(DEPARTMENTAL_GROUPS).filter(key=>key!=='people_operations'));
+    expect(departmentalGroupKeysForUser({ ...staff, role: 'admin', has_billing_access: 1, has_hiring_access:1 })).toEqual(Object.keys(DEPARTMENTAL_GROUPS));
   });
   it('adds only granted staff to the departmental plan', () => {
     const plans = buildManagedGroupPlan({ domain: 'agency.test', rows: [{ ...staff, has_payroll_access: 1 }, { ...staff, id: 13 }] });
     expect(plans.find(plan => plan.key === 'payroll')).toMatchObject({ userIds: [12], ticketed: true });
     expect(plans.find(plan => plan.key === 'billing').userIds).toEqual([]);
   });
-  it('keeps People Operations and hiring access outside this ticketed group rollout', () => {
-    expect(DEPARTMENTAL_GROUPS).not.toHaveProperty('people_operations');
-    expect(departmentalGroupKeysForUser({ ...staff, has_hiring_access: 1 })).toEqual([]);
+  it('gates People Operations in the app while keeping Google recipients outside staff synchronization', () => {
+    expect(DEPARTMENTAL_GROUPS.people_operations).toMatchObject({topic:'people_operations',provision:false});
+    expect(groupKeyForIdentity({kind:'shared',identity_key:'people_operations',from_email:'po@agency.test'})).toBe('people_operations');
+    expect(groupKeyForIdentity({kind:'shared',identity_key:'po',from_email:'peopleoperations@agency.test'})).toBe('people_operations');
+    expect(departmentalGroupKeysForUser({ ...staff, has_hiring_access: 1 })).toEqual(['people_operations']);
+    expect(departmentalGroupKeysForUser({ ...staff, has_payroll_access: 1 })).not.toContain('people_operations');
+    expect(departmentalGroupKeysForUser({ ...staff,role:'admin',has_hiring_access:1,agencyAccess:{sources:{has_hiring_access:'agency_override'},permissions:{has_hiring_access:false}}})).not.toContain('people_operations');
     const plans = buildManagedGroupPlan({ domain: 'agency.test', rows: [{ ...staff, role: 'admin', has_hiring_access: 1 }] });
     expect(plans.some(plan => ['po', 'people_operations'].includes(plan.key))).toBe(false);
     for (const key of ['technology', 'compliance']) expect(plans.find(plan => plan.key === key)).toMatchObject({ ticketed: true, userIds: [12] });

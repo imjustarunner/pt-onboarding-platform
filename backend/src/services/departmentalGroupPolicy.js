@@ -8,13 +8,15 @@ export const DEPARTMENTAL_GROUPS = Object.freeze({
   support: { label: 'Support', topic: 'general', localPart: 'support' },
   // School mail is provisioned separately; this grants app visibility only.
   schools: { label: 'Schools', topic: 'general', localPart: 'schools', provision: false },
+  // Application owners hold the mail; staff work it through company permissions.
+  people_operations: { label: 'People Operations', topic: 'people_operations', localPart: 'po', provision: false },
   admin: { label: 'Administration', topic: 'general', localPart: 'admin' },
   technology: { label: 'Technology', topic: 'technology', localPart: 'technology' },
   compliance: { label: 'Compliance', topic: 'general', localPart: 'compliance' },
   medical_records: { label: 'Medical Records', topic: 'general', localPart: 'medicalrecords' }
 });
 
-const aliases = { school_groups: 'schools', schools: 'schools', school_support: 'schools', schoolreply: 'schools', school_reply: 'schools', medicalrecords: 'medical_records', records: 'medical_records', administration: 'admin', it: 'technology' };
+const aliases = { po: 'people_operations', people_ops: 'people_operations', peopleoperations: 'people_operations', peopleops: 'people_operations', school_groups: 'schools', schools: 'schools', school_support: 'schools', schoolreply: 'schools', school_reply: 'schools', medicalrecords: 'medical_records', records: 'medical_records', administration: 'admin', it: 'technology' };
 export function normalizeDepartmentalGroupKey(value) {
   const key = norm(value);
   return Object.hasOwn(DEPARTMENTAL_GROUPS, key) ? key : aliases[key] || null;
@@ -45,7 +47,10 @@ export function activeDepartmentalStaff(row) {
 export function departmentalGroupKeysForUser(row) {
   if (!activeDepartmentalStaff(row)) return [];
   const role = norm(row.agency_role || row.role);
-  const keys = new Set(['admin', 'super_admin'].includes(role) ? Object.keys(DEPARTMENTAL_GROUPS).filter(key => key !== 'billing' || role === 'super_admin' || enabled(row.has_billing_access)) : []);
+  const keys = new Set(['admin', 'super_admin'].includes(role) ? Object.keys(DEPARTMENTAL_GROUPS).filter(key =>
+    (key !== 'billing' || role === 'super_admin' || enabled(row.has_billing_access))
+    && (key !== 'people_operations' || role === 'super_admin' || enabled(row.has_hiring_access))) : []);
+  if (enabled(row.has_hiring_access)) keys.add('people_operations');
   if (enabled(row.has_payroll_access)) keys.add('payroll');
   if (enabled(row.has_billing_access)) keys.add('billing');
   if (enabled(row.can_manage_credentialing)) keys.add('credentialing');
@@ -54,7 +59,7 @@ export function departmentalGroupKeysForUser(row) {
   // Preserve inherited administrator mailboxes during transition, while making
   // a deliberate company/platform Off take effect for sensitive categories.
   if (role !== 'super_admin' && row.agencyAccess) {
-    for (const [group,permission] of Object.entries({payroll:'has_payroll_access',billing:'has_billing_access',credentialing:'can_manage_credentialing',medical_records:'has_medical_records_release_access'})) {
+    for (const [group,permission] of Object.entries({people_operations:'has_hiring_access',payroll:'has_payroll_access',billing:'has_billing_access',credentialing:'can_manage_credentialing',medical_records:'has_medical_records_release_access'})) {
       if (['agency_override','platform_default'].includes(row.agencyAccess.sources?.[permission]) && !row.agencyAccess.permissions?.[permission]) keys.delete(group);
     }
   }
