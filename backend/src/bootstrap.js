@@ -134,6 +134,8 @@ server.listen(PORT, HOST, () => {
 
   runStartupMigrations()
     .then(async () => {
+      const { ensureClinicalImportedPlanFrequencySchema } = await import('./services/clinicalImportedPlanFrequencySchema.service.js');
+      console.log('[startup:clinical-039]', JSON.stringify(await ensureClinicalImportedPlanFrequencySchema()));
       const { requireNarrivaRolloutSchema } = await import('./services/narrivaRolloutSchema.service.js');
       console.log('[startup:narriva] Required rollout schema verified', JSON.stringify(await requireNarrivaRolloutSchema()));
       const { verifyMessagingRollout } = await import('./services/messagingRolloutReadiness.service.js');

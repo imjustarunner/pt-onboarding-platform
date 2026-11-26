@@ -9,6 +9,13 @@ const objective=(text, fields={})=>({
 const plan = () => ({effectiveDate:'2026-11-23',dischargePlan:'Review readiness with the client.',presentingProblem:'Pat Synthetic reports worry.',
   goals:[{goalText:'Manage anxiety',objectives:[objective('Practice emotion regulation')]},{goalText:'Improve communication',objectives:[objective('Private: Pat Synthetic will practice communication')]}]});
 
+it('preserves long imported frequency instructions through draft save and finalization', () => {
+ const prescribedFrequency = 'Meet weekly, with the documented provider and family coordination instructions. '.repeat(40).trim();
+ const saved = normalizeNarrivaPlanDraft({...plan(), prescribedFrequency});
+ expect(saved.prescribedFrequency).toBe(prescribedFrequency);
+ expect(normalizeNarrivaPlanDraft(saved, {finalize:true}).prescribedFrequency).toBe(prescribedFrequency);
+});
+
 it('requires two distinct scaled goals and keeps the alternate-measure reason, objective dates and linked interventions',()=>{
  const draft=plan();
  draft.goals[0].objectives.push(objective('Complete enrollment form',{skipScale:true,scaleExemption:'Track completion of the form'}));

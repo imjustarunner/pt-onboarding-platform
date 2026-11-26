@@ -1,3 +1,4 @@
+import { clinicalImportedPlanFrequencyReadiness } from './services/clinicalImportedPlanFrequencySchema.service.js';
 import addressAutocompleteRoutes from './routes/addressAutocomplete.routes.js';
 import { publicErrorMessage } from './utils/publicErrorMessage.js';
 import meetingDialInWebhookRoutes from './routes/meetingDialInWebhook.routes.js';
@@ -859,7 +860,8 @@ app.get('/healthz', healthHandler);
 app.get('/readyz', healthHandler);
 app.get('/api/app-version', (_req, res) => {
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
-  res.json({ buildId: String(process.env.APP_BUILD_ID || 'dev').trim(), revision: process.env.K_REVISION || null, ready: true });
+  res.json({ buildId: String(process.env.APP_BUILD_ID || 'dev').trim(), revision: process.env.K_REVISION || null, ready: true,
+    clinicalPlanFrequencySchema: clinicalImportedPlanFrequencyReadiness() });
 });
 
 // Health check routes (must be before authentication middleware)

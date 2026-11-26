@@ -26,7 +26,8 @@ export function normalizeNarrivaPlanDraft(input, { finalize = false } = {}) {
   const draft = {
     effectiveDate,
     presentingProblem: bounded(input.presentingProblem, 16000),
-    prescribedFrequency: bounded(input.prescribedFrequency, 255),
+    // Preserve the original imported narrative when the reviewed draft is saved.
+    prescribedFrequency: String(input.prescribedFrequency || '').trim(),
     dischargePlan: bounded(input.dischargePlan, 16000),
     diagnosticJustification: bounded(input.diagnosticJustification, 16000),
     legacyDiagnosisNarrative: bounded(input.legacyDiagnosisNarrative, 16000),

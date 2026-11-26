@@ -53,8 +53,15 @@ test('creating a plan commits all sections, goal ratings and interventions on a 
 });
 test('clearing frequency on a partial schema preserves the presenting problem and discharge plan', async (t) => {
   const db = database(['presenting_problem']);
-  t.mock.method(clinicalPool, 'execute', db.execute.bind(db));
+  const execute = db.execute.bind(db);
+  let committed = false;
+  Object.assign(db, {
+    beginTransaction: async () => {}, commit: async () => { committed = true; }, rollback: async () => {}, release: () => {},
+    execute: async (sql, values) => sql.startsWith('SELECT id,status') ? [[{id:42,status:'draft'}]] : execute(sql, values)
+  });
+  t.mock.method(clinicalPool, 'getConnection', async () => db);
   t.mock.method(ClinicalTreatmentPlan, 'findById', async () => ({ id: 42, agency_id: 7, client_id: 202, presentingProblem: sections.presentingProblem, prescribed_frequency: 'Weekly', discharge_plan: sections.dischargePlan }));
   await ClinicalTreatmentPlan.updatePrescribedFrequency({ planId: 42, agencyId: 7, clientId: 202, prescribedFrequency: '' });
   assert.deepEqual(splitTreatmentPlanSections(db.stored), { ...sections, prescribedFrequency: '' });
+  assert.equal(committed, true);
 });
