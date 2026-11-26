@@ -4,7 +4,7 @@ import {isRealInactiveClient} from '../utils/clientInactivePolicy.js';
 
 export const REACTIVATION_TRIGGERS=Object.freeze([
  'event_registration','provider_assignment','form_submission','confirmed_appointment',
- 'accepted_referral','staff_reactivation','guardian_return_request'
+ 'accepted_referral','staff_reactivation','guardian_return_request','records_import'
 ]);
 const fail=(message,status=409)=>Object.assign(new Error(message),{status});
 export function canReactivateClient(client){
@@ -27,7 +27,7 @@ export async function reactivateClientForActivity(input,{db=pool,executor=null}=
    c.termination_reason,c.terminated_at,c.terminated_by_user_id,c.termination_last_provider_id,c.termination_last_provider_name,c.termination_effective_date,c.updated_at,s.status_key AS client_status_key FROM clients c
    LEFT JOIN client_statuses s ON s.id=c.client_status_id WHERE c.id=?${agencyId?' AND (c.agency_id=? OR EXISTS(SELECT 1 FROM client_agency_assignments ca WHERE ca.client_id=c.id AND ca.agency_id=? AND ca.is_active=1))':''} FOR UPDATE`,agencyId?[clientId,agencyId,agencyId]:[clientId]);
   if(!client)throw fail('Client not found.',404);
-  if(!canReactivateClient(client)){if(owns)await connection.commit();return {reactivated:false,reason:'not_inactive_or_retained_archive'};}
+  if(!canReactivateClient(client) || (trigger==='records_import' && String(client.client_status_key).toLowerCase()!=='inactive')){if(owns)await connection.commit();return {reactivated:false,reason:'not_inactive_or_retained_archive'};}
   const eventKey=crypto.createHash('sha256').update(JSON.stringify([client.agency_id,clientId,trigger,String(input.sourceId)])).digest('hex');
   const marker=`reactivation_event:${eventKey}`;
   const [[prior]]=await connection.execute("SELECT id FROM client_status_history WHERE client_id=? AND field_changed='reactivated' AND note LIKE ? LIMIT 1",[clientId,`%${marker}%`]);
@@ -43,8 +43,8 @@ export async function reactivateClientForActivity(input,{db=pool,executor=null}=
   const [[pending]]=await connection.execute('SELECT id FROM client_schedule_termination_jobs WHERE client_id=? AND completed_at IS NULL LIMIT 1',[clientId]);
   if(pending)throw fail('The previous enrollment closure is still finishing. Please retry shortly.');
   const reviewOnly=trigger==='guardian_return_request';
-  const keys=reviewOnly?['prospective','received','packet']:['current','received','packet'];
-  const [statuses]=await connection.execute(`SELECT id,status_key FROM client_statuses WHERE agency_id=? AND is_active=1 AND status_key IN (${keys.map(()=>'?').join(',')})`,[client.agency_id,...keys]);
+  const keys=reviewOnly?['prospective','received','packet']:trigger==='records_import'?['current']:['current','received','packet'];
+  const [statuses]=await connection.execute(`SELECT id,status_key,label FROM client_statuses WHERE agency_id=? AND is_active=1 AND status_key IN (${keys.map(()=>'?').join(',')})`,[client.agency_id,...keys]);
   const target=keys.map(key=>statuses.find(s=>s.status_key===key)).find(Boolean);
   if(!target)throw fail('Configure an active enrollment status for this agency before reopening this client.');
   const status=reviewOnly?'PENDING_REVIEW':'ACTIVE';
@@ -58,7 +58,7 @@ export async function reactivateClientForActivity(input,{db=pool,executor=null}=
    await connection.execute('INSERT INTO client_status_history(client_id,changed_by_user_id,field_changed,from_value,to_value,note) VALUES(?,?,?,?,?,?)',[clientId,actor,field,String(from??''),String(to),note]);
   }
   if(owns)await connection.commit();
-  return {reactivated:true,clientId,agencyId:client.agency_id,status,clientStatusId:target.id,statusKey:target.status_key,reviewOnly};
+  return {reactivated:true,clientId,agencyId:client.agency_id,status,clientStatusId:target.id,statusKey:target.status_key,statusLabel:target.label,reviewOnly};
  }catch(error){if(owns)await connection.rollback();throw error;}
  finally{if(owns)connection.release();}
 }

@@ -85,7 +85,7 @@
                 </span>
               </div>
               <div v-show="!headerCollapsed" class="cdp-meta-row">
-                <button v-if="canEditAccount && !isClientArchived" type="button" class="cdp-pill cdp-status-edit" :class="statusPillClass" aria-label="Change client status" title="Change client status" @click="editHeaderStatus">
+                <button v-if="canEditHeaderStatus" type="button" class="cdp-pill cdp-status-edit" :class="statusPillClass" aria-label="Change client status" title="Change client status" @click="editHeaderStatus">
                   {{ isClientArchived ? 'Inactive' : displayStatusLabel }} ▾
                 </button>
                 <span v-else
@@ -2829,7 +2829,7 @@
 
 <script setup>
 import ClientTerminationDialog from './ClientTerminationDialog.vue';
-import {isClientClosureStatus} from '../../utils/clientClosure.js';
+import { canOpenClientReactivation, isClientClosureStatus } from '../../utils/clientClosure.js';
 import {serviceSettingName} from '../../utils/serviceLocationDisplay.js';
 import ClientDisclosurePanel from './clientChart/ClientDisclosurePanel.vue';
 import { guardianPortalStatus } from '../../utils/guardianPortalStatus.js';
@@ -5492,8 +5492,20 @@ const startEditOverview = async (scrollToFields = false) => {
 
 const statusSelectEl=ref(null);
 const headerStatusOpen=ref(false);
-async function editHeaderStatus(){if(canEditAccount.value && await saveClientWorkspaceDrafts()!==false)headerStatusOpen.value=true;}
-function onHeaderStatusSaved(client){headerStatusOpen.value=false;overviewForm.value.client_status_id=String(client.client_status_id||'');overviewStatusIdAtEditStart.value=overviewForm.value.client_status_id;emit('updated',{keepOpen:true,client});}
+const canEditHeaderStatus = computed(() => canEditAccount.value && !props.client?.compliance_archived_at
+  && (!isClientArchived.value || canOpenClientReactivation(props.client)));
+async function editHeaderStatus() {
+  if (!canEditHeaderStatus.value) return;
+  if (!canOpenClientReactivation(props.client) && await saveClientWorkspaceDrafts() === false) return;
+  headerStatusOpen.value = true;
+}
+function onHeaderStatusSaved(status) {
+  headerStatusOpen.value = false;
+  const client = { ...props.client, ...status };
+  overviewForm.value.client_status_id = String(client.client_status_id || '');
+  overviewStatusIdAtEditStart.value = overviewForm.value.client_status_id;
+  emit('updated', { keepOpen: true, client });
+}
 watch(()=>Number(props.client?.id),()=>headerStatusOpen.value=false);
 
 

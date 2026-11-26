@@ -3034,8 +3034,21 @@ export const reactivateClient = async(req,res,next)=>{
     if(!reason||reason.length>1000)return res.status(400).json({error:{message:'Enter a reason for reactivating this client, within 1,000 characters.'}});
     const {reactivateClientForActivity}=await import('../services/clientReactivation.service.js');
     const result=await reactivateClientForActivity({clientId:client.id,agencyId:client.agency_id,trigger:'staff_reactivation',sourceId:`staff:${requestId}`,actorUserId:req.user.id,reason});
-    if(!result.reactivated&&String(client.status).toUpperCase()!=='ACTIVE')return res.status(409).json({error:{message:result.reason==='activity_already_applied'?'This earlier reactivation was already processed. The client is inactive again; refresh and review a new action.':'Only real inactive client records can be reactivated. Retained demo or archived records require a separate review.'}});
-    res.json(result);
+    const savedKey=String(client.client_status_key || '').toLowerCase();
+    if (!result.reactivated && (String(client.status).toUpperCase()!=='ACTIVE' || client.compliance_archived_at
+        || ['inactive','terminated','archived','dead','deceased'].includes(savedKey))) {
+      return res.status(409).json({error:{message:result.reason==='activity_already_applied'
+        ? 'This earlier reactivation was already processed. The client is inactive again; refresh and review a new action.'
+        : 'Only real inactive client records can be reactivated. Retained demo or archived records require a separate review.'}});
+    }
+    res.json({...result,client:{
+      id:client.id, agency_id:client.agency_id,
+      status:result.status || client.status,
+      client_status_id:result.clientStatusId ?? client.client_status_id,
+      client_status_key:result.statusKey || client.client_status_key,
+      client_status_label:result.statusLabel || (result.reactivated ? null : client.client_status_label),
+      ...(result.reactivated ? {terminated_at:null, terminated_by_user_id:null} : {})
+    }});
   }catch(error){if(error.status)return res.status(error.status).json({error:{message:error.message}});next(error);}
 };
 

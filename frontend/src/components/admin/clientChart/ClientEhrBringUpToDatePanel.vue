@@ -134,7 +134,7 @@
         <p v-if="error" class="ehr-error" role="alert">{{ error }}</p>
         <template v-if="unimportedSections.length"><p>These paste boxes contain information that has not been imported:</p><ul><li v-for="key in unimportedSections" :key="key">{{ sectionLabel(key) }}</li></ul><button type="button" class="ehr-btn-primary" :disabled="busy" @click="importAll()">Import remaining pasted sections</button><p>Resolve any import errors before finishing.</p></template>
         <template v-if="blankSections.length"><p>These paste boxes are blank. Existing information on the chart is preserved:</p><ul><li v-for="key in blankSections" :key="key">{{ sectionLabel(key) }}</li></ul><label class="ehr-label"><span><input v-model="keepBlankConfirmed" type="checkbox" :disabled="busy" /> Keep these boxes blank and finish with the information imported.</span></label></template>
-        <p>Clinical finalization, assignment and billing follow-up remain separate profile actions.</p>
+        <p>Completing this import activates the client’s enrollment. Review outstanding clinical, assignment, and billing items in the profile.</p>
         <button type="button" class="ehr-btn-primary" :disabled="busy || unimportedSections.length > 0 || (blankSections.length > 0 && !keepBlankConfirmed)" @click="finishReviewedImport">Complete records import</button>
         <button type="button" class="ehr-link" :disabled="busy" @click="completionReview=false">Continue editing</button>
       </section>
@@ -711,10 +711,11 @@ async function finishReviewedImport() {
     const {data}=await api.post(`/clients/${props.clientId}/chart-import/complete`,{keptBlankSections:blankSections.value},{skipGlobalLoading:true,headers:agencyHeaders()});
     if(own!==scopeGeneration)return;
     completionReview.value=false;
-    successMessage.value=assignmentsPanel.value?.schoolSetupPending
-      ? 'Records import marked done. Review the school setup draft in this chart’s Assignments.'
-      : 'Records import marked done. Remaining profile actions stay pending.';
     const current=data?.progress?.clientStatus;
+    const completedMessage=current ? `Records import complete. Enrollment is active (${current.label}).` : 'Records import complete.';
+    successMessage.value=assignmentsPanel.value?.schoolSetupPending
+      ? `${completedMessage} Review the school setup draft in Assignments.`
+      : completedMessage;
     const client=current?{id:Number(props.clientId),status:'ACTIVE',client_status_id:current.id,client_status_key:current.key,client_status_label:current.label}:null;
     emit(props.creationFlow?'imported':'done',{...status,marked:true,...(client?{client}:{}),assignmentDraftPending:assignmentsPanel.value?.hasPendingDraft?.()===true});
   }catch(e){if(own===scopeGeneration)error.value=e.response?.data?.error?.message||'The import could not be completed. Your saved entries remain here.';}
