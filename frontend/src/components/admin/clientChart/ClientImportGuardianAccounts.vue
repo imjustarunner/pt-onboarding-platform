@@ -9,6 +9,7 @@
    <strong>{{[account.first_name,account.last_name].filter(Boolean).join(' ')}}</strong>
    <span>{{account.email}} · {{account.relationship_title||'Guardian'}}</span>
    <small>{{Number(account.access_enabled)===1?'Linked to this client':'Linked to this client · review portal access below'}}</small>
+   <small v-if="differentContactEmail(account)">Saved contact email differs from this portal login. Review the account before changing its email.</small>
    <small v-if="sourceReminders(account)">Imported reminder choices: {{sourceReminders(account)}}</small>
   </article>
   <template v-if="loaded">
@@ -43,7 +44,13 @@ const request=()=>({skipGlobalLoading:true,headers:{'X-Agency-Id':String(props.a
 const emailKey=value=>String(value||'').trim().toLowerCase();
 const validEmail=value=>/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailKey(value));
 const guardians=computed(()=>accounts.value.filter(a=>a.relationship_type!=='self'&&!a.permissions_json?.relationshipRevoked).sort((a,b)=>String(a.created_at||'').localeCompare(String(b.created_at||''))||Number(a.guardian_user_id)-Number(b.guardian_user_id)));
-const candidates=computed(()=>props.contacts.filter(c=>!accounts.value.some(a=>emailKey(a.email)===emailKey(c.email))));
+const nameKey = value => String(value || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+const accountName = account => [account.first_name, account.last_name].filter(Boolean).join(' ');
+const sameName = (contact, account) => nameKey(contact.fullName) && nameKey(contact.fullName) === nameKey(accountName(account));
+const candidates = computed(() => props.contacts.filter(contact => !accounts.value.some(account =>
+  emailKey(account.email) === emailKey(contact.email) || sameName(contact, account))));
+const differentContactEmail = account => props.contacts.some(contact =>
+  sameName(contact, account) && contact.email && emailKey(account.email) !== emailKey(contact.email));
 const selected=computed(()=>candidates.value.find(c=>String(c.affiliationId)===selectedId.value));
 const sourceReminders=account=>props.contacts.find(c=>emailKey(c.email)===emailKey(account.email))?.appointmentReminders;
 const nextLabel=computed(()=>guardians.value.length<2?`Parent / Guardian ${guardians.value.length+1}`:'another parent / guardian');

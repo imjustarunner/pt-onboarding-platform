@@ -7,6 +7,8 @@ import { chartSections, readChartRecord, saveChartRecord, importSupplementaryCha
 import { readClientInsurance } from '../services/clientInsurance.service.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
 import {beginClientChartImport,completeClientChartImport} from '../services/clientChartImportProgress.service.js';
+import { previewChartContactImport, resolveChartContactReview } from '../services/clientImportContactReview.service.js';
+import { withHistoricalImportLock } from '../services/ehrHistoricalImportLock.service.js';
 import {prepareImportedGuardianAccount} from '../services/importedGuardianAccount.service.js';
 
 function sectionOf(req, allowWorkingDraft = false) {
@@ -97,6 +99,16 @@ export async function saveChartImportDraft(req, res, next) {
   } catch (error) { next(error); }
 }
 
+export async function reviewChartImportContacts(req, res, next) {
+  try {
+    const scope = await scopeOf(req);
+    const preview = await previewChartContactImport(scope, req.method === 'GET' ? '' : textOf(req), { accountAccess: canManageAccount(req) });
+    await logAuditEvent(req, { actionType: 'client_chart_contact_import_reviewed', agencyId: scope.agencyId,
+      targetType: 'client', targetId: scope.clientId, metadata: { contactCount: preview.rows.length } });
+    res.set('Cache-Control', 'no-store').json({ preview });
+  } catch (error) { next(error); }
+}
+
 export async function importChartSection(req, res, next) {
   try {
     const scope = await scopeOf(req), section = sectionOf(req), text = textOf(req).trim();
@@ -112,8 +124,18 @@ export async function importChartSection(req, res, next) {
     const guardianContactNames = req.body?.guardianContactNames || [];
     if (!Array.isArray(guardianContactNames) || guardianContactNames.length > 100 || guardianContactNames.some(name => typeof name !== 'string' || name.length > 255)) throw Object.assign(new Error('Select valid contacts for portal preparation'), { status: 400 });
     if (section === 'contacts' && (req.body?.preparePrimaryGuardian === true || guardianContactNames.length) && !['super_admin','admin','support'].includes(req.user?.role)) throw Object.assign(new Error('Account support access is required to prepare portal accounts'), { status: 403 });
-    const result = await importSupplementaryChartSection(scope, section, text, Number(req.user.id), { position,
-      ...(section === 'contacts' ? { preparePrimaryGuardian: req.body?.preparePrimaryGuardian === true, guardianContactNames, syncGuardianReminders:canManageAccount(req) } : {}) });
+    const actorId = Number(req.user.id);
+    const result = section === 'contacts'
+      ? await withHistoricalImportLock(scope.agencyId, scope.clientId, 'contacts', async () => {
+        const accountAccess = canManageAccount(req);
+        const preview = await previewChartContactImport(scope, text, { accountAccess });
+        const reviewedContacts = resolveChartContactReview(preview, req.body?.contactReview);
+        return importSupplementaryChartSection(scope, section, text, actorId, {
+          position, reviewedContacts, preparePrimaryGuardian: req.body?.preparePrimaryGuardian === true,
+          guardianContactNames, syncGuardianReminders: accountAccess
+        });
+      })
+      : await importSupplementaryChartSection(scope, section, text, actorId, { position });
     await logAuditEvent(req, { actionType: 'client_chart_section_imported', agencyId: scope.agencyId, targetType: 'client', targetId: scope.clientId, metadata: { section } });
     res.set('Cache-Control', 'no-store').json({ result });
   } catch (error) { next(error); }
@@ -134,7 +156,8 @@ export async function getChartSupplementaryRecords(req, res, next) {
 export async function prepareChartContactGuardian(req,res,next){try{
  if(!canManageAccount(req))throw Object.assign(new Error('Account support access is required to add a guardian account.'),{status:403});
  const scope=await scopeOf(req),affiliationId=Number(req.params.affiliationId);
- const result=await prepareImportedGuardianAccount(scope,affiliationId,Number(req.user.id),req.body?.relationship??null);
+ const result=await withHistoricalImportLock(scope.agencyId, scope.clientId, 'contacts',
+  () => prepareImportedGuardianAccount(scope, affiliationId, Number(req.user.id), req.body?.relationship ?? null));
  await logAuditEvent(req,{actionType:'client_imported_guardian_account_prepared',agencyId:scope.agencyId,targetType:'client',targetId:scope.clientId,metadata:{affiliationId,guardianUserId:result.portalAccount.userId,invitationSent:false,accessGranted:false}});
  res.set('Cache-Control','no-store').json({result});
 }catch(error){next(error);}}

@@ -7436,6 +7436,12 @@ export const parseClientDemographicsImport = async (req, res, next) => {
 
     const { parseDemographicsPaste } = await import('../services/demographicsImport.service.js');
     const parsed = parseDemographicsPaste(req.body?.text || '');
+    if (req.body?.reviewContact === true) {
+      const { requireClientChartImportAccess } = await import('../services/clientChartImportAccess.service.js');
+      const scope = await requireClientChartImportAccess(req.user, clientId, req.get?.('X-Agency-Id') || null);
+      const [[currentContact]] = await pool.execute('SELECT email, contact_phone AS contactPhone FROM clients WHERE id=? AND agency_id=?', [scope.clientId, scope.agencyId]);
+      return res.set('Cache-Control', 'no-store').json({ parsed, currentContact: currentContact || {} });
+    }
     return res.json({ parsed });
   } catch (e) {
     next(e);

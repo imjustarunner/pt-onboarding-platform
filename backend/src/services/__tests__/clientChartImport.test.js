@@ -230,3 +230,22 @@ it('routes separate policies to Billing while retaining both original pastes in 
  await expect(handOffChartInsurance(scope,'primary','Synthetic retry',10)).rejects.toMatchObject({status:503});
  expect((await readChartRecord(scope,'insuranceHandoff')).value.primary.text).toBe('Synthetic primary insurance');
 });
+
+it('writes the confirmed contact values to the existing card without preparing a second login', async () => {
+  const paste = 'Edit\nCasey Example\nEmail\nnew@example.test\nMobile Phone\n303-555-0120\nRelationship\nParent\nAppt Reminders\nEmail and Text';
+  const incoming = { fullName: 'Casey Example', relationshipType: 'Parent', email: 'new@example.test', phone: '303-555-0120' };
+  const reviewedContacts = [{
+    current: { contactId: 60 }, incoming, resolved: { ...incoming, email: 'saved@example.test' },
+    accountStatus: 'linked', detailsDiffer: true
+  }];
+  m.contacts.mockResolvedValueOnce([{ contact_full_name: 'Casey Example', agency_contact_id: 60 }]);
+  const [result] = await importSupplementaryChartSection(scope, 'contacts', paste, 10, {
+    reviewedContacts, guardianContactNames: ['Casey Example'], syncGuardianReminders: true
+  });
+  expect(m.upsert).toHaveBeenCalledWith(expect.objectContaining({
+    existingContactId: 60, email: 'saved@example.test', phone: '303-555-0120', importOnly: true
+  }));
+  expect(result).toMatchObject({ affiliationId: 50, portalAccount: { prepared: false }, appointmentReminders: null });
+  expect(m.prepareGuardian).not.toHaveBeenCalled();
+  expect(notificationImport).not.toHaveBeenCalled();
+});

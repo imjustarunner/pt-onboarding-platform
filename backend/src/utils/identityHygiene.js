@@ -236,54 +236,35 @@ export const CLIENT_MERGE_FIELDS = [
 ];
 
 export function buildMergePreview({ keep, others, fields, fieldChoices = {} }) {
-  const keepRecency = recencyMs(keep);
-  const preview = fields.map((field) => {
+  return fields.map(field => {
     const choice = fieldChoices[field.key];
-    let chosen = {
-      value: keep[field.key],
-      source: 'keep',
-      reason: 'Keep default'
-    };
+    const selected = [keep, ...others].find(row => Number(row.id) === Number(choice));
+    let winner = keep;
+    let reason = 'Keep default';
     for (const other of others) {
-      const override = choice === undefined
-        ? undefined
-        : (Number(choice) === Number(other.id) ? other[field.key]
-          : Number(choice) === Number(keep.id) ? keep[field.key]
-            : undefined);
       const pick = pickMergeField({
-        keepValue: chosen.value,
-        otherValue: other[field.key],
-        keepRecency,
-        otherRecency: recencyMs(other),
-        overrideValue: choice !== undefined
-          ? (Number(choice) === Number(keep.id)
-            ? keep[field.key]
-            : others.find((o) => Number(o.id) === Number(choice))?.[field.key])
-          : undefined
+        keepValue: winner[field.key], otherValue: other[field.key],
+        keepRecency: recencyMs(winner), otherRecency: recencyMs(other)
       });
-      // When looping multiple others without override, apply sequentially so filled/newer wins.
-      if (choice === undefined) {
-        chosen = pickMergeField({
-          keepValue: chosen.value,
-          otherValue: other[field.key],
-          keepRecency: chosen.source === 'other' ? Math.max(keepRecency, recencyMs(other)) : keepRecency,
-          otherRecency: recencyMs(other)
-        });
-      } else {
-        chosen = pick;
-        break;
+      if (pick.source === 'other') {
+        winner = other;
+        reason = pick.reason;
       }
+    }
+    if (selected) {
+      winner = selected;
+      reason = 'Manual override';
     }
     return {
       key: field.key,
       label: field.label,
       keepValue: keep[field.key] ?? null,
-      otherValues: others.map((o) => ({ id: o.id, value: o[field.key] ?? null })),
-      chosenValue: chosen.value ?? null,
-      source: chosen.source,
-      reason: chosen.reason,
-      highlighted: chosen.source !== 'keep' || choice !== undefined
+      otherValues: others.map(other => ({ id: other.id, value: other[field.key] ?? null })),
+      chosenValue: winner[field.key] ?? null,
+      chosenSourceId: winner.id,
+      source: selected ? 'manual' : winner === keep ? 'keep' : 'other',
+      reason,
+      highlighted: winner !== keep || !!selected
     };
   });
-  return preview;
 }

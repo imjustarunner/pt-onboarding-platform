@@ -18,9 +18,9 @@ export function transitionImportOperation(method,path,body={}){
  if(method==='POST'&&['/service-enrollments','/agency-affiliations','/affiliations','/provider-assignments','/demographics/parse','/demographics/import'].includes(suffix))return {clientId};
  if(method==='PUT'&&suffix==='/provider')return {clientId};
  if(method==='POST'&&suffix==='/intake-note/import'&&body.recordsImport&&typeof body.recordsImport==='object'&&!body.finalize&&!body.signature)return {clientId};
- const imports={GET:/^\/chart-import\/(?:drafts(?:\/[a-zA-Z_]+)?|records|responsible-billing-contact|payer-readiness|medical-history(?:\/\d+\/view)?)$/,
+ const imports={GET:/^\/chart-import\/(?:drafts(?:\/[a-zA-Z_]+)?|records|contacts\/preview|responsible-billing-contact|payer-readiness|medical-history(?:\/\d+\/view)?)$/,
   PUT:/^\/chart-import\/(?:drafts\/[a-zA-Z_]+|responsible-billing-contact)$/,
-  POST:/^\/chart-import\/(?:start|merge|school-setup|complete|sections\/[a-zA-Z_]+|contacts\/\d+\/portal-account|payer-(?:automation|search|link)|medical-history(?:\/\d+\/check)?)$/};
+  POST:/^\/chart-import\/(?:start|merge|school-setup|complete|sections\/[a-zA-Z_]+|contacts\/(?:preview|\d+\/portal-account)|payer-(?:automation|search|link)|medical-history(?:\/\d+\/check)?)$/};
  return imports[method]?.test(suffix)?{clientId}:null;
 }
 export async function transitionClientImportAccess(req,res,next){

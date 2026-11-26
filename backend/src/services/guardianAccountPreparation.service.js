@@ -19,10 +19,14 @@ export async function prepareGuardianAccount({client,profile,actorUserId=null,re
   if(reviewLinkedGuardians){
     const links = (await deps.ClientGuardian.listForClient(client.id)).filter(link => link.relationship_type !== 'self');
     const name = nameOf(profile), phone = phoneOf(profile);
-    if(!links.some(link => emailOf(link) === email) &&
-        links.some(link => (name && nameOf(link) === name)
-          || ((!name || !nameOf(link)) && phone.length===10 && phoneOf(link) === phone))) {
+    const linkedByIdentity = links.filter(link => (name && nameOf(link) === name)
+      || ((!name || !nameOf(link)) && phone.length===10 && phoneOf(link) === phone));
+    const matchingAccount = link => user && Number(link.guardian_user_id) === Number(user.id) || emailOf(link) === email;
+    if (linkedByIdentity.some(link => !matchingAccount(link))) {
       return {prepared:false,reason:'This contact may already have a linked portal account. Review the existing account before changing its login email.'};
+    }
+    if (user && name && nameOf(user) && name !== nameOf(user)) {
+      return {prepared:false,reason:'The email matches an account with a different name. Review the account holder before linking.'};
     }
   }
   if(!user){

@@ -32,6 +32,8 @@ export async function findNameDuplicateGroups({
       TRIM(CONCAT(COALESCE(p.first_name, ''), ' ', COALESCE(p.last_name, ''))) AS provider_name,
       c.grade,
       c.school_year,
+      c.created_at,
+      c.updated_at,
       identity.identity_id
     FROM clients c
     LEFT JOIN agencies org ON org.id = c.organization_id

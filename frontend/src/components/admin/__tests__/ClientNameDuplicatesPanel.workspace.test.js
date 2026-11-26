@@ -27,3 +27,31 @@ it('confirms cross-agency links and offers both agency charts after the duplicat
   expect(wrapper.emitted('open-client')).toEqual([[second]]);
   wrapper.unmount();
 });
+
+it('preselects the most recently updated chart and changes a field without another request', async () => {
+  api.post.mockClear();
+  const charts = [
+    { id: 1, status: 'ACTIVE', full_name: 'Synthetic Student', provider_name: 'Prior provider', updated_at: '2026-10-22T12:00:00Z' },
+    { id: 2, status: 'ACTIVE', full_name: 'Synthetic Student', updated_at: '2026-11-22T12:00:00Z' }
+  ];
+  api.get.mockResolvedValue({ data: { groups: [{ key: 'pair', memberCount: 2, confidence: 'high', members: charts }] } });
+  api.post.mockImplementation(async path => ({ data: path.endsWith('preview') ? {
+    keep: { id: 2 }, others: [{ id: 1 }], fields: [{
+      key: 'email', label: 'Email', keepValue: 'new@example.test',
+      otherValues: [{ id: 1, value: 'old@example.test' }], chosenSourceId: 2
+    }]
+  } : { ok: true } }));
+  const w = mount(Panel);
+  await flushPromises();
+  await w.findAll('button').find(button => button.text() === 'Review merge').trigger('click');
+  await flushPromises();
+  expect(api.post).toHaveBeenCalledWith('/clients/merge/preview', expect.objectContaining({ keepId: 2, sourceIds: [1] }), expect.anything());
+  expect(w.get('input[aria-label="Email, Chart #2"]').element.checked).toBe(true);
+  await w.get('input[aria-label="Email, Chart #1"]').setValue(true);
+  expect(api.post).toHaveBeenCalledTimes(1);
+  await w.findAll('label').find(label => label.text().includes('confirmed they are the same person')).get('input').setValue(true);
+  await w.findAll('button').find(button => button.text() === 'Merge client records').trigger('click');
+  await flushPromises();
+  expect(api.post).toHaveBeenCalledWith('/clients/merge', expect.objectContaining({ keepId: 2, fieldChoices: { email: 1 } }), expect.anything());
+  w.unmount();
+});

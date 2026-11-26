@@ -40,3 +40,14 @@ it('keeps an existing linked guardian when the same contact imports a different 
  expect(d.User.create).not.toHaveBeenCalled();
  expect(d.ClientGuardian.upsertLink).not.toHaveBeenCalled();
 });
+
+it('does not attach a second guardian identity when an edited email belongs to someone else', async () => {
+  const d = deps({ id: 29, role: 'client_guardian', first_name: 'Another', last_name: 'Person' });
+  d.ClientGuardian.listForClient = vi.fn().mockResolvedValue([
+    { guardian_user_id: 20, first_name: 'Pat', last_name: 'Example', email: 'previous@example.test', relationship_type: 'guardian' },
+    { guardian_user_id: 29, first_name: 'Another', last_name: 'Person', email: profile.email, relationship_type: 'guardian' }
+  ]);
+  expect(await prepareGuardianAccount({ client, profile, reviewLinkedGuardians: true }, d)).toMatchObject({ prepared: false });
+  expect(d.User.create).not.toHaveBeenCalled();
+  expect(d.ClientGuardian.upsertLink).not.toHaveBeenCalled();
+});

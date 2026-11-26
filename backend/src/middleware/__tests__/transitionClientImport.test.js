@@ -4,6 +4,11 @@ vi.mock('../../config/database.js',()=>({default:{execute:m.execute}}));
 vi.mock('../../services/transitionClientImportAccess.service.js',()=>({hasTransitionClientImportAccess:m.permission}));
 vi.mock('../../services/auditEvent.service.js',()=>({logAuditEvent:m.audit}));
 import {transitionImportOperation,transitionClientImportAccess} from '../transitionClientImport.middleware.js';
+it.each(['GET', 'POST'])('allows %s contact review only on the scoped import route', method => {
+  expect(transitionImportOperation(method, '/api/clients/42/chart-import/contacts/preview')).toEqual({ clientId: 42 });
+  expect(transitionImportOperation(method, '/api/clients/42/chart-import/contacts/export')).toBeNull();
+});
+
 beforeEach(()=>{vi.clearAllMocks();m.permission.mockResolvedValue(true);m.execute.mockResolvedValue([[{agency_id:2}]]);m.audit.mockResolvedValue({id:7});});
 const request=(overrides={})=>({method:'POST',originalUrl:'/api/clients',body:{recordsImport:true,agency_id:2},query:{},get:name=>name==='X-Agency-Id'?'2':null,user:{id:55,role:'provider_plus',sessionId:'synthetic'},...overrides});
 it('allows only nonbillable import operations and never roles, deletion, signatures, claims or prices',()=>{

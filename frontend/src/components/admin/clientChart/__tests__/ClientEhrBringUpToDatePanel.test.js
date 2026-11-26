@@ -290,3 +290,54 @@ it('restores the Billing handoff on reload and requires new review after changin
   expect(wrapper.findAll('button').find(b=>b.text()==='Complete records import').attributes('disabled')).toBeDefined();
   wrapper.unmount();
 });
+
+it('compares current and pasted guardian details before saving and leaves the portal account separate', async () => {
+  const contact = { fullName: 'Casey Example', email: 'new@example.test', phone: '303-555-0110', relationshipType: 'Parent' };
+  const preview = { token: 'review-token', needsReview: true, rows: [{
+    index: 0, incoming: contact, current: { ...contact, email: 'old@example.test', active: true },
+    defaults: { fullName: 'incoming', email: 'incoming', phone: 'incoming', relationshipType: 'incoming' },
+    profileExists: true, accountStatus: 'linked', detailsDiffer: true, isGuardian: true, missing: []
+  }] };
+  mocks.post.mockImplementation(async url => url.endsWith('/contacts/preview') ? { data: { preview } } : { data: { result: [] } });
+  const w = mount(Panel, {
+    props: { open: true, clientId: 12, agencyId: 2, initialTexts: { contacts: 'Edit\nCasey Example\nEmail\nnew@example.test\nRelationship\nParent' } },
+    global: { stubs }
+  });
+  await flushPromises();
+  await w.findAll('button').find(button => button.text() === 'Import additional contacts').trigger('click');
+  await flushPromises();
+  expect(mocks.post.mock.calls.some(([url]) => url.endsWith('/sections/contacts'))).toBe(false);
+  expect(w.text()).toContain('Guardian portal account already linked');
+  expect(w.text()).toContain('Guardian intake profile on file');
+  expect(w.get('[aria-label="Email, From TherapyNotes"]').element.checked).toBe(true);
+  await w.get('[aria-label="Email, On this chart"]').setValue(true);
+  await w.findAll('button').find(button => button.text() === 'Save chosen contact details').trigger('click');
+  await flushPromises();
+  expect(mocks.post).toHaveBeenCalledWith('/clients/12/chart-import/sections/contacts', expect.objectContaining({
+    contactReview: { token: 'review-token', choices: { 0: { email: 'current' } } }, preparePrimaryGuardian: false
+  }), expect.anything());
+  w.unmount();
+});
+
+it('lets staff retain the saved client-owned phone without copying SMS consent from a different number', async () => {
+  mocks.post.mockImplementation(async url => url.endsWith('/demographics/parse') ? { data: {
+    parsed: { fullName: 'Synthetic Client', contactPhone: '303-555-0110', textMessagesOk: true, appointmentReminderType: 'Text' },
+    currentContact: { contactPhone: '303-555-0199' }
+  } } : { data: {} });
+  const w = mount(Panel, { props: {
+    open: true, clientId: 12, agencyId: 2, initialTexts: { demographics: 'Legal Name: Synthetic Client' },
+    initialContactOwner: 'client', initialContactOwnerConfirmed: true
+  }, global: { stubs } });
+  await flushPromises();
+  await w.findAll('button').find(button => button.text() === 'Import patient info').trigger('click');
+  await flushPromises();
+  expect(mocks.post.mock.calls.some(([url]) => url.endsWith('/demographics/import'))).toBe(false);
+  expect(w.get('[aria-label="Phone, From TherapyNotes"]').element.checked).toBe(true);
+  await w.get('[aria-label="Phone, On this chart"]').setValue(true);
+  await w.findAll('button').find(button => button.text() === 'Save chosen patient info').trigger('click');
+  await flushPromises();
+  expect(mocks.post).toHaveBeenCalledWith('/clients/12/demographics/import', expect.objectContaining({
+    mergeExisting: true, demographics: expect.objectContaining({ contactPhone: '', textMessagesOk: undefined, appointmentReminderType: '' })
+  }), expect.anything());
+  w.unmount();
+});
