@@ -1,68 +1,59 @@
 <template>
-  <div v-if="open" :class="embedded ? 'na-plan-embedded' : 'na-modal-backdrop'">
-    <div :class="embedded ? 'na-plan-paper' : 'na-modal na-modal--wide'" :role="embedded ? 'region' : 'dialog'" aria-labelledby="na-plan-import-title">
+  <div v-if="open" :class="inPage ? 'na-plan-embedded' : 'na-modal-backdrop'">
+    <div :class="inPage ? 'na-plan-paper' : 'na-modal na-modal--wide'" :role="inPage ? 'region' : 'dialog'" :aria-labelledby="planHeadingId">
       <header class="na-modal-head">
-        <h3 id="na-plan-import-title">
-          {{ props.mode === 'generated' ? 'Review generated treatment plan' : (isUpdaterMode ? 'Update treatment plan' : (isDraftEditor ? 'Edit treatment plan draft' : 'Review imported treatment plan')) }}
-        </h3>
+        <div>
+          <component :is="fullPage ? 'h1' : 'h3'" :id="planHeadingId">
+            {{ intakeDate ? 'Initial treatment plan' : (props.mode === 'generated' ? 'Review generated treatment plan' : (isUpdaterMode ? 'Update treatment plan' : (isDraftEditor ? 'Edit treatment plan draft' : 'Review imported treatment plan'))) }}
+          </component>
+          <p v-if="clientLabel || intakeDate" class="na-plan-client">
+            <strong v-if="clientLabel">{{ clientLabel }}</strong>
+            <span v-if="intakeDate">Intake date {{ intakeDate }}</span>
+          </p>
+        </div>
         <div class="na-plan-navigation">
           <button v-if="returnToChart" type="button" class="na-btn-outline" :disabled="saving" @click="emit('return-to-chart')">Back to client chart</button>
-          <button type="button" class="na-link-btn" :disabled="saving" @click="emit('close')">{{ embedded ? 'Back to plan' : 'Close' }}</button>
+          <button type="button" class="na-link-btn" :disabled="saving" @click="emit('close')">{{ inPage ? (intakeDate ? 'Back to My Work' : 'Back') : 'Close' }}</button>
         </div>
       </header>
 
-      <p v-if="isUpdaterMode" class="hint hint-block">
-        Review proposed changes based on signed sessions and recorded ratings. Add any changes you want Narriva to consider.
-      </p>
-      <p v-else-if="isDraftEditor" class="hint hint-block">
-        Review the diagnoses, goals, objectives and discharge criteria before preparing the plan for signature.
-      </p>
+      <nav v-if="inPage && model" class="na-plan-sections-nav" aria-label="Treatment plan sections">
+        <button v-for="section in planSections" :key="section.key" type="button" @click="jumpToSection(section.key)">
+          {{ section.label }}
+          <span v-if="issuesBySection[section.key]?.length" class="na-plan-section-count" :aria-label="`${issuesBySection[section.key].length} fields to complete`">{{ issuesBySection[section.key].length }}</span>
+        </button>
+      </nav>
+      <details v-if="isUpdaterMode || !isDraftEditor" class="na-plan-assist" :open="!model">
+        <summary>{{ isUpdaterMode ? 'Suggest revisions with Narriva' : 'Import an existing plan' }}</summary>
+        <template v-if="isUpdaterMode">
+          <label class="na-label">Changes to consider
+            <textarea v-model="providerNarrative" class="na-textarea" rows="3" placeholder="Describe changes to the goals, objectives, or care plan." />
+          </label>
+          <label class="na-label">Replacement source text (optional)
+            <textarea v-model="pasteText" class="na-textarea" rows="3" placeholder="Paste the current plan if you need to revise another version." />
+          </label>
+          <div class="na-modal-actions na-modal-actions--start">
+            <button type="button" class="na-btn-primary" :disabled="proposingUpdate || !model" @click="runUpdaterPropose">
+              {{ proposingUpdate ? 'Reviewing sessions and ratings…' : 'Suggest revisions from sessions and ratings' }}
+            </button>
+          </div>
+        </template>
+        <template v-else>
+          <label class="na-label">Paste plan text
+            <textarea v-model="pasteText" class="na-textarea" rows="5" placeholder="Paste treatment plan…" />
+          </label>
+          <div class="na-modal-actions na-modal-actions--start">
+            <button type="button" class="na-btn-outline" :disabled="parsing || !pasteText.trim()" @click="parse">
+              {{ parsing ? 'Parsing…' : 'Parse into review' }}
+            </button>
+          </div>
+        </template>
+      </details>
+      <p v-if="changeSummary" class="hint hint-block">{{ changeSummary }}</p>
+      <button v-if="hasProposedObjectiveChanges" type="button" class="na-btn-outline" @click="applyAllRenewalChanges">Apply suggested objective changes</button>
 
-      <template v-if="isUpdaterMode">
-        <label class="na-label">
-          Paste whole plan (optional rewrite source)
-          <textarea
-            v-model="pasteText"
-            class="na-textarea"
-            rows="4"
-            placeholder="Paste an entire treatment plan to rewrite — sections are not parsed here."
-          />
-        </label>
-        <label class="na-label">
-          Narrative changes you want
-          <textarea
-            v-model="providerNarrative"
-            class="na-textarea"
-            rows="3"
-            placeholder="e.g. Add anxiety goal; Goal 1 nearly accomplished; update discharge for step-down…"
-          />
-        </label>
-        <div class="na-modal-actions na-modal-actions--start">
-          <button
-            type="button"
-            class="na-btn-primary"
-            :disabled="proposingUpdate || !model"
-            @click="runUpdaterPropose"
-          >
-            {{ proposingUpdate ? 'Reviewing sessions and ratings…' : 'Suggest revisions from sessions and ratings' }}
-          </button>
-        </div>
-        <p v-if="changeSummary" class="hint hint-block">{{ changeSummary }}</p>
-        <button v-if="hasProposedObjectiveChanges" type="button" class="na-btn-outline" @click="applyAllRenewalChanges">Apply suggested objective changes</button>
-      </template>
-      <template v-else-if="!isDraftEditor">
-        <label class="na-label">
-          Paste plan text
-          <textarea v-model="pasteText" class="na-textarea" rows="5" placeholder="Paste treatment plan…" />
-        </label>
-        <div class="na-modal-actions na-modal-actions--start">
-          <button type="button" class="na-btn-outline" :disabled="parsing || !pasteText.trim()" @click="parse">
-            {{ parsing ? 'Parsing…' : 'Parse into review' }}
-          </button>
-        </div>
-      </template>
-
-      <p v-if="loadingPlan" class="muted">Loading plan…</p>
+      <p v-if="loadingPlan" class="muted" role="status">Loading plan…</p>
+      <p v-if="!model && error" class="error" role="alert">{{ error }}</p>
       <details v-if="importedSourceText" class="hint hint-block"><summary>Original imported treatment plan</summary><pre style="white-space:pre-wrap">{{ importedSourceText }}</pre></details>
 
       <template v-if="model">
@@ -73,90 +64,75 @@
           </button>
           <label class="na-check"><input v-model="includeOtherQuestions" type="checkbox" /> Include third-person rating questions</label>
           <p class="hint">Narriva starts with three goals and three 1–10 objectives. Keep at least two goals with a 1–10 objective and enter each baseline from your assessment.</p>
-          <p v-if="draftNotice" role="status">{{ draftNotice }}</p>
+          <p v-if="draftNotice || suggestingPlan" role="status">{{ suggestingPlan ? 'Preparing the treatment plan for review…' : draftNotice }}</p>
         </div>
-        <p v-if="goalsMissingDuration.length" class="na-required-callout" role="alert">Required before finalizing: choose a duration for goals {{ goalsMissingDuration.join(', ') }}. Use “Apply duration to all” below or select each highlighted duration.</p>
-        <p v-if="!embedded" class="hint">Provider and supervisor signatures are required before the plan can be shared for client approval.</p>
-        <label class="na-label">
-          Effective date
-          <input v-model="model.effectiveDate" type="date" class="na-input" />
-          <span v-if="importedDraftId || importedSourceText" class="hint">Choose the effective date for the plan being finalized. <button type="button" class="na-btn-outline" @click="model.effectiveDate=todayIsoDate()">Use today</button><button v-if="sourceEffectiveDate" type="button" class="na-btn-outline" @click="model.effectiveDate=sourceEffectiveDate">Keep source date ({{ sourceEffectiveDate }})</button></span>
-        </label>
-        <p v-if="renewalPolicy" class="hint hint-block" data-plan-review-policy>
-          Agency review interval: {{ renewalPolicy.renewAfterDays }} days.
-          <template v-if="renewalPolicy.flagEnabled">Review reminder after {{ renewalPolicy.flagAfterDays }} days.</template>
-          <template v-else>Review reminders are disabled in agency settings.</template>
-          <template v-if="renewalPolicy.renewByDate">Renewal deadline: {{ renewalPolicy.renewByDate }}.</template>
-        </p>
-        <p v-else class="hint hint-block">{{ renewalPolicyError || 'Loading agency review schedule…' }}</p>
-        <p v-if="model.sourceReviewSchedule" class="hint hint-block" data-source-review-schedule>
-          Imported text requests review after {{ model.sourceReviewSchedule.renewAfterDays }} days<span v-if="model.sourceReviewSchedule.flagAfterDays"> and a reminder after {{ model.sourceReviewSchedule.flagAfterDays }} days</span>.
-          The agency schedule above applies; importing text does not change agency settings.
-        </p>
-
-        <div class="na-import-block">
-          <div class="na-import-block-head">
-            <strong>Diagnoses (ordered)</strong>
-            <button type="button" class="na-link-btn" @click="addDiagnosis">Add</button>
-          </div>
-          <div v-for="(d, di) in model.diagnoses" :key="`dx-${di}`" class="na-import-card">
-            <div class="na-import-row">
-              <input v-model="d.icd10Code" class="na-input" placeholder="ICD-10" />
-              <input v-model="d.description" class="na-input na-input--grow" placeholder="Description" />
-              <label class="na-check">
-                <input v-model="d.isPrimary" type="checkbox" @change="setPrimary(di)" />
-                Primary
-              </label>
-              <button type="button" class="na-link-btn" :disabled="di === 0" @click="moveDx(di, -1)">↑</button>
-              <button type="button" class="na-link-btn" :disabled="di >= model.diagnoses.length - 1" @click="moveDx(di, 1)">↓</button>
-              <button type="button" class="na-link-btn" @click="model.diagnoses.splice(di, 1)">Remove</button>
-            </div>
-          </div>
-          <label class="na-label" style="margin-top: 8px;">
-            Diagnostic justification
-            <span class="hint hint-inline">One narrative covering all diagnoses above</span>
-            <textarea
-              v-model="model.diagnosticJustification"
-              class="na-textarea"
-              rows="5"
-              placeholder="Describe how the presentation supports the diagnosis list…"
-            />
+        <section class="na-plan-section" :id="sectionId('overview')" tabindex="-1">
+          <h2>Plan overview</h2>
+          <p class="hint hint-block">The provider and supervisor sign the plan before it goes to the client for approval.</p>
+          <label class="na-label">
+            Effective date
+            <input v-model="model.effectiveDate" type="date" class="na-input" :aria-invalid="!model.effectiveDate" required />
+            <span v-if="!model.effectiveDate" class="na-field-error">Choose an effective date.</span>
+            <span v-if="importedDraftId || importedSourceText" class="hint">Choose the effective date for the plan being finalized. <button type="button" class="na-btn-outline" @click="model.effectiveDate=todayIsoDate()">Use today</button><button v-if="sourceEffectiveDate" type="button" class="na-btn-outline" @click="model.effectiveDate=sourceEffectiveDate">Keep source date ({{ sourceEffectiveDate }})</button></span>
           </label>
-        </div>
+          <p v-if="renewalPolicy" class="hint hint-block" data-plan-review-policy>
+            Agency review interval: {{ renewalPolicy.renewAfterDays }} days.
+            <template v-if="renewalPolicy.flagEnabled">Review reminder after {{ renewalPolicy.flagAfterDays }} days.</template>
+            <template v-else>Review reminders are disabled in agency settings.</template>
+            <template v-if="renewalPolicy.renewByDate">Renewal deadline: {{ renewalPolicy.renewByDate }}.</template>
+          </p>
+          <p v-else class="hint hint-block">{{ renewalPolicyError || 'Loading agency review schedule…' }}</p>
+          <p v-if="model.sourceReviewSchedule" class="hint hint-block" data-source-review-schedule>
+            Imported text requests review after {{ model.sourceReviewSchedule.renewAfterDays }} days<span v-if="model.sourceReviewSchedule.flagAfterDays"> and a reminder after {{ model.sourceReviewSchedule.flagAfterDays }} days</span>.
+            The agency schedule above applies; importing text does not change agency settings.
+          </p>
 
-        <label class="na-label">
-          Presenting problem
-          <textarea v-model="model.presentingProblem" class="na-textarea" rows="4" />
-        </label>
+          <label class="na-label">
+            Presenting problem
+            <textarea v-model="model.presentingProblem" class="na-textarea na-reading-text" rows="4" />
+          </label>
+        </section>
 
-        <NoteAidFrequencySelect v-model="model.prescribedFrequency" :agency-id="agencyId" />
-
-        <label class="na-label">
-          Discharge criteria / planning
-          <textarea
-            v-model="model.dischargePlan"
-            class="na-textarea"
-            rows="4"
-            :class="{ 'na-textarea--warn': !String(model.dischargePlan || '').trim() }"
-            placeholder="Required — criteria for step-down / discharge"
+        <section class="na-plan-section" :id="sectionId('diagnoses')" tabindex="-1">
+          <h2>Diagnoses</h2>
+          <ClinicalDiagnosisSearch
+            v-model="diagnosisQuery"
+            :agency-id="agencyId"
+            :date-of-service="model.effectiveDate"
+            :filter-results="isNewDiagnosis"
+            label="Add diagnosis"
+            @select="addChartDiagnosis"
           />
-        </label>
-        <div v-if="!String(model.dischargePlan || '').trim()" class="na-rewrite-banner">
-          <span>Discharge criteria / planning is required and is currently blank.</span>
-          <button
-            type="button"
-            class="na-btn-outline na-btn-outline--sm"
-            :disabled="suggestingDischarge"
-            @click="suggestDischarge"
-          >
-            {{ suggestingDischarge ? 'Suggesting…' : 'Suggest discharge criteria (AI)' }}
-          </button>
-        </div>
+          <p v-if="!model.diagnoses.length" class="hint hint-block">No diagnosis is included in this plan.</p>
+          <article v-for="(d, di) in model.diagnoses" :key="d.icd10Code" class="na-plan-diagnosis">
+            <div class="na-plan-diagnosis-row">
+              <div class="na-plan-diagnosis-title">
+                <code>{{ d.icd10Code }}</code> <strong>{{ d.description || 'Diagnosis' }}</strong>
+                <span v-if="d.isPrimary" class="na-plan-primary">Primary</span>
+              </div>
+              <div class="na-plan-diagnosis-actions">
+                <button v-if="!d.isPrimary" type="button" class="na-link-btn" @click="setPrimary(di)">Make primary</button>
+                <button v-if="di > 1" type="button" class="na-link-btn" :aria-label="`Move ${d.icd10Code} up`" @click="moveDx(di, -1)">↑</button>
+                <button v-if="di > 0 && di < model.diagnoses.length - 1" type="button" class="na-link-btn" :aria-label="`Move ${d.icd10Code} down`" @click="moveDx(di, 1)">↓</button>
+                <button type="button" class="na-link-btn na-btn-danger" :aria-label="`Remove ${d.icd10Code}`" @click="removeDiagnosis(di)">Remove</button>
+              </div>
+            </div>
+            <label class="na-label">
+              Clinical justification for {{ d.icd10Code }}
+              <textarea v-model="d.justification" class="na-textarea na-reading-text" rows="3" :required="inPage" :aria-invalid="inPage && !d.justification.trim()" />
+              <span v-if="inPage && !d.justification.trim()" class="na-field-error">Add the findings that support this diagnosis.</span>
+            </label>
+          </article>
+          <details v-if="model.legacyDiagnosisNarrative" class="na-plan-assist">
+            <summary>Original diagnostic narrative</summary>
+            <p class="na-clinical-text">{{ model.legacyDiagnosisNarrative }}</p>
+          </details>
+        </section>
 
-        <div class="na-import-block">
+        <section class="na-plan-section" :id="sectionId('goals')" tabindex="-1">
           <div class="na-import-block-head">
             <div>
-              <strong>Goals &amp; objectives</strong>
+              <h2>Goals, objectives and interventions</h2>
               <p class="hint hint-block">Set a target date for each objective. Link interventions under the objective they support.</p>
             </div>
             <div class="na-import-block-actions">
@@ -180,10 +156,14 @@
             <p class="hint">Based on {{ suggestion.evidence?.length || 0 }} recent signed sessions. Review clinical fit and supply the baseline, target, and timeframe.</p>
             <button type="button" class="na-btn-outline" @click="addSuggestedFocus(suggestion, index)">Add for review</button>
           </div>
-          <div v-for="(g, gi) in model.goals" :key="`g-${gi}`" class="na-import-card na-import-card--goal">
+          <div v-for="(g, gi) in model.goals" :key="g.editorKey" class="na-import-card na-import-card--goal">
+            <div class="na-plan-goal-heading">
+              <h3>Goal {{ gi + 1 }}</h3>
+              <button type="button" class="na-link-btn na-btn-danger" @click="model.goals.splice(gi, 1)">Remove goal</button>
+            </div>
             <label class="na-label">
-              Goal {{ gi + 1 }}
-              <textarea v-model="g.goalText" class="na-textarea na-textarea--goal" rows="3" placeholder="Goal text" :aria-invalid="attemptedFinalize && !g.goalText.trim()" @input="g.reviewed=false" />
+              Goal statement
+              <textarea v-model="g.goalText" class="na-textarea na-textarea--goal" rows="3" placeholder="Goal text" :aria-invalid="!g.goalText.trim()" required @input="g.reviewed=false" />
             </label>
 
 
@@ -195,57 +175,66 @@
                   <option v-for="m in durationPresets" :key="`g-${gi}-d-${m}`" :value="m">{{ durationLabel(m) }}</option>
                 </select>
               </label>
-              <strong v-if="goalsMissingDuration.includes(gi+1)" class="na-required-text">Duration required</strong>
+              <strong v-if="goalsMissingDuration.includes(gi+1)" class="na-required-text">Choose a duration</strong>
               <span v-if="g.durationMonths" class="na-duration-preview">
                 Target date: {{ formatDurationPreview(g.durationMonths, model.effectiveDate) }}
               </span>
               <span v-else-if="g.parsedDateHint" class="na-duration-hint muted tiny">
                 Paste had date {{ g.parsedDateHint }} — pick a duration instead
               </span>
-              <button type="button" class="na-link-btn" @click="model.goals.splice(gi, 1)">Remove goal</button>
             </div>
 
-            <div v-for="(o, oi) in g.objectives" :key="`o-${gi}-${oi}`" class="na-import-obj">
+            <p v-if="!g.objectives.length" class="na-field-error">Add at least one objective to this goal.</p>
+            <div v-for="(o, oi) in g.objectives" :key="o.editorKey" class="na-import-obj">
+              <h4>Objective {{ gi + 1 }}.{{ oi + 1 }}</h4>
               <label class="na-label">
-                O{{ gi + 1 }}.{{ oi + 1 }}
+                Objective statement
                 <textarea
                   v-model="o.objectiveText"
                   class="na-textarea na-textarea--objective"
                   rows="4"
-                  placeholder="Objective"
+                  placeholder="Describe the measurable action or change"
+                  :aria-invalid="!o.objectiveText.trim()" required
                   @blur="reparseObjectiveScales(o)" @input="o.reviewed=false"
                 />
               </label>
 
               <div v-if="planAuthoring" class="na-objective-controls">
                 <label class="na-label">Objective target date
-                  <input v-model="o.projectedCompletion" class="na-input" type="date" @input="o.reviewed=false" />
+                  <input v-model="o.projectedCompletion" class="na-input" type="date" :min="model.effectiveDate" :aria-invalid="invalidObjectiveDate(o, g)" required @input="o.reviewed=false" />
+                  <span v-if="invalidObjectiveDate(o, g)" class="na-field-error">Enter a date on or after the plan’s effective date.</span>
                 </label>
                 <label class="na-check"><input v-model="o.skipScale" type="checkbox" @change="o.reviewed=false" /> Use an alternate measure for this objective</label>
                 <label v-if="o.skipScale" class="na-label">Alternate measure and reason
-                  <input v-model="o.scaleExemption" class="na-input" maxlength="230" @input="o.reviewed=false" />
+                  <input v-model="o.scaleExemption" class="na-input" maxlength="230" :aria-invalid="!o.scaleExemption.trim()" required @input="o.reviewed=false" />
+                  <span v-if="!o.scaleExemption.trim()" class="na-field-error">Describe the alternate measure and why it is used.</span>
                 </label>
               </div>
               <div v-if="!o.skipScale" class="na-import-scale">
                 <label class="na-label na-label--scale">
                   Baseline (1–10)
-                  <input v-model.number="o.scaleCurrent" class="na-input na-input--scale" :aria-invalid="!scoreEntered(o.scaleCurrent)" type="number" min="1" max="10" @input="o.scaleEdited = true; onScaleEdit(o)" />
+                  <input v-model.number="o.scaleCurrent" class="na-input na-input--scale" :aria-invalid="!scoreEntered(o.scaleCurrent)" required type="number" min="1" max="10" @input="o.scaleEdited = true; onScaleEdit(o)" />
                   <span v-if="!scoreEntered(o.scaleCurrent)" class="na-field-error">Baseline required</span>
                 </label>
                 <span class="na-scale-arrow" aria-hidden="true">→</span>
                 <label class="na-label na-label--scale">
                   Target (1–10)
-                  <input v-model.number="o.scaleTarget" class="na-input na-input--scale" type="number" min="1" max="10" @input="o.scaleEdited = true; onScaleEdit(o)" />
+                  <input v-model.number="o.scaleTarget" class="na-input na-input--scale" :aria-invalid="invalidTarget(o)" required type="number" min="1" max="10" @input="o.scaleEdited = true; onScaleEdit(o)" />
+                  <span v-if="invalidTarget(o)" class="na-field-error">Use a target different from the baseline.</span>
                 </label>
-                <select v-model="o.scaleDirection" class="na-input na-input--direction" @change="onScaleEdit(o)">
-                  <option :value="null">Direction</option>
-                  <option value="increase">Increase</option>
-                  <option value="decrease">Decrease</option>
-                </select>
+                <label class="na-label na-label--scale">Direction
+                  <select v-model="o.scaleDirection" class="na-input na-input--direction" @change="onScaleEdit(o)">
+                    <option :value="null">Select direction</option>
+                    <option value="increase">Increase</option>
+                    <option value="decrease">Decrease</option>
+                  </select>
+                </label>
               </div>
               <div v-if="planAuthoring && !o.skipScale" class="na-objective-questions">
                 <label class="na-label">Client rating question
-                  <textarea v-model="o.kioskPrompt" class="na-textarea" rows="2" maxlength="500" @input="o.reviewed=false" />
+                  <span class="hint hint-inline">This is what the client sees when rating this objective at check-in. Keep the question and the 1–10 anchors consistent so the client can compare progress over time.</span>
+                  <textarea v-model="o.kioskPrompt" class="na-textarea" rows="2" maxlength="500" :aria-invalid="!o.kioskPrompt.trim()" required @input="o.reviewed=false" />
+                  <span v-if="!o.kioskPrompt.trim()" class="na-field-error">Enter the question shown to the client.</span>
                 </label>
                 <label v-if="includeOtherQuestions" class="na-label">Third-person rating question (optional)
                   <textarea v-model="o.kioskPromptOther" class="na-textarea" rows="2" maxlength="500" @input="o.reviewed=false" />
@@ -324,11 +313,43 @@
 
               <p v-if="o.lastRewriteNote" class="na-rewrite-applied muted tiny">{{ o.lastRewriteNote }}</p>
             </div>
-            <button type="button" class="na-link-btn" @click="addObjective(gi)">Add objective</button>
+            <button type="button" class="na-btn-outline na-btn-outline--sm" @click="addObjective(gi)">Add objective</button>
           </div>
-        </div>
+        </section>
 
-        <div v-if="isDraftEditor" class="na-revision-block">
+        <section class="na-plan-section" :id="sectionId('care')" tabindex="-1">
+          <h2>Frequency and discharge</h2>
+          <NoteAidFrequencySelect v-model="model.prescribedFrequency" :agency-id="agencyId" />
+
+          <label class="na-label">
+            Discharge criteria and planning
+            <textarea
+              v-model="model.dischargePlan"
+              class="na-textarea"
+              rows="4"
+              :aria-invalid="!model.dischargePlan.trim()"
+              required
+              placeholder="Required — criteria for step-down / discharge"
+            />
+          </label>
+          <div v-if="!String(model.dischargePlan || '').trim()" class="na-rewrite-banner">
+            <span class="na-field-error">Enter discharge criteria.</span>
+            <button
+              type="button"
+              class="na-btn-outline na-btn-outline--sm"
+              :disabled="suggestingDischarge"
+              @click="suggestDischarge"
+            >
+              {{ suggestingDischarge ? 'Suggesting…' : 'Suggest discharge criteria (AI)' }}
+            </button>
+          </div>
+
+        </section>
+
+        <section class="na-plan-section" :id="sectionId('review')" tabindex="-1">
+          <h2>Review and save</h2>
+        <details v-if="isDraftEditor" class="na-revision-block">
+          <summary>Revise with Narriva</summary>
           <label class="na-label" for="na-plan-addendum">
             Additional information / revision instructions
           </label>
@@ -347,11 +368,15 @@
           >
             {{ regenerating ? 'Regenerating…' : 'Apply revisions with Narriva' }}
           </button>
-        </div>
+        </details>
 
         <div v-if="attemptedFinalize && finalizationIssues.length" ref="finalizationAlert" class="error" role="alert" tabindex="-1">
           <strong>Complete these items before signing</strong>
-          <ul><li v-for="issue in finalizationIssues" :key="issue">{{ issue }}</li></ul>
+          <ul>
+            <li v-for="issue in finalizationIssues" :key="issue.message">
+              <button type="button" class="na-link-btn" @click="jumpToSection(issue.section)">{{ issue.message }}</button>
+            </li>
+          </ul>
         </div>
         <p v-if="error" class="error" role="alert">{{ error }}</p>
         <label v-if="aiContentUsed" class="na-sign-check" :class="{ 'na-sign-check--reviewed': attestAiReviewed }">
@@ -380,7 +405,7 @@
               :disabled="saving || suggestingPlan || !!rewriteKey"
               @click="save({ finalize: true })"
             >
-              {{ finalizing ? 'Finalizing…' : (embedded ? 'Prepare for signature' : isUpdaterMode ? 'Prepare updated plan for signature' : 'Finalize treatment plan') }}
+              {{ finalizing ? 'Preparing…' : (inPage ? 'Prepare for signature' : isUpdaterMode ? 'Prepare updated plan for signature' : 'Finalize treatment plan') }}
             </button>
           </template>
           <button
@@ -393,18 +418,21 @@
             {{ saving ? 'Saving…' : 'Confirm &amp; save to chart' }}
           </button>
         </div>
+        </section>
       </template>
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed, nextTick, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, reactive, ref, useId, watch } from 'vue';
 import api from '../../services/api';
 import { NARRIVA_BRAND } from '../../config/narrivaBrand.js';
 import { todayCalendarDate } from '../../utils/formatDate.js';
 import NoteAidInterventionPicker from './NoteAidInterventionPicker.vue';
 import NoteAidFrequencySelect from './NoteAidFrequencySelect.vue';
+import ClinicalDiagnosisSearch from './ClinicalDiagnosisSearch.vue';
+import { intakeDiagnoses } from '../../utils/noteAidIntakeIntegration.js';
 import { CLINICAL_INTERVENTION_SEED } from '../../config/clinicalInterventionSeed.js';
 import {
   DURATION_PRESETS,
@@ -421,6 +449,9 @@ import {
 const props = defineProps({
   open: { type: Boolean, default: false },
   embedded: Boolean,
+  fullPage: Boolean,
+  clientLabel: String,
+  intakeDate: String,
   returnToChart: Boolean,
   agencyId: { type: [Number, String], required: true },
   clientId: { type: [Number, String], required: true },
@@ -436,6 +467,23 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'saved', 'draft-updated', 'return-to-chart']);
 
+const inPage = computed(() => props.fullPage || props.embedded);
+const planHeadingId = `treatment-plan-${useId()}`;
+const planSections = [
+  { key: 'overview', label: 'Overview' },
+  { key: 'diagnoses', label: 'Diagnoses' },
+  { key: 'goals', label: 'Goals' },
+  { key: 'care', label: 'Frequency and discharge' },
+  { key: 'review', label: 'Review and save' }
+];
+const sectionId = section => `${planHeadingId}-${section}`;
+function jumpToSection(section) {
+  const target = document.getElementById(sectionId(section));
+  target?.focus({ preventScroll: true });
+  target?.scrollIntoView?.({ block: 'start' });
+}
+let editorKey = 0;
+const diagnosisQuery = ref('');
 const pasteText = ref('');
 const providerNarrative = ref('');
 const changeSummary = ref('');
@@ -469,12 +517,18 @@ const usesChartDraft = ref(false);
 const attemptedFinalize = ref(false);
 const finalizationAlert = ref(null);
 const scoreEntered = value => Number.isInteger(Number(value)) && Number(value) >= 1 && Number(value) <= 10;
+const invalidTarget = objective => !scoreEntered(objective.scaleTarget) || Number(objective.scaleCurrent) === Number(objective.scaleTarget);
+function invalidObjectiveDate(objective, goal) {
+  const date = objective.projectedCompletion || goal.projectedCompletion;
+  return !date || date < model.value.effectiveDate;
+}
 const objectiveNeedsNarrivaRewrite = objective => !objective.skipScale &&
   !(scoreEntered(objective.scaleTarget) && String(objective.kioskPrompt || '').trim());
 const planAuthoring = computed(() => props.embedded || usesChartDraft.value || isUpdaterMode.value || !!props.sourceIntakeNoteId);
 const hasProposedObjectiveChanges = computed(() => model.value?.goals.some(goal => goal.objectives.some(o =>
   o.renewalRecommendation && (o.suggestedObjective || o.suggestedInterventions.length))));
 let editScope = 0;
+onBeforeUnmount(() => { editScope += 1; });
 const attestAiReviewed = ref(false);
 const renewalPolicy = ref(null), renewalPolicyError = ref('');
 let renewalPolicyRequest = 0;
@@ -592,6 +646,7 @@ function mapGoal(g, effectiveDate, { deriveScores = true } = {}) {
   const restoredMonths=effectiveDate && /^\d{4}-\d{2}-\d{2}$/.test(stored) ? DURATION_PRESETS.find(months=>completionDateFromDurationMonths(months,effectiveDate)===stored) : null;
   const months = g.durationMonths != null ? Number(g.durationMonths) : restoredMonths || null;
   return {
+    editorKey: ++editorKey,
     id: g.id, status: g.status, superseded_at: g.superseded_at, reviewed: g.reviewed === true,
     goalText: g.goalText || g.goal_text || '',
     durationMonths: Number.isFinite(months) && months > 0 ? months : null,
@@ -612,6 +667,7 @@ function mapGoal(g, effectiveDate, { deriveScores = true } = {}) {
         || o.scale_direction
         || inferScaleDirection(scaleCurrent, scaleTarget);
       return {
+        editorKey: ++editorKey,
         id: o.id, status: o.status, superseded_at: o.superseded_at, scaleEdited: !deriveScores,
         reviewed: o.reviewed === true,
         projectedCompletion: String(o.projectedCompletion || o.projected_completion || (usesChartDraft.value ? stored : '')).slice(0,10),
@@ -648,16 +704,12 @@ function applyPlanRecord(plan) {
   sourceEffectiveDate.value=(plan.effective_date||plan.effectiveDate||'').toString().slice(0,10);
   importedSourceText.value = plan.recordsImportSource?.text || '';
   const sourceParsed = plan.recordsImportSource?.parsed || {};
-  const sourceDiagnoses = plan.diagnoses?.length ? plan.diagnoses : sourceParsed.diagnoses || [];
+  const sourceDiagnoses = sourceParsed.diagnoses?.length ? sourceParsed.diagnoses : plan.diagnoses || [];
   loadedPlanId.value = plan.id || null;
   usesChartDraft.value = !isUpdaterMode.value && (props.embedded || !!(plan.status === 'draft' && (plan.chartDraft || props.sourceIntakeNoteId) && !plan.providerApproved));
   importedDraftId.value = plan.status === 'draft' && (String(plan.source_tool_id || '').startsWith('client_records_import:') || plan.source_tool_id === 'client_creation_record_import') ? plan.id : null;
-  const dxFromLinks = (plan.planDiagnoses || plan.plan_diagnoses || []).map((d, i) => ({
-    icd10Code: d.icd10_code || d.icd10Code || '',
-    description: d.description || '',
-    justification: d.justification || '',
-    isPrimary: Number(d.is_primary) === 1 || i === 0
-  }));
+  const linkedDiagnoses = plan.planDiagnoses || plan.plan_diagnoses || [];
+  const sharedJustification = plan.diagnostic_justification || plan.diagnosticJustification || sourceParsed.diagnosticJustification || '';
   const discharge = String(plan.discharge_plan || plan.dischargePlan || '');
   const presentMatch = discharge.match(/Presenting Problem\n([\s\S]*?)(?=\n\n(?:Prescribed Frequency|Discharge Criteria)|$)/i);
   const freqMatch = discharge.match(/Prescribed Frequency(?: of Treatment)?\n([\s\S]*?)(?=\n\nDischarge Criteria|$)/i);
@@ -671,47 +723,84 @@ function applyPlanRecord(plan) {
       || plan.dischargePlan
       || (!presentMatch && !freqMatch ? discharge : '')
       || '',
-    diagnosticJustification: String(plan.diagnostic_justification || plan.diagnosticJustification || '').trim(),
-    diagnoses: dxFromLinks.length
-      ? dxFromLinks
-      : (sourceDiagnoses.length
-        ? sourceDiagnoses.map((d, i) => ({
-          icd10Code: d.icd10Code || d.icd10_code || '',
-          description: d.description || '',
-          justification: d.justification || '',
-          isPrimary: !!(d.isPrimary ?? d.is_primary) || i === 0
-        }))
-        : [{ icd10Code: '', description: '', isPrimary: true }]),
+    ...planDiagnosisFields(linkedDiagnoses.length ? linkedDiagnoses : sourceDiagnoses, sharedJustification, { imported: !linkedDiagnoses.length && !!plan.recordsImportSource }),
     goals: (plan.goals || []).map((g) => mapGoal(g, (plan.effective_date || plan.effectiveDate || '').toString().slice(0,10)))
   });
   draftRevision.value = Number(plan.chartDraft?.revision) || 0;
   const working = plan.chartDraft?.value;
   if (working && plan.status === 'draft') {
-    model.value=reactive({...model.value,...working,goals:working.goals.map(g=>mapGoal(g,working.effectiveDate,{ deriveScores:false }))});
+    const diagnosisFields = planDiagnosisFields(working.diagnoses, working.diagnosticJustification);
+    model.value = reactive({
+      ...model.value,
+      ...working,
+      ...diagnosisFields,
+      legacyDiagnosisNarrative: working.legacyDiagnosisNarrative || diagnosisFields.legacyDiagnosisNarrative || model.value.legacyDiagnosisNarrative,
+      goals: working.goals.map(g => mapGoal(g, working.effectiveDate, { deriveScores: false }))
+    });
   }
   if (plan.chartDraft?.value) includeOtherQuestions.value = model.value.goals.some(goal => goal.objectives.some(o=>o.kioskPromptOther));
   if (!model.value.goals.length) addGoal();
 }
 
+function planDiagnosisFields(rows = [], shared = '', { imported = false } = {}) {
+  const codes = new Map();
+  const narrative = String(shared || '').trim();
+  for (const row of rows || []) {
+    const code = String(row?.icd10Code || row?.icd10_code || row?.code || '').trim().toUpperCase();
+    if (!code || codes.has(code)) continue;
+    codes.set(code, {
+      icd10Code: code,
+      description: row.description || '',
+      justification: String(row.justification || '').trim(),
+      isPrimary: Number(row.isPrimary ?? row.is_primary) === 1
+    });
+  }
+  const diagnoses = [...codes.values()];
+  const tagged = /(?:^|\n)\s*(?:\d+[.)]\s*)?[A-TV-Z]\d[\dA-Z](?:\.[A-Z0-9]{1,4})?\s*[:–—-]/i.test(narrative);
+  const byCode = new Map(tagged ? intakeDiagnoses({ Diagnosis: diagnoses.map(row => row.icd10Code).join('\n'), 'Diagnostic Justification': narrative })
+    .map(row => [row.icd10_code, row.justification]) : []);
+  for (const row of diagnoses) {
+    const codeSpecific = byCode.get(row.icd10Code);
+    if (codeSpecific && codeSpecific !== narrative && (!row.justification || row.justification === narrative)) row.justification = codeSpecific;
+    if (diagnoses.length === 1 && !row.justification && !tagged) row.justification = narrative;
+    if (imported && diagnoses.length > 1 && row.justification === narrative) row.justification = '';
+  }
+  const primary = diagnoses.findIndex(row => row.isPrimary);
+  if (primary > 0) diagnoses.unshift(...diagnoses.splice(primary, 1));
+  diagnoses.forEach((row, index) => { row.isPrimary = index === 0; });
+  return { diagnoses, legacyDiagnosisNarrative: narrative && !tagged && !diagnoses.some(row => row.justification === narrative) ? narrative : '' };
+}
+
+function primaryJustification() {
+  return model.value?.diagnoses[0]?.justification.trim() || '';
+}
+
 function setPrimary(index) {
-  (model.value?.diagnoses || []).forEach((d, i) => {
-    d.isPrimary = i === index;
-  });
+  const rows = model.value.diagnoses;
+  rows.unshift(...rows.splice(index, 1));
+  rows.forEach((row, i) => { row.isPrimary = i === 0; });
 }
-
 function moveDx(index, delta) {
-  const arr = model.value.diagnoses;
+  const rows = model.value.diagnoses;
   const next = index + delta;
-  if (next < 0 || next >= arr.length) return;
-  const [item] = arr.splice(index, 1);
-  arr.splice(next, 0, item);
+  if (next < 1 || next >= rows.length) return;
+  const [item] = rows.splice(index, 1);
+  rows.splice(next, 0, item);
 }
-
-function addDiagnosis() {
-  if (!model.value) return;
+function removeDiagnosis(index) {
+  model.value.diagnoses.splice(index, 1);
+  if (model.value.diagnoses.length) setPrimary(0);
+}
+function isNewDiagnosis(row) {
+  return !model.value?.diagnoses.some(d => d.icd10Code === row.code);
+}
+function addChartDiagnosis(diagnosis) {
+  diagnosisQuery.value = '';
+  if (!model.value || !isNewDiagnosis(diagnosis)) return;
   model.value.diagnoses.push({
-    icd10Code: '',
-    description: '',
+    icd10Code: diagnosis.code,
+    description: diagnosis.description,
+    justification: '',
     isPrimary: model.value.diagnoses.length === 0
   });
 }
@@ -719,6 +808,7 @@ function addDiagnosis() {
 function addGoal() {
   if (!model.value) return;
   model.value.goals.push({
+    editorKey: ++editorKey,
     goalText: '',
     durationMonths: null,
     durationLabel: null,
@@ -730,6 +820,7 @@ function addGoal() {
 
 function addObjective(gi) {
   model.value.goals[gi].objectives.push({
+    editorKey: ++editorKey,
     objectiveText: '',
     scaleCurrent: null,
     scaleTarget: null,
@@ -805,7 +896,8 @@ async function suggestRewrite(gi, oi, { withParams = false } = {}) {
 
 function draftPayload(goals = model.value.goals) {
   return {
-    ...Object.fromEntries(['effectiveDate','presentingProblem','prescribedFrequency','dischargePlan','diagnosticJustification','diagnoses'].map(field=>[field,model.value[field]])),
+    ...Object.fromEntries(['effectiveDate','presentingProblem','prescribedFrequency','dischargePlan','diagnoses','legacyDiagnosisNarrative'].map(field=>[field,model.value[field]])),
+    diagnosticJustification: primaryJustification(),
     goals: goals.map(goal=>({
       goalText:goal.goalText, durationMonths:goal.durationMonths, projectedCompletion:goal.projectedCompletion, reviewed:goal.reviewed,
       objectives:goal.objectives.map(o=>({
@@ -947,27 +1039,18 @@ async function parseText(text) {
       { skipGlobalLoading: true }
     );
     const parsed = res?.data?.parsed || {};
-    const dxList = parsed.diagnoses || [];
-    const sharedJust = String(parsed.diagnosticJustification || '').trim()
-      || dxList.map((d) => String(d.justification || '').trim()).find(Boolean)
-      || '';
+    const diagnoses = parsed.diagnoses?.map((row, index) => ({ ...row, isPrimary: index === (parsed.primaryDiagnosisIndex || 0) })) || [];
+    const diagnosisFields = diagnoses.length ? planDiagnosisFields(diagnoses, parsed.diagnosticJustification, { imported: true }) :
+      { diagnoses: model.value?.diagnoses || [], legacyDiagnosisNarrative: parsed.diagnosticJustification || model.value?.legacyDiagnosisNarrative || '' };
     model.value = reactive({
       effectiveDate: parsed.effectiveDate || model.value?.effectiveDate || todayIsoDate(),
       sourceReviewSchedule: parsed.sourceReviewSchedule || null,
       presentingProblem: parsed.presentingProblem || model.value?.presentingProblem || '',
       prescribedFrequency: parsed.prescribedFrequency || model.value?.prescribedFrequency || '',
       dischargePlan: parsed.dischargePlan || model.value?.dischargePlan || '',
-      diagnosticJustification: sharedJust || model.value?.diagnosticJustification || '',
-      diagnoses: dxList.length
-        ? dxList.map((d, i) => ({
-          icd10Code: d.icd10Code || '',
-          description: d.description || '',
-          isPrimary: i === (parsed.primaryDiagnosisIndex || 0)
-        }))
-        : (model.value?.diagnoses || [{ icd10Code: '', description: '', isPrimary: true }]),
+      ...diagnosisFields,
       goals: (parsed.goals || []).map(g => mapGoal(g, parsed.effectiveDate || model.value?.effectiveDate || todayIsoDate()))
     });
-    if (!model.value.diagnoses.length) addDiagnosis();
     if (!model.value.goals.length) addGoal();
     if (!String(model.value.effectiveDate || '').trim()) {
       model.value.effectiveDate = todayIsoDate();
@@ -1018,7 +1101,7 @@ async function runUpdaterPropose() {
           presentingProblem: model.value.presentingProblem,
           prescribedFrequency: model.value.prescribedFrequency,
           dischargePlan: model.value.dischargePlan,
-          diagnosticJustification: model.value.diagnosticJustification,
+          diagnosticJustification: primaryJustification(),
           diagnoses: model.value.diagnoses,
           goals: model.value.goals,
           effectiveDate: model.value.effectiveDate
@@ -1040,7 +1123,10 @@ async function runUpdaterPropose() {
     if (scope !== editScope) return;
     const proposed = res?.data?.proposed;
     if (!proposed) throw new Error('No update proposal returned');
-    applyPlanRecord(proposed);
+    const diagnoses = model.value.diagnoses;
+    const legacyDiagnosisNarrative = model.value.legacyDiagnosisNarrative;
+    applyPlanRecord({ ...proposed, planDiagnoses: diagnoses, diagnostic_justification: primaryJustification() });
+    model.value.legacyDiagnosisNarrative = legacyDiagnosisNarrative;
     sourceEffectiveDate.value = existingSourceDate;
     changeSummary.value = String(res?.data?.changeSummary || '').trim();
     if (res?.data?.aiUsed) {
@@ -1073,6 +1159,7 @@ async function loadPlan() {
   }
   const pid = Number(props.planId || props.initialPlan?.id || 0);
   if (!pid) return;
+  const scope = editScope;
   loadingPlan.value = true;
   error.value = '';
   try {
@@ -1083,11 +1170,11 @@ async function loadPlan() {
       },
       skipGlobalLoading: true
     });
-    applyPlanRecord(res?.data?.plan);
+    if (scope === editScope) applyPlanRecord(res?.data?.plan);
   } catch (e) {
-    error.value = e.response?.data?.error?.message || e.message || 'Could not load treatment plan';
+    if (scope === editScope) error.value = e.response?.data?.error?.message || e.message || 'Could not load treatment plan';
   } finally {
-    loadingPlan.value = false;
+    if (scope === editScope) loadingPlan.value = false;
   }
 }
 
@@ -1103,6 +1190,7 @@ watch(
     importedSourceText.value = '';
     error.value = '';
     addendum.value = '';
+    diagnosisQuery.value = '';
     attemptedFinalize.value = false;
     bulkDurationMonths.value = 0;
     rewriteKey.value = '';
@@ -1117,7 +1205,9 @@ watch(
     aiContentUsed.value = !!props.initialPlan?.aiGenerated;
     attestAiReviewed.value = false;
     if (isUpdaterMode.value || isDraftEditor.value) {
+      const scope = editScope;
       void loadPlan().then(() => {
+        if (scope !== editScope) return;
         if (props.sourceIntakeNoteId && !props.planId && !props.initialPlan?.goals?.some(goal => goal.goalText?.trim())) {
           void runNarrivaPlan();
         }
@@ -1137,34 +1227,41 @@ const finalizationIssues = computed(() => {
   if (!model.value) return [];
   const draft = draftPayload();
   const issues = [];
-  if (!draft.goals.length) issues.push('Add a treatment goal.');
+  const add = (section, message) => issues.push({ section, message });
+  if (!draft.effectiveDate) add('overview', 'Choose an effective date.');
+  if (inPage.value) for (const diagnosis of draft.diagnoses) {
+    if (!diagnosis.justification.trim()) add('diagnoses', `Enter clinical justification for ${diagnosis.icd10Code}.`);
+  }
+  if (!draft.goals.length) add('goals', 'Add a treatment goal.');
   for (const [gi, goal] of draft.goals.entries()) {
-    if (!goal.goalText.trim()) issues.push(`Enter the title for goal ${gi+1}.`);
-    if (!goal.objectives.length) issues.push(`Add an objective to goal ${gi+1}.`);
+    if (!goal.goalText.trim()) add('goals', `Enter the title for goal ${gi+1}.`);
+    if (!goal.objectives.length) add('goals', `Add an objective to goal ${gi+1}.`);
     for (const [oi, objective] of goal.objectives.entries()) {
       const label = `Objective ${gi+1}.${oi+1}`;
-      if (!objective.objectiveText.trim()) issues.push(`${label} needs text.`);
-      if (planAuthoring.value && (!objective.projectedCompletion || objective.projectedCompletion < draft.effectiveDate)) {
-        issues.push(`${label} needs a target date on or after the effective date.`);
+      if (!objective.objectiveText.trim()) add('goals', `${label} needs text.`);
+      if (planAuthoring.value && invalidObjectiveDate(objective, goal)) {
+        add('goals', `${label} needs a target date on or after the effective date.`);
       }
       if (objective.skipScale) {
-        if (!objective.scaleExemption.trim()) issues.push(`${label} needs an alternate measure and reason.`);
+        if (!objective.scaleExemption.trim()) add('goals', `${label} needs an alternate measure and reason.`);
       } else {
-        if (!scoreEntered(objective.scaleCurrent)) issues.push(`${label} needs a baseline from 1 to 10.`);
-        if (!scoreEntered(objective.scaleTarget) || Number(objective.scaleCurrent) === Number(objective.scaleTarget)) issues.push(`${label} needs a target from 1 to 10 different from its baseline.`);
-        if (planAuthoring.value && !String(objective.kioskPrompt || '').trim()) issues.push(`${label} needs a client rating question.`);
+        if (!scoreEntered(objective.scaleCurrent)) add('goals', `${label} needs a baseline from 1 to 10.`);
+        if (invalidTarget(objective)) add('goals', `${label} needs a target from 1 to 10 different from its baseline.`);
+        if (planAuthoring.value && !String(objective.kioskPrompt || '').trim()) add('goals', `${label} needs a client rating question.`);
       }
     }
   }
-  if (goalsMissingDuration.value.length) issues.push(`Choose a duration or objective dates for goals ${goalsMissingDuration.value.join(', ')}.`);
+  if (goalsMissingDuration.value.length) add('goals', `Choose a duration or objective dates for goals ${goalsMissingDuration.value.join(', ')}.`);
   if (planAuthoring.value && draft.goals.filter(goal=>goal.objectives.some(o=>!o.skipScale && isObjectiveScaleValid(o.scaleCurrent,o.scaleTarget))).length < 2) {
-    issues.push('Keep at least two goals with a complete 1–10 objective.');
+    add('goals', 'Keep at least two goals with a complete 1–10 objective.');
   }
-  if (!draft.effectiveDate) issues.push('Choose an effective date.');
-  if (!draft.dischargePlan.trim()) issues.push('Enter discharge criteria.');
-  if (aiContentUsed.value && !attestAiReviewed.value) issues.push('Confirm that you reviewed the full plan.');
+  if (!draft.dischargePlan.trim()) add('care', 'Enter discharge criteria.');
+  if (aiContentUsed.value && !attestAiReviewed.value) add('review', 'Confirm that you reviewed the full plan.');
   return issues;
 });
+const issuesBySection = computed(() => Object.fromEntries(
+  planSections.map(({ key }) => [key, finalizationIssues.value.filter(issue => issue.section === key)])
+));
 watch(() => model.value ? JSON.stringify(draftPayload()) : '', () => { attestAiReviewed.value=false; });
 
 async function save({ finalize = true } = {}) {
@@ -1215,13 +1312,8 @@ async function save({ finalize = true } = {}) {
       sourceToolId: props.allowImportedDraft ? 'client_creation_record_import' : props.mode === 'generated' ? (props.initialPlan?.sourceToolId || 'note_aid_generated_plan') : (asDraft ? 'intake_packet_bootstrap' : 'note_aid_plan_import'),
       icd10Code: primary?.icd10Code || null,
       diagnosisDescription: primary?.description || null,
-      diagnosticJustification: String(model.value.diagnosticJustification || '').trim() || null,
-      diagnoses: (model.value.diagnoses || []).map((d, i) => ({
-        ...d,
-        justification: d.isPrimary || !(model.value.diagnoses || []).some(row => row.isPrimary) && i === 0
-          ? String(model.value.diagnosticJustification || d.justification || '').trim()
-          : String(d.justification || '').trim()
-      })),
+      diagnosticJustification: primaryJustification() || null,
+      diagnoses: model.value.diagnoses.map(d => ({ ...d, justification: d.justification.trim() })),
       goals: model.value.goals.map((g, i) => ({
         goalIndex: i + 1,
         goalText: g.goalText,
@@ -1261,7 +1353,7 @@ async function discardDraft() {
   const agencyId = Number(props.agencyId || 0);
   const clientId = Number(props.clientId || 0);
   if (!pid || !agencyId || !clientId || discarding.value) return;
-  if (!window.confirm('Discard this treatment plan draft? Setup will reopen if no other plan is on file.')) {
+  if (!window.confirm('Discard this treatment plan draft?')) {
     return;
   }
   discarding.value = true;
@@ -1283,7 +1375,8 @@ async function discardDraft() {
 
 <style scoped>
 .na-plan-navigation {display:flex;flex-wrap:wrap;align-items:center;gap:8px}
-.na-required-callout{background:#fff5df;border:2px solid #bd6700;padding:14px;border-radius:8px;color:#783c00;font-weight:600}.na-duration-required{border:2px solid #bd6700!important;background:#fff5df}.na-required-text{color:#8a4500;font-size:.85rem}
+.na-duration-required { border-color: #b42318; background: #fff6f5; }
+.na-required-text { color: #a1261c; font-size: .85rem; }
 .na-modal-backdrop {
   position: fixed;
   inset: 0;
@@ -1504,9 +1597,127 @@ async function discardDraft() {
 </style>
 
 <style scoped>
-.na-plan-paper { background:#fff; border:1px solid #d9e4ee; border-radius:14px; padding:clamp(16px,3vw,32px); min-width:0; }
-.na-plan-paper .na-import-card { background:transparent; border:0; border-bottom:1px solid #dbe5ef; border-radius:0; padding:16px 0; }
-.na-plan-paper .na-import-obj { background:transparent; border:0; border-left:2px solid #c8d9eb; padding:12px 0 12px 16px; }
+.na-plan-paper {
+  width: 100%;
+  max-width: 1360px;
+  box-sizing: border-box;
+  margin-inline: auto;
+  padding: clamp(12px, 2vw, 24px);
+  background: #fff;
+  border: 1px solid #cbd9e5;
+  border-radius: 6px;
+  min-width: 0;
+  color: #172c42;
+}
+.na-plan-paper .na-modal-head { gap: 12px; }
+.na-plan-paper .na-modal-head h1,
+.na-plan-paper .na-modal-head h3 { margin: 0; font-size: clamp(1.25rem, 2vw, 1.7rem); }
+.na-plan-client, .na-plan-navigation {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+}
+.na-plan-client { margin: 6px 0 0; color: #465e74; font-size: .88rem; }
+.na-plan-sections-nav {
+  position: sticky;
+  top: var(--na-plan-nav-top, 0px);
+  z-index: 4;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  padding: 5px 0;
+  background: #fff;
+  border-bottom: 1px solid #cbd9e5;
+}
+.na-plan-sections-nav button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 32px;
+  padding: 4px 7px;
+  border: 0;
+  border-radius: 4px;
+  color: #174d77;
+  background: #edf4fa;
+  font: inherit;
+  font-size: .84rem;
+  cursor: pointer;
+}
+.na-plan-section-count {
+  min-width: 1.2em;
+  padding-inline: 3px;
+  border-radius: 3px;
+  background: #ffebe8;
+  color: #a1261c;
+  text-align: center;
+  font-weight: 700;
+}
+.na-plan-section {
+  margin-block: 13px;
+  padding: 12px;
+  border: 1px solid #cbd9e5;
+  border-top: 2px solid #7195b5;
+  border-radius: 4px;
+  scroll-margin-top: 65px;
+  background: #fff;
+}
+.na-plan-section:focus { outline: 2px solid #7195b5; outline-offset: 2px; }
+.na-plan-section h2 { margin: 0 0 6px; font-size: 1.13rem; }
+.na-plan-section h3 { margin: 0; font-size: 1rem; }
+.na-plan-section h4 { margin: 0 0 6px; font-size: .96rem; }
+.na-plan-section .hint-block { margin: 0 0 7px; }
+.na-plan-section .na-label { margin-block: 7px; }
+.na-plan-section .na-input, .na-plan-section .na-textarea { border-radius: 4px; }
+.na-plan-section .na-label > input[type="date"] { max-width: 200px; }
+.na-plan-section .na-textarea { font-weight: 400; }
+.na-plan-section .na-reading-text, .na-plan-section .na-textarea--goal, .na-plan-section .na-textarea--objective {
+  field-sizing: content;
+  min-height: 4.25rem;
+}
+.na-plan-diagnosis {
+  padding: 7px 9px;
+  margin-top: 6px;
+  border: 1px solid #d3dfea;
+  border-radius: 4px;
+  background: #f7fafc;
+}
+.na-plan-diagnosis .na-label { margin: 5px 0 0; }
+.na-plan-diagnosis-row, .na-plan-goal-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 3px 12px;
+}
+.na-plan-diagnosis-title { min-width: 0; overflow-wrap: anywhere; }
+.na-plan-diagnosis-title code { color: #174d77; margin-inline-end: 5px; }
+.na-plan-primary {
+  display: inline-block;
+  padding: 1px 4px;
+  margin-inline-start: 5px;
+  color: #155449;
+  background: #e3f2ee;
+  font-size: .78rem;
+}
+.na-plan-diagnosis-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; }
+.na-plan-diagnosis-actions .na-link-btn, .na-plan-goal-heading .na-link-btn { padding: 3px 7px; font-size: .85rem; }
+.na-plan-section :deep(.frequency-select) { max-width: 34rem; font-size: .82rem; font-weight: 600; }
+.na-plan-section :deep(.frequency-select select), .na-plan-section :deep(.frequency-select input) { border-radius: 4px; padding: 7px 9px; }
+.na-plan-section :deep(.cds) { max-width: 34rem; }
+.na-plan-section :deep(.cds input) { padding: 7px 9px; border-radius: 4px; }
+.na-plan-section .na-import-card { border: 1px solid #cbd9e5; border-radius: 4px; padding: 10px; background: #f6f9fc; }
+.na-plan-section .na-import-obj { border: 1px solid #d1deea; border-left: 3px solid #7195b5; padding: 8px 10px; margin-bottom: 8px; background: #fff; }
+.na-plan-section .na-input[aria-invalid="true"], .na-plan-section .na-textarea[aria-invalid="true"] { border-color: #b42318; background: #fff6f5; }
+.na-plan-section .na-required-text { color: #a1261c; }
+.na-plan-assist { margin-block: 10px; padding: 7px 9px; border: 1px solid #cfdeeb; border-radius: 4px; background: #f5f8fb; }
+.na-plan-assist summary { color: #174d77; font-weight: 650; cursor: pointer; }
+.na-clinical-text { margin: 6px 0 0; white-space: pre-wrap; }
+@media (max-width: 600px) {
+  .na-plan-paper .na-modal-head { flex-wrap: wrap; }
+  .na-plan-paper { padding: 8px; }
+  .na-plan-section { padding: 8px; scroll-margin-top: 106px; }
+}
 .narriva-plan-actions { margin:16px 0; }
 .narriva-plan-button { display:inline-flex; align-items:center; gap:8px; }
 .narriva-plan-button img { width:23px; height:23px; object-fit:contain; background:white; padding:2px; border-radius:4px; }

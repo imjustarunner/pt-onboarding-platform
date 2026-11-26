@@ -1,3 +1,4 @@
+import { normalizeTreatmentPlanDiagnoses } from './treatmentPlanPrecedence.service.js';
 import { clinicalNoteModelOptions } from '../config/clinicalNoteModel.js';
 import { callGeminiText } from './geminiText.service.js';
 import { anonymousObjective, clinicalThemes, safeScale } from './treatmentPlanAiContext.service.js';
@@ -28,9 +29,8 @@ export function normalizeNarrivaPlanDraft(input, { finalize = false } = {}) {
     prescribedFrequency: bounded(input.prescribedFrequency, 255),
     dischargePlan: bounded(input.dischargePlan, 16000),
     diagnosticJustification: bounded(input.diagnosticJustification, 16000),
-    diagnoses: (Array.isArray(input.diagnoses) ? input.diagnoses : []).slice(0,20).filter(row=>row && bounded(row.icd10Code,16)).map(row=>({
-      icd10Code:bounded(row.icd10Code,16), description:bounded(row.description,500), justification:bounded(row.justification,16000), isPrimary:row.isPrimary===true
-    })),
+    legacyDiagnosisNarrative: bounded(input.legacyDiagnosisNarrative, 16000),
+    diagnoses: normalizeTreatmentPlanDiagnoses(input.diagnoses).slice(0, 20),
     goals: input.goals.map((goal, gi) => ({
       goalIndex: gi + 1, goalText: bounded(goal.goalText, 6000), durationMonths: months(goal.durationMonths),
       projectedCompletion: date(goal.projectedCompletion), reviewed:goal.reviewed===true,
@@ -54,11 +54,6 @@ export function normalizeNarrivaPlanDraft(input, { finalize = false } = {}) {
       })
     }))
   };
-  const primary = draft.diagnoses.find(item=>item.isPrimary) || draft.diagnoses[0];
-  if (primary) {
-    draft.diagnoses=[primary,...draft.diagnoses.filter(item=>item!==primary)];
-    draft.diagnoses.forEach((item,index)=>{ item.isPrimary=index===0; });
-  }
   if (finalize) {
     validateNarrivaPlan(draft);
     for (const goal of draft.goals) goal.projectedCompletion=goal.objectives.map(o=>o.projectedCompletion).sort().at(-1);

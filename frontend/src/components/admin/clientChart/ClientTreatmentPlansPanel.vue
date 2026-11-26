@@ -35,8 +35,8 @@
       </button>
     </div>
 
-    <div v-else class="ctp-layout">
-      <aside class="ctp-side">
+    <div v-else class="ctp-layout" :class="{ 'ctp-layout--editing': editingDraft }">
+      <aside v-if="!editingDraft" class="ctp-side">
         <div class="ctp-profile">
           <ClientChartAvatar
             :initials="clientInitials"
@@ -67,7 +67,7 @@
       </aside>
 
       <div class="ctp-main">
-        <div class="ctp-list">
+        <div v-if="!editingDraft" class="ctp-list">
           <article
             v-for="plan in currentPlans"
             :key="plan.id"
@@ -90,7 +90,7 @@
         </div>
 
         <NoteAidTreatmentPlanImportReview v-if="editingDraft && detailPlan" :key="`draft-${detailPlan.id}`"
-          open embedded mode="draft" :plan-id="detailPlan.id" :agency-id="agencyId" :client-id="clientId"
+          open embedded mode="draft" :client-label="clientDisplayName" :plan-id="detailPlan.id" :agency-id="agencyId" :client-id="clientId"
           :initial-plan="editablePlan" @close="editingDraft=false" @draft-updated="applyChartDraft" @saved="onDraftPrepared" />
 
         <div v-else-if="detailPlan" class="ctp-detail">
@@ -143,6 +143,7 @@
                 {{ d.description || '' }}
                 <em v-if="d.is_primary">primary</em>
                 <span v-if="d.imported" class="muted"> · Imported, review in draft</span>
+                <p v-if="d.justification" class="ctp-dx-just">{{ d.justification }}</p>
               </li>
             </ul>
             <p v-if="!planDiagnosesDisplay.length" class="muted">No diagnosis has been recorded for this plan.</p>
@@ -496,7 +497,7 @@ const planDiagnosesDisplay = computed(() => {
   const working = plan?.chartDraft?.value;
   const normalizeDraftDiagnoses = rows => (rows || []).map(d => ({
     icd10_code: d.icd10Code || d.icd10_code || d.code,
-    description: d.description, is_primary: d.isPrimary, imported: !working
+    description: d.description, is_primary: d.isPrimary ?? d.is_primary, justification: d.justification, imported: !working
   }));
   if (working) return normalizeDraftDiagnoses(working.diagnoses);
   if (plan?.planDiagnoses?.length) return plan.planDiagnoses;
@@ -508,10 +509,7 @@ const planSharedJustification = computed(() => {
   const planJust = String(
     detailPlan.value?.chartDraft?.value?.diagnosticJustification ?? (detailPlan.value?.diagnostic_justification || detailPlan.value?.diagnosticJustification || '')
   ).trim();
-  if (planJust) return planJust;
-  const rows = planDiagnosesDisplay.value || [];
-  const primary = rows.find((d) => d && (d.is_primary || d.isPrimary));
-  return String(primary?.justification || rows.find((d) => d?.justification)?.justification || '').trim();
+  return planDiagnosesDisplay.value.some(d => String(d.justification || '').trim() === planJust) ? '' : planJust;
 });
 
 const planSections = computed(() => splitTreatmentPlanSections(detailPlan.value || {}));
@@ -881,6 +879,7 @@ watch(selectedId, () => { goalProgressHistory.value = []; goalProgressHistoryErr
   gap: 16px;
   align-items: start;
 }
+.ctp-layout.ctp-layout--editing { grid-template-columns: minmax(0, 1fr); }
 @media (max-width: 900px) {
   .ctp-layout { grid-template-columns: 1fr; }
 }

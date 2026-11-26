@@ -1,3 +1,4 @@
+import { upsertClinicalDiagnosis } from '../../services/clinicalDiagnosisAttach.service.js';
 import { persistTreatmentPlanSections } from '../../services/treatmentPlanSectionStorage.service.js';
 import { splitTreatmentPlanSections } from '../../services/treatmentPlanSections.service.js';
 import clinicalPool from '../../config/clinicalDatabase.js';
@@ -29,6 +30,31 @@ async function persistObjectiveInterventions(conn, objectiveId, interventions) {
   }
 }
 
+async function resolvePlanDiagnoses(conn, { agencyId, clientId, clinicalSessionId, createdByUserId, diagnoses }) {
+  const [chartRows] = await conn.execute(
+    `SELECT icd10_code, justification FROM clinical_diagnoses
+     WHERE agency_id = ? AND client_id = ? AND is_active = 1 ORDER BY id DESC`,
+    [agencyId, clientId]
+  );
+  const linked = [];
+  for (const diagnosis of diagnoses) {
+    const existing = chartRows.find(row => row.icd10_code === diagnosis.icd10Code);
+    const justification = diagnosis.justification || existing?.justification || null;
+    const diagnosisId = await upsertClinicalDiagnosis({
+      agencyId,
+      clientId,
+      icd10Code: diagnosis.icd10Code,
+      description: diagnosis.description,
+      justification,
+      createdByUserId,
+      clinicalSessionId,
+      setPrimary: diagnosis.isPrimary
+    }, { transaction: conn });
+    linked.push({ diagnosisId, isPrimary: diagnosis.isPrimary, justification });
+  }
+  return linked;
+}
+
 class ClinicalTreatmentPlan {
   static async updateDraftObjectiveInterventions({ objectiveId, agencyId, clientId, actorUserId, interventions }) {
     const [result] = await clinicalPool.execute(`UPDATE clinical_treatment_plan_objectives o
@@ -54,6 +80,7 @@ class ClinicalTreatmentPlan {
     goals = [],
     primaryDiagnosisId = null,
     diagnosticJustification = null,
+    diagnoses = [],
     effectiveDate = null,
     supersedesImportedDraftId = null,
     supersedesChartDraftId = null
@@ -70,6 +97,13 @@ class ClinicalTreatmentPlan {
         if (!source || source.status !== 'draft' || (!supersedesChartDraftId && !(String(source.source_tool_id || '').startsWith('client_records_import:') || source.source_tool_id === 'client_creation_record_import'))) {
           throw Object.assign(new Error('This imported draft changed or was already finalized. Reload the treatment plans before continuing.'), {status:409});
         }
+      }
+      const linkedDiagnoses = diagnoses.length ? await resolvePlanDiagnoses(conn, {
+        agencyId, clientId, clinicalSessionId, createdByUserId, diagnoses
+      }) : [];
+      if (linkedDiagnoses.length) {
+        primaryDiagnosisId = linkedDiagnoses[0].diagnosisId;
+        diagnosticJustification = linkedDiagnoses[0].justification;
       }
       let planId;
       try {
@@ -137,6 +171,14 @@ class ClinicalTreatmentPlan {
           );
           planId = result.insertId;
         }
+      }
+      for (const [index, diagnosis] of linkedDiagnoses.entries()) {
+        await conn.execute(
+          `INSERT INTO clinical_treatment_plan_diagnoses
+           (treatment_plan_id, diagnosis_id, sort_order, is_primary, justification)
+           VALUES (?, ?, ?, ?, ?)`,
+          [planId, diagnosis.diagnosisId, index + 1, diagnosis.isPrimary ? 1 : 0, diagnosis.justification]
+        );
       }
       const sections = splitTreatmentPlanSections({ dischargePlan, presentingProblem, prescribedFrequency });
       await persistTreatmentPlanSections(conn, { planId, agencyId, clientId, sections });

@@ -1,3 +1,4 @@
+import { normalizeTreatmentPlanDiagnoses } from '../services/treatmentPlanPrecedence.service.js';
 import {clinicalServiceRequirements} from '../../../frontend/src/utils/clinicalEncounterRequirements.js';
 import { visibleClinicalWork } from '../services/clinicalWorkArchiveRead.service.js';
 import {treatmentPlanGoalTimeframes} from '../services/treatmentPlanGoalTimeframes.js';
@@ -529,43 +530,37 @@ async function saveTreatmentPlanRequest(req,res,next) {
     }
 
 
+    const planDxList = normalizeTreatmentPlanDiagnoses(req.body.diagnoses);
     let primaryDiagnosisId = parseIntValue(req.body.primaryDiagnosisId);
-    let diagnosticJustification = req.body.diagnosticJustification
-      ? String(req.body.diagnosticJustification).trim()
-      : null;
+    let diagnosticJustification = String(req.body.diagnosticJustification || '').trim() || null;
+    if (planDxList.length === 1 && !planDxList[0].justification && diagnosticJustification) {
+      planDxList[0].justification = diagnosticJustification;
+    }
+    const sessionAttached = !!clinicalSessionId || !!parseIntValue(req.body.officeEventId);
 
-    // Session/claim-attached plans require a primary diagnosis on file.
-    const sessionAttached = !!(clinicalSessionId || parseIntValue(req.body.officeEventId));
-    if (!primaryDiagnosisId) {
-      const primary = await getPrimaryClinicalDiagnosis({ agencyId, clientId });
-      if (primary) {
-        primaryDiagnosisId = primary.id;
-        if (!diagnosticJustification && primary.justification) {
-          diagnosticJustification = String(primary.justification);
-        }
+    if (!planDxList.length) {
+      if (!primaryDiagnosisId) {
+        const primary = await getPrimaryClinicalDiagnosis({ agencyId, clientId });
+        primaryDiagnosisId = primary?.id || null;
+        diagnosticJustification ||= primary?.justification || null;
       }
-    }
-    if (sessionAttached && !primaryDiagnosisId) {
-      return res.status(400).json({
-        error: {
-          message:
-            'Primary diagnosis is required before saving a session-linked treatment plan. Finalize an intake note or add a diagnosis on the chart first.'
-        }
-      });
-    }
-
-    // Allow creating/updating primary dx inline from Documentation Hub
-    if (!primaryDiagnosisId && req.body.icd10Code) {
-      primaryDiagnosisId = await upsertPrimaryClinicalDiagnosis({
-        agencyId,
-        clientId,
-        icd10Code: req.body.icd10Code,
-        description: req.body.diagnosisDescription || null,
-        justification: diagnosticJustification,
-        createdByUserId: req.user.id,
-        clinicalSessionId: clinicalSessionId || null,
-        forceOverwrite: true
-      });
+      if (!primaryDiagnosisId && req.body.icd10Code && !sessionAttached) {
+        primaryDiagnosisId = await upsertPrimaryClinicalDiagnosis({
+          agencyId,
+          clientId,
+          icd10Code: req.body.icd10Code,
+          description: req.body.diagnosisDescription || null,
+          justification: diagnosticJustification,
+          createdByUserId: req.user.id,
+          clinicalSessionId,
+          forceOverwrite: true
+        });
+      }
+      if (sessionAttached && !primaryDiagnosisId) {
+        return res.status(400).json({ error: {
+          message: 'Primary diagnosis is required before saving a session-linked treatment plan. Finalize an intake note or add a diagnosis on the chart first.'
+        } });
+      }
     }
 
     let plan = await ClinicalTreatmentPlan.create({
@@ -583,6 +578,7 @@ async function saveTreatmentPlanRequest(req,res,next) {
       createdByUserId: req.user.id,
       primaryDiagnosisId,
       diagnosticJustification,
+      diagnoses: planDxList,
       supersedesImportedDraftId: finalizeRequested ? sourceDraftPlanId : null,
       supersedesChartDraftId: chartDraftPlanId,
       goals: goals.map((g, i) => ({
@@ -627,7 +623,7 @@ async function saveTreatmentPlanRequest(req,res,next) {
       }
     }
 
-    if (plan?.id && primaryDiagnosisId) {
+    if (!planDxList.length && plan?.id && primaryDiagnosisId) {
       await attachDiagnosisToTreatmentPlan({
         planId: plan.id,
         primaryDiagnosisId,
@@ -635,43 +631,8 @@ async function saveTreatmentPlanRequest(req,res,next) {
       });
     }
 
-    // Ordered multi-diagnosis list from import review — plan fields always win over intake.
-    const planDxList = Array.isArray(req.body.diagnoses) ? req.body.diagnoses : [];
-    if (plan?.id && planDxList.length) {
-      const linked = [];
-      for (let i = 0; i < planDxList.length; i += 1) {
-        const d = planDxList[i];
-        const code = String(d.icd10Code || d.icd10_code || '').trim();
-        if (!code) continue;
-        const makePrimary = i === 0 || d.isPrimary === true;
-        const diagnosisId = await upsertClinicalDiagnosis({
-          agencyId,
-          clientId,
-          icd10Code: code,
-          description: d.description || null,
-          justification: d.justification || diagnosticJustification,
-          createdByUserId: req.user.id,
-          clinicalSessionId: clinicalSessionId || null,
-          setPrimary: makePrimary,
-          forceOverwrite: true
-        });
-        linked.push({
-          diagnosisId,
-          sortOrder: i + 1,
-          isPrimary: makePrimary,
-          justification: d.justification || null
-        });
-      }
-      if (linked.length) {
-        await ClinicalTreatmentPlan.replacePlanDiagnoses({
-          planId: plan.id,
-          diagnoses: linked,
-          primaryDiagnosisId: linked.find((x) => x.isPrimary)?.diagnosisId || primaryDiagnosisId
-        });
-      }
-    }
-
     const refreshed = plan?.id ? await ClinicalTreatmentPlan.findById(plan.id) : plan;
+    primaryDiagnosisId = refreshed?.primary_diagnosis_id || primaryDiagnosisId;
     try {
       const { logNoteAidChartEvent } = await import('../services/noteAidChartAudit.service.js');
       await logNoteAidChartEvent(req, {

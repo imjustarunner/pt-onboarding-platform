@@ -7,7 +7,7 @@
             <h3 id="na-tp-title">Treatment Plan Writer / Updater</h3>
             <p class="na-tp-sub">
               Standalone tool — no mental status, risk, or session fields.
-              Parse into the same goal/objective review used in client setup, then apply to a client or save with initials.
+              Review the goals and objectives, then apply the plan to a client or save it with initials.
             </p>
           </div>
           <button type="button" class="na-link-btn" @click="emit('close')">Close</button>
