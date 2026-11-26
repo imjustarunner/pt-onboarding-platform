@@ -186,7 +186,7 @@
           <a :href="docSource(doc) === 'Agency default' ? settingsPath : careersEditPath" target="_blank" rel="noopener">View or edit source settings ↗</a>
         </article>
         <p class="muted small">Documents written or uploaded in job settings are saved with that setup. They appear in the Documents Library only when they use a library template. Reusable templates can also be assigned during onboarding and other document workflows.</p>
-        <HireWorkflowEditor v-model="portalWorkflow" :templates="packetDocumentTemplates.filter(availableHiringTemplate)" :agency-id="agencyId" :fingerprinting-available="fingerprintingAvailable" phase="pre_hire" heading="Add a step for this person" description="Add only what this hire needs before onboarding. Each item below explains what the candidate does and what the app saves." />
+        <HireWorkflowEditor v-model="portalWorkflow" :templates="packetDocumentTemplates.filter(availableHiringTemplate)" :agency-id="agencyId" :fingerprinting-available="fingerprintingAvailable" :fingerprinting-instructions="settings.denver_fingerprinting_instructions" phase="pre_hire" heading="Add a step for this person" description="Add only what this hire needs before onboarding. Each item below explains what the candidate does and what the app saves." />
         <div class="sph-upload">
           <label>Upload additional files (stored on the employee file)
             <input type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,application/pdf,image/*" @change="onExtraFiles" />
@@ -260,7 +260,7 @@
           <label>Subject <input v-model="inviteMessage.subject" type="text" maxlength="240" placeholder="Use the default subject" /></label>
           <label>Message <textarea v-model="inviteMessage.body" rows="5" maxlength="12000" placeholder="Use the default invitation message" /></label>
           <label>Personal note <textarea v-model="inviteMessage.note" rows="3" maxlength="4000" placeholder="Optional" /></label>
-          <p class="muted small">The invitation includes the offer details, checklist, and private portal link. People Operations sends the invitation and receives replies. The staff receipt omits the private link and personal note.</p>
+          <p class="muted small">The invitation includes the offer details, checklist, and private portal link. People Operations sends the invitation and receives replies. People Operations receives a full staff copy, with Founders blind-copied where configured. The candidate’s private link is removed from that copy.</p>
           <button class="btn btn-secondary" type="button" :disabled="emailPreviewLoading" @click="openEmailPreview">Preview HTML email</button>
           <p v-if="emailPreviewError" class="error" role="alert">{{ emailPreviewError }}</p>
         </fieldset>
@@ -280,7 +280,7 @@
             <dt>To</dt><dd>{{ emailPreview.recipientEmail }}</dd>
             <dt>Subject</dt><dd>{{ emailPreview.subject }}</dd>
             <template v-if="emailPreview.peopleOperationsEmail">
-              <dt>Staff receipt</dt><dd>{{ emailPreview.peopleOperationsEmail }}<template v-if="emailPreview.foundersEmail"> · Bcc {{ emailPreview.foundersEmail }}</template></dd>
+              <dt>Staff copy</dt><dd>{{ emailPreview.peopleOperationsEmail }}<template v-if="emailPreview.foundersEmail"> · Bcc {{ emailPreview.foundersEmail }}</template></dd>
             </template>
           </dl>
           <iframe title="Branded invitation email" sandbox="" :srcdoc="emailPreview.html" />
@@ -294,10 +294,14 @@
         <button type="button" v-if="setupStep === 5" class="btn btn-primary" :aria-describedby="!tokenLink && sendBlocker ? 'prehire-continue-reason' : undefined" :disabled="sending || (!tokenLink && !readyToSend)" @click="tokenLink ? resendInvitation() : initiate()">
           {{ sending ? 'Sending invitation…' : tokenLink ? 'Email portal link again' : 'Prepare and send pre-hire invitation' }}
         </button>
+        <button v-if="setupStep === 5 && (tokenLink || currentPortalLink)" type="button" class="btn btn-secondary" :disabled="sendingStaffCopy" @click="sendStaffCopy">
+          {{ sendingStaffCopy ? 'Sending staff copy…' : 'Send staff copy of last invitation' }}
+        </button>
       </div>
+      <p v-if="staffCopyStatus" role="status">{{ staffCopyStatus }}</p>
       <p v-if="continueBlocker || setupStep === 5 && !tokenLink && sendBlocker" id="prehire-continue-reason" class="sph-warn" role="status">{{ continueBlocker || sendBlocker }}</p>
-      <p v-if="emailDelivery?.peopleOperationsCopy?.status === 'sent'" role="status">Staff receipt sent to {{ emailDelivery.peopleOperationsCopy.deliveredTo }}<template v-if="emailDelivery.peopleOperationsCopy.foundersEmail"> with Founders blind-copied</template>.</p>
-      <p v-else-if="emailDelivery?.peopleOperationsCopy" role="status" class="sph-warn">{{ emailDelivery.peopleOperationsCopy.reason === 'no_people_operations_sender' ? 'Set a People Operations email in the agency settings to receive invitation receipts.' : 'People Operations receipt delivery: ' + emailDelivery.peopleOperationsCopy.status + '.' }}</p>
+      <p v-if="emailDelivery?.peopleOperationsCopy?.status === 'sent'" role="status">Staff copy sent to {{ emailDelivery.peopleOperationsCopy.deliveredTo }}<template v-if="emailDelivery.peopleOperationsCopy.foundersEmail"> with Founders blind-copied</template>.</p>
+      <p v-else-if="emailDelivery?.peopleOperationsCopy" role="status" class="sph-warn">{{ emailDelivery.peopleOperationsCopy.reason === 'no_people_operations_sender' ? 'Set a People Operations email in the agency settings to receive invitation receipts.' : 'Staff copy delivery: ' + emailDelivery.peopleOperationsCopy.status + '.' }}</p>
       <p v-if="tokenLink" role="status" :class="emailDelivery?.status === 'sent' ? 'sph-ok' : 'sph-warn'">{{ prehireInviteDeliveryMessage(emailDelivery) }}</p>
       <p v-if="tokenLink" class="sph-ok">
         Portal link created:
@@ -726,6 +730,20 @@ const initiate = async () => {
   }
 };
 
+const sendingStaffCopy = ref(false);
+const staffCopyStatus = ref('');
+async function sendStaffCopy() {
+  sendingStaffCopy.value = true;
+  staffCopyStatus.value = '';
+  try {
+    const { data } = await api.post(`/hiring/candidates/${userId.value}/email-prehire-staff-copy`, {}, { params: { agencyId: agencyId.value } });
+    staffCopyStatus.value = data.email?.status === 'pending' ? 'The staff copy is awaiting email approval.' : 'Staff copy sent.';
+  } catch (error) {
+    staffCopyStatus.value = error.response?.data?.error?.message || 'The staff copy could not be sent. Try again.';
+  } finally {
+    sendingStaffCopy.value = false;
+  }
+}
 const resendInvitation = async () => {
   sending.value = true;
   sendError.value = '';

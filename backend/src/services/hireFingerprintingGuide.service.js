@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import sanitizeHtml from 'sanitize-html';
 import pool from '../config/database.js';
-import { denverFingerprintingStep } from '../../../frontend/src/navigation/hireDocuments.js';
+import { denverFingerprintingDefaultInstructions, denverFingerprintingInstructionsLimit, denverFingerprintingStep } from '../../../frontend/src/navigation/hireDocuments.js';
 import { jsonObject, safePortalUrl } from '../utils/hirePortalWorkflow.js';
 import { addFingerprintingScreenshots, FINGERPRINTING_SCREENSHOTS } from '../../../frontend/src/navigation/hireFingerprintingScreenshots.js';
 
@@ -60,6 +60,48 @@ export async function loadHireFingerprintingGuide(agencyId, db = pool) {
 export async function assertHireFingerprintingAvailable(agencyId, db = pool) {
   if (!await loadHireFingerprintingGuide(agencyId, db)) {
     throw Object.assign(new Error('The ITSCO Denver fingerprinting lesson must be available in On-Demand Training before you can attach it.'), { status: 400 });
+  }
+}
+
+export function fingerprintingDefaultInstructions(settings) {
+  return typeof settings?.denver_fingerprinting_instructions === 'string'
+    ? settings.denver_fingerprinting_instructions : denverFingerprintingDefaultInstructions;
+}
+
+export async function saveFingerprintingDefaultInstructions({ agencyId, instructions, previousInstructions }) {
+  if (typeof instructions !== 'string' || instructions.length > denverFingerprintingInstructionsLimit ||
+      typeof previousInstructions !== 'string' || previousInstructions.length > denverFingerprintingInstructionsLimit) {
+    throw Object.assign(new Error(`Use up to ${denverFingerprintingInstructionsLimit} characters for these instructions.`), { status: 400 });
+  }
+  const savedInstructions = instructions.trim();
+  const db = await pool.getConnection();
+  try {
+    await db.beginTransaction();
+    const [[agency]] = await db.execute(
+      `SELECT prehire_settings FROM agencies
+       WHERE id = ? AND slug = 'itsco' AND organization_type = 'agency'
+         AND is_active = 1 AND COALESCE(is_archived, 0) = 0 FOR UPDATE`,
+      [agencyId]
+    );
+    if (!agency) throw Object.assign(new Error('This fingerprinting step belongs to ITSCO.'), { status: 404 });
+    const settings = jsonObject(agency.prehire_settings);
+    const current = fingerprintingDefaultInstructions(settings);
+    if (current !== previousInstructions && current !== savedInstructions) {
+      throw Object.assign(new Error('The default instructions changed. Refresh before saving your edits.'), { status: 409 });
+    }
+    if (settings.denver_fingerprinting_instructions !== savedInstructions) {
+      await db.execute(
+        "UPDATE agencies SET prehire_settings = JSON_SET(COALESCE(prehire_settings, JSON_OBJECT()), '$.denver_fingerprinting_instructions', ?) WHERE id = ?",
+        [savedInstructions, agencyId]
+      );
+    }
+    await db.commit();
+    return { instructions: savedInstructions };
+  } catch (error) {
+    await db.rollback();
+    throw error;
+  } finally {
+    db.release();
   }
 }
 

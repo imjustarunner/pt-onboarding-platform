@@ -4,6 +4,7 @@ import User from '../models/User.model.js';
 import { HOGWARTS_TEST_INBOX } from '../utils/hogwartsTestEmail.js';
 import { FOUNDERS_GROUPS } from './foundersGroupPolicy.js';
 import { hiringInviteReceiptTemplate, PREHIRE_PORTAL_ACCESS_TRIGGER } from './hiringInviteMailPolicy.js';
+import { hiringInviteStaffCopy } from './hiringInviteStaffCopy.js';
 import { sendEmailFromIdentity, sendNotificationEmail } from './unifiedEmail/unifiedEmailSender.service.js';
 
 const mailbox = value => String(value || '').trim().toLowerCase();
@@ -37,7 +38,7 @@ export function hiringInviteDelivery(result, recipientEmail) {
 
 export async function sendHiringInviteReceipt({
   routing, agencyId, user, userId, templateType, generatedByUserId,
-  source, existingCommunicationId = null
+  source, message = null, existingCommunicationId = null
 }) {
   const receiptTemplate = hiringInviteReceiptTemplate(templateType);
   if (!receiptTemplate) throw new Error('Unknown invitation receipt type.');
@@ -47,13 +48,16 @@ export async function sendHiringInviteReceipt({
   if (!candidate) return { status: 'failed', skipped: true, reason: 'user_not_found' };
   const label = templateType === PREHIRE_PORTAL_ACCESS_TRIGGER ? 'Pre-hire' : 'Onboarding';
   const candidateName = [candidate.first_name, candidate.last_name].filter(Boolean).join(' ') || 'Candidate';
+  const copy = hiringInviteStaffCopy(message, {
+    subject: `${label} invitation sent`,
+    text: `${candidateName} was sent an invitation to complete ${label.toLowerCase()} in Plotline.`
+  });
   const receipt = await sendEmailFromIdentity({
     senderIdentityId: routing.senderIdentityId,
     replyToOverride: routing.peopleOperationsEmail,
     to: routing.peopleOperationsEmail,
     bcc: routing.foundersEmail,
-    subject: `${label} invitation sent`,
-    text: `${candidateName} was sent an invitation to complete ${label.toLowerCase()} in Plotline.`,
+    ...copy,
     templateType: receiptTemplate,
     userId,
     generatedByUserId,
@@ -89,7 +93,7 @@ export async function sendHiringPortalInvitation(options, { user, routing } = {}
   const delivery = hiringInviteDelivery(result, to);
   if (delivery.status !== 'sent' || result.redirected) return delivery;
   const peopleOperationsCopy = await copySuccessfulHiringInvite({
-    routing: sender, agencyId, user, userId, templateType, generatedByUserId, source
+    routing: sender, agencyId, user, userId, templateType, generatedByUserId, source, message: options
   });
   return { ...delivery, peopleOperationsCopy };
 }
