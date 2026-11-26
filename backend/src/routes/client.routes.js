@@ -11,7 +11,7 @@ import {
   listPendingClientAlertsHandler
 } from '../controllers/clientAlerts.controller.js';
 import { getClientChartSetup } from '../controllers/chartSetup.controller.js';
-import { getChartImportDraft, getChartImportDrafts, saveChartImportDraft, importChartSection, getChartSupplementaryRecords,startChartRecordsImport,finishChartRecordsImport,prepareChartContactGuardian,reviewImportedBillingContact } from '../controllers/clientChartImport.controller.js';
+import { getChartImportDraft, getChartImportDrafts, saveChartImportDraft, importChartSection, reviewChartImportContacts, getChartSupplementaryRecords,startChartRecordsImport,finishChartRecordsImport,prepareChartContactGuardian,reviewImportedBillingContact } from '../controllers/clientChartImport.controller.js';
 import { getClientPayerReadiness, searchClientPayers, linkClientPayer, automateClientPayers } from '../controllers/clientChartPayer.controller.js';
 import {getClientImportCandidates,mergeClientRecordsImport,setupClientImportSchool} from '../controllers/clientImportCandidates.controller.js';
 import {getStaffReminderConsent,saveStaffReminderConsent} from '../controllers/staffVerbalReminderConsent.controller.js';
@@ -352,6 +352,8 @@ router.post('/:id/chart-import/sections/:section', requireActiveStatus, importCh
 router.get('/:id/chart-import/records', requireActiveStatus, getChartSupplementaryRecords);
 router.get('/:id/chart-import/responsible-billing-contact',requireActiveStatus,reviewImportedBillingContact);
 router.put('/:id/chart-import/responsible-billing-contact',requireActiveStatus,reviewImportedBillingContact);
+router.get('/:id/chart-import/contacts/preview', requireActiveStatus, reviewChartImportContacts);
+router.post('/:id/chart-import/contacts/preview', requireActiveStatus, reviewChartImportContacts);
 router.post('/:id/chart-import/contacts/:affiliationId/portal-account',requireActiveStatus,prepareChartContactGuardian);
 router.get('/:id/chart-import/payer-readiness', requireActiveStatus, getClientPayerReadiness);
 router.post('/:id/chart-import/payer-automation', requireActiveStatus, automateClientPayers);

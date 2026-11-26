@@ -78,7 +78,6 @@
           </tbody>
         </table>
         <div class="cnd-merge-controls">
-          <label v-if="!isCrossAgency(group)">Keep current record <select v-model="keepByGroup[group.key]" :disabled="merging || mergeBusy" @change="cancelMerge"><option v-for="member in selectedCharts(group)" :key="member.id" :value="member.id">{{ member.organization_name || 'Office' }} · {{ member.provider_name || member.full_name }} · {{ member.client_status_label || member.status }}</option></select></label>
           <button type="button" class="btn btn-secondary btn-sm" :disabled="merging || mergeBusy || selectedCharts(group).length < 2" @click="reviewMerge(group)">{{ isCrossAgency(group) ? 'Review chart link' : 'Review merge' }}</button>
         </div>
         <section v-if="mergeGroupKey === group.key" class="cnd-merge-review" aria-label="Review client merge">
@@ -93,7 +92,14 @@
           <template v-else-if="mergePreview">
             <h3>Review the combined client record</h3>
             <p>Current school, office, and provider assignments stay with the record you keep. Prior program affiliations remain in its history. Uploaded enrollment documents and guardian links are retained.</p>
-            <div class="cnd-comparison"><table class="cnd-table"><thead><tr><th>Field</th><th>Value to keep</th></tr></thead><tbody><tr v-for="field in mergePreview.fields" :key="field.key"><td>{{ field.label || field.key }}</td><td><select :value="fieldSource(field)" @change="chooseField(group,field.key,$event.target.value)"><option :value="mergePreview.keep.id">{{ displayValue(field.keepValue) }} · Current record</option><option v-for="other in field.otherValues" :key="other.id" :value="other.id">{{ displayValue(other.value) }} · Prior record</option></select></td></tr></tbody></table></div>
+            <RecordFieldComparison :sources="comparisonSources(group)" :rows="comparisonRows" :disabled="merging || mergeBusy"
+              @choose="(field, id) => fieldChoices[field] = Number(id)">
+              <template #source="{ source }">
+                <button type="button" class="cnd-open" :disabled="merging || mergeBusy || Number(keepByGroup[group.key]) === Number(source.id)" @click="retainChart(group, source.id)">
+                  {{ Number(keepByGroup[group.key]) === Number(source.id) ? 'Chart to keep' : 'Keep this chart' }}
+                </button>
+              </template>
+            </RecordFieldComparison>
             <fieldset v-if="mergePreview.guardianAccessDifferences?.length"><legend>Guardian access differs</legend><p v-for="row in mergePreview.guardianAccessDifferences" :key="`${row.sourceClientId}-${row.guardianUserId}`">{{ row.name }} · Current record: {{ row.currentAccessEnabled ? 'enabled' : 'pending / off' }} · Prior record: {{ row.priorAccessEnabled ? 'enabled' : 'off' }}</p><label><input v-model="keepCurrentGuardianAccess" type="checkbox" /> Retain the current record’s exact guardian access and keep prior permissions in audit history.</label></fieldset>
             <fieldset v-if="priorPrograms.length"><legend>Completed programs</legend><label v-for="program in priorPrograms" :key="program.organization_id"><input v-model="completedOrganizationIds" type="checkbox" :value="Number(program.organization_id)" /> {{ program.organization_name }} — retain as completed</label></fieldset>
             <label class="cnd-include"><input v-model="identityConfirmed" type="checkbox" /> I compared the records and confirmed they are the same person.</label>
@@ -109,6 +115,7 @@
 <script setup>
 import { computed, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
+import RecordFieldComparison from './clientChart/RecordFieldComparison.vue';
 
 const emit = defineEmits(['open-client', 'merged']);
 
@@ -122,8 +129,27 @@ const keepByGroup = reactive({}), fieldChoices = reactive({});
 const keepCurrentGuardianAccess=ref(false);
 const mergeGroupKey = ref(null), mergePreview = ref(null), mergeError = ref(''), mergeBusy = ref(false), merging = ref(false), identityConfirmed = ref(false), completedOrganizationIds = ref([]);
 const priorPrograms = computed(() => [...new Map((mergePreview.value?.affiliations || []).filter(row => ['program','clinical'].includes(String(row.organization_type).toLowerCase()) && !(Number(row.client_id) === Number(mergePreview.value?.keep.id) && Number(row.is_primary) === 1)).map(row => [Number(row.organization_id),row])).values()]);
-function fieldSource(field) { return fieldChoices[field.key] || (JSON.stringify(field.chosenValue) === JSON.stringify(field.keepValue) ? mergePreview.value.keep.id : field.otherValues.find(row => JSON.stringify(row.value) === JSON.stringify(field.chosenValue))?.id) || mergePreview.value.keep.id; }
-function displayValue(value) { return value === null || value === undefined || value === '' ? 'Not recorded' : String(value); }
+const comparisonRows = computed(() => (mergePreview.value?.fields || []).map(field => {
+  const keepId = mergePreview.value.keep.id;
+  return {
+    key: field.key,
+    label: field.label || field.key,
+    values: Object.fromEntries([[keepId, field.keepValue], ...field.otherValues.map(other => [other.id, other.value])]),
+    selected: fieldChoices[field.key] ?? field.chosenSourceId ?? keepId
+  };
+}));
+function comparisonSources(group) {
+  return [mergePreview.value.keep, ...mergePreview.value.others].map(chart => {
+    const member = group.members.find(row => Number(row.id) === Number(chart.id)) || chart;
+    const updated = new Date(member.updated_at || member.created_at || '');
+    return { id: chart.id, label: `Chart #${chart.id}`,
+      detail: [member.organization_name, Number.isFinite(+updated) ? `Updated ${updated.toLocaleDateString()}` : ''].filter(Boolean).join(' · ') };
+  });
+}
+function mostRecentChart(members) {
+  const timestamp = row => Date.parse(row.updated_at || row.created_at || '') || 0;
+  return [...members].sort((a, b) => timestamp(b) - timestamp(a) || Number(Boolean(b.provider_name)) - Number(Boolean(a.provider_name)) || Number(a.id) - Number(b.id))[0]?.id ?? null;
+}
 const checkedCharts = reactive({});
 const selectedCharts = group => group.members.filter(member => String(member.status).toUpperCase() !== 'ARCHIVED'
   && (checkedCharts[group.key] || []).includes(Number(member.id)));
@@ -134,18 +160,25 @@ function chooseChart(group, member, checked) {
   const ids = selectedCharts(group).map(row => Number(row.id)).filter(id => id !== Number(member.id));
   if (checked) ids.push(Number(member.id));
   checkedCharts[group.key] = ids;
-  if (!ids.includes(Number(keepByGroup[group.key]))) keepByGroup[group.key] = ids[0] || null;
+  keepByGroup[group.key] = mostRecentChart(group.members.filter(row => ids.includes(Number(row.id))));
   cancelMerge();
 }
 function cancelMerge() { mergeGroupKey.value=null;mergePreview.value=null;mergeError.value='';identityConfirmed.value=false; }
-async function reviewMerge(group, reset=true) {
+async function reviewMerge(group) {
   mergeGroupKey.value=group.key;mergeBusy.value=true;mergeError.value='';
-  if(reset){keepCurrentGuardianAccess.value=false;mergePreview.value=null;identityConfirmed.value=false;completedOrganizationIds.value=[];Object.keys(fieldChoices).forEach(key => delete fieldChoices[key]);}
+  keepCurrentGuardianAccess.value = false;
+  mergePreview.value = null;
+  identityConfirmed.value = false;
+  completedOrganizationIds.value = [];
+  Object.keys(fieldChoices).forEach(key => delete fieldChoices[key]);
   try { const {data}=await api.post('/clients/merge/preview',{keepId:Number(keepByGroup[group.key]),sourceIds:selectedCharts(group).map(row => Number(row.id)).filter(id => id!==Number(keepByGroup[group.key])),fieldChoices:{...fieldChoices}},{skipGlobalLoading:true});mergePreview.value=data; }
   catch(e){mergeError.value=e.response?.data?.error?.message || 'Unable to load the merge comparison.';}
   finally{mergeBusy.value=false;}
 }
-async function chooseField(group,key,id){fieldChoices[key]=Number(id);await reviewMerge(group,false);}
+async function retainChart(group, id) {
+  keepByGroup[group.key] = Number(id);
+  await reviewMerge(group);
+}
 async function applyMerge(group) {
   if(!identityConfirmed.value || merging.value)return;
   merging.value=true;mergeError.value='';
@@ -208,7 +241,7 @@ async function loadGroups() {
     for (const group of groups.value) {
       const active = group.members.filter(row => String(row.status).toUpperCase() !== 'ARCHIVED');
       checkedCharts[group.key] = active.length === 2 ? active.map(row => Number(row.id)) : [];
-      keepByGroup[group.key] = active.find(row => row.provider_name)?.id || active[0]?.id;
+      keepByGroup[group.key] = mostRecentChart(active);
     }
   } catch (e) {
     if (currentScan !== scan) return;

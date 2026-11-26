@@ -64,15 +64,36 @@
             </select>
           </label>
         </div>
+        <div v-if="section.key === 'demographics' && patientContactReview.length" ref="patientContactReviewRegion" tabindex="-1" class="ehr-contact-overview">
+          <strong>Review the client’s phone and email</strong>
+          <RecordFieldComparison :sources="patientContactSources" :rows="patientContactRows" :disabled="busy"
+            @choose="(field, source) => patientContactChoices[field] = source" />
+          <button type="button" class="ehr-btn-primary" :disabled="busy" @click="confirmPatientContact">Save chosen patient info</button>
+        </div>
         <template v-if="section.key === 'contacts'">
           <label v-if="canPrepareAccounts" class="ehr-label"><span><input v-model="preparePrimaryGuardian" type="checkbox" :disabled="busy || !eligibleGuardianMatch" /> Prepare Parent / Guardian 1 for {{eligibleGuardianMatch?.contact.fullName || 'a matching parent contact'}}.</span></label>
           <p class="ehr-muted">Import each parent’s contact card. You can prepare a separate account and review access for each parent below.</p>
+          <div v-if="contactsOnChart?.existingContacts?.length || contactsOnChart?.existingGuardians?.length || contactsOnChart?.hasIntakeProfile" class="ehr-contact-overview">
+            <strong>Contacts and guardians on file</strong>
+            <ul>
+              <li v-for="contact in contactsOnChart.existingContacts" :key="contact.id">
+                {{ contact.fullName }} · {{ contact.active ? 'Contact on chart' : 'Inactive contact' }}<template v-if="contact.relationshipType"> · {{ contact.relationshipType }}</template>
+              </li>
+              <li v-for="guardian in contactsOnChart.existingGuardians" :key="`guardian-${guardian.id}`">
+                {{ guardian.name }} · Linked guardian portal account<template v-if="!guardian.contactOnFile"> · Contact card missing</template><template v-if="!guardian.accessEnabled"> · Access pending or off</template>
+              </li>
+            </ul>
+            <p v-if="contactsOnChart.hasIntakeProfile">Guardian intake profile on file</p>
+          </div>
+          <ChartContactImportReview v-if="contactComparison" ref="contactReviewRegion" :key="contactComparison.token" :comparison="contactComparison"
+            :show-account-status="canPrepareAccounts" :disabled="busy" @confirm="confirmContactImport" />
+
           <div v-for="contact in importedContacts" :key="contact.affiliationId" class="ehr-contact">
             <strong>{{ contact.fullName }}</strong> · {{ contact.relationshipType || 'Contact' }}
             <span v-if="contact.portalAccount?.prepared"> · {{contact.portalAccount.created?'Portal account prepared':'Existing portal account linked — same login for this family'}}{{ contact.portalAccount.requiresAccessReview ? ' — review this child’s access below' : '' }}</span>
             <p v-if="contact.portalAccount?.reason" class="ehr-muted">{{ contact.portalAccount.reason }}</p>
           </div>
-          <ClientImportGuardianAccounts v-if="canPrepareAccounts && importedContacts.length" :client-id="clientId" :agency-id="agencyId" :contacts="importedContacts" :disabled="busy" @busy="guardianPreparing=$event" @prepared="transitionRefreshKey++" />
+          <ClientImportGuardianAccounts v-if="canPrepareAccounts && importedContacts.length" :client-id="clientId" :agency-id="agencyId" :contacts="importedContacts" :disabled="busy" @busy="guardianPreparing=$event" @prepared="refreshContactOverview(scopeGeneration); transitionRefreshKey++" />
           <ClientImportBillingContact v-if="canPrepareAccounts && importedContacts.length" :client-id="clientId" :agency-id="agencyId" :contacts="importedContacts" :disabled="busy" @busy="billingContactBusy=$event" />
         </template>
         <label v-if="section.key === 'intake'" class="ehr-label">Intake type<select v-model="intakeServiceCode" data-intake-service :disabled="busy || drafts.state.loading"><option value="">Choose intake type</option><option value="H0031">H0031</option><option value="90791">90791</option></select></label>
@@ -147,7 +168,7 @@
 import { isProBonoServiceCode } from '../../../utils/clinicalAfterHoursPolicy.js';
 import { automaticEligibilityNotice } from '../../../utils/automaticEligibilityNotice.js';
 import { CLIENT_RECORD_SECTIONS } from '../../../utils/clientRecordSections.js';
-import { inject, computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
+import { inject, computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { getActivePinia } from 'pinia';
 import { useAuthStore } from '../../../store/auth';
 import sharedApi from '../../../services/api';
@@ -164,6 +185,8 @@ import ClientImportPolicyholderBirthDate from './ClientImportPolicyholderBirthDa
 import ClientImportSelfPayFields from './ClientImportSelfPayFields.vue';
 import ClientImportBillingContact from './ClientImportBillingContact.vue';
 import ClientImportGuardianAccounts from './ClientImportGuardianAccounts.vue';
+import ChartContactImportReview from './ChartContactImportReview.vue';
+import RecordFieldComparison from './RecordFieldComparison.vue';
 import {
   DEFAULT_MEASUREMENT_METHOD,
   inferScaleDirection,
@@ -220,6 +243,46 @@ const clientClassification = ref(props.initialClientClassification);
 const parsedPatientInfo = ref(props.initialPatientInfo), contactOwnerControl = ref(null);
 const preparePrimaryGuardian = ref(false), importedContacts = ref([]), guardianPreparing=ref(false);
 let contactImportRevision = 0;
+const contactsOnChart = ref(null), contactComparison = ref(null);
+let contactApproval = null, contactResumeSection = null;
+const patientContactReview = ref([]), patientContactChoices = ref({});
+const patientContactReviewRegion = ref(null), contactReviewRegion = ref(null);
+let patientContactApproved = false, patientResumeSection = null;
+const patientContactSources = [{ id: 'current', label: 'On this chart' }, { id: 'incoming', label: 'From TherapyNotes' }];
+const patientContactRows = computed(() => patientContactReview.value.map(row => ({
+  ...row, selected: patientContactChoices.value[row.key] || 'incoming'
+})));
+function resetPatientContactReview() {
+  patientContactReview.value = [];
+  patientContactChoices.value = {};
+  patientContactApproved = false;
+  patientResumeSection = null;
+}
+function confirmPatientContact() {
+  patientContactApproved = true;
+  void importAll(patientResumeSection);
+}
+function resetContactReview() {
+  contactComparison.value = null;
+  contactApproval = null;
+  contactResumeSection = null;
+}
+function confirmContactImport(approval) {
+  contactApproval = approval;
+  void importAll(contactResumeSection);
+}
+async function refreshContactOverview(generation) {
+  if (props.historicalImport || !visibleSections.value.some(section => section.key === 'contacts')) return;
+  const revision = contactImportRevision;
+  try {
+    const { data } = await api.get(`/clients/${props.clientId}/chart-import/contacts/preview`, {
+      skipGlobalLoading: true, headers: agencyHeaders()
+    });
+    if (generation === scopeGeneration && revision === contactImportRevision) contactsOnChart.value = data?.preview || null;
+  } catch {
+    // The import still requires a fresh, chart-scoped review before changing a contact.
+  }
+}
 const sectionTexts = reactive({ demographics: demographicsText, intake: intakeText, plan: planText, insurance: insuranceText, contacts: contactsText, comments: commentsText, payer: payerText, billingComments: billingCommentsText });
 const sections = CLIENT_RECORD_SECTIONS;
 const visibleSections = computed(() => sections.filter(section => (!props.onlySections||props.onlySections.includes(section.key))&&(props.historicalImport ? ['intake', 'plan'].includes(section.key) : section.key !== 'payer' &&
@@ -335,10 +398,12 @@ function reviewPatientInfo() {
   control?.focus?.();
 }
 function chooseContactOwner(owner) {
+  resetPatientContactReview();
   contactOwner.value = owner;
   contactOwnerConfirmed.value = false;
 }
 function confirmContactOwner(confirmed) {
+  if (!confirmed) resetPatientContactReview();
   if (confirmed) contactOwner.value = effectiveContactOwner.value;
   contactOwnerConfirmed.value = confirmed;
 }
@@ -416,7 +481,7 @@ watch(
       billingTaskIds[position] = null;
       coverageErrors[position] = '';
     }
-    importedContacts.value = []; preparePrimaryGuardian.value = false; contactOwner.value = props.initialContactOwner;
+    importedContacts.value = []; contactsOnChart.value = null; resetContactReview(); resetPatientContactReview(); preparePrimaryGuardian.value = false; contactOwner.value = props.initialContactOwner;
     contactOwnerConfirmed.value = props.initialContactOwnerConfirmed; clientClassification.value = props.initialClientClassification; parsedPatientInfo.value = props.initialPatientInfo;
     for (const section of sections) { sectionTexts[section.key] = props.initialTexts[section.key] || ''; status[section.key] = props.recordStatus?.[section.key] || 'missing'; }
     error.value = ''; successMessage.value = ''; stepLog.value = [];
@@ -449,6 +514,7 @@ watch(
     planSourceDate.value = saved?.plan?.value?.sourceDate || ''; planSourceAuthor.value = saved?.plan?.value?.sourceAuthor || '';
     hydratingDrafts = false;
     void loadImportedContacts(generation);
+    void refreshContactOverview(generation);
     for (const section of visibleSections.value) if (sectionTexts[section.key] || section.key==='insurance'&&hasCoveragePaste.value) drafts.schedule(section.key, draftValue(section.key));
     progressSectionsKey=null;
     if (props.creationFlow && props.autoImport && !props.historicalImport) importAll();
@@ -466,6 +532,8 @@ for (const section of sections) {
     if (['imported','done'].includes(status[section.key])) status[section.key] = 'missing';
     progressSectionsKey = null;
     if (section.key === 'intake') importedIntakeDraft = null;
+    if (section.key === 'contacts') resetContactReview();
+    if (section.key === 'demographics') resetPatientContactReview();
     if (props.historicalImport) sourceReviewed.value = false;
     drafts.schedule(section.key, draftValue(section.key));
   }, { flush: 'sync' });
@@ -561,12 +629,12 @@ function mapGoal(g = {}) {
   };
 }
 
-async function importDemographics() {
+async function importDemographics(onlySection) {
   const text = demographicsText.value.trim();
   if (!text) return false;
   const parseRes = await api.post(
     `/clients/${props.clientId}/demographics/parse`,
-    { text },
+    { text, ...(!props.historicalImport ? { reviewContact: true } : {}) },
     { skipGlobalLoading: true, headers: agencyHeaders() }
   );
   const p = parseRes?.data?.parsed || {};
@@ -576,39 +644,59 @@ async function importDemographics() {
     reviewPatientInfo();
     return 'needs_review';
   }
-  await api.post(
-    `/clients/${props.clientId}/demographics/import`,
-    {
-      contactOwner: effectiveContactOwner.value,
-      ...(props.mergeExisting ? { mergeExisting:true } : {}),
-      ...(!props.historicalImport ? {
-        contactOwnerConfirmed:contactOwnerConfirmed.value,
-        recordsContactClassification:clientClassification.value || suggestedOwnership.value.clientClassification
-      } : {}),
-      demographics: {
-        fullName: p.fullName || '',
-        dateOfBirth: p.dateOfBirth || '',
-        addressStreet: p.addressStreet || '',
-        addressLine2: p.addressLine2 || '',
-        addressCity: p.addressCity || '',
-        addressState: p.addressState || '',
-        addressZip: p.addressZip || '',
-        timezone: p.timezone || '',
-        contactPhone: p.contactPhone || '',
-        textMessagesOk: props.mergeExisting ? p.textMessagesOk : p.textMessagesOk === true,
-        email: p.email || '',
-        appointmentReminderType: p.appointmentReminderType || '',
-        administrativeSex: p.administrativeSex || '',
-        preferredLanguage: p.preferredLanguage || '',
-        grade: p.grade || ''
-      }
-    },
-    { skipGlobalLoading: true, headers: agencyHeaders() }
-  );
+  const current = parseRes?.data?.currentContact || {};
+  if (!props.historicalImport && effectiveContactOwner.value === 'client' && !patientContactApproved) {
+    patientContactReview.value = [['contactPhone', 'Phone'], ['email', 'Email']].filter(([key]) =>
+      current[key] && p[key] && String(current[key]).trim() !== String(p[key]).trim()
+    ).map(([key, label]) => ({ key, label, values: { current: current[key], incoming: p[key] } }));
+    if (patientContactReview.value.length) {
+      patientResumeSection = onlySection;
+      await nextTick();
+      patientContactReviewRegion.value?.[0]?.focus();
+      return 'needs_review';
+    }
+  }
+  const keepPhone = patientContactChoices.value.contactPhone === 'current';
+  const keepEmail = patientContactChoices.value.email === 'current';
+  const preserveContact = keepPhone || keepEmail;
+  const demographics = {
+    fullName: p.fullName || '',
+    dateOfBirth: p.dateOfBirth || '',
+    addressStreet: p.addressStreet || '',
+    addressLine2: p.addressLine2 || '',
+    addressCity: p.addressCity || '',
+    addressState: p.addressState || '',
+    addressZip: p.addressZip || '',
+    timezone: p.timezone || '',
+    contactPhone: keepPhone ? '' : p.contactPhone || '',
+    textMessagesOk: keepPhone ? undefined : props.mergeExisting ? p.textMessagesOk : p.textMessagesOk === true,
+    email: keepEmail ? '' : p.email || '',
+    appointmentReminderType: preserveContact ? '' : p.appointmentReminderType || '',
+    administrativeSex: p.administrativeSex || '',
+    preferredLanguage: p.preferredLanguage || '',
+    grade: p.grade || ''
+  };
+  const keptOnlyContact = preserveContact && !['fullName', 'dateOfBirth', 'addressStreet', 'addressCity', 'addressZip', 'grade', 'contactPhone', 'email'].some(key => demographics[key]);
+  if (!keptOnlyContact) {
+    await api.post(
+      `/clients/${props.clientId}/demographics/import`,
+      {
+        contactOwner: effectiveContactOwner.value,
+        ...(props.mergeExisting || preserveContact ? { mergeExisting: true } : {}),
+        ...(!props.historicalImport ? {
+          contactOwnerConfirmed: contactOwnerConfirmed.value,
+          recordsContactClassification: clientClassification.value || suggestedOwnership.value.clientClassification
+        } : {}),
+        demographics
+      },
+      { skipGlobalLoading: true, headers: agencyHeaders() }
+    );
+  }
   assertScope();
   status.demographics = 'imported';
+  resetPatientContactReview();
   transitionRefreshKey.value++;
-  log(true, 'Demographics imported');
+  log(true, keptOnlyContact ? 'Saved patient contact details kept.' : 'Demographics imported');
   return true;
 }
 
@@ -742,14 +830,43 @@ async function reviewPlan() {
 async function reloadAssignments(){await assignmentsPanel.value?.refresh?.();return true;}
 defineExpose({ prepareLeave,importAll,reloadAssignments,reviewInsurance });
 
-async function importSupplementary(key) {
-  const result = await api.post(`/clients/${props.clientId}/chart-import/sections/${key}`, { text: sectionTexts[key], ...(['insurance','payer'].includes(key) ? { position: payerPosition.value } : {}),
-    ...(key === 'contacts' ? { preparePrimaryGuardian: canPrepareAccounts.value && preparePrimaryGuardian.value && !!eligibleGuardianMatch.value && status.demographics === 'imported' } : {}) }, { skipGlobalLoading: true, headers: agencyHeaders() });
+async function importSupplementary(key, onlySection) {
+  const request = { skipGlobalLoading: true, headers: agencyHeaders() };
+  const endpoint = `/clients/${props.clientId}/chart-import`;
+  if (key === 'contacts' && !contactApproval) {
+    const { data } = await api.post(`${endpoint}/contacts/preview`, { text: sectionTexts.contacts.trim() }, request);
+    assertScope();
+    if (data?.preview?.needsReview) {
+      contactComparison.value = data.preview;
+      contactResumeSection = onlySection;
+      await nextTick();
+      contactReviewRegion.value?.[0]?.focus();
+      return 'needs_review';
+    }
+  }
+  let result;
+  try {
+    result = await api.post(`${endpoint}/sections/${key}`, { text: sectionTexts[key],
+      ...(['insurance','payer'].includes(key) ? { position: payerPosition.value } : {}),
+      ...(key === 'contacts' ? {
+        preparePrimaryGuardian: canPrepareAccounts.value && preparePrimaryGuardian.value && !!eligibleGuardianMatch.value && status.demographics === 'imported',
+        ...(contactApproval ? { contactReview: contactApproval } : {})
+      } : {}) }, request);
+  } catch (error) {
+    if (key === 'contacts' && error.response?.status === 409) resetContactReview();
+    throw error;
+  }
   assertScope();
   if (key === 'insurance') coverageDrafts[payerPosition.value].imported = true;
   status[key] = 'imported';
   transitionRefreshKey.value++;
-  if (key === 'contacts') { contactImportRevision++; importedContacts.value = Array.isArray(result.data?.result) ? result.data.result : []; }
+  if (key === 'contacts') {
+    contactImportRevision++;
+    resetContactReview();
+    importedContacts.value = Array.isArray(result.data?.result) ? result.data.result : [];
+    void loadImportedContacts(scopeGeneration);
+    void refreshContactOverview(scopeGeneration);
+  }
   if (['insurance', 'payer'].includes(key)) { payerReady.value = false; payerRefreshKey.value++; }
   const messages = { comments: 'Patient comments saved to Administrative note', insurance: 'Insurance imported for billing review', payer: 'Payer information imported', billingComments: 'Billing comments imported', contacts: 'Additional contacts imported' };
   const eligibility = key === 'insurance' && result.data?.result;
@@ -823,7 +940,7 @@ async function importAll(onlySection = null) {
       if (status[key] === 'imported' && !(key === 'insurance' && importingAllCoverage && !allCoverageHandled.value)) continue;
       if (key === 'plan' && pipelineSections.includes('intake') && status.intake !== 'imported') continue;
       try {
-        const result = importers[key] ? await importers[key]() : await importSupplementary(key);
+        const result = importers[key] ? await importers[key](onlySection) : await importSupplementary(key, onlySection);
         assertScope();
         if (result === 'needs_review') return;
       } catch (e) {
@@ -843,6 +960,8 @@ async function markDoneOnly() {completionReview.value=true;keepBlankConfirmed.va
 </script>
 
 <style scoped>
+.ehr-contact-overview { padding: 10px 12px; background: #f0f6fa; border-radius: 8px; margin: 8px 0; }
+.ehr-contact-overview ul { margin: 6px 0; padding-left: 20px; }
 .ehr-contact-review{display:grid;gap:8px;border:1px solid #c7d9eb;border-radius:8px;padding:12px}.ehr-review-needed{border-color:#c49436;background:#fff7e4}.ehr-confirm{display:flex;align-items:center;gap:8px}
 .ehr-imported{padding:12px;background:#eaf8ef;border:1px solid #97cbaa;border-radius:8px;color:#17633a;font-weight:600}.ehr-completion-review{margin-top:20px;padding:20px;border:2px solid #275e96;border-radius:12px;background:#f5f9ff}.ehr-completion-review button{margin:12px 10px 0 0}
 .ehr-finish { margin-top: 16px; }

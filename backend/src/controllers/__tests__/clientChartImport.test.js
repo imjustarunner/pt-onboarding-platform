@@ -1,13 +1,19 @@
 vi.mock('../../services/coverageVerificationSummary.service.js',()=>({latestPayerResponses:vi.fn(async()=>({})),readCoverageVerificationSummary:vi.fn(async()=>({current:false,verifiedAt:null}))}));
 import { beforeEach, expect, it, vi } from 'vitest';
-const m = vi.hoisted(() => ({ access:vi.fn(), read:vi.fn(), save:vi.fn(), importSection:vi.fn(), handoff:vi.fn(), insurance:vi.fn(), audit:vi.fn(),start:vi.fn(),finish:vi.fn(),prepareContactGuardian:vi.fn() }));
+const m = vi.hoisted(() => ({ access:vi.fn(), read:vi.fn(), save:vi.fn(), importSection:vi.fn(), handoff:vi.fn(), insurance:vi.fn(), audit:vi.fn(),start:vi.fn(),finish:vi.fn(),prepareContactGuardian:vi.fn(),contactPreview:vi.fn(),resolveContactReview:vi.fn() }));
+vi.mock('../../services/ehrHistoricalImportLock.service.js', () => ({
+  withHistoricalImportLock: (_agencyId, _clientId, _kind, work) => work()
+}));
+vi.mock('../../services/clientImportContactReview.service.js', () => ({
+  previewChartContactImport: m.contactPreview, resolveChartContactReview: m.resolveContactReview
+}));
 vi.mock('../../services/importedGuardianAccount.service.js',()=>({prepareImportedGuardianAccount:m.prepareContactGuardian}));
 vi.mock('../../services/clientChartImportProgress.service.js',()=>({beginClientChartImport:m.start,completeClientChartImport:m.finish}));
 vi.mock('../../services/clientChartImportAccess.service.js', () => ({ requireClientChartImportAccess:m.access }));
 vi.mock('../../services/clientChartImport.service.js', () => ({ chartSections:['demographics','intake','plan','insurance','contacts','comments','payer','billingComments'], readChartRecord:m.read, saveChartRecord:m.save, importSupplementaryChartSection:m.importSection, handOffChartInsurance:m.handoff }));
 vi.mock('../../services/clientInsurance.service.js', () => ({ readClientInsurance:m.insurance }));
 vi.mock('../../services/auditEvent.service.js', () => ({ logAuditEvent:m.audit }));
-import { getChartImportDraft, getChartImportDrafts, saveChartImportDraft, importChartSection, getChartSupplementaryRecords,startChartRecordsImport,finishChartRecordsImport,prepareChartContactGuardian } from '../clientChartImport.controller.js';
+import { getChartImportDraft, getChartImportDrafts, saveChartImportDraft, importChartSection, reviewChartImportContacts, getChartSupplementaryRecords,startChartRecordsImport,finishChartRecordsImport,prepareChartContactGuardian } from '../clientChartImport.controller.js';
 const req = () => ({ user:{ id:10, role:'support' }, params:{ id:12, section:'comments' }, query:{}, body:{ text:'Patient Comments\nSynthetic comment', revision:0, agencyId:999, userId:999 }, get:()=>'2' });
 const res = () => ({ set:vi.fn().mockReturnThis(), json:vi.fn() });
 it('prepares the second guardian only from the authorized chart and audit actor',async()=>{
@@ -112,4 +118,40 @@ it('lets agency account staff hand off a policy without putting the paste in the
  const rejected=vi.fn();await importChartSection(request,res(),rejected);
  expect(rejected).toHaveBeenCalledWith(expect.objectContaining({status:403}));
  expect(m.handoff).toHaveBeenCalledOnce();
+});
+
+it('limits the contact preview to the authorized chart and omits pasted details from the audit', async () => {
+  const request = req(), response = res(), next = vi.fn();
+  request.method = 'POST';
+  const preview = { rows: [{ index: 0 }], token: 'review-token' };
+  m.contactPreview.mockResolvedValue(preview);
+  await reviewChartImportContacts(request, response, next);
+  expect(next).not.toHaveBeenCalled();
+  expect(m.contactPreview).toHaveBeenCalledWith({ clientId: 12, agencyId: 2 }, request.body.text, { accountAccess: true });
+  expect(response.set).toHaveBeenCalledWith('Cache-Control', 'no-store');
+  expect(response.json).toHaveBeenCalledWith({ preview });
+  expect(m.audit).toHaveBeenCalledWith(request, expect.objectContaining({ metadata: { contactCount: 1 } }));
+  m.contactPreview.mockClear();
+  m.access.mockRejectedValueOnce(Object.assign(new Error('Outside agency'), { status: 403 }));
+  await reviewChartImportContacts(request, res(), next);
+  expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 403 }));
+  expect(m.contactPreview).not.toHaveBeenCalled();
+});
+
+it('validates the current comparison before writing the reviewed contact fields', async () => {
+  const request = req(), response = res(), next = vi.fn();
+  request.params.section = 'contacts';
+  request.body.contactReview = { token: 'review-token', choices: { 0: { email: 'current' } } };
+  const preview = { rows: [{ index: 0 }], token: 'review-token' }, reviewed = [{ index: 0, resolved: { email: 'saved@example.test' } }];
+  m.contactPreview.mockResolvedValue(preview);
+  m.resolveContactReview.mockReturnValue(reviewed);
+  await importChartSection(request, response, next);
+  expect(next).not.toHaveBeenCalled();
+  expect(m.resolveContactReview).toHaveBeenCalledWith(preview, request.body.contactReview);
+  expect(m.importSection).toHaveBeenCalledWith({ clientId: 12, agencyId: 2 }, 'contacts', request.body.text, 10, expect.objectContaining({ reviewedContacts: reviewed }));
+  m.importSection.mockClear();
+  m.resolveContactReview.mockImplementationOnce(() => { throw Object.assign(new Error('Refresh comparison'), { status: 409 }); });
+  await importChartSection(request, response, next);
+  expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 409 }));
+  expect(m.importSection).not.toHaveBeenCalled();
 });

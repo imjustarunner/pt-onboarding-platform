@@ -61,7 +61,7 @@ export async function handOffChartInsurance(scope, position, text, actorId) {
   return { taskId };
 }
 
-export async function importSupplementaryChartSection(scope, section, text, actorId, { position = null, preparePrimaryGuardian = false, guardianContactNames = [], syncGuardianReminders = false } = {}) {
+export async function importSupplementaryChartSection(scope, section, text, actorId, { position = null, preparePrimaryGuardian = false, guardianContactNames = [], syncGuardianReminders = false, reviewedContacts = null } = {}) {
   if (section === 'insurance') {
     const parsed = parseChartInsurance(text, { position });
     const db = await pool.getConnection();
@@ -145,7 +145,16 @@ export async function importSupplementaryChartSection(scope, section, text, acto
     return (await saveChartRecord(scope, section, 0, { message }, actorId)).value;
   }
   if (section === 'contacts') {
-    const contacts = parseChartContacts(text);
+    const contacts = parseChartContacts(text).map((contact, index) => {
+      const review = reviewedContacts?.[index];
+      if (!review) return contact;
+      const { fullName, relationshipType, email, phone } = review.resolved;
+      const samePhone = normalizeSmsPhone(phone) === normalizeSmsPhone(review.incoming.phone);
+      const sameDestination = email === review.incoming.email && samePhone;
+      return { ...contact, fullName, relationshipType, email,
+        ...(!samePhone ? { mobilePhone: null, phone } : {}),
+        ...(!sameDestination ? { appointmentReminders: null } : {}) };
+    });
     const imported = {};
     const existing = await ClientContactAffiliation.listForClient(scope.clientId, { includeInactive: true });
     const nameKey = name => String(name || '').trim().replace(/\s+/g, ' ').toLowerCase();
@@ -170,23 +179,27 @@ export async function importSupplementaryChartSection(scope, section, text, acto
         if (emailOn || smsOn) inheritedChannels = {email:emailOn, sms:smsOn};
       }
     }
-    for (const contact of contacts) {
+    for (const [index, contact] of contacts.entries()) {
+      const review = reviewedContacts?.[index];
       const matches = existing.filter(row => nameKey(row.contact_full_name) === nameKey(contact.fullName));
       if (matches.length > 1) throw Object.assign(new Error('More than one existing contact has this name. Resolve the duplicate contacts before importing.'), { status: 409 });
       const result = await upsertClientAffiliatedContact({ ...scope, userId: actorId, fullName: contact.fullName, email: contact.email,
         phone: contact.mobilePhone || contact.phone || contact.homePhone || contact.workPhone,
-        relationshipType: contact.relationshipType, existingContactId: matches[0]?.agency_contact_id || null, importOnly: true });
+        relationshipType: contact.relationshipType, existingContactId: review?.current?.contactId || matches[0]?.agency_contact_id || null, importOnly: true });
       const affiliation = result.affiliation;
       const id = Number(affiliation?.id);
       if (!id) throw new Error('Contact import did not return an affiliation');
       imported[id] = { ...contact, affiliationId: id };
       if ((preparePrimaryGuardian && contact === primaryContact) || requestedAccounts.has(nameKey(contact.fullName))) {
         const names = contact.fullName.split(/\s+/);
-        const portalAccount = await prepareGuardianAccount({ client, profile: { ...contact, firstName: contact.firstName || names.shift(), lastName: contact.lastName || names.join(' '),
+        const portalAccount = review?.accountStatus === 'review' || review?.accountStatus === 'linked' && review.detailsDiffer
+          ? { prepared: false, reason: 'Review the existing guardian account before preparing a login for this contact.' }
+          : await prepareGuardianAccount({ client, profile: { ...contact, firstName: contact.firstName || names.shift(), lastName: contact.lastName || names.join(' '),
           phone: contact.mobilePhone || contact.phone || contact.homePhone || contact.workPhone, relationship: contact.relationshipType }, actorUserId: actorId, reviewLinkedGuardians:true });
         imported[id].portalAccount = portalAccount;
       }
-      if (contact === primaryContact && inheritedChannels) {
+      if (contact === primaryContact && inheritedChannels && (!review || (contact.email === review.incoming.email
+          && normalizeSmsPhone(contact.mobilePhone || contact.phone || contact.homePhone || contact.workPhone) === normalizeSmsPhone(review.incoming.phone)))) {
         const email = String(contact.email || '').trim().toLowerCase();
         const phone = normalizeSmsPhone(contact.mobilePhone || contact.phone || contact.homePhone || contact.workPhone);
         const links = (await ClientGuardian.listForClient(scope.clientId)).filter(link => link.relationship_type !== 'self' && email && String(link.email || '').trim().toLowerCase() === email);
@@ -197,7 +210,7 @@ export async function importSupplementaryChartSection(scope, section, text, acto
           imported[id].appointmentReminders = [channels.sms && 'Text (SMS)', channels.email && 'Email'].filter(Boolean).join(' and ');
         }
       }
-      if(syncGuardianReminders||preparePrimaryGuardian||requestedAccounts.size){
+      if ((syncGuardianReminders || preparePrimaryGuardian || requestedAccounts.size) && review?.accountStatus !== 'review' && !review?.detailsDiffer) {
         const links=await ClientGuardian.listForClient(scope.clientId)||[];
         const linked=links.filter(link=>link.relationship_type!=='self'&&String(link.email||'').trim().toLowerCase()===String(contact.email||'').trim().toLowerCase()&&contact.email);
         const guardianUserId=imported[id].portalAccount?.prepared?imported[id].portalAccount.userId:linked.length===1?Number(linked[0].guardian_user_id):null;
