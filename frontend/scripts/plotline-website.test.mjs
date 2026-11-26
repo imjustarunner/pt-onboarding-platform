@@ -34,7 +34,7 @@ test('production packages every page with independent branding and HTTPS canonic
   for(const key of Object.keys(plotlinePages)){
     const suffix=key==='home'?'':`/${key}`;
     const html=read(`dist/_public-sites/plotline${suffix}/index.html`);
-    assert.ok(html.includes(`https://plottwistco.com/plottline${suffix}`));
+    assert.ok(html.includes(`<link rel="canonical" href="https://plotlinepo.com${suffix}">`));
     assert.match(html,/<title>.*Plotline by PlotTwistCo<\/title>/);
     assert.match(html,/\/plottline\/assets\/index-/);
   }

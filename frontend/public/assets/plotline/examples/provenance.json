@@ -4,7 +4,7 @@
     {
       "screen": "hiring",
       "source": "src/views/admin/HiringDashboardView.vue",
-      "sourceSha256": "3d38e440f41b23a934a79cdfadc6cc0a3122de1cbe641ff093c391086348422a",
+      "sourceSha256": "fef64f16c828b882b7945a69b169813343c0c92387bf5dca1a8d86b5273e8c11",
       "records": "Fictional local fixtures; no customer records or network access",
       "image": "hiring.jpg",
       "width": 1440,
@@ -13,7 +13,7 @@
     {
       "screen": "onboarding",
       "source": "src/views/admin/OnboardingAdminView.vue",
-      "sourceSha256": "0a08a09198d08dd9636429e29f9736d906ccba96441c810b9fc5eb425c23df0e",
+      "sourceSha256": "fe2bc36fb4ca9e38fefec5c6bf8f229a24618743f875853424c1da69474566d0",
       "records": "Fictional local fixtures; no customer records or network access",
       "image": "onboarding.jpg",
       "width": 1440,
@@ -22,7 +22,7 @@
     {
       "screen": "learning",
       "source": "src/views/MyLearningView.vue",
-      "sourceSha256": "c1a8464287144f8088ba105802c477a9d692148f00db8db7e3004cf0a17e604f",
+      "sourceSha256": "308016ff79e0fc9f37942f3c3879c6ce66c410c113e336c984441eaf8db240eb",
       "records": "Fictional local fixtures; no customer records or network access",
       "image": "learning.jpg",
       "width": 1440,
@@ -31,7 +31,7 @@
     {
       "screen": "checklist",
       "source": "src/views/OnboardingChecklistView.vue",
-      "sourceSha256": "197fc27f33670c4fef78e633d2428a21ab4bb129ffdbe7c46905dee8987dc7b4",
+      "sourceSha256": "d9c0f30e7cd1951ba961130f9b54433ad89f258c0b0093810d1ca0235d2c8465",
       "records": "Fictional local fixtures; no customer records or network access",
       "image": "checklist.jpg",
       "width": 1440,
@@ -49,7 +49,7 @@
     {
       "screen": "careers",
       "source": "src/views/public/PublicCareersView.vue",
-      "sourceSha256": "e8837847c20c36b308511f0c1bf9bfbb2ff23a137a1c557a2ad855a3f0968ba5",
+      "sourceSha256": "28a861048e642b820b45b6c753490af40d1a4af50ad67a51c5bfd4e2f779172b",
       "records": "Fictional local fixtures; no customer records or network access",
       "image": "careers.jpg",
       "width": 1440,
@@ -58,7 +58,7 @@
     {
       "screen": "organizations",
       "source": "src/components/admin/opsDashboard/PeopleOpsPipelineCard.vue",
-      "sourceSha256": "fddf77915997b196f803e6e6de32ae1e65ac4f75f3fe5fed6f12f0e20166125d",
+      "sourceSha256": "b500c96522143c108589f75c65abdc7dbbddff0c2fd5a784cf7c4a96c8808e89",
       "records": "Fictional local fixtures; no customer records or network access",
       "image": "organizations.jpg",
       "width": 1440,
