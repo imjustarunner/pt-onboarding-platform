@@ -72,6 +72,21 @@ describe('Narriva writer choices and evidence', () => {
     await w.get('textarea').setValue('Consent was explicitly documented in the encounter.');await w.get('form').trigger('submit');
     expect(w.emitted('resolve')[0]).toEqual([{findingId:'consent-review',action:'bypass',reason:'Consent was explicitly documented in the encounter.'}]);w.unmount();
   });
+  it('records an inline encounter dismissal without opening another editor', async () => {
+    const review=passed();
+    review.status='action_required';
+    review.checks[1].findings=[{id:'service_code:additional',message:'Did another person attend?',action:'participants',canBypass:true}];
+    review.checks[2].findings=[{id:'encounter_consent:method_mismatch',message:'Confirm the session modality.',action:'encounter',canBypass:true}];
+    const w=mount(NarrivaCompliancePanel,{props:{review,preGeneration:true}});
+    const dismiss=w.findAll('button').filter(button=>button.text()==='Dismiss discrepancy');
+    expect(dismiss).toHaveLength(2);
+    for(const button of dismiss)await button.trigger('click');
+    expect(w.find('textarea').exists()).toBe(false);
+    expect(w.emitted('resolve').map(([decision])=>decision)).toEqual(['service_code:additional','encounter_consent:method_mismatch'].map(findingId=>({
+      findingId,action:'bypass',reason:'Provider confirmed the encounter details as recorded.'
+    })));
+    w.unmount();
+  });
   it('does not assert normal mental status or low risk for a new guided note', () => {
     const state=createEmptyCsNoteBuildState();
     expect(state.riskLevel).toBe('');expect(Object.values(state.mse).every(value=>value==='')).toBe(true);

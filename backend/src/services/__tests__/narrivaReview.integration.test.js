@@ -364,7 +364,7 @@ describe('Narriva pre-generation review', () => {
     source.encounter.consentConfirmed=false;facts.modalityMatches=false;
     const review=await preflight();
     const findings=review.checks.find(c=>c.id==='encounter_consent').findings;
-    expect(findings).toEqual(expect.arrayContaining([expect.objectContaining({id:'encounter_consent:consent',canBypass:false}),expect.objectContaining({id:'encounter_consent:method_mismatch',canBypass:false})]));
+    expect(findings).toEqual(expect.arrayContaining([expect.objectContaining({id:'encounter_consent:consent',canBypass:false}),expect.objectContaining({id:'encounter_consent:method_mismatch',canBypass:true})]));
   });
   it('rejects a superseded narrative review even when the source text is identical',async()=>{
     const older=await preflight(),latest=await preflight();

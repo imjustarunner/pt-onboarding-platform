@@ -1,7 +1,8 @@
 import {it,expect,vi,beforeEach} from 'vitest';
-const m=vi.hoisted(()=>({execute:vi.fn(),agency:vi.fn(),audit:vi.fn()}));
+const m=vi.hoisted(()=>({execute:vi.fn(),clinical:vi.fn(),agency:vi.fn(),audit:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute}}));
-vi.mock('../narrivaAccess.service.js',()=>({requireNarrivaAgency:m.agency,positiveId:value=>Number.isSafeInteger(Number(value))&&Number(value)>0?Number(value):null,parseNarrivaObject:JSON.parse}));
+vi.mock('../../config/clinicalDatabase.js',()=>({default:{execute:m.clinical}}));
+vi.mock('../narrivaAccess.service.js',()=>({requireNarrivaAgency:m.agency,positiveId:value=>Number.isSafeInteger(Number(value))&&Number(value)>0?Number(value):null,parseNarrivaObject:JSON.parse,narrivaError:(status,message)=>Object.assign(new Error(message),{status})}));
 vi.mock('../clinicalNoteCrypto.service.js',()=>({maybeDecryptNotePayload:value=>value}));
 vi.mock('../noteAidChartAudit.service.js',()=>({logNoteAidChartEvent:m.audit}));
 import {listNarrivaReviewResults} from '../narrivaReviewResults.service.js';
@@ -17,4 +18,24 @@ it('lets an authorized agency reviewer see ordinary signature scores without pur
 });
 it('allows an administrator to choose only their own results',async()=>{
  await listNarrivaReviewResults({user:{id:9,role:'admin'},query:{agencyId:2,scope:'mine',limit:2.8}});expect(m.execute.mock.calls[0][0]).toContain('AND actor_user_id=?');expect(m.execute.mock.calls[0][0]).toContain('LIMIT 2');
+});
+
+it('filters completed signed notes below the requested score and returns only actionable rubric descriptions',async()=>{
+ const review={phase:'output',status:'action_required',scoring:{score:60,criteria:[
+  {status:'missing',label:'Client response',message:'Describe the client’s response to the intervention.',evidence:['private excerpt']},
+  {status:'met',label:'Plan',evidence:['private excerpt']}
+ ]}};
+ const row={id:18,actor_user_id:7,clinical_note_id:41,result_encrypted:JSON.stringify(review)};
+ m.execute.mockResolvedValueOnce([[row,
+  {...row,id:17,clinical_note_id:42,result_encrypted:JSON.stringify({...review,scoring:{score:70}})},
+  {...row,id:16,clinical_note_id:43,result_encrypted:JSON.stringify({...review,status:'unavailable'})},
+  {...row,id:15,clinical_note_id:44},
+  {...row,id:14,actor_user_id:9}
+ ]]);
+ m.clinical.mockResolvedValueOnce([[{id:41,author_id:7},{id:42,author_id:7},{id:43,author_id:7}]]);
+ const result=await listNarrivaReviewResults({user:{id:9,role:'admin'},query:{agencyId:2,view:'signed',below:'70'}});
+ expect(m.execute.mock.calls[0][0]).toContain('AND clinical_note_id IS NOT NULL');
+ expect(m.clinical).toHaveBeenCalledWith(expect.stringContaining('provider_signed_at IS NOT NULL'),[2,41,42,43,44]);
+ expect(result.results).toEqual([expect.objectContaining({noteId:41,score:60,missing:[{label:'Client response',message:'Describe the client’s response to the intervention.'}]})]);
+ expect(JSON.stringify(result)).not.toContain('private excerpt');
 });

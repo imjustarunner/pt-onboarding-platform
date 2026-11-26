@@ -1,4 +1,8 @@
 <script setup>
+import SupervisorCorrectionFields from '../components/clinical/SupervisorCorrectionFields.vue';
+import ClinicalNoteReviewRequests from '../components/clinical/ClinicalNoteReviewRequests.vue';
+import NarrivaNoteSummary from '../components/clinical/NarrivaNoteSummary.vue';
+import {eligibleForDocumentationAddendum,supervisorFeedbackSentence} from '../utils/clinicalSupervisorFeedback.js';
 import InternalDiagnosticCriteriaReview from '../components/clinical/InternalDiagnosticCriteriaReview.vue';
 import NarrivaClinicalAssist from '../components/clinical/NarrivaClinicalAssist.vue';
 import ExternalClinicalDiagnosis from '../components/clinical/ExternalClinicalDiagnosis.vue';
@@ -244,7 +248,7 @@ async function save(explicit=false){
   return savePromise;
 }
 async function load(){
-  showReturnRequest.value=false;returnReason.value='';
+  showReturnRequest.value=false;returnReason.value='';mobileCorrection.value={};mobileReviewAction.value='changes_needed';
   const current=++generation;pendingAuthorSignature=null;savedRatingBatch=null;editingNoteSection.value='';clearTimeout(completionTimer);savedSignature.value=null;hydrating=true;loading.value=true;error.value='';notice.value='';context.value=null;sessionPresentingProblemOverride.value=null;reviewStarted.value=false;reviewPhase.value='output';preflightSource.value='';receiptMatches.value=false;invalidate();clearTimeout(saveTimer);dirty.value=false;
   try{const {data}=await api.value.get('/context',{params:selection.value});if(current!==generation)return;context.value=data;const saved=data.draft?.outputJson || data.note?.outputJson || {sections:{Narrative:''},meta:{}};output.value=typeof saved==='string'?JSON.parse(saved):saved;output.value.sections ||= {Narrative:''};output.value.meta ||= {};
     sessionPresentingProblemOverride.value=typeof output.value.meta.narrivaContext?.presentingProblemOverride==='string'?output.value.meta.narrivaContext.presentingProblemOverride:null;
@@ -443,28 +447,48 @@ function finishAuthorSignature(result,note,recordSections) {
   completedSignature({...result,draftId:signedDraftId},'author');
 }
 
-const showReturnRequest=ref(false),returnReason=ref(''),returningNote=ref(false);
+const showReturnRequest=ref(false),returnReason=ref(''),returningNote=ref(false),mobileCorrection=ref({}),mobileReviewAction=ref('changes_needed');
+const mobileFeedbackSentence=computed(()=>mobileReviewAction.value==='changes_needed'?supervisorFeedbackSentence(mobileCorrection.value):'');
+const mobileDocumentationAddendum=computed(()=>mobileReviewAction.value==='changes_needed'&&eligibleForDocumentationAddendum(mobileCorrection.value));
+const canReturn=computed(()=>mobileReviewAction.value==='changes_needed' && mobileCorrection.value.section ? !!mobileFeedbackSentence.value : !!returnReason.value.trim());
+const authorReviewRequests=computed(()=>(context.value?.note?.reviewRequests || []).filter(item=>!item.resolvedAt&&!item.dismissedAt).map(item=>({
+ ...item,status:item.action,clinicalNoteId:context.value.note.id,agencyId:agencyId.value
+})));
+function refreshAuthorReview(request) {
+  if(request.action==='review_acknowledge'){
+    context.value.note.reviewRequests=context.value.note.reviewRequests.map(item=>item.id===request.id?{...item,acknowledgedAt:new Date().toISOString()}:item);
+  }else{
+    context.value.note.reviewRequests=context.value.note.reviewRequests.filter(item=>item.id!==request.id);
+  }
+}
+const mobileSubmissionQuickLook=computed(()=>{
+ if(context.value?.submissionQuickLook)return context.value.submissionQuickLook;
+ const status=review.value?.status || 'unavailable';
+ const completed=['passed','action_required','bypassed'].includes(status);
+ return {aiSummary:completed?review.value?.quickSummary:null,
+  submissionReview:{status,score:completed?review.value?.scoring?.score ?? null:null,findings:[]}};
+});
 async function returnNoteForCorrection(){
-  if(!canCosign.value || signing.value || returningNote.value || !returnReason.value.trim())return;
+  if(!canCosign.value || signing.value || returningNote.value || !canReturn.value || mobileDocumentationAddendum.value)return;
   const current=generation,source=context.value.review;
   returningNote.value=true;
   error.value='';
   try{
     await api.value.post(`/notes/${context.value.note.id}/supervisor-review`,{
       agencyId:agencyId.value,contentHash:source.contentHash,reviewSnapshotToken:source.reviewSnapshotToken,
-      action:'changes_needed',message:returnReason.value.trim()
+      action:mobileReviewAction.value,message:returnReason.value.trim(),...(mobileFeedbackSentence.value?{correction:mobileCorrection.value}:{})
     });
     if(current!==generation)return;
-    showReturnRequest.value=false;returnReason.value='';cosignAttested.value=false;
+    showReturnRequest.value=false;returnReason.value='';mobileCorrection.value={};mobileReviewAction.value='changes_needed';cosignAttested.value=false;
     context.value={...context.value,review:{...source,canCosign:false}};
     notice.value='Returned to the author for correction.';
   }catch(e){if(current===generation)error.value=e.response?.data?.error?.message || 'Your request could not be sent.';}
   finally{returningNote.value=false;}
 }
-async function cosign(quick=false,openNext=false){
-  if(signing.value || showReturnRequest.value || !canCosign.value || !cosignAttested.value || quick && (review.value?.status!=='passed' || review.value?.quickSignEligible!==true))return;
+async function cosign(quick=false,openNext=false,withRequest=false){
+  if(signing.value || (showReturnRequest.value && !withRequest) || withRequest && (!canReturn.value || !(mobileDocumentationAddendum.value || mobileReviewAction.value==='review_acknowledge')) || !canCosign.value || !cosignAttested.value || quick && (review.value?.status!=='passed' || review.value?.quickSignEligible!==true))return;
   const current=generation,source=context.value.review;signing.value=true;error.value='';
-  try{const {data}=await api.value.post(`/notes/${context.value.note.id}/cosign`,{agencyId:agencyId.value,contentHash:source.contentHash,reviewSnapshotToken:source.reviewSnapshotToken,...(source.entryManifestHash?{expectedEntryManifestHash:source.entryManifestHash}:{}),reviewedAndApproved:true,...(quick?{quickSign:true,narrivaReviewId:review.value.id}:{})});if(current!==generation)return;if(!data.cosignedAt)throw new Error('Signature was not confirmed');notice.value='Supervisor signature saved.';context.value={...context.value,note:{...context.value.note,supervisorCosign:data.supervisorCosign || {cosignedAt:data.cosignedAt}},review:{...context.value.review,canCosign:false}};cosignAttested.value=false;completedSignature({...data,noteId:context.value.note.id},'cosign',openNext);}catch(e){if(current===generation){error.value=e.response?.data?.error?.message || 'The supervisor signature was not completed. Reopen the current note and review it again.';cosignAttested.value=false;invalidate();}}finally{if(current===generation)signing.value=false;}
+  try{const {data}=await api.value.post(`/notes/${context.value.note.id}/cosign`,{agencyId:agencyId.value,contentHash:source.contentHash,reviewSnapshotToken:source.reviewSnapshotToken,...(source.entryManifestHash?{expectedEntryManifestHash:source.entryManifestHash}:{}),reviewedAndApproved:true,...(withRequest?{supervisorRequest:{message:returnReason.value.trim(),...(mobileDocumentationAddendum.value?{correction:mobileCorrection.value}:{})}}:{}),...(quick?{quickSign:true,narrivaReviewId:review.value.id}:{})});if(current!==generation)return;if(!data.cosignedAt)throw new Error('Signature was not confirmed');notice.value='Supervisor signature saved.';context.value={...context.value,note:{...context.value.note,supervisorCosign:data.supervisorCosign || {cosignedAt:data.cosignedAt}},review:{...context.value.review,canCosign:false}};cosignAttested.value=false;completedSignature({...data,noteId:context.value.note.id},'cosign',openNext);}catch(e){if(current===generation){error.value=e.response?.data?.error?.message || 'The supervisor signature was not completed. Reopen the current note and review it again.';cosignAttested.value=false;invalidate();}}finally{if(current===generation)signing.value=false;}
 }
 function recoveryIdentity(){return {userId:recoveryActorUserId,agencyId:agencyId.value,clientId:context.value?.client?.id,clinicalSessionId:context.value?.session?.id,officeEventId:context.value?.session?.officeEventId,draftId:draftId.value};}
 function recoverySnapshot(){const meta=output.value.meta || {};return {narrative:narrative.value,output:{sections:{...sections.value},meta:{aidId:meta.aidId || null,toolId:meta.toolId || null,model:meta.model || null,generationReceipt:meta.generationReceipt || null,manualSections:mode.value==='manual',writerMode:mode.value,structuredChart:{diagnoses:clinicalDiagnoses.value,diagnosticJustification:diagnosticJustification.value,mentalStatusExam:assessmentChart.value.mentalStatusExam,riskAssessment:assessmentChart.value.riskAssessment},narrivaContext:{presentingProblem:presentingProblem.value,presentingProblemOverride:sessionPresentingProblemOverride.value}}},smart:smart.value,encounter:{...encounter},ratings:{...ratings},mode:mode.value,riskIncluded:riskIncluded.value,riskCompleted:riskCompleted.value,riskRequired:requiredRisk.value,riskText:riskText.value,riskChoices:{...riskChoices},assessmentEvidence:assessmentEvidence.value,underlyingServiceCode:underlyingServiceCode.value,serviceReason:serviceReason.value};}
@@ -509,6 +533,10 @@ onBeforeUnmount(()=>{stashRecovery();disposed=true;generation++;clearTimeout(sav
       <section v-if="recoveryCopy && !readOnly" class="mn-card mn-recovery" role="status"><h2>Unsaved text is available</h2><p>Text from this same account and encounter was kept in this app’s memory when it locked. Nothing has replaced the current server draft.</p><p v-if="recoveryCopy.serverChanged">The server draft has also changed. Review the recovered copy before saving.</p><button type="button" @click="restoreRecovery">Restore unsaved draft</button><button type="button" @click="discardRecovery">Discard recovery copy</button></section>
       <NarrivaModeChooser compact v-if="!readOnly && !finalizedNarriva" v-model="mode" :default-mode="defaultMode" :allow-manual="context.preferences?.features?.manualAllowed !== false" :allow-narriva="context.preferences?.features?.writing !== false" :allow-smart="context.preferences?.features?.writing !== false" :saving="preferenceSaving" :error="preferenceError" @save-default="setDefault" />
       <ClinicalNoteNavigator />
+      <details v-if="readOnly" class="mn-card mn-submission-review"><summary>Quick review · Narriva results at submission</summary><NarrivaNoteSummary :quick-look="mobileSubmissionQuickLook" /></details>
+    <ClinicalNoteReviewRequests v-if="readOnly && authorReviewRequests.length" :requests="authorReviewRequests"
+      :request-client="(path,body)=>api.post(path,body)" mobile @acknowledged="refreshAuthorReview" />
+
       <details v-if="readOnly" data-note-section="Encounter details" id="mobile-encounter-details" class="mn-card" open><summary>Encounter details</summary><dl class="mn-encounter-summary"><div v-for="[label,value] in encounterSummary" :key="label"><dt>{{label}}</dt><dd>{{value || 'Not recorded'}}</dd></div></dl><p class="mn-original-consent"><span aria-hidden="true">{{originalConsent.confirmed?'✓':'○'}}</span> {{originalConsent.label}}</p></details>
       <details v-else data-note-section="Encounter details" id="mobile-encounter-details" class="mn-card" open><summary>Encounter details</summary><div class="mn-fields"><label>Date of service<input v-model="encounter.dateOfService" type="date" :disabled="readOnly" /></label><div class="mn-service-field"><label>Service<select v-model="encounter.serviceCode" :disabled="readOnly"><option value="">Select service</option><option v-for="item in context.serviceCodes" :key="item.code || item.serviceCode" :value="item.code || item.serviceCode">{{ item.code || item.serviceCode }} · {{ item.label || item.name }}</option></select></label><ServiceInformation presentation="button" :service-code="encounter.serviceCode" :agency-id="context.agencyId" :service-info="service?.serviceInfo || null" :api-client="api" reference-base-path="/service-reference" /></div><label>Start<input :value="encounter.startTimeLocal" @input="editEncounterTime('startTime', $event.target.value)" type="time" :disabled="readOnly" /></label><label>End<input :value="encounter.endTimeLocal" @input="editEncounterTime('endTime', $event.target.value)" type="time" :disabled="readOnly" /></label><label>Duration (minutes)<input :value="encounter.durationMinutes" @input="editEncounterTime('durationMinutes', $event.target.value)" type="number" min="1" :disabled="readOnly" /></label><label class="mn-wide">Participants<select v-model="encounter.participants" :disabled="readOnly"><option value="">Choose participants</option><option v-if="encounter.participants && !['Client Only','Client and Parent/Guardian','Parent/Guardian without Client','Client and Other Participants'].includes(encounter.participants)" :value="encounter.participants">{{ encounter.participants }}</option><option>Client Only</option><option>Client and Parent/Guardian</option><option>Parent/Guardian without Client</option><option>Client and Other Participants</option></select></label><ClinicalLocationPicker :client-present="clientPresent" class="mn-wide" :model-value="encounter" :choices="locationChoices" :disabled="readOnly" :unavailable="context.locationChoicesUnavailable" @update:model-value="Object.assign(encounter,$event)" /></div><label v-if="mode!=='narriva'" class="mn-check"><input v-model="encounter.consentConfirmed" type="checkbox" :disabled="readOnly" />I confirm consent to participate was obtained for this encounter.</label></details>
       <NarrivaClinicalAssist v-if="!readOnly && !finalizedNarriva" kind="service" :agency-id="agencyId" :source-text="narrative" :transport="api" @apply="applyClinicalAssist" />
@@ -567,11 +595,18 @@ onBeforeUnmount(()=>{stashRecovery();disposed=true;generation++;clearTimeout(sav
       </NarrivaReviewWorkspace></div>
       <NarrivaAssessmentEvidence v-if="!readOnly && (showAssessmentEvidence || assessmentEvidence.length)" id="mobile-assessment-evidence" data-note-section="Assessments" v-model="assessmentEvidence" :agency-id="context.agencyId" :client-id="context.client?.id" :clinical-session-id="context.session?.id" :draft-id="draftId" :note-id="context.note?.id" :api-client="api" base-url="/assessments" />
       <button v-if="!readOnly && hasContent && prepared && mode==='smart_notes'" type="button" :disabled="reviewBusy || saving" @click="checks">{{ reviewBusy?'Checking…':mode==='manual'?'Check Note':'Run Narriva checks' }}</button>
-      <section v-if="readOnly" class="mn-card mn-submission-review"><h2>Narriva results at submission</h2><p>{{review?'The author’s saved review and any findings are shown above. Supervisor approval does not rerun Narriva.':'No completed Narriva review is on file for this submission. Ordinary documentation review remains available.'}}</p></section>
+
       <section v-if="savedSignature" class="mn-card mn-signature" role="status"><h2>{{savedSignature.kind==='cosign'?'Supervisor signature saved':'Provider signature saved'}}</h2><p>{{signatureDate(savedSignature.cosignedAt || savedSignature.signedAt)}}</p><p>{{savedSignature.openNext?'Opening the next note awaiting co-sign…':'Returning to My Work…'}}</p></section>
       <section v-if="canCosign" class="mn-card mn-sign" data-note-section="Signature"><h2>Supervisor review</h2>
         <button v-if="!showReturnRequest" type="button" :disabled="signing" @click="showReturnRequest=true">Return for correction</button>
-        <form v-else @submit.prevent="returnNoteForCorrection"><label>Correction requested<textarea v-model="returnReason" rows="3" maxlength="4000" required /></label><button type="submit" :disabled="returningNote || !returnReason.trim()">Send request</button><button type="button" :disabled="returningNote" @click="showReturnRequest=false">Cancel</button></form><label class="mn-check"><input v-model="cosignAttested" type="checkbox" :disabled="signing" />I reviewed the current note, encounter details and attached entries and approve this documentation under my supervisory responsibility.</label><button v-if="review?.status==='passed' && review?.quickSignEligible===true" type="button" class="mn-quick-sign" :disabled="signing || reviewBusy || !cosignAttested" @click="cosign(true)">✓ Quick Sign</button><button type="button" :disabled="signing || showReturnRequest || !cosignAttested" @click="cosign(false)">{{ signing?'Saving signature…':'Review &amp; co-sign' }}</button><button type="button" :disabled="signing || showReturnRequest || !cosignAttested" @click="cosign(false,true)">Co-sign &amp; open next</button></section>
+        <form v-else @submit.prevent="returnNoteForCorrection">
+          <label>Action<select v-model="mobileReviewAction"><option value="changes_needed">Return for correction</option><option value="review_acknowledge">Comment for acknowledgement</option></select></label>
+          <SupervisorCorrectionFields v-if="mobileReviewAction==='changes_needed'" v-model="mobileCorrection" :disabled="signing || returningNote" />
+          <label>Correction requested or comment<textarea v-model="returnReason" rows="3" maxlength="4000" :required="!mobileFeedbackSentence" /></label>
+          <button v-if="!mobileDocumentationAddendum" type="submit" :disabled="returningNote || signing || !canReturn">{{ mobileFeedbackSentence ? 'Return and hold claim' : 'Send request' }}</button>
+          <button v-if="mobileDocumentationAddendum || mobileReviewAction==='review_acknowledge'" type="button" :disabled="signing || !cosignAttested || !canReturn" @click="cosign(false,false,true)">{{ mobileDocumentationAddendum?'Co-sign & request addendum':'Co-sign & send comment' }}</button>
+          <button type="button" :disabled="returningNote || signing" @click="showReturnRequest=false">Cancel</button>
+        </form><label class="mn-check"><input v-model="cosignAttested" type="checkbox" :disabled="signing" />I reviewed the current note, encounter details and attached entries and approve this documentation under my supervisory responsibility.</label><button v-if="review?.status==='passed' && review?.quickSignEligible===true" type="button" class="mn-quick-sign" :disabled="signing || reviewBusy || !cosignAttested" @click="cosign(true)">✓ Quick Sign</button><button type="button" :disabled="signing || showReturnRequest || !cosignAttested" @click="cosign(false)">{{ signing?'Saving signature…':'Review &amp; co-sign' }}</button><button type="button" :disabled="signing || showReturnRequest || !cosignAttested" @click="cosign(false,true)">Co-sign &amp; open next</button></section>
 
     </template>
   </section>

@@ -100,6 +100,8 @@
                     <span class="agenda-item-title" :title="item.title">{{ item.title }}</span>
                     <span class="agenda-item-author">Added by {{ item.created_by_name || 'Unknown author' }}</span>
                   </div>
+                  <a v-if="item.generated_key?.startsWith('note_review:') && /^\/note-aid\?agencyId=\d+&noteId=\d+&reviewRequest=[a-f0-9-]{36}$/i.test(item.notes || '')"
+                    :href="item.notes" class="agenda-item-task-link" target="_blank" rel="noopener">Open note and comment</a>
                   <a
                     v-if="item.task_id"
                     href="/tasks"

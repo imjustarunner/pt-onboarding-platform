@@ -1,12 +1,14 @@
 const object = value => { try { return typeof value === 'string' ? JSON.parse(value) : value || {}; } catch { return {}; } };
 
+export const hasBlockingSupervisorChanges = requests => Array.isArray(requests) && requests.some(request => request.action === 'changes_needed' && !request.resolvedAt && request.resolutionMode !== 'signed_addendum');
+
 export const CLINICAL_APPROVAL_REQUIRED = 'The clinical note does not have final approval for billing. Complete the required clinical signature or amendment review first.';
 
 // Shared by the work queue, recovery and write guards. Current staff assignments
 // cannot establish a historical signature or approve a legacy-observed snapshot.
 export function clinicalBillingStage(row) {
   const requests = object(row.review_requests_json);
-  if (Array.isArray(requests) && requests.some(request => request.action === 'changes_needed' && !request.resolvedAt)) return 'revisions_needed';
+  if (hasBlockingSupervisorChanges(requests)) return 'revisions_needed';
   if (row.pending_revision_id) return row.pending_revision_origin !== 'supervisor' && !Number(row.pending_author_signed) ? 'draft' : 'pending_review';
   if (row.approved_at || (row.provider_signed_at && row.supervisor_cosigned_at)) return 'ready_to_submit';
   if (row.provider_signed_at) {

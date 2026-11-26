@@ -4,14 +4,13 @@
       <div><img :src="NARRIVA_BRAND.compliance" alt="Narriva Compliance by AuricWell" /><h1>{{ testMode ? 'Test a note' : 'Compliance reports' }}</h1><p>{{ agency?.name || 'Your agency' }} · {{ testMode ? 'Standalone Narriva Compliance tester' : 'Sampled documentation and treatment review' }}</p></div>
       <button v-if="!testMode" class="secondary" :disabled="loading || working" @click="load">Refresh</button>
     </header>
-    <NarrivaReviewResults v-if="!testMode" :agency-id="agencyId" />
+    <NarrivaReviewResults v-if="!testMode" :agency-id="agencyId" queue />
     <nav class="ncr-jump" aria-label="Compliance tools"><button class="secondary" :aria-pressed="!testMode" @click="testMode=false">Agency reports</button><button class="secondary" :aria-pressed="testMode" @click="testMode=true">Test a note</button></nav>
     <p v-if="!agencyId" class="notice">Select an agency to review its reports.</p>
     <NarrivaComplianceTester v-if="testMode && agencyId" :key="agencyId" :agency-id="agencyId" />
     <p v-if="!testMode && error" class="error" role="alert">{{ error }}</p>
     <p v-if="!testMode && loading" role="status">Loading reports…</p>
     <template v-else-if="!testMode && settings">
-      <NarrivaReviewResults v-if="!testMode" :agency-id="agencyId" />
     <nav class="ncr-jump" aria-label="Compliance page"><a href="#narriva-manual-run">Run manually</a><a href="#narriva-report-history">Report history</a><a href="#narriva-report-settings">Frequency and sample</a></nav>
       <section class="ncr-schedule panel" :data-state="scheduleStatus.state" aria-labelledby="ncr-schedule-title">
         <div><span class="eyebrow">Automatic reporting</span><h2 id="ncr-schedule-title">{{ scheduleStatus.title }}</h2><p v-if="settings.enabled && settings.cadence !== 'manual' && settings.nextRunAt"><time :datetime="settings.nextRunAt">{{ dateTime(settings.nextRunAt) }}</time></p><p v-if="scheduledPeriod" class="muted">Reporting period: {{ scheduledPeriod.start }} through {{ scheduledPeriod.end }}</p><p class="muted">{{ scheduleStatus.detail }}</p></div>

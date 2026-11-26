@@ -100,6 +100,36 @@ describe('supervisor note review', () => {
     expect(w.find('[data-testid="cosign"]').element.disabled).toBe(true); w.unmount();
   });
 
+  it('previews a documentation request and sends it atomically with the exact-version co-sign', async () => {
+    const w=mounted(); await flushPromises();
+    await byText(w,'Return / provide feedback').trigger('click');
+    const selections=w.findAll('.correction-fields select');
+    await selections[0].setValue('Objective');
+    await selections[1].setValue('detail');
+    await selections[2].setValue('clinical interventions');
+    expect(w.get('blockquote').text()).toBe('Can you please add additional information in the objective content section regarding clinical interventions?');
+    expect(byText(w,'Send request')).toBeUndefined();
+    await w.get('[data-testid="supervisor-attestation"]').setValue(true);
+    await byText(w,'Co-sign & request addendum').trigger('click'); await flushPromises();
+    expect(api.post).toHaveBeenCalledWith('/medical-billing/notes/71/cosign',expect.objectContaining({
+      contentHash:'reviewed-current-version',reviewedAndApproved:true,
+      supervisorRequest:{message:'',correction:{section:'Objective',reason:'detail',topic:'clinical interventions'}}
+    }),{skipGlobalLoading:true});
+    w.unmount();
+  });
+  it('co-signs with an acknowledgeable supervision comment', async () => {
+    const w=mounted(); await flushPromises();
+    await byText(w,'Return / provide feedback').trigger('click');
+    await w.get('[data-testid="feedback-action"]').setValue('review_acknowledge');
+    await w.get('[data-testid="feedback-message"]').setValue('Please add this case to our next supervision meeting.');
+    await w.get('[data-testid="supervisor-attestation"]').setValue(true);
+    await byText(w,'Co-sign & send comment').trigger('click'); await flushPromises();
+    expect(api.post).toHaveBeenCalledWith('/medical-billing/notes/71/cosign',expect.objectContaining({
+      contentHash:'reviewed-current-version', supervisorRequest:{message:'Please add this case to our next supervision meeting.'}
+    }),{skipGlobalLoading:true});
+    w.unmount();
+  });
+
   it('distinguishes feedback with no required acknowledgement', async () => {
     const w = mounted(); await flushPromises();
     await byText(w, 'Return / provide feedback').trigger('click');

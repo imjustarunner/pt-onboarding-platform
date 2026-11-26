@@ -1,3 +1,5 @@
+import { supervisorFeedbackSentence, eligibleForDocumentationAddendum } from '../../../frontend/src/utils/clinicalSupervisorFeedback.js';
+import { hasBlockingSupervisorChanges } from './billingClinicalApproval.service.js';
 import crypto from 'node:crypto';
 import clinicalPool from '../config/clinicalDatabase.js';
 import pool from '../config/database.js';
@@ -25,9 +27,14 @@ export const noteAuthorId = note => Number(note.provider_signed_by_user_id || no
 export function reviewRequestsForDisplay(metadata) {
   return (metadata.reviewRequests || []).map(({messageEncrypted, ...r}) => ({...r, message: maybeDecryptNotePayload(messageEncrypted) || r.message || ''}));
 }
-export function appendReviewRequest(meta, {action, message, actorUserId, contentHash, source = 'supervisor', amendmentId = null}, now = new Date().toISOString()) {
+export function appendReviewRequest(meta, {action, message, actorUserId, contentHash, source = 'supervisor', amendmentId = null, correction = null, allowDocumentationAddendum = false}, now = new Date().toISOString()) {
+  const sentence = supervisorFeedbackSentence(correction);
+  if (correction && (action !== 'changes_needed' || !sentence)) throw policyError(400, 'Choose the note section, requested change and topic.');
+  const documentationOnly = eligibleForDocumentationAddendum(correction);
+  if (allowDocumentationAddendum && !documentationOnly) throw policyError(400, 'Choose a documentation change that preserves the signed encounter and clinical findings.');
+  message = [sentence, String(message || '').trim()].filter(Boolean).join('\n\n');
   if (!REVIEW_ACTIONS.includes(action) || !String(message || '').trim() || String(message).length > 4000) throw policyError(400, 'Choose a review action and enter a message of 1–4,000 characters.');
-  const request = {id: crypto.randomUUID(), action, status: action, messageEncrypted: maybeEncryptNotePayload(String(message).trim()), createdByUserId: Number(actorUserId), createdAt: now, contentHash, source, amendmentId, acknowledgedAt: null, resolvedAt: null};
+  const request = {id: crypto.randomUUID(), action, status: action, messageEncrypted: maybeEncryptNotePayload(String(message).trim()), createdByUserId: Number(actorUserId), createdAt: now, contentHash, source, amendmentId, ...(allowDocumentationAddendum ? {resolutionMode:'signed_addendum'} : {}), acknowledgedAt: null, resolvedAt: null};
   meta.reviewRequests = [...(meta.reviewRequests || []), request];
   return request;
 }
@@ -86,7 +93,7 @@ export async function queueBillingAcknowledgement(db, {noteId,agencyId,actorUser
   await db.execute('UPDATE clinical_notes SET metadata_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND agency_id=?',[JSON.stringify(meta),noteId,agencyId]);
 }
 export function assertNoUnresolvedChanges(meta) {
-  if ((meta.reviewRequests || []).some(r => r.action === 'changes_needed' && !r.resolvedAt)) throw policyError(409, 'The author must address the requested changes in a signed amendment before supervisor approval.');
+  if (hasBlockingSupervisorChanges(meta.reviewRequests)) throw policyError(409, 'The author must address the requested changes in a signed amendment before supervisor approval.');
 }
 export function serviceDetailTimes(details, date, timeZone = 'America/Denver') {
   if (!validDate(date) || !isValidTimeZone(timeZone)) throw policyError(409, 'A valid service date and encounter timezone are required.');

@@ -1,8 +1,26 @@
 <template>
  <div class="narriva-note-summary">
   <p class="nra-explainer">A quick look at the saved note. Open the note to review its full content before signing.</p>
+  <section v-if="Object.keys(quickLook.aiSummary || {}).length" class="nra-summary">
+    <h4>Narriva summary</h4>
+    <dl class="nra-sections">
+      <div v-for="item in summaryFields" v-show="quickLook.aiSummary[item.key]" :key="item.key">
+        <dt>{{ item.label }}</dt><dd>{{ quickLook.aiSummary[item.key] }}</dd>
+      </div>
+    </dl>
+  </section>
+  <section v-if="quickLook.submissionReview" class="nra-summary" aria-label="Submission review">
+    <h4>Submission review<span v-if="quickLook.submissionReview.score !== null"> · {{ quickLook.submissionReview.score }}%</span></h4>
+    <p v-if="['running','pending'].includes(quickLook.submissionReview.status)">Narriva is reviewing the signed note.</p>
+    <ul v-else-if="quickLook.submissionReview.findings?.length"><li v-for="finding in quickLook.submissionReview.findings" :key="finding">{{ finding }}</li></ul>
+    <p v-else-if="quickLook.submissionReview.score !== null">No items flagged for review.</p>
+    <p v-else>Review results are unavailable for this version.</p>
+  </section>
+  <details :open="!Object.keys(quickLook.aiSummary || {}).length">
+    <summary>Saved note excerpts</summary>
   <dl class="nra-sections"><div v-for="section in quickLook.sections || []" :key="section.key || section.label"><dt>{{ section.label }}</dt><dd>{{ section.text || 'Not recorded' }}</dd></div></dl>
   <p v-if="!quickLook.sections?.length">No saved narrative sections are available.</p>
+  </details>
   <section class="nra-artifacts" aria-label="Session artifacts"><h4>Artifacts and supporting materials</h4><p v-if="quickLook.artifactsStatus==='unavailable'" role="status">Supporting materials could not be checked. Open the note to review its attachments.</p><ul v-else-if="quickLook.artifacts?.length"><li v-for="artifact in quickLook.artifacts" :key="artifact.id"><strong>{{ artifact.title || 'Supporting material' }}</strong><span v-if="artifact.type"> · {{ artifact.type }}</span><p v-if="artifact.text || artifact.summary">{{ artifact.text || artifact.summary }}</p><button type="button" @click="$emit('open-note')">View in note</button></li></ul><p v-else>No artifacts listed for this note.</p></section>
   <p v-if="sourceRevision.id" class="nra-version">Saved revision {{ sourceRevision.id }}. Signing validates the current version again.</p>
  </div>
@@ -11,6 +29,7 @@
 import {computed} from 'vue';
 const props=defineProps({quickLook:{type:Object,default:()=>({})},sourceRevision:{type:Object,default:()=>({})}});
 const quickLook=computed(()=>props.quickLook||{}),sourceRevision=computed(()=>props.sourceRevision||{});
+const summaryFields=[{key:'service',label:'Service provided'},{key:'response',label:'How the encounter went'},{key:'status',label:'Client status and progress'}];
 defineEmits(['open-note']);
 </script>
 <style scoped>

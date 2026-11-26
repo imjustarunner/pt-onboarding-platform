@@ -34,6 +34,14 @@
       </button>
     </div>
 
+    <section v-if="linkedReview" class="ccn-block" data-internal-review-only>
+      <h4 class="ccn-block-title">Supervision comment</h4>
+      <p>{{ linkedReview.message }}</p>
+    </section>
+    <details v-if="archivedSupervisorComments.length" data-internal-review-only class="ccn-block">
+      <summary>Acknowledged supervision comments</summary>
+      <ClinicalNoteReviewRequests :requests="archivedSupervisorComments" />
+    </details>
     <InternalDiagnosticCriteriaReview :agency-id="note.agencyId" :client-id="note.clientId" :note-id="note.id" />
     <ClinicalNoteVersionHistory ref="versionHistory" v-if="note.providerSignedAt && note.id && note.agencyId" :note-id="note.id" :agency-id="note.agencyId" :legacy-pending-service-details="note.pendingServiceDetails" :legacy-amendment="legacyPendingAmendment" prefer-pending @changed="onVersionChanged" />
 
@@ -374,6 +382,7 @@
 </template>
 
 <script setup>
+import ClinicalNoteReviewRequests from './ClinicalNoteReviewRequests.vue';
 import InternalDiagnosticCriteriaReview from './InternalDiagnosticCriteriaReview.vue';
 import { canAccessMedicalBilling } from '../../config/medicalBillingAccess.js';
 import ConfidentialClinicalEntries from './ConfidentialClinicalEntries.vue';
@@ -396,6 +405,7 @@ import {
 import { useAuthStore } from '../../store/auth.js';
 
 const props = defineProps({
+  linkedReviewId: {type:String,default:''},
   note: { type: Object, required: true },
   compact: { type: Boolean, default: false }
 });
@@ -409,6 +419,11 @@ const copiedKey = ref('');
 const copiedFull = ref(false);
 const showProviderSigMeta = ref(false);
 const showSupervisorSigMeta = ref(false);
+const linkedReview = computed(()=>props.linkedReviewId && props.note?.reviewRequests?.find(item=>item.id===props.linkedReviewId && item.source==='supervisor'));
+const archivedSupervisorComments = computed(() => Number(props.note?.providerSignedByUserId)===Number(authStore.user?.id)
+  ? (props.note?.reviewRequests || []).filter(item=>item.action==='review_acknowledge' && item.source==='supervisor' && item.acknowledgedAt)
+    .map(item=>({...item,status:item.action,agencyId:props.note.agencyId,clinicalNoteId:props.note.id}))
+  : []);
 const addendumDraft = ref('');
 const addendumOpen = ref(false);
 const entryKind = ref('addendum');

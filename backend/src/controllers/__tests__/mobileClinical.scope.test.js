@@ -14,7 +14,7 @@ vi.mock('../../services/narrivaAccess.service.js',()=>({requireNarrivaAgency:vi.
 vi.mock('../../services/narrivaSource.service.js',()=>({loadNarrivaSource:vi.fn(),decryptNarrivaDraft:vi.fn(value=>value||'')}));
 vi.mock('../../services/staffCareEligibility.service.js',()=>({readStaffCareEligibility:vi.fn()}));
 vi.mock('../../services/agencySchedulingCatalog.service.js',()=>({resolveAgencySchedulingCatalog:vi.fn()}));
-vi.mock('../../services/narrivaReview.service.js',()=>({narrivaWriterCapabilities:vi.fn(),latestDraftReview:vi.fn(async()=>null),latestNarrivaStatus:vi.fn()}));
+vi.mock('../../services/narrivaReview.service.js',()=>({narrivaWriterCapabilities:vi.fn(),latestDraftReview:vi.fn(async()=>null),latestNarrivaStatus:vi.fn(),recordedSubmissionReview:vi.fn(async()=>null),submissionReviewDisplay:vi.fn(()=>({}))}));
 vi.mock('../../services/guardianClinicalAccess.service.js',()=>({clinicalAccess:vi.fn()}));
 vi.mock('../../services/clientSecureConversation.service.js',()=>({clientSecureAudience:vi.fn(),ensureClientSecureConversation:vi.fn()}));
 vi.mock('../../services/providerSmsRelayIdentity.service.js',()=>({resolveRelayFamily:vi.fn()}));

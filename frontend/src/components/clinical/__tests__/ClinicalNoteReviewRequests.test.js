@@ -53,6 +53,7 @@ describe('author review requests', () => {
     let resolve;
     api.post.mockImplementationOnce(() => new Promise(r => { resolve = r; }));
     await wrapper.find('button').trigger('click');
+    await flushPromises();
     await wrapper.setProps({ requests: [request('review_acknowledge', { clinicalNoteId: 72 })] });
     resolve({ data: { ok: true } }); await flushPromises();
     expect(wrapper.emitted('acknowledged')).toBeUndefined();

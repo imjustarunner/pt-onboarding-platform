@@ -146,7 +146,7 @@
         <ClinicalNoteReviewRequests
           v-if="signedNoteViewerId && activeNoteReviewRequests.length"
           :requests="activeNoteReviewRequests"
-          @acknowledged="loadNoteReviewWork"
+          @acknowledged="loadNoteReviewWork(); signedNoteDetail?.refresh()"
           @correct="beginAmendmentFromSignedNote"
           @open-version="openRequestedNoteVersion"
         />
@@ -1123,6 +1123,7 @@
           <p v-if="approvalError" class="na-delete-err">{{ approvalError }}</p>
           <ClinicalNoteDetailFetcher
             ref="signedNoteDetail"
+            :linked-review-id="String(route.query.reviewRequest || '')"
             :note-id="signedNoteViewerId"
             :agency-id="signedNoteViewerAgencyId || noteAidAgencyId || currentAgencyId"
             @amended="loadNoteReviewWork"
