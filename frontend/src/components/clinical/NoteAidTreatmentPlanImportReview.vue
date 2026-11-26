@@ -1369,7 +1369,7 @@ const finalizationIssues = computed(() => {
     add('goals', 'Keep at least two objectives with a complete 1–10 scale.');
   }
   if (planAuthoring.value && !draft.prescribedFrequency.trim()) add('care', 'Select or enter the prescribed frequency.', 'frequency');
-  if (planAuthoring.value && !draft.dischargePlan.trim()) add('care', 'Enter the discharge criteria.', 'discharge');
+  if (!draft.dischargePlan.trim()) add('care', 'Enter the discharge criteria.', 'discharge');
   return issues;
 });
 const issuesBySection = computed(() => Object.fromEntries(

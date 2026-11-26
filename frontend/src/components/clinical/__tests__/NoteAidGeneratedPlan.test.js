@@ -25,7 +25,7 @@ it('shows the agency review schedule, keeps imported scheduling text separate an
   state.model.goals[0].goalText = 'Practice coping.';
   state.model.goals[0].durationMonths = 6;
   await state.save({ finalize: true });
-  expect(w.text()).toContain('Enter discharge criteria.'); expect(api.post).not.toHaveBeenCalled();
+  expect(w.text()).toContain('Enter the discharge criteria.'); expect(api.post).not.toHaveBeenCalled();
   w.unmount();
 });
 
@@ -34,7 +34,10 @@ it('reviews generated objective scores and persists an intake-generated plan wit
     title: 'Intake-generated Treatment Plan', sourceToolId: 'note_aid_intake_generated', aiGenerated: true,
     effectiveDate: '2026-08-20', presentingProblem: 'Difficulty coping.', prescribedFrequency: 'Weekly', dischargePlan: 'Sustained independent coping.',
     diagnosticJustification: 'Updated formulation.', diagnoses: [{ icd10Code: 'F42.9', description: 'Synthetic diagnosis', isPrimary: true }],
-    goals: [{ goalText: 'Improve coping.', durationMonths: 6, objectives: [{ objectiveText: 'Current baseline is a 4, with a target of 8.', interventions: ['Skills rehearsal'] }] }]
+    goals: [{ goalText: 'Improve coping.', durationMonths: 6, objectives: [
+      { objectiveText: 'Current baseline is a 4, with a target of 8.', interventions: ['Skills rehearsal'] },
+      { objectiveText: 'Practice an independent coping strategy each week.', scaleCurrent: 3, scaleTarget: 7 }
+    ] }]
   };
   const wrapper = shallowMount(Review, { props: { open: false, agencyId: 7, clientId: 202, mode: 'generated', initialPlan: plan } });
   await wrapper.setProps({ open: true });
@@ -43,17 +46,23 @@ it('reviews generated objective scores and persists an intake-generated plan wit
   expect(state.model.goals[0].objectives[0]).toMatchObject({ scaleCurrent: 4, scaleTarget: 8, scaleDirection: 'increase' });
   state.model.goals[0].durationMonths = 8;
   state.onGoalDurationChange(state.model.goals[0]);
-  expect(state.model.goals[0].objectives[0].objectiveText).toContain('Within 8 months');
+  expect(state.model.goals[0].objectives[0].objectiveText).toBe('Current baseline is a 4, with a target of 8.');
+  expect(state.model.goals[0].objectives[0].projectedCompletion).toBe('2027-04-20');
   expect(state.aiContentUsed).toBe(true);
   await state.save({ finalize: true });
   expect(api.post).not.toHaveBeenCalled();
-  state.attestAiReviewed = true;
+  for (const button of wrapper.findAll('button').filter(button => ['Accept goal', 'Accept objective'].includes(button.text()))) {
+    await button.trigger('click');
+  }
   vi.mocked(api.post).mockResolvedValue({ data: { plan: { id: 55, status: 'active', ...plan } } });
   await state.save({ finalize: true });
   expect(api.post).toHaveBeenCalledWith('/medical-billing/treatment-plans', expect.objectContaining({
     title: 'Intake-generated Treatment Plan', sourceToolId: 'note_aid_intake_generated', effectiveDate: '2026-08-20',
     status: 'active', diagnoses: [expect.objectContaining({ icd10Code: 'F42.9', justification: 'Updated formulation.' })],
-    goals: [expect.objectContaining({ projectedCompletion: '2027-04-20', objectives: [expect.objectContaining({ objectiveText: expect.stringContaining('Within 8 months'), scaleCurrent: 4, scaleTarget: 8, interventions: ['Skills rehearsal'] })] })]
+    goals: [expect.objectContaining({ projectedCompletion: '2027-04-20', reviewStatus: 'edited', objectives: [
+      expect.objectContaining({ objectiveText: 'Current baseline is a 4, with a target of 8.', projectedCompletion: '2027-04-20', scaleCurrent: 4, scaleTarget: 8, interventions: ['Skills rehearsal'], reviewStatus: 'accepted' }),
+      expect.objectContaining({ scaleCurrent: 3, scaleTarget: 7, reviewStatus: 'accepted' })
+    ] })]
   }));
   expect(wrapper.emitted('saved')[0][0].id).toBe(55);
   wrapper.unmount();
@@ -109,12 +118,11 @@ it('keeps partial drafts saveable and gates finalization on goal durations',asyn
 });
 
 
-it('uses one chart action to suggest objectives, questions, dates, interventions and discharge without guessing a baseline', async () => {
+it('updates only the requested objective and persists its reviewed state when the draft reopens', async () => {
   api.get.mockResolvedValue({data:{policy:{renewAfterDays:90}}});
   api.post.mockResolvedValue({data:{proposal:{objectives:[
-    {ref:'1.1', objectiveText:'Practice grounding', target:3, durationMonths:3, clientQuestion:'Rate your current anxiety.',otherQuestion:'Rate the anxiety you observed.',interventions:['Grounding']},
-    {ref:'2.1', objectiveText:'Practice assertiveness', target:8,durationMonths:6,clientQuestion:'Rate your communication this week.',interventions:['Role play']}
-  ],dischargePlan:'Review sustained goal progress and transition readiness.'}}});
+    {ref:'1.1', objectiveText:'Practice grounding', target:3, durationMonths:3, clientQuestion:'Rate your current anxiety.',otherQuestion:'Rate the anxiety you observed.',interventions:['Grounding']}
+  ]}}});
   api.put.mockResolvedValue({data:{revision:1}});
   const plan={id:44,status:'draft',effectiveDate:'2026-11-23',diagnoses:[{icd10Code:'F41.1',description:'Synthetic diagnosis'}],goals:[
     {goalText:'Manage anxiety',objectives:[{objectiveText:'Practice coping'}]},
@@ -126,15 +134,16 @@ it('uses one chart action to suggest objectives, questions, dates, interventions
   expect(wrapper.get('.na-plan-diagnosis-title code').text()).toBe('F41.1');
   const button=text=>wrapper.findAll('button').find(item=>item.text()===text);
   await wrapper.find('.narriva-plan-actions input[type="checkbox"]').setValue(true);
-  await button('Make this Narriva Compliant').trigger('click');await flushPromises();
+  await wrapper.get('button[aria-label="Update objective 1.1 with Narriva"]').trigger('click');
   const state=wrapper.vm.$.setupState;
-  expect(api.post).toHaveBeenCalledWith('/medical-billing/treatment-plans/narriva-suggestions',expect.objectContaining({clientId:42,chartDraft:true,includeOther:true}),expect.anything());
-  expect(state.model.goals[0].objectives[0]).toMatchObject({scaleCurrent:null,scaleTarget:3,projectedCompletion:'2027-02-23',interventions:['Grounding'],kioskPromptOther:'Rate the anxiety you observed.'});
-  expect(state.model.goals[1].objectives[0]).toMatchObject({scaleCurrent:4,projectedCompletion:'2027-05-23',interventions:['Role play']});
-  expect(state.model.dischargePlan).toMatch(/transition readiness/);
-  state.model.goals[0].objectives[0].reviewed=true;
+  state.actionInstructions='Rewrite this objective to practice grounding.';
+  await state.applyPlanAction();await flushPromises();
+  expect(api.post).toHaveBeenCalledWith('/medical-billing/treatment-plans/narriva-suggestions',expect.objectContaining({clientId:42,chartDraft:true,includeOther:true,action:'update_objective',revisionInstructions:'Rewrite this objective to practice grounding.'}),expect.anything());
+  expect(state.model.goals[0].objectives[0]).toMatchObject({scaleCurrent:null,scaleTarget:3,projectedCompletion:'2027-02-23',interventions:['Grounding'],kioskPromptOther:'Rate the anxiety you observed.',reviewStatus:'pending'});
+  expect(state.model.goals[1].objectives[0]).toMatchObject({objectiveText:'Use assertive language',scaleCurrent:4,interventions:[]});
+  await button('Accept objective').trigger('click');
   await button('Save draft').trigger('click');await flushPromises();
-  expect(api.put).toHaveBeenCalledWith('/medical-billing/treatment-plans/44/chart-draft',expect.objectContaining({revision:0,draft:expect.objectContaining({goals:expect.arrayContaining([expect.objectContaining({objectives:[expect.objectContaining({reviewed:true})]})])})}));
+  expect(api.put).toHaveBeenCalledWith('/medical-billing/treatment-plans/44/chart-draft',expect.objectContaining({revision:0,draft:expect.objectContaining({goals:expect.arrayContaining([expect.objectContaining({objectives:[expect.objectContaining({reviewStatus:'accepted'})]})])})}));
   expect(wrapper.text()).toContain('Draft saved.');
   expect(api.post).toHaveBeenCalledOnce();
   const saved=api.put.mock.calls[0][1].draft;
@@ -142,40 +151,34 @@ it('uses one chart action to suggest objectives, questions, dates, interventions
   const reopened=shallowMount(Review,{props:{open:true,embedded:true,mode:'draft',agencyId:2,clientId:42,planId:44,
     initialPlan:{...plan,chartDraft:{revision:1,value:saved}}}});
   await flushPromises();
-  expect(reopened.vm.$.setupState.model.goals[0].objectives[0]).toMatchObject({reviewed:true,projectedCompletion:'2027-02-23',kioskPrompt:'Rate your current anxiety.'});
+  expect(reopened.vm.$.setupState.model.goals[0].objectives[0]).toMatchObject({reviewStatus:'accepted',projectedCompletion:'2027-02-23',kioskPrompt:'Rate your current anxiety.'});
   reopened.unmount();
 });
 
-it('adds the third goal without discarding dates and requires its baseline before preparing the plan', async () => {
+it('adds a goal without changing existing dates and requires review before signing', async () => {
   api.get.mockResolvedValue({ data:{} });
   api.post.mockResolvedValue({ data:{ proposal:{
-    goals:[{ref:'3',goalText:'Improve daily routines'}],
-    objectives:[
-      {ref:'1.1',objectiveText:'New wording for the first objective',durationMonths:2,otherQuestion:'Observer question'},
-      {ref:'3.1',objectiveText:'Practice a daily routine',target:8,durationMonths:3,clientQuestion:'Rate your confidence.',otherQuestion:'Observer question'}
-    ]
+    goals:[{ref:'1',goalText:'Improve daily routines'}],
+    objectives:[{ref:'1.1',objectiveText:'Practice a daily routine',target:8,durationMonths:3,clientQuestion:'Rate your confidence.'}]
   } } });
-  const plan={id:44,status:'draft',effectiveDate:'2026-11-23',dischargePlan:'Review transition readiness.',goals:[
+  const plan={id:44,status:'draft',effectiveDate:'2026-11-23',presentingProblem:'Synthetic concern.',prescribedFrequency:'Weekly',dischargePlan:'Review transition readiness.',diagnoses:[{icd10Code:'F41.9',justification:'Synthetic clinical rationale.'}],goals:[
     {goalText:'Build coping skills',durationMonths:6,objectives:[{objectiveText:'Practice grounding',scaleCurrent:4,scaleTarget:8,kioskPrompt:'Rate your coping.'}]},
-    {goalText:'Build confidence',durationMonths:6,objectives:[{objectiveText:'Practice a skill',scaleCurrent:3,scaleTarget:7,kioskPrompt:'Rate your confidence.'}]},
-    {goalText:'',durationMonths:6,objectives:[]}
+    {goalText:'Build confidence',durationMonths:6,objectives:[{objectiveText:'Practice a skill',scaleCurrent:3,scaleTarget:7,kioskPrompt:'Rate your confidence.'}]}
   ]};
   const wrapper=shallowMount(Review,{props:{open:true,embedded:true,mode:'draft',agencyId:2,clientId:42,planId:44,initialPlan:plan}});
   await flushPromises();
   const state=wrapper.vm.$.setupState;
   state.model.goals[0].objectives[0].projectedCompletion='2027-04-15';
-  state.addendum='Add Goal 3 for daily routines';
-  await state.regenerateFromAddendum();
+  await wrapper.get('button[aria-label="Add goal with Narriva"]').trigger('click');
+  state.actionInstructions='Add a goal for daily routines.';
+  await state.applyPlanAction();await flushPromises();
   expect(state.model.goals[0].objectives[0]).toMatchObject({objectiveText:'Practice grounding',projectedCompletion:'2027-04-15',scaleCurrent:4});
-  expect(state.model.goals[2]).toMatchObject({goalText:'Improve daily routines',objectives:[
-    expect.objectContaining({scaleCurrent:null,scaleTarget:8,kioskPromptOther:'',projectedCompletion:'2027-05-23'})
+  expect(state.model.goals[2]).toMatchObject({goalText:'Improve daily routines',reviewStatus:'pending',objectives:[
+    expect.objectContaining({scaleCurrent:null,skipScale:true,reviewStatus:'pending',kioskPromptOther:'',projectedCompletion:'2027-02-23'})
   ]});
-  expect(wrapper.text()).not.toContain('Third-person rating question');
-  expect(wrapper.text()).not.toContain('Rewrite on a 1–10 scale');
-  expect(wrapper.text()).not.toMatch(/Goal 3 reviewed|Objective 3.1 reviewed/);
   await state.save({finalize:true});
-  expect(wrapper.text()).toContain('Objective 3.1 needs a baseline from 1 to 10.');
-  expect(wrapper.text()).toContain('Confirm that you reviewed the full plan.');
+  expect(wrapper.text()).toContain('Accept, edit, or remove goal 3.');
+  expect(wrapper.text()).toContain('Accept, edit, or remove objective 3.1.');
   expect(api.put).not.toHaveBeenCalled();
   wrapper.unmount();
 });
@@ -198,7 +201,7 @@ it('opens the full page with separate diagnoses, objective controls and care pla
   await flushPromises();
   expect(wrapper.find('[role="dialog"]').exists()).toBe(false);
   expect(wrapper.findAll('.na-plan-section h2').map(heading => heading.text())).toEqual([
-    'Plan overview', 'Diagnoses', 'Goals, objectives and interventions', 'Frequency and discharge', 'Review and save'
+    'Plan overview', 'Diagnoses', 'Goals, objectives and interventions', 'Frequency and discharge', 'Signature'
   ]);
   const diagnoses = wrapper.findAll('.na-plan-diagnosis');
   expect(diagnoses[0].text()).toContain('F41.9');

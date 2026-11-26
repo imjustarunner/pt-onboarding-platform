@@ -9,7 +9,10 @@ import { suggestObjectiveInterventions, addTreatmentFrequency } from '../../cont
 
 test('AI recommendations use both goal and objective themes without source text or identifiers', async () => {
   const index = CLINICAL_INTERVENTION_SEED.indexOf('Mindfulness Training');
-  const result = await recommendObjectiveInterventions({ goalText: 'SyntheticName improves communication at ExampleCorp.', objectiveText: 'SyntheticName manages intrusive thoughts. private@example.test 303-555-0199 1982-12-10', generate: async ({ prompt }) => {
+  const result = await recommendObjectiveInterventions({ goalText: 'SyntheticName improves communication at ExampleCorp.', objectiveText: 'SyntheticName manages intrusive thoughts. private@example.test 303-555-0199 1982-12-10', generate: async ({ prompt, vertexOnly, sensitive, jsonMode }) => {
+    assert.equal(vertexOnly, true);
+    assert.equal(sensitive, true);
+    assert.equal(jsonMode, true);
     for (const secret of ['SyntheticName', 'ExampleCorp', 'private@example', '303-555', '1982-12']) assert.ok(!prompt.includes(secret));
     assert.ok(prompt.includes('communication'));
     assert.ok(prompt.includes('coping with intrusive thoughts'));
@@ -17,10 +20,13 @@ test('AI recommendations use both goal and objective themes without source text 
   } });
   assert.deepEqual(result.interventions, ['Mindfulness Training']);
 });
-test('insufficient anonymous context avoids an AI request and unsupported output is rejected', async () => {
+test('insufficient context avoids AI and unusable output falls back to catalog suggestions', async () => {
   const result = await recommendObjectiveInterventions({ goalText: 'SyntheticName', objectiveText: 'Unspecified', generate: () => { throw new Error('Must not call AI'); } });
   assert.deepEqual(result.interventions, []);
-  await assert.rejects(recommendObjectiveInterventions({ goalText: 'Manage worry', objectiveText: 'Manage worry', generate: async () => ({ text: '{"indices":[-1]}' }) }), /No usable/);
+  const fallback = await recommendObjectiveInterventions({ goalText: 'Manage worry', objectiveText: 'Manage worry', generate: async () => ({ text: '{"indices":[-1]}' }) });
+  assert.equal(fallback.source, 'catalog');
+  assert.ok(fallback.interventions.length > 0 && fallback.interventions.length <= 5);
+  assert.ok(fallback.interventions.every(name => CLINICAL_INTERVENTION_SEED.includes(name)));
 });
 test('frequency options are persisted and queried only for the authenticated user and agency', async (t) => {
   const calls = [];
