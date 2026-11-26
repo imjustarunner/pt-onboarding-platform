@@ -1,19 +1,19 @@
 <template>
   <figure class="pl-real-example">
-    <button class="pl-example-open" :aria-label="`Enlarge ${title} example`" @click="dialog.showModal()"><img :src="src" :alt="`${title}: actual application screen with fictional example records`" width="1440" height="1000" :loading="eager?'eager':'lazy'"><span aria-hidden="true">View actual screen ↗</span></button>
-    <figcaption>{{ title }} · actual product screen, sample records</figcaption>
+    <button class="pl-example-open" :aria-label="`Enlarge ${title} example`" @click="dialog.showModal()"><img :src="previewImageUrl || src" :alt="imageAlt || `${title}: actual application screen with fictional example records`" width="1440" height="1000" :loading="eager?'eager':'lazy'"><span aria-hidden="true">{{ imageUrl ? 'View full size' : 'View actual screen ↗' }}</span></button>
+    <figcaption>{{ title }} · {{ caption || 'actual product screen, sample records' }}</figcaption>
     <dialog ref="dialog" class="pl-example-dialog" @click="closeBackdrop">
-      <header><div><strong>{{ title }}</strong><p>Captured from the application. Names and records are fictional.</p></div><button autofocus aria-label="Close product example" @click="dialog.close()">×</button></header>
-      <img :src="src" :alt="`${title}, full-size actual product example`" width="1440" height="1000">
-      <a :href="src" target="_blank" rel="noopener noreferrer">Open full-resolution screen ↗</a>
+      <header><div><strong>{{ title }}</strong><p>{{ description || 'Captured from the application. Names and records are fictional.' }}</p></div><button autofocus aria-label="Close product example" @click="dialog.close()">×</button></header>
+      <img :src="src" :alt="imageAlt || `${title}, full-size actual product example`" width="1440" height="1000">
+      <a :href="src" target="_blank" rel="noopener noreferrer">{{ imageUrl ? 'Open full-resolution image' : 'Open full-resolution screen ↗' }}</a>
     </dialog>
   </figure>
 </template>
 <script setup>
 import {computed,ref} from 'vue';
 import {plotlineExampleUrl} from '../../utils/plotlineExamples';
-const props=defineProps({screen:{type:String,required:true},title:{type:String,required:true},eager:Boolean});
-const dialog=ref(null),src=computed(()=>plotlineExampleUrl(props.screen));
+const props=defineProps({screen:String,imageUrl:String,previewImageUrl:String,imageAlt:String,caption:String,description:String,title:{type:String,required:true},eager:Boolean});
+const dialog=ref(null),src=computed(()=>props.imageUrl || plotlineExampleUrl(props.screen));
 function closeBackdrop(event){if(event.target!==dialog.value)return;const rect=dialog.value.getBoundingClientRect();if(event.clientX<rect.left||event.clientX>rect.right||event.clientY<rect.top||event.clientY>rect.bottom)dialog.value.close();}
 </script>
 <style scoped>

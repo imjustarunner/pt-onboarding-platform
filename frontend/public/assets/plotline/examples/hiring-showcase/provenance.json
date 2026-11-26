@@ -1,0 +1,137 @@
+{
+  "createdAt": "2026-11-26T22:46:20.683Z",
+  "fictional": true,
+  "productionAccess": false,
+  "realMedia": false,
+  "suppliedMockup": {
+    "file": "interview-team.png",
+    "sourceFilename": "Next Level Up Interview Dashboard.png",
+    "sha256": "7dd4e47d7bbb37f2eeb4c1033f814cb119408878380d5a17d36ea9dd11a5827f",
+    "origin": "User-approved fictional mockup"
+  },
+  "records": [
+    {
+      "file": "interview-applicant.png",
+      "sha256": "993cb85dbaa4c89397997cf7a747ca4dd516b6a0fa387a312631857ce84bf219",
+      "sources": [
+        {
+          "path": "src/views/teamMeeting/ApplicantInterviewView.vue",
+          "sha256": "356feade8cec90591c114d4dce1d796fd819e32018df99bf3af27ac19c53dd0a"
+        },
+        {
+          "path": "src/components/hiring/InterviewQuestionCard.vue",
+          "sha256": "42169e7180b71e1f96b9e0793af0e2e386801b71aff4f6b9d1c1061994b335f0"
+        },
+        {
+          "path": "src/components/hiring/InterviewSharedChat.vue",
+          "sha256": "075f0afa412e3bef47c17a8edf403bb9378305c7ce1f16110f4f2bac98d60168"
+        }
+      ],
+      "details": {
+        "actualApplicantShell": true,
+        "simulatedMediaTiles": true,
+        "liveMedia": false,
+        "cleanQuestion": false
+      }
+    },
+    {
+      "file": "interview-applicant-clean.png",
+      "sha256": "9548f5cc2b8aa6284ae1393c5d9d27eb1a00622bd2e82c1387b09e64191df533",
+      "sources": [
+        {
+          "path": "src/views/teamMeeting/ApplicantInterviewView.vue",
+          "sha256": "356feade8cec90591c114d4dce1d796fd819e32018df99bf3af27ac19c53dd0a"
+        },
+        {
+          "path": "src/components/hiring/InterviewQuestionCard.vue",
+          "sha256": "42169e7180b71e1f96b9e0793af0e2e386801b71aff4f6b9d1c1061994b335f0"
+        },
+        {
+          "path": "src/components/hiring/InterviewSharedChat.vue",
+          "sha256": "075f0afa412e3bef47c17a8edf403bb9378305c7ce1f16110f4f2bac98d60168"
+        }
+      ],
+      "details": {
+        "actualApplicantShell": true,
+        "simulatedMediaTiles": true,
+        "liveMedia": false,
+        "cleanQuestion": true
+      }
+    },
+    {
+      "file": "references.png",
+      "sha256": "c9c54f58fc9b2d55e79f64011e4b2e5b3ce235251fc1634c0510746f15fd2422",
+      "sources": [
+        {
+          "path": "src/views/public/HiringReferenceFormView.vue",
+          "sha256": "a1f032362adbb1e552899328ff1831f1421c04e2ea4ed46b9edb85176508da91"
+        },
+        {
+          "path": "src/components/hiring/ReferenceQuestionnaire.vue",
+          "sha256": "81fe3dbcd92837e89df283f081b246c23a04c5106f6361a2c55df41c80c2c59d"
+        }
+      ],
+      "details": {
+        "actualPublicForm": true,
+        "fictionalReference": true,
+        "submitted": false
+      }
+    },
+    {
+      "file": "references-detail.png",
+      "sha256": "4b0339b4a3fdf90f922f03b1d8ed862658c1d39b25a384b385703042647abd29",
+      "sources": [
+        {
+          "path": "src/views/public/HiringReferenceFormView.vue",
+          "sha256": "a1f032362adbb1e552899328ff1831f1421c04e2ea4ed46b9edb85176508da91"
+        },
+        {
+          "path": "src/components/hiring/ReferenceQuestionnaire.vue",
+          "sha256": "81fe3dbcd92837e89df283f081b246c23a04c5106f6361a2c55df41c80c2c59d"
+        }
+      ],
+      "details": {
+        "actualPublicForm": true,
+        "fictionalReference": true,
+        "detailCrop": true,
+        "submitted": false
+      }
+    },
+    {
+      "file": "prehire-home.png",
+      "sha256": "9eeb1a27b85c1983863cc1ea9131b926da0ea8afeed23e6b60f4773049662b5e",
+      "sources": [
+        {
+          "path": "src/components/prehire/HirePortalWorkspace.vue",
+          "sha256": "f199354b98fc099f0322c516d488f4b0c69ff6810baef6eb27167540da5cbe71"
+        }
+      ],
+      "details": {
+        "actualWorkspace": true,
+        "preview": true,
+        "unopenedStepComponentsStubbed": true
+      }
+    },
+    {
+      "file": "prehire-review.png",
+      "sha256": "afce259bfbc7e29443f41a0a067c089591697ea33e5ee0c9d5e978f2542ee1ed",
+      "sources": [
+        {
+          "path": "src/components/prehire/HirePortalWorkspace.vue",
+          "sha256": "f199354b98fc099f0322c516d488f4b0c69ff6810baef6eb27167540da5cbe71"
+        }
+      ],
+      "details": {
+        "actualWorkspace": true,
+        "preview": true,
+        "signatureOrSubmission": false
+      }
+    }
+  ],
+  "suppliedApplicantMockup": {
+    "file": "interview-applicant-mockup.png",
+    "sourceFilename": "Next Level Up Interview Dashboard (1).png",
+    "sha256": "574c0c44c8d3975582ccd75c5d59158513d883d7ac3f01173c2c633692d872f0",
+    "origin": "User-supplied fictional applicant-side mockup"
+  }
+}

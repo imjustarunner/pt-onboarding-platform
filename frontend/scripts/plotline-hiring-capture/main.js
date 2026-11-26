@@ -1,0 +1,13 @@
+import {createApp,h} from 'vue';
+import {createRouter,createMemoryHistory} from 'vue-router';
+import Applicant from '../../src/views/teamMeeting/ApplicantInterviewView.vue';
+import Reference from '../../src/views/public/HiringReferenceFormView.vue';
+import Workspace from '../../src/components/prehire/HirePortalWorkspace.vue';
+import {prehire} from './fixtures.js';
+import '../../src/styles/brandTypography.css';
+const view=new URLSearchParams(location.search).get('view')||'interview';
+const router=createRouter({history:createMemoryHistory(),routes:[{path:'/:token',component:{template:'<div/>'}}]});
+await router.push('/local-fixture-not-an-invitation');
+const readonlyHttp={defaults:{baseURL:'/capture-only'},get:async()=>{throw Error('No network read in pre-hire preview');},post:async()=>{throw Error('Read-only capture');}};
+const root=view==='reference'?{render:()=>h(Reference)}:view==='prehire'?{render:()=>h(Workspace,{data:prehire,token:'local-preview',http:readonlyHttp,preview:true})}:{render:()=>h(Applicant,{invitationToken:'local-fixture-not-an-invitation'})};
+createApp(root).use(router).mount('#capture');
