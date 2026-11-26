@@ -982,6 +982,16 @@
             <ClinicalDiagnosisSearch v-if="isIntakeOutput && ['full','zr_only'].includes(clinicalContextDiagnosisMode)" v-model="diagnosisQuery" label="Add a diagnosis" :agency-id="noteAidAgencyId || currentAgencyId" :date-of-service="dateOfService" :filter-results="diagnosisAllowed" @select="addIntakeDiagnosis" />
             <ClinicalDiagnosisFields :date-of-service="dateOfService" :criteria-context="{agencyId:noteAidAgencyId || currentAgencyId,draftId,ensureSaved:saveDraftNow}" v-if="structuredChartDiagnoses.length" :model-value="structuredChartDiagnoses" :disabled="!isIntakeOutput || !['full','zr_only'].includes(clinicalContextDiagnosisMode)" @update:model-value="updateIntakeDiagnoses" />
             <p v-else>No chart diagnoses on file.</p>
+            <div v-if="missingProgressPrimaryDiagnosis" class="na-plan-fields">
+              <template v-if="canRecordProgressPrimaryDiagnosis">
+                <ClinicalDiagnosisSearch v-model="progressDiagnosisQuery" label="Select the primary diagnosis" :agency-id="noteAidAgencyId || currentAgencyId" :date-of-service="dateOfService" :filter-results="canSelectProgressDiagnosis" @select="progressDiagnosisSelection = $event" />
+                <label v-if="progressDiagnosisSelection">Clinical justification<textarea v-model="progressDiagnosisJustification" class="na-textarea" rows="4" /></label>
+                <button v-if="progressDiagnosisSelection" type="button" class="na-btn-outline" :disabled="!progressDiagnosisJustification.trim() || savingProgressDiagnosis" @click="recordProgressDiagnosis">{{ savingProgressDiagnosis ? 'Saving diagnosis…' : 'Save primary diagnosis to chart' }}</button>
+              </template>
+              <p v-else>Ask the assigned clinician or supervisor to document the primary diagnosis and its justification in the chart.</p>
+              <button type="button" class="na-btn-outline" @click="reloadProgressDiagnoses">Reload chart diagnoses</button>
+              <p v-if="progressDiagnosisError" class="error" role="alert">{{ progressDiagnosisError }}</p>
+            </div>
             <label v-if="assessmentContext?.requiresDiagnosisConfirmation" class="na-sign-check"><input v-model="diagnosesConfirmed" type="checkbox" /> I reviewed and confirm the diagnoses and clinical justifications carried from the client’s file, including any updates.</label>
             <p v-if="chartDiagnosticJustification && !structuredChartDiagnoses.some(d => d.justification)">{{ chartDiagnosticJustification }}</p>
             <button v-if="intakeDiagnosesPending && intakeDiagnosisRecommendations.some(diagnosis => /^F(?:84|90)\./.test(diagnosis.icd10_code) && !diagnosis.id)" type="button" class="na-btn-outline" :disabled="applyingIntakeDiagnoses" @click="reviewAndApplyIntakeDiagnoses">
@@ -1018,8 +1028,16 @@
         <section v-if="!useCsNoteBuildPathway && !skipAiAid && !signedNoteViewerId && !finalizedNarriva" class="na-input-panel">
           <h2 class="narriva-narrative-label"><img :src="NARRIVA_BRAND.icon" alt="" />Session Narrative</h2>
           <p class="narriva-privacy-hint" role="note">Please do not enter or speak names, birth dates, contact details, or other identifying information here. Use Client, Provider, parent, or guardian. Use the session recorder for spoken content.</p>
-          <p v-if="phiNameHits.length" class="na-phi-warn" role="alert">Possible identifying name detected. Replace it with the person’s role before generating.</p>
-          <textarea v-model="inputText" aria-label="Session Narrative" class="na-textarea" rows="8" :maxlength="isTerminationAid ? 1500000 : 12000" :placeholder="isTreatmentSummaryAid ? 'Add clinically relevant participation, impressions and history using roles instead of names.' : 'Describe what occurred, interventions used, the response, progress, and the next plan…'" />
+          <div v-if="narrativeIdentifierHits.length" class="na-phi-warn" role="alert">
+            <p>Remove identifying details or replace names with roles.</p>
+            <ul>
+              <li v-for="hit in narrativeIdentifierHits" :key="hit.start">
+                <button type="button" class="na-link-btn" @click="selectNarrativeIdentifier(hit)">{{ hit.label }} · character {{ hit.start + 1 }}</button>
+              </li>
+            </ul>
+          </div>
+          <p v-else-if="phiNameHits.length" class="na-phi-warn" role="alert">Possible identifying name detected. Replace it with the person’s role before generating.</p>
+          <textarea ref="narrativeInput" v-model="inputText" aria-label="Session Narrative" class="na-textarea" rows="8" :maxlength="isTerminationAid ? 1500000 : 12000" :placeholder="isTreatmentSummaryAid ? 'Add clinically relevant participation, impressions and history using roles instead of names.' : 'Describe what occurred, interventions used, the response, progress, and the next plan…'" />
           <p v-if="narrivaRecordingError" role="alert" class="error">{{ narrivaRecordingError }}</p><div v-if="narrivaRecordingText" class="narriva-privacy-hint"><p>A reviewed recording narrative is ready for this encounter.</p><button type="button" class="na-btn-outline" @click="applyNarrivaRecording(true)">Append recording narrative</button><button type="button" class="na-btn-outline" @click="applyNarrivaRecording(false)">Replace with recording narrative</button></div>
 
           <NarrivaSessionConfirmations :client-present="sessionClientPresent" :risk-required="sessionClientPresent !== false && narrivaRiskRequired" :location="sessionLocationModel" v-if="!isClientChartAid && !isReviewOnlyAid" v-model:consent="narrivaConsentConfirmed" v-model:risk="narrivaRiskIncluded" />
@@ -1045,11 +1063,11 @@
             >
               +{{ addon.code }}{{ addon.units > 1 ? ` ×${addon.units}` : '' }}{{ addon.pending ? ' (auto)' : '' }}
             </span>
-            <button class="na-generate" type="button" :disabled="narrivaPreGenerationRequired && !narrivaPreflightReady ? narrivaCheckDisabled : generateDisabled || (narrivaPreGenerationRequired && !narrivaDraftApproved)" @click="narrivaPreGenerationRequired && !narrivaPreflightReady ? runNarrivaChecks({ phase: 'pre_generation' }) : generateNote()">
+            <button v-if="!narrivaPreGenerationRequired || !narrivaChecksSubmitted && !narrivaReview?.id" class="na-generate" type="button" :disabled="narrivaPreGenerationRequired ? narrivaCheckDisabled : generateDisabled" @click="narrivaPreGenerationRequired ? runNarrivaChecks({ phase: 'pre_generation' }) : generateNote()">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
                 <path d="M12 2l1.2 6.3L19 12l-5.8 3.7L12 22l-1.2-6.3L5 12l5.8-3.7L12 2z"/>
               </svg>
-              {{ narrivaReviewBusy ? 'Checking…' : narrivaPreGenerationRequired && !narrivaPreflightReady ? (narrivaReview?.id ? 'Re-generate note and check' : 'Submit for compliance check') : generating ? 'Generating…' : 'Finalize note' }}
+              {{ narrivaPreGenerationRequired ? 'Submit for compliance check' : generating ? 'Generating…' : 'Generate note' }}
             </button>
           </div>
           <small v-if="generateBlockedReason && generateDisabled" class="hint na-generate-hint">{{ generateBlockedReason }}</small>
@@ -1105,7 +1123,6 @@
           <template v-if="!finalizedNarriva && narrivaPreGenerationRequired && narrivaReviewPhase === 'pre_generation'" #generate>
             <p v-if="generateError" role="alert">{{ generateError }}</p>
             <button class="na-generate" type="button" :disabled="!narrivaPreflightReady || !narrivaDraftApproved || generateDisabled" @click="generateNote">{{ generating ? 'Finalizing…' : 'Finalize note' }}</button>
-            <p v-if="generateError" role="alert">{{ generateError }}</p>
           </template>
         </NarrivaCompliancePanel>
         </NarrivaReviewWorkspace>
@@ -1457,6 +1474,7 @@
           <div class="na-feedback">
             <span v-if="approvalMessage" class="hint">{{ approvalMessage }}</span>
             <span v-if="approvalError" class="error">{{ approvalError }}</span>
+            <button v-if="missingProgressPrimaryDiagnosis && /primary diagnosis/i.test(approvalError)" type="button" class="na-btn-outline" @click="scrollToDiagnosisSection">Review diagnoses</button>
           </div>
           <p class="na-gen-summary">{{ generationLogicSummary }}</p>
         </section>
@@ -1614,6 +1632,7 @@ import ClinicalDiagnosisSearch from '../../components/clinical/ClinicalDiagnosis
 import SessionSupportingMaterials from '../../components/clinical/SessionSupportingMaterials.vue';
 import { privateSpeechRecognition } from '../../utils/privateSpeechRecognition.js';
 import { DURATION_PRESETS, durationLabel, projectedDurationMonths, setObjectiveCompletionTime } from '../../utils/treatmentPlanDuration';
+import { narrivaIdentifierMatches } from '../../utils/narrivaIdentifierMatches.js';
 import { intakeSection, intakeDiagnoses, intakeAssessments, mergeGeneratedAssessment, generatedTreatmentPlan, intakeSectionsForRecord } from '../../utils/noteAidIntakeIntegration';
 import { splitTreatmentPlanSections } from '../../utils/treatmentPlanSections.js';
 import { DEFAULT_RENEWAL_POLICY, treatmentPlanRenewalStatus } from '../../utils/treatmentPlanRenewal.js';
@@ -1970,6 +1989,13 @@ const terminationMetadata = () => ({ reason: terminationReason.value, details: t
 const notePrescribedFrequency = ref('');
 const planFrequencyBaseline = ref('');
 const clinicalCosignSupervisor = ref(null);
+
+const narrativeInput = ref(null);
+const narrativeIdentifierHits = computed(() => narrivaIdentifierMatches(inputText.value, phiExtraNames.value));
+function selectNarrativeIdentifier(match) {
+  narrativeInput.value?.focus();
+  narrativeInput.value?.setSelectionRange(match.start, match.end);
+}
 
 const phiExtraNames = computed(() =>
   collectFrontendPhiNames(selectedClient.value, clientGuardianNames.value)
@@ -2476,7 +2502,7 @@ function syncDurationFromStartAndEnd() {
 
 /** After start or duration is known, fill the missing end (duration stays sticky). */
 function ensureSessionEndFromDuration() {
-  if (sessionTimingSyncLock) return;
+  if (sessionTimingSyncLock || sessionEndTimeLocal.value) return;
   if (!sessionStartTimeLocal.value) return;
   if (sessionDurationMinutes.value == null || sessionDurationMinutes.value === '') return;
   syncEndFromStartAndDuration();
@@ -2589,6 +2615,54 @@ watch(() => [encounterPlanEligibility.value.planId, dateOfService.value], () => 
   if (selected && String(selected.status || '').toLowerCase() !== 'draft' && Number(latestTreatmentPlan.value?.id) !== Number(selected.id)) latestTreatmentPlan.value = selected;
 });
 const chartDiagnoses = ref([]);
+const progressDiagnosisQuery = ref('');
+const progressDiagnosisSelection = ref(null);
+const progressDiagnosisJustification = ref('');
+const progressDiagnosisError = ref('');
+const savingProgressDiagnosis = ref(false);
+const missingProgressPrimaryDiagnosis = computed(() =>
+  isProgressAid.value && !!effectiveClientId.value && !chartDiagnoses.value.some(row =>
+    Number(row.is_primary) === 1 && (row.is_active == null || Number(row.is_active) === 1) && String(row.justification || '').trim())
+);
+const canRecordProgressPrimaryDiagnosis = computed(() => sessionDiagnosisEntryMode('full', derivedTier.value) === 'full');
+const canSelectProgressDiagnosis = row => canRecordProgressPrimaryDiagnosis.value && canSelectSessionDiagnosis('full', row);
+watch([effectiveClientId, sessionClinicalSessionId], () => {
+  progressDiagnosisSelection.value = null;
+  progressDiagnosisQuery.value = '';
+  progressDiagnosisJustification.value = '';
+  progressDiagnosisError.value = '';
+});
+function scrollToDiagnosisSection() {
+  document.querySelector('[data-note-section="Diagnoses"]')?.scrollIntoView?.({ block: 'start' });
+}
+async function reloadProgressDiagnoses() {
+  if (effectiveClientId.value) await loadClientTreatmentPlan(effectiveClientId.value);
+}
+async function recordProgressDiagnosis() {
+  const selected = progressDiagnosisSelection.value;
+  const justification = progressDiagnosisJustification.value.trim();
+  const clientId = Number(effectiveClientId.value);
+  const agencyId = Number(noteAidAgencyId.value || currentAgencyId.value);
+  const clinicalSessionId = sessionClinicalSessionId.value;
+  if (!clientId || !agencyId || !clinicalSessionId || !justification || !canSelectProgressDiagnosis(selected) || savingProgressDiagnosis.value) return;
+  const current = () => clientId === Number(effectiveClientId.value) && clinicalSessionId === sessionClinicalSessionId.value;
+  savingProgressDiagnosis.value = true;
+  progressDiagnosisError.value = '';
+  try {
+    await api.post('/medical-billing/diagnoses', {
+      agencyId, clientId, clinicalSessionId, isPrimary: true,
+      icd10Code: selected.code, description: selected.description, justification
+    }, { skipGlobalLoading: true });
+    if (!current()) return;
+    await reloadProgressDiagnoses();
+    if (current()) { approvalError.value = ''; scheduleAutosave(0); }
+  } catch (error) {
+    if (current()) progressDiagnosisError.value = error.response?.data?.error?.message || 'The diagnosis could not be saved to the chart.';
+  } finally {
+    savingProgressDiagnosis.value = false;
+  }
+}
+
 const intakeDiagnosisRecommendations = ref([]);
 const diagnosisQuery = ref('');
 const diagnosisAllowed = row => canSelectSessionDiagnosis(clinicalContextDiagnosisMode.value, row);
@@ -3480,6 +3554,11 @@ async function runNarrivaChecks({ phase = narrivaReviewPhase.value, forSigning =
   if (!narrivaComplianceRequired.value || preparingNarrivaCheck.value || narrivaReviewBusy.value || signedNoteViewerId.value) return;
   if (phase !== 'pre_generation' && !outputObj.value) return;
   if (narrivaFeatures.value.compliance === false) { narrivaReviewError.value = 'Narriva checks are not enabled for this workspace. Your note is preserved.'; return; }
+  if (phase === 'pre_generation' && narrativeIdentifierHits.value.length) {
+    generateError.value = 'Remove the highlighted identifying details before submitting for compliance check.';
+    selectNarrativeIdentifier(narrativeIdentifierHits.value[0]);
+    return;
+  }
   if (phase === 'pre_generation' && !String(inputText.value || '').trim()) { narrivaReviewError.value = 'Add the session narrative before submitting it for compliance check.'; return; }
   if (phase === 'pre_generation' && showObjectiveRatings.value && planObjectiveReview(activeTreatmentGoals.value, sessionObjectiveRatings.value).missing.length) {
     generateError.value = objectiveReviewMessage;
@@ -3502,14 +3581,15 @@ async function runNarrivaChecks({ phase = narrivaReviewPhase.value, forSigning =
     const deadline = Date.now() + 10000;
     while (autosaveBusy && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 50));
     if (autosaveBusy) { narrivaReviewError.value = 'Your draft is still saving. Try the checks again when it finishes.'; return; }
-    await autosave({ forApproval: forSigning });
-    if (!draftId.value || !lastSavedAt.value || sourceClient !== effectiveClientId.value || sourceDraft && String(sourceDraft) !== String(draftId.value)) { narrivaReviewError.value = approvalError.value || 'Save the current draft before running Narriva checks.'; return; }
+    const saved = await autosave({ forApproval: forSigning });
+    if (!saved || !draftId.value || !lastSavedAt.value || sourceClient !== effectiveClientId.value || sourceDraft && String(sourceDraft) !== String(draftId.value)) { narrivaReviewError.value = approvalError.value || 'Save the current draft before running Narriva checks.'; return; }
     if (phase==='pre_generation' && showObjectiveRatings.value) {
       const version=narrivaEditVersion, id=draftId.value;
       try { await persistSessionObjectiveRatings({ beforeCheck:true }); }
       catch { narrivaReviewError.value='Your draft is saved. Retry to record the objective ratings in the chart before checking the note.'; return; }
       if (id!==draftId.value || version!==narrivaEditVersion) return;
     }
+    narrivaReviewError.value = '';
     await startNarrivaReview({ draftId: Number(draftId.value), phase, backgroundQuality: phase === 'pre_generation' });
   } finally { preparingNarrivaCheck.value=false; }
 }
@@ -5755,6 +5835,12 @@ const autosave = async ({ forApproval = false } = {}) => {
           created,
           ...recentDrafts.value.filter((d) => String(d.id) !== String(created.id))
         ];
+        rememberOpenDraftRoute(created.id);
+        if (rawInput.trim() && Object.hasOwn(created, 'input_text') && String(created.input_text || '') !== rawInput) {
+          approvalError.value = 'An existing draft was found. Your current text is still open. Save again to update the draft.';
+          lastSavedAt.value = '';
+          return;
+        }
         const dayKey = draftCreatedKey(currentDraftCreatedAt.value);
         openDateGroups.value = { ...openDateGroups.value, [dayKey]: true };
         if (activeWorkQueueItemId.value) {
@@ -5780,6 +5866,8 @@ const autosave = async ({ forApproval = false } = {}) => {
         String(d.id) === String(targetDraftId)
           ? {
               ...d,
+              ...res.data?.draft,
+              output_json: res.data?.draft?.output_json ?? (payload.outputJson === undefined ? d.output_json : JSON.stringify(payload.outputJson)),
               date_of_service: payload.dateOfService || d.date_of_service,
               initials: payload.initials ?? d.initials,
               client_id: Object.prototype.hasOwnProperty.call(payload, 'clientId')
@@ -6788,6 +6876,9 @@ const generateNote = async () => {
     const base = e.response?.data?.error?.message || 'Failed to generate note';
     const details = e.response?.data?.error?.details;
     generateError.value = details ? `${base} (${details})` : base;
+    if (['NARRIVA_PREFLIGHT_STALE', 'NARRIVA_GENERATION_SOURCE_CHANGED'].includes(e.response?.data?.error?.code)) {
+      invalidateNarrivaReview({ preserve: true });
+    }
   } finally {
     generating.value = false;
   }
@@ -7314,6 +7405,16 @@ const formatDateTime = (raw) => {
     return String(raw || '');
   }
 };
+
+async function fetchWorkspaceDraft(id, agency = null) {
+  const agencyId = Number(agency || noteAidAgencyId.value || currentAgencyId.value);
+  if (!agencyId || !Number(id)) return null;
+  const { data } = await api.get('/clinical-notes/recent', {
+    params: { agencyId, draftId: id, days: 2555, archiveStatus: 'all' },
+    skipGlobalLoading: true
+  });
+  return data?.drafts?.find(row => String(row.id) === String(id)) || null;
+}
 
 const loadRecent = async ({ retry = true } = {}) => {
   if (!canUseTool.value) return;
@@ -8949,7 +9050,17 @@ async function activateWorkQueueItem(item) {
   noteWizardStep.value = 1;
   if (!isFinished) sidebarTab.value = DOC_STATUS.STARTED;
 
-  const reuse = findReusableLocalDraft(item);
+  let reuse = findReusableLocalDraft(item);
+  if (!reuse && item.draftId) {
+    try {
+      const saved = await fetchWorkspaceDraft(item.draftId, item.agencyId);
+      if (saved && draftMatchesWorkQueueItem(saved, item)) reuse = saved;
+    } catch {
+      if (seq === workQueueActivateSeq) approvalError.value = 'The saved draft could not be loaded. Reopen this work item to retry.';
+      return;
+    }
+    if (seq !== workQueueActivateSeq) return;
+  }
   if (reuse) {
     await loadDraftIntoWorkspace(reuse, {
       preserveWorkQueueItemId: true,
@@ -8965,13 +9076,7 @@ async function activateWorkQueueItem(item) {
     activeWorkQueueItemId.value = item.id;
     if (item.officeEventId) sessionOfficeEventId.value = item.officeEventId;
     if (item.clinicalSessionId) sessionClinicalSessionId.value = item.clinicalSessionId;
-    const dosIso = toWorkQueueDateOnly(item.date);
-    if (dosIso) dateOfService.value = dosIso;
-    if (item.serviceCode) {
-      selectedServiceCode.value = String(item.serviceCode).toUpperCase();
-      otherServiceCode.value = '';
-    }
-    if (item.locationLabel) sessionLocationLabel.value = item.locationLabel;
+    const dosIso = dateOfService.value;
     if (!sessionStartTimeLocal.value && item.timeLabel) {
       const hhmm = timeLabelToHhMm(item.timeLabel);
       if (hhmm) sessionStartTimeLocal.value = hhmm;
@@ -8990,16 +9095,8 @@ async function activateWorkQueueItem(item) {
           }
         : row
     );
-    // Keep the left-library draft card in sync with the queue CPT (not group primary).
-    if (item.serviceCode && reuse.id) {
-      recentDrafts.value = (recentDrafts.value || []).map((d) =>
-        String(d.id) === String(reuse.id)
-          ? { ...d, service_code: String(item.serviceCode).toUpperCase(), date_of_service: dosIso || d.date_of_service }
-          : d
-      );
-      scheduleAutosave(400);
-    }
     persistWorkQueue();
+    rememberOpenDraftRoute(reuse.id);
     if (isFinished) sidebarTab.value = incomingStatus;
     return;
   }
@@ -9094,7 +9191,7 @@ async function ensureWorkQueueDraft(item) {
   if (item.draftId) {
     const linked = (recentDrafts.value || []).find((d) => String(d.id) === String(item.draftId));
     if (linked && draftMatchesWorkQueueItem(linked, item)) {
-      draftId.value = linked.id;
+      await loadDraftIntoWorkspace(linked, { preserveWorkQueueItemId: true, expectedClientId: item.clientId });
       return;
     }
   }
@@ -9137,6 +9234,10 @@ async function ensureWorkQueueDraft(item) {
         : row
     );
     persistWorkQueue();
+    if (created.input_text || created.output_json) {
+      await loadDraftIntoWorkspace(created, { preserveWorkQueueItemId: true, expectedClientId: clientId });
+    }
+    if (requestSeq === workQueueActivateSeq) rememberOpenDraftRoute(created.id);
   } catch {
     // Left library can still fill once the clinician types.
   }
@@ -9158,6 +9259,13 @@ function findReusableLocalDraft(item) {
   });
   if (!key) return null;
   return list.find((d) => sessionDedupeKey(d) === key && draftMatchesWorkQueueItem(d, item)) || null;
+}
+
+function rememberOpenDraftRoute(id) {
+  if (!id || isEmbedded.value || props.demoPresentation || !activeWorkQueueItemId.value || signedNoteViewerId.value) return;
+  if (String(route.query.draftId || '') !== String(id)) {
+    void router.replace({ query: { ...route.query, draftId: String(id) } }).catch(() => {});
+  }
 }
 
 function syncWorkQueueRouteQuery(item) {
@@ -9182,6 +9290,7 @@ function syncWorkQueueRouteQuery(item) {
     delete nextQuery.clientId;
     delete nextQuery.client_id;
   }
+  if (item?.draftId && !resolveSignedClinicalNoteId(item)) nextQuery.draftId = String(item.draftId);
   if (item?.officeEventId) nextQuery.officeEventId = String(item.officeEventId);
   if (item?.clinicalSessionId) nextQuery.clinicalSessionId = String(item.clinicalSessionId);
   if (item?.appointmentId) nextQuery.appointmentId = String(item.appointmentId);
@@ -9557,7 +9666,7 @@ const loadDraftIntoWorkspace = async (d, options = {}) => {
   currentDraftCreatedAt.value = d.created_at || null;
   lastSavedAt.value = d.updated_at ? new Date(d.updated_at).toLocaleString() : 'Previously saved';
   const draftCode = singleServiceCodeLabel(
-    persistedSession.serviceCode || d.service_code || d.serviceCode || options.preferredServiceCode || ''
+    d.service_code || d.serviceCode || persistedSession.serviceCode || options.preferredServiceCode || ''
   );
   otherServiceCode.value = '';
   if (isExtendedEncounterCode(draftCode)) {
@@ -9586,7 +9695,7 @@ const loadDraftIntoWorkspace = async (d, options = {}) => {
   inputText.value = unwrapDraftText(d.input_text);
   const preferredDos = toWorkQueueDateOnly(options.preferredDateOfService);
   const draftDos = toWorkQueueDateOnly(d.date_of_service || d.dateOfService);
-  dateOfService.value = preferredDos || draftDos || todayIsoDate();
+  dateOfService.value = draftDos || preferredDos || todayIsoDate();
   if (options.preferredScheduledStart || options.preferredStartTimeLabel) {
     const startIso = options.preferredScheduledStart
       || scheduledStartFromQueueDateAndTime(dateOfService.value, options.preferredStartTimeLabel);
@@ -9686,12 +9795,14 @@ const loadDraftIntoWorkspace = async (d, options = {}) => {
   sessionPresentingProblemOverride.value = typeof savedMeta.narrivaContext?.presentingProblemOverride === 'string' ? savedMeta.narrivaContext.presentingProblemOverride : null;
   narrivaModality.value = savedMeta.sessionContext?.modality || savedMeta.narrivaContext?.modality || '';
   audioOnlyReason.value = savedMeta.sessionContext?.audioOnlyReason || '';
+  narrivaClientLocationDescription.value = savedMeta.narrivaContext?.clientLocationDescription || '';
   narrivaRiskIncluded.value = savedMeta.narrivaContext?.riskAssessmentIncluded === true;
   narrivaRiskRequired.value = savedMeta.narrivaContext?.riskAssessmentRequired === true;
   narrivaRiskCompleted.value = savedMeta.narrivaContext?.riskAssessmentCompleted === true;
   narrivaAssessmentEvidence.value=savedMeta.narrivaContext?.assessmentEvidence || [];
   const savedChart = savedMeta.structuredChart;
-  if (savedChart && Number(savedChart.clientId) === Number(effectiveClientId.value)) {
+  if (savedChart && effectiveClientId.value
+    && Number(savedChart.clientId || draftStampClientId) === Number(effectiveClientId.value)) {
     chartMentalStatus.value = savedChart.mentalStatusExam || defaultMentalStatusExam();
     chartRiskAssessment.value = savedChart.riskAssessment || defaultRiskAssessment();
     chartMedications.value = savedChart.medications || defaultMedicationsBlock();
@@ -9708,7 +9819,7 @@ const loadDraftIntoWorkspace = async (d, options = {}) => {
   // Restore session context (location / duration / times) persisted on the draft.
   const savedCtx = outputObj.value?.meta?.sessionContext;
   if (savedCtx && typeof savedCtx === 'object') {
-    if (savedCtx.locationLabel && !options.preferredLocationLabel) {
+    if (savedCtx.locationLabel) {
       sessionLocationLabel.value = String(savedCtx.locationLabel);
     }
     if (savedCtx.durationMinutes != null && sessionDurationMinutes.value == null) {
@@ -9727,7 +9838,7 @@ const loadDraftIntoWorkspace = async (d, options = {}) => {
       sessionParticipantsDetail.value = String(savedCtx.participantsDetail || '');
     }
   }
-  if (options.preferredLocationLabel) {
+  if (options.preferredLocationLabel && !savedCtx?.locationLabel) {
     sessionLocationLabel.value = String(options.preferredLocationLabel);
   }
   await loadSessionLocationChoices(
@@ -10377,11 +10488,15 @@ async function openWorkspaceRouteSelection() {
     if (String(signedNoteViewerId.value || '') !== qNote) await openSignedClinicalNote(qNote, { agencyId: qAgency });
   } else if (qDraft) {
     let hit = recentDrafts.value.find((d) => String(d.id) === qDraft);
-    // Initial bootstrap precedes the server work queue. Reconcile once with
-    // the loaded queue and explicit route scope before reporting a missing note.
+    // The saved draft can predate the bounded recent list. Reopen it by ID
+    // with the same author and agency access checks as the library.
     if (!hit) {
-      await loadRecent();
-      hit = recentDrafts.value.find((d) => String(d.id) === qDraft);
+      try {
+        hit = await fetchWorkspaceDraft(qDraft, qAgency);
+      } catch {
+        approvalError.value = 'The saved draft could not be loaded. Refresh the page to retry.';
+        return;
+      }
     }
     if (hit && String(draftId.value || '') !== qDraft) await loadDraftIntoWorkspace(hit);
     else if (!hit) approvalError.value = recentError.value || 'The requested note could not be loaded. Reopen it from its appointment or try again.';
@@ -10391,7 +10506,9 @@ async function openWorkspaceRouteSelection() {
 }
 
 watch(() => route.query, async () => {
-  if (!workspaceReady.value) return;
+  if (!workspaceReady.value || isWorkspaceHydrating()) return;
+  if (route.query?.draftId && String(route.query.draftId) === String(draftId.value)
+    && !route.query.noteId && !route.query.clinicalNoteId) return;
   if (route.query?.workQueueId) {
     await openWorkspaceRouteSelection();
     return;

@@ -46,7 +46,7 @@ import {
   loadCredentialOverrides
 } from '../services/billingRules.service.js';
 import { callPrivateSessionText, createSessionPrivacyContext } from '../services/sessionAiPrivacy.service.js';
-import { buildPromptForTool, generateClinicalText } from '../services/clinicalNoteWriter.service.js';
+import { encounterTimingInstruction, buildPromptForTool, generateClinicalText } from '../services/clinicalNoteWriter.service.js';
 import { assertNarrivaPreGeneration } from '../services/narrivaReview.service.js';
 import { providerConversionPending,providerHasGroupPasswordAccess,rolloutForPractice } from '../services/clientSessionBookingRollout.service.js';
 import { isTreatmentPlanToolId, isProgressNoteToolId, isCsNoteBuildToolId, TRANSCRIPT_FIDELITY_INSTRUCTIONS } from '../config/clinicalNotePlanOutput.js';
@@ -1071,6 +1071,7 @@ export const listRecentClinicalNoteDrafts = async (req, res, next) => {
     const archiveStatus = String(req.query?.archiveStatus || req.query?.status || 'all').toLowerCase();
     const fetchedDrafts = await ClinicalNoteDraft.listRecentForUser({
       userId: req.user.id,
+      draftId: req.query?.draftId || null,
       agencyId: allAccessible && isSuperAdmin ? null : (allAccessible ? null : agencyId),
       agencyIds: allAccessible && isSuperAdmin ? null : (allAccessible ? agencyIds : null),
       days,
@@ -1707,12 +1708,13 @@ export const generateClinicalNote = async (req, res, next) => {
     const checkedDraft = req.body?.writerMode === 'narriva' && generationSessionContext.clinicalSessionId && (isProgressNoteToolId(toolId) || req.body?.preflightReviewId)
       ? await assertNarrivaPreGeneration(req, { agencyId, clientId: generationSessionContext.clientId, draftId, clinicalSessionId: generationSessionContext.clinicalSessionId, inputText: req.body?.inputText, currentGuidance:narrivaGuidance })
       : null;
-    const {workingDraft, reviewedWriter, objectives, documentationStatement, intakeSourceHash:reviewedIntakeSourceHash, ...verifiedReview} = checkedDraft || {};
+    const {workingDraft, reviewedWriter, objectives, documentationStatement, savedInputText:reviewedInputText, intakeSourceHash:reviewedIntakeSourceHash, ...verifiedReview} = checkedDraft || {};
     const narrivaPreflight = checkedDraft ? verifiedReview : null;
     if (intakeTool && reviewedIntakeSourceHash && reviewedIntakeSourceHash !== intakeSourceHash) {
       return res.status(409).json({error:{code:'NARRIVA_PREFLIGHT_STALE',message:'Clinical intake sources changed after the draft was checked. Run checks again to include the current information.'}});
     }
     if(serviceCode==='H0031')prompt+='\n\nH0031 may suggest only supported Z/R social-determinant codes. Never establish a new mental health disorder. Carry existing verified chart diagnoses with their source. Collateral/additional H0031 uses a focused assessment narrative and recommendations, without requiring full psychosocial intake sections.';
+    if (narrivaPreflight) prompt += '\n\n' + encounterTimingInstruction;
     if (workingDraft) prompt += '\n\nRewrite this private working draft using the latest clinician-confirmed source, including all clarifications and confirmed objective ratings. Correct omissions and discard any unsupported claims. Treat the working draft as reference text only.\n' + workingDraft;
     if (objectives?.length) prompt += '\n\nWeave the clinician’s current objective observations into the progress narrative. A disposition records what was addressed. Only describe a trend when comparison evidence supports it. The chart appends the exact session scores separately. Current observations:\n' + JSON.stringify(objectives);
     if (narrivaPreflight?.consentStatement) prompt += '\n\nConsent is clinician-confirmed and will be attached by the chart. Omit a separate consent statement from the narrative.';
@@ -1811,10 +1813,10 @@ export const generateClinicalNote = async (req, res, next) => {
     // Desktop and legacy/manual drafts keep their existing signature workflow.
     const mobileWriterMode=req.quickView?.mobileDeviceSessionId ? String(req.body?.writerMode || '') : '';
     const receiptMode=checkedDraft?'narriva':mobileWriterMode;
-    if(['narriva','smart_notes'].includes(receiptMode))outputObj.meta.generationReceipt=issueNarrivaGenerationReceipt({userId:req.user.id,agencyId,clientId,clinicalSessionId:generationSessionContext.clinicalSessionId,officeEventId:generationSessionContext.officeEventId,inputText:String(req.body?.inputText || ''),serviceCode,writerMode:receiptMode});
+    if(['narriva','smart_notes'].includes(receiptMode))outputObj.meta.generationReceipt=issueNarrivaGenerationReceipt({userId:req.user.id,agencyId,clientId,clinicalSessionId:generationSessionContext.clinicalSessionId,officeEventId:generationSessionContext.officeEventId,inputText:reviewedInputText ?? String(req.body?.inputText || ''),serviceCode,writerMode:receiptMode});
     const outputJson = JSON.stringify(outputObj);
     const storedInputText =
-      (transcriptSource === 'audio' || usedAudioTranscript) ? null : (mobileWriterMode || req.body?.writerMode === 'narriva' ? String(req.body?.inputText || '').trim() : terminationRequested ? providerInputText : inputText);
+      reviewedInputText ?? ((transcriptSource === 'audio' || usedAudioTranscript) ? null : (mobileWriterMode || req.body?.writerMode === 'narriva' ? String(req.body?.inputText || '').trim() : terminationRequested ? providerInputText : inputText));
     const encryptedInputText = maybeEncryptText(storedInputText);
     const encryptedOutputJson = maybeEncryptText(outputJson);
     if(req.sessionTranscription && !isChatEncryptionConfigured()) throw Object.assign(new Error('Secure note storage is not configured.'),{status:503});
