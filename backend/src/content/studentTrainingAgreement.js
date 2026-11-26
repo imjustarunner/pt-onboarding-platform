@@ -24,3 +24,24 @@ export const STUDENT_TRAINING_CLAUSES = [
   body_md: clause.paragraphs.join('\n\n'),
   body_html: `<h2>${clause.title}</h2>\n${clause.paragraphs.map(paragraph => `<p>${paragraph}</p>`).join('\n')}`
 }));
+
+/** Select the applicable training terms from both saved library clauses and
+ * built-in defaults. Preserve agency additions and the original stored clause. */
+export function studentTrainingClauseForPhase(clause, phase) {
+  if (!['practicum', 'internship'].includes(phase)
+    || !['INTRO_STUDENT_TRAINING', 'TERM_STUDENT_TRAINING'].includes(clause.clause_key)) return clause;
+  const directEntry = phase === 'internship';
+  let html = String(clause.body_html || '').replace(/<p\b[^>]*>[\s\S]*?<\/p>/gi, paragraph => {
+    const text = paragraph.replace(/<[^>]*>/g, '').trim();
+    if (directEntry && /^(Practicum-to-internship continuation|End-of-practicum review):/.test(text)) return '';
+    if (!directEntry && /^Direct-entry internship:/.test(text)) return '';
+    if (!directEntry) return paragraph;
+    return paragraph
+      .replace('covers the Student’s applicable practicum and internship phases', 'covers the Student’s direct-entry internship')
+      .replace('continues through the applicable training phases', 'continues through the internship placement')
+      .replace('apply during both practicum and internship and do not change automatically at the phase transition', 'apply during the internship and do not change automatically with elapsed time');
+  });
+  const title = directEntry && clause.title === 'Training Phases, Continuation, and Review' ? 'Direct-entry Internship' : clause.title;
+  if (title !== clause.title) html = html.replace('Training Phases, Continuation, and Review', title);
+  return { ...clause, title, body_html: html };
+}
