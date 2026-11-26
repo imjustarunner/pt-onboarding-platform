@@ -68,3 +68,22 @@ it('uses the job’s prehire package before the agency default without requiring
   const result = await prepareHirePacket({ userId: 1, agencyId: 2, body: {} });
   expect(result.prehirePackageId).toBe(42); expect(result.onboardingPackageId).toBeNull();
 });
+
+it('attaches the authorized fingerprinting lesson without a link and rejects an unavailable lesson', async () => {
+  const body = { portalWorkflow: { resources: [{
+    kind: 'fingerprinting', phase: 'pre_hire', id: 'untrusted-id', title: 'Wrong title',
+    url: 'https://example.org/wrong', guide: { html: 'Do not use this' }
+  }] } };
+  const request = () => prepareHirePacket({ userId: 1, agencyId: 2, body });
+  await expect(request()).rejects.toThrow('must be available in On-Demand Training');
+  const original = execute.getMockImplementation();
+  execute.mockImplementation((sql, params) => sql.includes('JOIN agency_public_modules')
+    ? [[{ module_id: 12, content_data: { content: '<p>Fingerprints</p>' } }]]
+    : original(sql, params));
+  const packet = await request();
+  expect(packet.workflow.resources).toEqual([{
+    id: 'denver-school-fingerprinting', title: 'Denver School-Based Counseling – Fingerprinting',
+    kind: 'fingerprinting', phase: 'pre_hire', required: true, instructions: ''
+  }]);
+  expect(execute.mock.calls.find(([sql]) => sql.includes('JOIN agency_public_modules'))[1][0]).toBe(2);
+});

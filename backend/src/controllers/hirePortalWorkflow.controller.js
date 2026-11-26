@@ -54,6 +54,13 @@ export async function saveWorkflowStep(req, res, next) {
         fail(availability.reason === 'invalid_email' ? 'Enter a valid work email.' : 'That work email is already in use. Choose another address.');
       }
       value = { email, preferenceOnly: true };
+    } else if (ctx.phase === 'pre_hire' && ctx.step?.kind === 'fingerprinting') {
+      if (ctx.step.complete) return res.json({ ok: true });
+      if (req.body?.acknowledged !== true || req.body?.complete === false) fail('Confirm that you completed the appointment and notified Rachel Finch.');
+      const guide = ctx.step.guide;
+      if (!guide?.html) fail('People Operations needs to make the fingerprinting lesson available.', 409);
+      if (req.body?.guideRevision !== guide.revision) fail('The fingerprinting instructions changed. Reopen this step and review them before saving.', 409);
+      value = { title: ctx.step.title, guideHtml: guide.html, guideRevision: guide.revision, acknowledged: true };
     } else {
       if (!ctx.step || !['handbook', 'link', 'video', 'meeting', 'acknowledgement'].includes(ctx.step.kind)) fail('This item is completed by its form, upload or signature.', 403);
       if (req.body?.acknowledged !== true) fail('Confirm that you have completed this step.');

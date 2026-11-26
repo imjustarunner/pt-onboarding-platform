@@ -186,7 +186,7 @@
           <a :href="docSource(doc) === 'Agency default' ? settingsPath : careersEditPath" target="_blank" rel="noopener">View or edit source settings ↗</a>
         </article>
         <p class="muted small">Documents written or uploaded in job settings are saved with that setup. They appear in the Documents Library only when they use a library template. Reusable templates can also be assigned during onboarding and other document workflows.</p>
-        <HireWorkflowEditor v-model="portalWorkflow" :templates="packetDocumentTemplates.filter(availableHiringTemplate)" :agency-id="agencyId" phase="pre_hire" heading="Add a step for this person" description="Add only what this hire needs before onboarding. Each item below explains what the candidate does and what the app saves." />
+        <HireWorkflowEditor v-model="portalWorkflow" :templates="packetDocumentTemplates.filter(availableHiringTemplate)" :agency-id="agencyId" :fingerprinting-available="fingerprintingAvailable" phase="pre_hire" heading="Add a step for this person" description="Add only what this hire needs before onboarding. Each item below explains what the candidate does and what the app saves." />
         <div class="sph-upload">
           <label>Upload additional files (stored on the employee file)
             <input type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,application/pdf,image/*" @change="onExtraFiles" />
@@ -455,6 +455,7 @@ const orgPath = (path) => {
   return slug ? `/${slug}${path}` : path;
 };
 
+const fingerprintingAvailable = ref(false);
 const agencyId = computed(() => Number(route.query.agencyId || agencyStore.currentAgency?.id || 0));
 const userId = computed(() => Number(route.params.userId || 0));
 const candidateName = computed(() => {
@@ -572,6 +573,7 @@ const load = async () => {
     const roles = Array.isArray(rolesRes.data) ? rolesRes.data : [];
     signerAssignments.value = mapSignerRolesWithDefaults(roles, staffUsers.value);
     wizardTokens.value = wizardRes.data?.tokens || {};
+    fingerprintingAvailable.value = wizardRes.data?.fingerprintingAvailable === true;
     compensationLevels.value = wizardRes.data?.compensationLevels || [];
     compensationCategories.value = wizardRes.data?.compensationCategories || compensationCategories.value;
     contractTenant.value = wizardRes.data?.contractTenant || '';
@@ -867,7 +869,7 @@ const candidateSteps = computed(() => {
   if (portalWorkflow.value.supervisorRole) addTemplate(portalWorkflow.value.supervisorTemplateId, 'Supervisor acknowledgment', 'Supervisory role');
   for (const resource of portalWorkflow.value.resources || []) if (resource.kind === 'document') addTemplate(resource.templateId, resource.title, 'Additional step', resource.required !== false);
   for (const doc of availableJobDocs.value.filter(d => d.selected && d.templateId)) addTemplate(doc.templateId, doc.title, docSource(doc));
-  for (const resource of portalWorkflow.value.resources || []) if (resource.kind !== 'document' && !builtInHireDocument(resource)) result.push({ ...resource, key: resource.id, source: 'Additional step', url: safeUrl(resource.url), action: ({ video: 'Watch and confirm', link: 'Open and confirm completion', meeting: 'Book and enter confirmed time', acknowledgement: 'Read and sign an acknowledgment', upload: 'Complete and upload' })[resource.kind], instructions: [hireResourceHelp[resource.kind], resource.instructions].filter(Boolean).join(' '), unavailable: resource.required !== false && !safeUrl(resource.url) });
+  for (const resource of portalWorkflow.value.resources || []) if (resource.kind !== 'document' && !builtInHireDocument(resource)) result.push({ ...resource, key: resource.id, source: 'Additional step', url: safeUrl(resource.url), action: ({ video: 'Watch and confirm', fingerprinting: 'Complete the appointment and notify Rachel Finch', link: 'Open and confirm completion', meeting: 'Book and enter confirmed time', acknowledgement: 'Read and sign an acknowledgment', upload: 'Complete and upload' })[resource.kind], instructions: [hireResourceHelp[resource.kind], resource.instructions].filter(Boolean).join(' '), unavailable: resource.kind === 'fingerprinting' ? !fingerprintingAvailable.value : resource.required !== false && !safeUrl(resource.url) });
   result.push({ key: 'review', title: 'Final review and submission', source: 'Provided by the app', action: 'Submit pre-hire for review', instructions: 'The candidate checks their completed work and submits it to People Operations. Onboarding begins after staff review.', required: false });
   return result;
 });
@@ -907,7 +909,7 @@ const lastPreviewInput = ref('');
 const previewMatches = computed(() => lastPreviewInput.value === JSON.stringify(previewInput.value));
 const previewInput = computed(() => ({ compensationLevel: contract.compensationLevel, officeLocationId: officeLocationId.value, configId: contractConfigId.value, tokens: contractTokens.value, compensationCategory: contract.compensationCategory || inferredCategory.value, credential: contractCredential.value }));
 watch(previewInput, () => { contractReviewed.value = false; }, { deep: true });
-const missingResources = computed(() => (portalWorkflow.value.resources || []).filter(r => !r.title?.trim() || (r.kind === 'document' ? !r.templateId : r.required !== false && !r.url)));
+const missingResources = computed(() => (portalWorkflow.value.resources || []).filter(r => !r.title?.trim() || (r.kind === 'document' ? !r.templateId : r.kind === 'fingerprinting' ? !fingerprintingAvailable.value : r.required !== false && !r.url)));
 const probationRequired = computed(() => !!contractTenant.value && !/amendment|addendum|acknowledg/i.test(contractConfigs.value.find(c=>Number(c.id)===Number(contractConfigId.value))?.slug||''));
 const probationChosen = computed(() => !probationRequired.value || ['yes','no'].includes(contract.probationChoice) && (contractTenant.value!=='isi' || contract.probationChoice!=='yes' || !!contract.probationTerms.trim()));
 const sendBlocker = computed(() => {
@@ -915,7 +917,7 @@ const sendBlocker = computed(() => {
   if (requiresActivation.value) return 'Approve the standard agreement under Contract & cosigners.';
   if (uploadingFiles.value) return 'Wait for the attached files to finish saving.';
   if (draftSaveError.value) return draftSaveError.value;
-  if (missingResources.value.length || missingJobDocuments.value.length) return 'Finish attaching the missing documents or links under Select materials.';
+  if (missingResources.value.length || missingJobDocuments.value.length) return 'Finish attaching the missing materials under Select materials.';
   if (portalWorkflow.value.supervisorRole && (!portalWorkflow.value.supervisorClause || !portalWorkflow.value.supervisorTemplateId)) return 'Select the supervisor duties and acknowledgement under Role & supervision.';
   if (!compensationChosen.value) return 'Choose compensation under Contract & cosigners.';
   if (!contractReviewed.value || !previewMatches.value || !contractPreview.value || contractPreview.value.unresolvedTokens?.length) return 'Update and review the agreement under Contract & cosigners.';

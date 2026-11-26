@@ -1,3 +1,4 @@
+import { assertHireFingerprintingAvailable, loadHireFingerprintingGuide } from './hireFingerprintingGuide.service.js';
 import { getAppliedJobHireDefaults, resolveOnboardingDefaults } from './hireJobDefaults.service.js';
 import { createHash } from 'node:crypto';
 import pool from '../config/database.js';
@@ -60,7 +61,8 @@ export async function getHirePackageWorkspace(userId, agencyId, db = pool) {
       if (Object.hasOwn(profile, 'provider_credential')) credentialReview = { agreement, confirmed: profile.provider_credential };
     }
   }
-  return { candidate: ctx.user, revision: revisionOf(ctx.packet), phases: Object.fromEntries(['pre_hire','onboarding'].map(phase => [phase, {
+  const fingerprintingAvailable = !packageClosed('pre_hire', ctx.user, ctx.journey) && !!await loadHireFingerprintingGuide(agencyId, db);
+  return { candidate: ctx.user, fingerprintingAvailable, revision: revisionOf(ctx.packet), phases: Object.fromEntries(['pre_hire','onboarding'].map(phase => [phase, {
     closed: packageClosed(phase, ctx.user, ctx.journey), preparing: phase === 'onboarding' && ctx.preparing,
     training: phase === 'onboarding' ? ctx.training : null,
     packageId: ctx.packet[packetKey(phase)] || null,
@@ -107,6 +109,8 @@ export async function saveHirePackageWorkspace({ userId, agencyId, actorId, phas
         const [[doc]] = await db.execute('SELECT * FROM document_templates WHERE id = ?', [resource.templateId]);
         if (!doc || !Number(doc.is_active) || (doc.agency_id && Number(doc.agency_id) !== agencyId)) fail(`Choose an available document template for ${resource.title}.`);
         assertHireFormReady(doc);
+      } else if (resource.kind === 'fingerprinting') {
+        if (!completed.some(saved => saved.step_key === resource.id)) await assertHireFingerprintingAvailable(agencyId, db);
       } else if (resource.required && !resource.url) fail(`Attach a secure link for ${resource.title}.`);
     }
     const newDocuments = resources.filter(r => r.kind === 'document' && !previous.some(p => p.kind === 'document' && Number(p.templateId) === Number(r.templateId))).map(r => r.templateId);

@@ -1,3 +1,4 @@
+import { loadHireFingerprintingGuide } from './hireFingerprintingGuide.service.js';
 import { PREHIRE_OVERRIDE_PREFIX,applyPrehireStepOverrides } from '../utils/hirePrehireStepOverrides.js';
 import {hireModeRequiresPortalPassword} from '../utils/hireAccountMode.js';
 import { schoolAvailabilityStep, validateSchoolServiceAvailability } from '../utils/schoolServiceAvailability.js';
@@ -6,7 +7,7 @@ import {normalizeFocusAgeValues} from '../utils/providerFacetNormalization.js';
 import { FACET_FIELD_ALIASES } from '../constants/clinicalFacetFields.js';
 import pool from '../config/database.js';
 import { linkPrehireReceiptFile } from './hireJourney.service.js';
-import { builtInHireDocument } from '../../../frontend/src/navigation/hireDocuments.js';
+import { builtInHireDocument, denverFingerprintingStep } from '../../../frontend/src/navigation/hireDocuments.js';
 import {createHash} from 'node:crypto';
 import ProviderPublicProfile from '../models/ProviderPublicProfile.model.js';
 import { getHireUserSetup, persistHireUserSetup } from './hireUserSetup.service.js';
@@ -37,7 +38,7 @@ export async function portalStepSubmissions(userId, { completionOnly = false, ha
 }
 
 export function requiredSubmissionKeys(steps, hasWorkEmail = false) {
-  const savedKinds = new Set(['school-availability', 'user-setup', 'staff-communications', 'clinical-profile', 'profile', 'headshot', 'handbook', 'work-email', 'upload', 'video', 'meeting', 'link', 'acknowledgement']);
+  const savedKinds = new Set(['school-availability', 'user-setup', 'staff-communications', 'clinical-profile', 'profile', 'headshot', 'handbook', 'work-email', 'upload', 'video', 'meeting', 'link', 'acknowledgement', 'fingerprinting']);
   return steps.filter((step) => !step.staffOverride && step.required !== false && savedKinds.has(step.kind)
     && !(step.kind === 'work-email' && hasWorkEmail)).map((step) => step.key);
 }
@@ -67,6 +68,20 @@ export async function savePortalStep({ userId, agencyId, phase, key, value, comp
     const open = missingUsername || (phase === 'pre_hire' ? ['PENDING_SETUP', 'PREHIRE_OPEN'].includes(user?.status) && !journey?.prehire_completed_at
       : user?.status === 'ONBOARDING' && !journey?.onboarding_completed_at);
     if (!open) throw Object.assign(new Error('This package is closed. Contact People Operations to request a correction.'), { status: 409 });
+    if (phase === 'pre_hire' && key === denverFingerprintingStep.id) {
+      const packet = await portalPacket(userId, agencyId, db);
+      if (!packet.workflow.resources.some(step => step.kind === 'fingerprinting')) {
+        throw Object.assign(new Error('This fingerprinting step was removed from your package. Refresh your checklist.'), { status: 409 });
+      }
+      const [[completed]] = await db.execute(
+        'SELECT completed_at FROM hire_portal_submissions WHERE user_id = ? AND phase = ? AND step_key = ?',
+        [userId, phase, key]
+      );
+      if (completed?.completed_at) {
+        await db.commit();
+        return;
+      }
+    }
     if(usernameEmail) {
       if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(usernameEmail))throw Object.assign(new Error('Enter a valid work username.'),{status:400});
       if(user.work_email && user.work_email.toLowerCase()!==usernameEmail)throw Object.assign(new Error('The work username is already set. Contact People Operations to change it.'),{status:409});
@@ -258,6 +273,13 @@ export async function buildPortalWorkflow({ user, agencyId, tasks, prehireTasks,
       continue;
     }
     const saved = stored(resource.phase, resource.id);
+    if (resource.kind === 'fingerprinting') {
+      const guide = progressOnly ? null : saved?.completedAt
+        ? { html: saved.value?.guideHtml, revision: saved.value?.guideRevision }
+        : await loadHireFingerprintingGuide(agencyId);
+      add(resource.phase, { ...resource, key: resource.id, complete: !!saved?.completedAt, guide });
+      continue;
+    }
     add(resource.phase, { ...resource, key: resource.id, complete: !!saved?.completedAt, submission: saved?.value || null });
   }
   add('onboarding', { key: 'account', kind: 'account', title: 'Accounts & access', required: hireModeRequiresPortalPassword(hireAccountMode), complete: [true, 1, '1'].includes(user.sso_password_override)&&(hireAccountMode!=='app_only'||!!user.password_hash), instructions: 'Review all your assigned login details here. After activation, find them in My Dashboard → My Account → Accounts & access.' });

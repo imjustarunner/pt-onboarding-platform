@@ -279,3 +279,63 @@ describe('onboarding contact staff profile', () => {
    expect(db.rollback).toHaveBeenCalled(); expect(db.commit).not.toHaveBeenCalled();
    expect(mocks.execute.mock.calls.some(([sql])=>sql.startsWith('INSERT INTO'))).toBe(false);
  });
+
+it('reuses the ITSCO lesson in the pre-hire preview, sanitizes its HTML, and keeps the step required', async () => {
+  mocks.execute.mockImplementation(async sql => sql.includes('JOIN agency_public_modules') ? [[{
+    module_id: 4,
+    content_data: { content: '<h3>Book an appointment</h3><script>unsafe()</script><a href="javascript:alert(1)">Unsafe</a><a href="https://abi.cabiond.com/login" onclick="unsafe()">Open Cabiond</a>' }
+  }]] : [[]]);
+  const key = 'denver-school-fingerprinting';
+  const input = { user: { id: 7, status: 'PREHIRE_OPEN' }, agencyId: 2, tasks: [], prehireTasks: [], extras: {}, backgroundCheck: {}, journey: {} };
+  const manifest = await buildPortalWorkflow({ ...input, previewPacket: { workflow: {
+    resources: [{ id: key, title: 'Denver fingerprinting', kind: 'fingerprinting', phase: 'pre_hire', required: true }]
+  } } });
+  const step = manifest.steps.pre_hire.find(item => item.key === key);
+  expect(step).toMatchObject({ required: true, complete: false, guide: { revision: expect.stringMatching(/^[a-f0-9]{64}$/) } });
+  expect(step.guide.html).toContain('<h3>Book an appointment</h3>');
+  expect(step.guide.html).toContain('href="https://abi.cabiond.com/login" target="_blank" rel="noopener noreferrer"');
+  expect(step.guide.html).not.toMatch(/javascript:|script>|onclick=/);
+  expect(requiredSubmissionKeys(manifest.steps.pre_hire)).toContain(key);
+  expect(manifest.steps.onboarding.some(item => item.key === key)).toBe(false);
+});
+
+it('keeps the acknowledged fingerprinting edition when the course is later edited or unpublished', async () => {
+  const key = 'denver-school-fingerprinting';
+  const html = '<p>Edition reviewed by the candidate</p>';
+  mocks.execute.mockImplementation(async sql => {
+    if (sql.includes('config_json FROM')) return [[{ config_json: { workflow: { resources: [
+      { id: key, kind: 'fingerprinting', title: 'Denver fingerprinting', phase: 'pre_hire' }
+    ] } } }]];
+    if (sql.includes('FROM hire_portal_submissions')) return [[{
+      phase: 'pre_hire', step_key: key, completed_at: '2026-11-25',
+      encrypted_value: encryptGuardianIntake(JSON.stringify({ guideHtml: html, guideRevision: 'reviewed' }))
+    }]];
+    return [[]];
+  });
+  const manifest = await buildPortalWorkflow({ user: { id: 7, status: 'PREHIRE_REVIEW' }, agencyId: 2, tasks: [], prehireTasks: [], extras: {}, backgroundCheck: {}, journey: { prehireCompletedAt: '2026-11-25' } });
+  expect(manifest.steps.pre_hire.find(item => item.key === key)).toMatchObject({
+    complete: true, guide: { html, revision: 'reviewed' }
+  });
+  expect(mocks.execute.mock.calls.some(([sql]) => sql.includes('JOIN agency_public_modules'))).toBe(false);
+});
+
+it.each([false, true])('checks the assigned fingerprinting step while holding the user lock', async alreadyCompleted => {
+  const key = 'denver-school-fingerprinting';
+  mocks.execute.mockImplementation(async sql => {
+    if (sql.includes('SELECT status,work_email')) return [[{ status: 'PREHIRE_OPEN' }]];
+    if (sql.includes('config_json FROM')) return [[{ config_json: { workflow: { resources: alreadyCompleted
+      ? [{ id: key, kind: 'fingerprinting', phase: 'pre_hire', title: 'Denver fingerprinting' }] : []
+    } } }]];
+    if (sql.startsWith('SELECT completed_at')) return [[{ completed_at: '2026-11-25' }]];
+    return [[]];
+  });
+  const request = savePortalStep({ userId: 7, agencyId: 2, phase: 'pre_hire', key, value: { guideHtml: '<p>Instructions</p>', acknowledged: true } });
+  if (alreadyCompleted) {
+    await request;
+    expect(db.commit).toHaveBeenCalled();
+  } else {
+    await expect(request).rejects.toMatchObject({ status: 409, message: expect.stringContaining('removed') });
+    expect(db.rollback).toHaveBeenCalled();
+  }
+  expect(mocks.execute.mock.calls.some(([sql]) => sql.includes('INSERT INTO hire_portal_submissions'))).toBe(false);
+});

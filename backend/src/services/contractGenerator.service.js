@@ -1,3 +1,4 @@
+import { loadHireFingerprintingGuide } from './hireFingerprintingGuide.service.js';
 import { availableContractRoles } from '../content/contractServiceRoles.js';
 import {assertContractProbationChoice} from '../content/contractProbationPolicy.js';
 import { compensationAgencyPolicy } from './compensationCategories.service.js';
@@ -311,6 +312,7 @@ export async function getCandidateWizardContext({
     compensationCategories: typeof PayrollCompensationLevel.getCategories === 'function' ? await PayrollCompensationLevel.getCategories(agencyId) : COMPENSATION_CATEGORIES,
     serviceCompensation: compensationPolicy.serviceCompensation,
     serviceFocusOptions: agencyDefaults.serviceFocusOptions,
+    fingerprintingAvailable: agencyDefaults.agency?.slug === 'itsco' && !!await loadHireFingerprintingGuide(agencyId),
     contractTenant: agencyDefaults.contractTenant,
     contractServiceRoleOptions: (agencyDefaults.contractServiceRoleOptions || []).filter(role =>
       availableContractRoles(agencyDefaults.contractTenant, tokens.CONTRACT_SERVICE_TRACKS).some(option => option.id === role.id)),

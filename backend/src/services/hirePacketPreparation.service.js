@@ -1,3 +1,4 @@
+import { assertHireFingerprintingAvailable } from './hireFingerprintingGuide.service.js';
 import { assertHireFormReady } from '../utils/hireDocumentFields.js';
 import pool from '../config/database.js';
 import { isAssignableSupervisor } from '../utils/staffEligibility.js';
@@ -38,6 +39,8 @@ export async function prepareHirePacket({ userId, agencyId, body }) {
       const [[document]] = await pool.execute('SELECT * FROM document_templates WHERE id = ?', [resource.templateId]);
       if (!document || Number(document.agency_id) !== Number(agencyId) || !document.is_active) fail(`Select an active template for ${resource.title} in this organization.`);
       assertHireFormReady(document);
+    } else if (resource.kind === 'fingerprinting') {
+      await assertHireFingerprintingAvailable(agencyId);
     } else if (resource.required && !resource.url) fail(`Attach a link for ${resource.title} before sending this packet.`);
   }
   for (const doc of documents) {

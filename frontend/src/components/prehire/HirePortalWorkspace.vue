@@ -105,6 +105,17 @@
                 <p v-if="step.submission?.scheduledAt">Scheduled for {{ new Date(step.submission.scheduledAt).toLocaleString() }}</p><a v-if="step.submission?.receiptPath" :href="fileUrl(phase,step.key)" target="_blank" rel="noopener">View signed acknowledgement</a>
               </template><div v-else class="notice"><Icon name="clock" /><p>People Operations needs to attach this resource. Message the team so they can help you continue.</p></div>
             </div>
+            <div v-else-if="step.kind === 'fingerprinting'" class="card">
+              <template v-if="step.guide?.html">
+                <p v-if="step.instructions">{{ step.instructions }}</p>
+                <div class="fingerprinting-guide" v-html="step.guide.html" />
+                <template v-if="!closed && !preview && !step.complete">
+                  <label class="check-label"><input v-model="acknowledged" type="checkbox" />I completed my fingerprinting appointment, notified Rachel Finch, and sent her any confirmation I received.</label>
+                  <button class="primary" :disabled="busy || !acknowledged" @click="save(step.key, { acknowledged, guideRevision: step.guide.revision })">Save completion</button>
+                </template>
+              </template>
+              <p v-else>Message People Operations for help opening the fingerprinting instructions.</p>
+            </div>
             <DocumentLearningCatalog v-else-if="step.kind === 'guide-training'" :key="step.key" :agency-id="agency.id" :document-key="step.documentKey" mode="onboarding" :http="http" :api-base="`/prehire-portal/${token}/document-learning`" @completed="emit('reload')" @handbook-link="openGuideHandbook" />
             <div v-else-if="step.kind === 'school-availability'" class="card"><HireSchoolAvailability :key="step.key" :step="step" :busy="busy" :readonly="closed" @save="save(step.key,$event)" /></div>
             <div v-else-if="step.kind === 'user-setup'" class="card"><HireUserSetup :key="step.key" :step="step" :busy="busy" :readonly="closed" @save="save(step.key,$event)" /></div>
@@ -209,7 +220,7 @@ function navigate(value) { emit('media', false); section.value = value; emit('se
 function select(item) { if (!item) return; selectedKey.value = item.key; focusCurrentContent(); }
 function switchPhase(value) { phase.value = value; selectedKey.value = steps.value.find(s => !s.complete)?.key || steps.value[0]?.key || ''; emit('phase', value); navigate('steps'); }
 function openGuideHandbook(hash) { if (hash) window.history.replaceState(window.history.state, '', '#' + hash); if (currentPhase.value === 'pre_hire') navigate('handbook'); else { if (phase.value !== 'onboarding') switchPhase('onboarding'); select(steps.value.find(s => s.kind === 'handbook')); } }
-function iconFor(item) { return ({ background: 'lock', 'job-description': 'document', 'work-email': 'mail', profile: 'people', 'clinical-profile': 'people', headshot: 'camera', handbook: 'book', account: 'lock', 'school-availability': 'calendar', meeting: 'calendar', video: 'video', upload: 'upload', link: 'link', review: 'check' })[item.kind] || (item.task?.taskType === 'training' ? 'video' : 'document'); }
+function iconFor(item) { return ({ background: 'lock', 'job-description': 'document', 'work-email': 'mail', profile: 'people', 'clinical-profile': 'people', headshot: 'camera', handbook: 'book', account: 'lock', 'school-availability': 'calendar', meeting: 'calendar', video: 'video', upload: 'upload', link: 'link', fingerprinting: 'book', review: 'check' })[item.kind] || (item.task?.taskType === 'training' ? 'video' : 'document'); }
 function fileUrl(p, key) { return `${props.http.defaults.baseURL}/prehire-portal/${encodeURIComponent(props.token)}/workflow/${p}/${encodeURIComponent(key)}/file${key === 'headshot' ? `?v=${encodeURIComponent(workflow.value.headshot?.version || '')}` : ''}`; }
 function intakeUrl(task) { const t = task.metadata?.intakeLinkPublicKey || task.metadata?.intakeToken || task.metadata?.intakeLinkToken; return t ? buildFormUrl(t, task.metadata?.formType || task.metadata?.form_type) : task.metadata?.formUrl || ''; }
 function embedUrl(raw) {
@@ -259,6 +270,12 @@ onBeforeUnmount(() => { window.removeEventListener('message', moduleMessage); wi
 </script>
 
 <style scoped>
+.fingerprinting-guide :deep(ol), .fingerprinting-guide :deep(ul) { padding-inline-start: 1.5rem; }
+.fingerprinting-guide :deep(ol) { list-style: decimal; }
+.fingerprinting-guide :deep(ul) { list-style: disc; }
+.fingerprinting-guide :deep(ol > li) { margin-block: 1rem; }
+.fingerprinting-guide :deep(h3) { margin: 0 0 0.375rem; }
+
 .credential-confirmation{display:grid;gap:8px;border:1px solid var(--hire-border);border-radius:8px;padding:12px}.credential-confirmation label{display:flex;align-items:center;gap:8px}.credential-confirmation input[type=radio]{width:auto}
 .profile-field{display:grid;gap:8px}
 
