@@ -20,9 +20,6 @@
             <strong v-else-if="clientName">{{ clientName }}</strong>
             <span v-else class="muted">Linked client</span>
           </div>
-          <span class="na-chart-status" :class="setupComplete ? 'ok' : 'pending'">
-            {{ setupComplete ? 'Setup complete' : setupStatusLabel }}
-          </span>
         </div>
 
         <details class="na-dx-details" :open="diagnosesOpenDefault">
@@ -51,267 +48,65 @@
           >{{ primaryDiagnosis.justification }}</p>
         </details>
 
-        <details class="na-chart-details" :open="!setupComplete">
-          <summary>
-            {{ setupComplete ? 'Initial chart info (expand if needed)' : 'Finish initial chart setup' }}
-          </summary>
+        <details class="na-chart-details">
+          <summary>Chart information</summary>
+          <div class="na-client-ctx-actions">
+            <a v-if="clientProfileHref" class="na-btn-outline na-btn-as-link" :href="clientProfileHref" target="_blank" rel="noopener noreferrer">Open client chart for Bring up to date</a>
+          </div>
 
-          <template v-if="setupComplete && !redoIntake && !redoPlan">
-            <div class="na-locked-banner" role="status">
-              <strong>Chart setup complete</strong>
-              <p>
-                Intake, demographics, and treatment plan are on file.
-                Use Redo intake or Redo treatment plan if an import was wrong or incomplete.
-              </p>
-            </div>
-            <details v-if="clinicalIntakePreview" class="na-locked-preview">
-              <summary>Preview intake on file</summary>
-              <p class="na-client-ctx-intake">{{ clinicalIntakePreview }}</p>
-            </details>
-            <div class="na-client-ctx-actions">
-              <button type="button" class="na-btn-outline" @click="$emit('use-intake')">
-                Use intake to inform plan
-              </button>
-              <button type="button" class="na-btn-outline" @click="$emit('open-updater')">
-                Open treatment plan updater
-              </button>
-              <button type="button" class="na-btn-outline" @click="startRedoIntake">
-                Redo intake
-              </button>
-              <button type="button" class="na-btn-outline" @click="startRedoPlan">
-                Redo treatment plan
-              </button>
-              <button type="button" class="na-link-btn" @click="$emit('open-chart-intake')">
-                Open chart intake
-              </button>
-            </div>
+          <div class="na-client-ctx-tabs">
+            <button type="button" :class="{ active: tab === 'demographics' }" @click="tab = 'demographics'">
+              Demographics{{ demographicsOnFile ? ' ✓' : '' }}
+            </button>
+            <button type="button" :class="{ active: tab === 'intake' }" @click="tab = 'intake'">
+              Intake{{ intakeOnFile ? ' ✓' : '' }}
+            </button>
+            <button type="button" :class="{ active: tab === 'goals' }" @click="tab = 'goals'">
+              Treatment Goals{{ planOnFile ? ' ✓' : '' }}
+            </button>
+          </div>
+
+          <template v-if="tab === 'intake'">
+            <div v-if="loadingIntake" class="na-client-ctx-empty">Loading intake…</div>
+            <div v-else-if="intakeError" class="na-client-ctx-empty error">{{ intakeError }}</div>
+            <template v-else>
+              <p v-if="clinicalIntakePreview" class="na-client-ctx-intake">{{ clinicalIntakePreview }}</p>
+              <p v-else class="na-client-ctx-empty">No intake on file.</p>
+              <div class="na-client-ctx-actions">
+                <button v-if="clinicalIntakePreview" type="button" class="na-btn-outline" @click="$emit('use-intake')">Use intake to inform plan</button>
+                <button type="button" class="na-link-btn" @click="$emit('open-chart-intake')">Open chart intake</button>
+              </div>
+            </template>
+          </template>
+
+          <template v-else-if="tab === 'demographics'">
+            <ul v-if="demographicsPreview.length" class="na-demo-preview">
+              <li v-for="row in demographicsPreview" :key="row.label">
+                <span>{{ row.label }}</span>
+                <strong>{{ row.value }}</strong>
+              </li>
+            </ul>
+            <p v-else class="na-client-ctx-empty">No demographics available here.</p>
           </template>
 
           <template v-else>
-            <p class="na-client-ctx-hint">
-              Recommended order: Demographics → Intake → Treatment Goals. You can complete them in any order — each step stays independent. When both intake and a treatment plan exist, the treatment plan’s diagnosis, presenting problem, and diagnostic justification take precedence.
-            </p>
-            <div class="na-client-ctx-tabs">
-              <button
-                type="button"
-                :class="{ active: tab === 'demographics' }"
-                @click="tab = 'demographics'"
-              >
-                Demographics{{ demographicsLocked ? ' ✓' : '' }}
-              </button>
-              <button
-                type="button"
-                :class="{ active: tab === 'intake' }"
-                @click="tab = 'intake'"
-              >
-                Intake{{ intakeLocked ? ' ✓' : '' }}
-              </button>
-              <button
-                type="button"
-                :class="{ active: tab === 'goals' }"
-                @click="tab = 'goals'"
-              >
-                Treatment Goals{{ planLocked ? ' ✓' : '' }}
-              </button>
-            </div>
-
-            <template v-if="tab === 'intake'">
-              <div v-if="loadingIntake" class="na-client-ctx-empty">Loading intake…</div>
-              <div v-else-if="intakeError" class="na-client-ctx-empty error">{{ intakeError }}</div>
-              <template v-else-if="intakeLocked && !redoIntake">
-                <div class="na-locked-banner" role="status">
-                  <strong>Intake on file</strong>
-                  <p>Imported intake is on the chart. Redo if that paste was incomplete or was not a real intake note.</p>
-                </div>
-                <details v-if="clinicalIntakePreview" class="na-locked-preview">
-                  <summary>Preview intake on file</summary>
-                  <p class="na-client-ctx-intake">{{ clinicalIntakePreview }}</p>
-                </details>
-                <div class="na-client-ctx-actions">
-                  <button type="button" class="na-btn-outline" @click="$emit('use-intake')">
-                    Use intake to inform plan
-                  </button>
-                  <button type="button" class="na-btn-outline" @click="startRedoIntake">
-                    Redo intake import
-                  </button>
-                  <button type="button" class="na-link-btn" @click="$emit('open-chart-intake')">
-                    Open chart intake
-                  </button>
-                </div>
-              </template>
-              <template v-else>
-                <p v-if="clinicalIntakePreview" class="na-client-ctx-intake">{{ clinicalIntakePreview }}</p>
-                <p v-else class="na-client-ctx-empty">No intake on file yet — paste below to import.</p>
-                <p v-if="redoIntake" class="na-client-ctx-hint">
-                  Replacing the intake on file. Parse, confirm diagnoses, then Confirm &amp; finalize.
-                </p>
-
-                <label class="na-paste-label">
-                  Paste intake note (optional)
-                  <textarea
-                    :value="pastedIntakeText"
-                    rows="4"
-                    class="na-textarea"
-                    placeholder="Paste intake / assessment text to review and save to the chart…"
-                    @input="$emit('update:pastedIntakeText', $event.target.value)"
-                  />
-                </label>
-
-                <div class="na-client-ctx-actions">
-                  <button
-                    type="button"
-                    class="na-btn-primary"
-                    :disabled="!String(pastedIntakeText || '').trim()"
-                    @click="$emit('import-intake')"
-                  >
-                    Review &amp; import intake
-                  </button>
-                  <button
-                    type="button"
-                    class="na-btn-outline"
-                    :disabled="!clinicalIntakePreview"
-                    @click="$emit('use-intake')"
-                  >
-                    Use intake to inform plan
-                  </button>
-                  <button type="button" class="na-link-btn" @click="$emit('open-chart-intake')">
-                    Open chart intake
-                  </button>
-                </div>
-              </template>
-            </template>
-
-            <template v-else-if="tab === 'demographics'">
-              <template v-if="demographicsLocked">
-                <div class="na-locked-banner" role="status">
-                  <strong>Demographics saved to chart</strong>
-                  <p>
-                    Encrypted demographics are on file. This one-time paste import is locked —
-                    update demographics from the client chart when needed.
-                  </p>
-                </div>
-                <ul v-if="demographicsPreview.length" class="na-demo-preview">
-                  <li v-for="row in demographicsPreview" :key="row.label">
-                    <span>{{ row.label }}</span>
-                    <strong>{{ row.value }}</strong>
+            <div v-if="loadingPlan" class="na-client-ctx-empty">Loading treatment plan…</div>
+            <div v-else-if="planError" class="na-client-ctx-empty error">{{ planError }}</div>
+            <div v-else-if="goals.length" class="na-client-ctx-list">
+              <article v-for="goal in goals" :key="goal.id" class="na-client-ctx-card">
+                <strong>Goal {{ goal.goal_index }} · {{ goal.goal_text }}</strong>
+                <ul>
+                  <li v-for="objective in goal.objectives || []" :key="objective.id">
+                    Objective {{ objective.objective_index }} · {{ objective.objective_text }}
+                    <em v-if="objective.scale_current != null && objective.scale_target != null">({{ objective.scale_current }} → {{ objective.scale_target }})</em>
                   </li>
                 </ul>
-                <div class="na-client-ctx-actions">
-                  <a
-                    v-if="clientProfileHref"
-                    class="na-btn-outline na-btn-as-link"
-                    :href="clientProfileHref + (clientProfileHref.includes('?') ? '&' : '?') + 'tab=demographics'"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    Open chart demographics
-                  </a>
-                </div>
-              </template>
-              <template v-else>
-                <p class="na-client-ctx-hint">
-                  Paste chart demographics here (one-time). Values are encrypted at rest and are not sent to AI note generation.
-                </p>
-                <label class="na-paste-label">
-                  Paste demographics text
-                  <textarea
-                    :value="pastedDemographicsText"
-                    rows="5"
-                    class="na-textarea"
-                    placeholder="Legal Name&#10;Date of Birth&#10;Address&#10;Phone&#10;Email…"
-                    @input="$emit('update:pastedDemographicsText', $event.target.value)"
-                  />
-                </label>
-                <div class="na-client-ctx-actions">
-                  <button
-                    type="button"
-                    class="na-btn-primary"
-                    :disabled="!String(pastedDemographicsText || '').trim()"
-                    @click="$emit('import-demographics')"
-                  >
-                    Review &amp; encrypt to chart
-                  </button>
-                </div>
-              </template>
-            </template>
-
-              <template v-else>
-                <div v-if="loadingPlan" class="na-client-ctx-empty">Loading treatment plan…</div>
-                <div v-else-if="planError" class="na-client-ctx-empty error">{{ planError }}</div>
-                <p v-if="redoPlan" class="na-client-ctx-hint">
-                  Replacing the treatment plan on file. Paste, parse, confirm scales, then save to chart.
-                </p>
-              <template v-else-if="planLocked">
-                <div class="na-locked-banner" role="status">
-                  <strong>Treatment plan on file</strong>
-                  <p>
-                    One-time import is complete. Updates go through the treatment plan updater and session progress ratings.
-                  </p>
-                </div>
-                <div v-if="goals.length" class="na-client-ctx-list">
-                  <article v-for="g in goals" :key="g.id" class="na-client-ctx-card">
-                    <strong>G{{ g.goal_index }} · {{ g.goal_text }}</strong>
-                    <ul>
-                      <li v-for="o in g.objectives || []" :key="o.id">
-                        O{{ o.objective_index }}: {{ o.objective_text }}
-                        <em v-if="o.scale_current != null || o.scale_target != null">
-                          ({{ o.scale_current ?? '—' }} → {{ o.scale_target ?? '—' }})
-                        </em>
-                      </li>
-                    </ul>
-                  </article>
-                </div>
-                <div class="na-client-ctx-actions">
-                  <button type="button" class="na-btn-outline" @click="$emit('open-updater')">
-                    Open treatment plan updater
-                  </button>
-                  <button type="button" class="na-btn-outline" @click="startRedoPlan">
-                    Redo treatment plan import
-                  </button>
-                </div>
-              </template>
-              <template v-else>
-                <div v-if="goals.length" class="na-client-ctx-list">
-                  <article v-for="g in goals" :key="g.id" class="na-client-ctx-card">
-                    <strong>G{{ g.goal_index }} · {{ g.goal_text }}</strong>
-                    <ul>
-                      <li v-for="o in g.objectives || []" :key="o.id">
-                        O{{ o.objective_index }}: {{ o.objective_text }}
-                        <em v-if="o.scale_current != null || o.scale_target != null">
-                          ({{ o.scale_current ?? '—' }} → {{ o.scale_target ?? '—' }})
-                        </em>
-                      </li>
-                    </ul>
-                  </article>
-                </div>
-                <p v-else class="na-client-ctx-empty">No structured treatment plan on file — paste below to import (one-time).</p>
-
-                <label class="na-paste-label">
-                  Paste running treatment plan text (optional)
-                  <textarea
-                    :value="pastedPlanText"
-                    rows="4"
-                    class="na-textarea"
-                    placeholder="Paste an existing treatment plan if none is on file…"
-                    @input="$emit('update:pastedPlanText', $event.target.value)"
-                  />
-                </label>
-
-                <div class="na-client-ctx-actions">
-                  <button
-                    type="button"
-                    class="na-btn-primary"
-                    :disabled="!String(pastedPlanText || '').trim()"
-                    @click="$emit('import-plan')"
-                  >
-                    Review &amp; save to chart
-                  </button>
-                  <button type="button" class="na-btn-outline" @click="$emit('open-updater')">
-                    Open treatment plan updater
-                  </button>
-                </div>
-              </template>
-            </template>
+              </article>
+            </div>
+            <p v-else class="na-client-ctx-empty">No treatment plan on file.</p>
+            <div class="na-client-ctx-actions">
+              <button type="button" class="na-btn-outline" @click="$emit('open-updater')">{{ planOnFile ? 'Update treatment plan' : 'Write a treatment plan' }}</button>
+            </div>
           </template>
         </details>
       </div>
@@ -327,9 +122,6 @@ const props = defineProps({
   goals: { type: Array, default: () => [] },
   loadingPlan: { type: Boolean, default: false },
   planError: { type: String, default: '' },
-  pastedPlanText: { type: String, default: '' },
-  pastedIntakeText: { type: String, default: '' },
-  pastedDemographicsText: { type: String, default: '' },
   loadingIntake: { type: Boolean, default: false },
   intakeError: { type: String, default: '' },
   intakeSummary: { type: String, default: '' },
@@ -343,47 +135,9 @@ const props = defineProps({
   planOnFile: { type: Boolean, default: false }
 });
 
-defineEmits([
-  'update:pastedPlanText',
-  'update:pastedIntakeText',
-  'update:pastedDemographicsText',
-  'open-updater',
-  'use-intake',
-  'open-chart-intake',
-  'import-plan',
-  'import-intake',
-  'import-demographics'
-]);
+defineEmits(['open-updater', 'use-intake', 'open-chart-intake']);
 
 const tab = ref('intake');
-const redoIntake = ref(false);
-const redoPlan = ref(false);
-
-const demographicsLocked = computed(() => !!props.demographicsOnFile);
-const intakeLocked = computed(() => !!props.intakeOnFile && !redoIntake.value);
-const planLocked = computed(() => !!props.planOnFile && !redoPlan.value);
-const setupComplete = computed(
-  () => demographicsLocked.value && intakeLocked.value && planLocked.value
-);
-
-function startRedoIntake() {
-  redoIntake.value = true;
-  tab.value = 'intake';
-}
-
-function startRedoPlan() {
-  redoPlan.value = true;
-  tab.value = 'goals';
-}
-
-const setupStatusLabel = computed(() => {
-  const missing = [];
-  // Recommended order for the status chip (steps remain independently completable).
-  if (!demographicsLocked.value) missing.push('demographics');
-  if (!intakeLocked.value) missing.push('intake');
-  if (!planLocked.value) missing.push('plan');
-  return missing.length ? `Need: ${missing.join(', ')}` : 'In progress';
-});
 
 const activeDiagnoses = computed(() => {
   const list = Array.isArray(props.diagnoses) ? props.diagnoses : [];
@@ -415,40 +169,7 @@ defineExpose({
   }
 });
 
-function focusFirstIncompleteSetupTab() {
-  if (setupComplete.value) return;
-  if (!props.demographicsOnFile) tab.value = 'demographics';
-  else if (!props.intakeOnFile) tab.value = 'intake';
-  else if (!props.planOnFile) tab.value = 'goals';
-}
-
-watch(
-  () => props.clientId,
-  () => {
-    redoIntake.value = false;
-    redoPlan.value = false;
-    focusFirstIncompleteSetupTab();
-  }
-);
-
-watch(
-  () => [props.demographicsOnFile, props.intakeOnFile, props.planOnFile],
-  () => {
-    // When a step completes, advance to the next missing one (don't yank away if already there).
-    if (setupComplete.value) return;
-    if (tab.value === 'demographics' && props.demographicsOnFile && !props.intakeOnFile) {
-      tab.value = 'intake';
-      return;
-    }
-    if (tab.value === 'intake' && props.intakeOnFile && !props.planOnFile) {
-      tab.value = 'goals';
-      return;
-    }
-    if (tab.value === 'goals' && props.planOnFile && !props.intakeOnFile) {
-      tab.value = 'intake';
-    }
-  }
-);
+watch(() => props.clientId, () => { tab.value = 'intake'; });
 </script>
 
 <style scoped>
@@ -475,44 +196,14 @@ watch(
   color: #64748b;
   margin-bottom: 2px;
 }
-.na-chart-status {
-  font-size: 0.78rem;
-  font-weight: 700;
-  padding: 4px 8px;
-  border-radius: 999px;
-  white-space: nowrap;
-}
-.na-chart-status.ok { background: #dcfce7; color: #166534; }
-.na-chart-status.pending { background: #fef3c7; color: #92400e; }
 .na-dx-details,
 .na-chart-details,
-.na-locked-preview {
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  padding: 8px 10px;
-  margin-top: 8px;
-  background: #f8fafc;
-}
 .na-dx-details summary,
 .na-chart-details summary,
-.na-locked-preview summary {
-  cursor: pointer;
-  font-weight: 700;
-  font-size: 0.86rem;
-  color: #0f766e;
-  list-style: none;
-}
 .na-dx-details summary::-webkit-details-marker,
 .na-chart-details summary::-webkit-details-marker,
-.na-locked-preview summary::-webkit-details-marker {
-  display: none;
-}
 .na-dx-details summary::before,
 .na-chart-details summary::before,
-.na-locked-preview summary::before {
-  content: '▸ ';
-  color: #64748b;
-}
 .na-dx-details[open] summary::before,
 .na-chart-details[open] summary::before,
 .na-locked-preview[open] summary::before {
@@ -588,15 +279,6 @@ watch(
   max-height: 220px;
   overflow: auto;
 }
-.na-locked-banner {
-  background: #ecfdf5;
-  border: 1px solid #a7f3d0;
-  border-radius: 10px;
-  padding: 10px 12px;
-  margin: 8px 0;
-}
-.na-locked-banner strong { display: block; color: #065f46; }
-.na-locked-banner p { margin: 4px 0 0; font-size: 0.84rem; color: #047857; }
 .na-client-ctx-actions {
   display: flex;
   flex-wrap: wrap;
@@ -612,12 +294,6 @@ watch(
   cursor: pointer;
   padding: 7px 12px;
 }
-.na-btn-primary {
-  background: #0f766e;
-  color: #fff;
-  border: 1px solid #0f766e;
-}
-.na-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 .na-btn-outline {
   background: #fff;
   color: #0f766e;
@@ -633,21 +309,6 @@ watch(
   border: none;
   color: #0f766e;
   padding: 7px 4px;
-}
-.na-paste-label {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 0.82rem;
-  font-weight: 600;
-  margin: 8px 0;
-}
-.na-textarea {
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  padding: 8px 10px;
-  font: inherit;
-  resize: vertical;
 }
 .na-demo-preview {
   list-style: none;

@@ -123,7 +123,7 @@ it('uses one chart action to suggest objectives, questions, dates, interventions
   const wrapper=shallowMount(Review,{props:{open:true,embedded:true,mode:'draft',agencyId:2,clientId:42,planId:44,initialPlan:plan}});
   await flushPromises();
   expect(wrapper.get('.na-plan-paper').exists()).toBe(true);
-  expect(wrapper.find('input[placeholder="ICD-10"]').element.value).toBe('F41.1');
+  expect(wrapper.get('.na-plan-diagnosis-title code').text()).toBe('F41.1');
   const button=text=>wrapper.findAll('button').find(item=>item.text()===text);
   await wrapper.find('.narriva-plan-actions input[type="checkbox"]').setValue(true);
   await button('Make this Narriva Compliant').trigger('click');await flushPromises();
@@ -177,5 +177,49 @@ it('adds the third goal without discarding dates and requires its baseline befor
   expect(wrapper.text()).toContain('Objective 3.1 needs a baseline from 1 to 10.');
   expect(wrapper.text()).toContain('Confirm that you reviewed the full plan.');
   expect(api.put).not.toHaveBeenCalled();
+  wrapper.unmount();
+});
+
+it('opens the full page with separate diagnoses, objective controls and care planning under the goals', async () => {
+  api.get.mockResolvedValue({ data: { policy: { renewAfterDays: 90 } } });
+  api.put.mockResolvedValue({ data: { revision: 1 } });
+  const plan = {
+    id: 71, status: 'draft', effectiveDate: '2026-11-03',
+    diagnosticJustification: 'Unassigned legacy assessment text.',
+    diagnoses: [
+      { icd10Code: 'Z55.3', description: 'School concern', justification: '' },
+      { icd10Code: 'F41.9', description: 'Chart diagnosis', justification: 'Code-specific chart rationale.', isPrimary: true }
+    ],
+    goals: [{ goalText: 'Practice a skill', objectives: [{ objectiveText: 'Rehearse a strategy.', interventions: ['Skills rehearsal'] }] }]
+  };
+  const wrapper = shallowMount(Review, { props: {
+    open: true, fullPage: true, mode: 'draft', agencyId: 2, clientId: 42, planId: 71, sourceIntakeNoteId: 50, initialPlan: plan
+  } });
+  await flushPromises();
+  expect(wrapper.find('[role="dialog"]').exists()).toBe(false);
+  expect(wrapper.findAll('.na-plan-section h2').map(heading => heading.text())).toEqual([
+    'Plan overview', 'Diagnoses', 'Goals, objectives and interventions', 'Frequency and discharge', 'Review and save'
+  ]);
+  const diagnoses = wrapper.findAll('.na-plan-diagnosis');
+  expect(diagnoses[0].text()).toContain('F41.9');
+  expect(diagnoses[0].get('textarea').element.value).toBe('Code-specific chart rationale.');
+  const secondary = diagnoses[1].get('textarea');
+  expect(secondary.element.value).toBe('');
+  expect(secondary.attributes('aria-invalid')).toBe('true');
+  expect(wrapper.text()).toContain('Unassigned legacy assessment text.');
+  expect(wrapper.text()).toContain('when rating this objective at check-in');
+  await secondary.setValue('Secondary diagnosis rationale.');
+  await wrapper.findAll('button').find(button => button.text() === 'Save draft').trigger('click');
+  await flushPromises();
+  expect(api.put).toHaveBeenCalledWith('/medical-billing/treatment-plans/71/chart-draft', expect.objectContaining({
+    draft: expect.objectContaining({
+      effectiveDate: '2026-11-03', legacyDiagnosisNarrative: 'Unassigned legacy assessment text.',
+      diagnoses: [
+        expect.objectContaining({ icd10Code: 'F41.9', isPrimary: true, justification: 'Code-specific chart rationale.' }),
+        expect.objectContaining({ icd10Code: 'Z55.3', isPrimary: false, justification: 'Secondary diagnosis rationale.' })
+      ],
+      goals: [expect.objectContaining({ objectives: [expect.objectContaining({ interventions: ['Skills rehearsal'] })] })]
+    })
+  }));
   wrapper.unmount();
 });

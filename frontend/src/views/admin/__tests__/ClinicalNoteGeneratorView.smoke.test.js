@@ -117,6 +117,11 @@ describe('ClinicalNoteGeneratorView smoke', () => {
       await state.activateWorkQueueItem(task);
       await flushPromises();
       expect(state.showPlanImportReview).toBe(true);
+      const editor = wrapper.findComponent({ name: 'NoteAidTreatmentPlanImportReview' });
+      expect(editor.props('fullPage')).toBe(true);
+      expect(wrapper.get('.na-shell--treatment-plan main').element.contains(editor.element)).toBe(true);
+      expect(wrapper.findComponent({ name: 'NoteAidClientSetupDrawer' }).exists()).toBe(false);
+      expect(wrapper.findAll('button').filter(button => button.isVisible()).some(button => button.text() === 'Continue treatment plan')).toBe(false);
       expect(state.planDraftInitialPlan).toMatchObject({effectiveDate:'2026-09-12',presentingProblem:'Synthetic concern',
         diagnoses:[{icd10Code:'Z55.3',justification:'Documented impacts'}],goals:[{goalText:'Build a study routine'}]});
       expect(vi.mocked(api.post).mock.calls.some(([url])=>url==='/clinical-notes/drafts')).toBe(false);
@@ -1527,12 +1532,9 @@ describe('ClinicalNoteGeneratorView smoke', () => {
           NoteAidClientContextPanel: true,
           NoteAidCsNoteBuildPanel: true,
           NoteAidCreateClientModal: true,
-          NoteAidClientSetupDrawer: true,
           NoteAidDocumentationQueue: true,
           NoteAidTreatmentPlanImportReview: true,
-          NoteAidIntakeImportReview: true,
           NoteAidIntakeDraftEditor: true,
-          NoteAidDemographicsImportReview: true,
           NoteAidWorkQueuePanel: true,
           NoteAidTodoListImportModal: true,
           NoteAidDiagnosisWriterModal: true,

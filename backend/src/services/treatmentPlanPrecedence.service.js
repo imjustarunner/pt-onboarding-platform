@@ -87,3 +87,22 @@ export function resolvePrimaryDiagnosisForChart({ diagnoses = [], plan = null } 
   }
   return list[0] || null;
 }
+
+
+export function normalizeTreatmentPlanDiagnoses(rows) {
+  const diagnoses = new Map();
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const icd10Code = String(row?.icd10Code || row?.icd10_code || row?.code || '').trim().toUpperCase();
+    if (!icd10Code || diagnoses.has(icd10Code)) continue;
+    diagnoses.set(icd10Code, {
+      icd10Code,
+      description: String(row.description || '').trim().slice(0, 500),
+      justification: String(row.justification || '').trim().slice(0, 16000),
+      isPrimary: Number(row.isPrimary ?? row.is_primary) === 1
+    });
+  }
+  const ordered = [...diagnoses.values()];
+  const primary = ordered.findIndex(row => row.isPrimary);
+  if (primary > 0) ordered.unshift(...ordered.splice(primary, 1));
+  return ordered.map((row, index) => ({ ...row, isPrimary: index === 0 }));
+}

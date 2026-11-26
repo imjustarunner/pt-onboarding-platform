@@ -1,7 +1,7 @@
 <template>
   <ClinicalWorkspaceFrame :enabled="canUseTool && clinicalWorkspaceBranding" :immersive="!isEmbedded" :compact="isEmbedded" :show-back="!isEmbedded" :tenant-id="supervisorReviewItem?.agencyId || noteAidAgencyId || currentAgencyId" :context-label="noteWorkspaceLabel" :tagline="!isEmbedded" return-label="Back to app">
   <div class="na-app" :class="{ 'na-app--embedded': isEmbedded }">
-    <p v-if="contextError" role="status" class="na-status">{{ contextError }}</p>
+    <p v-if="contextError && !showTreatmentPlanWorkspace && !intakePlanWork" role="status" class="na-status">{{ contextError }}</p>
     <header v-if="!isEmbedded" v-show="!supervisorReviewItem" class="na-topbar">
       <div class="na-brand">
         <img v-if="clinicalWorkspaceBranding" class="na-brand-mark" :src="AURICWELL_MARK_URL" alt="AuricWell" />
@@ -84,11 +84,13 @@
         'na-shell--note-focused': hasOpenNote && !isEmbedded,
         'na-shell--embedded': isEmbedded,
         'na-shell--supervisor-review': !!supervisorReviewItem,
-        'na-shell--supervisor-full': !!supervisorReviewItem && supervisorReviewFullPage
+        'na-shell--supervisor-full': !!supervisorReviewItem && supervisorReviewFullPage,
+        'na-shell--treatment-plan': showTreatmentPlanWorkspace
       }"
     >
       <ClinicalNoteLibrarySidebar
         v-if="!isEmbedded"
+        v-show="!showTreatmentPlanWorkspace"
         :data-analytics-area="demoPresentation ? 'note-library' : undefined"
         title="Note Library"
         :allow-create="false"
@@ -117,11 +119,11 @@
       <main
         ref="naMainEl"
         :data-analytics-area="demoPresentation ? (supervisorReviewItem ? 'co-sign' : 'note-editor') : undefined"
-        v-show="!libraryExpanded || libraryCollapsed"
+        v-show="showTreatmentPlanWorkspace || !libraryExpanded || libraryCollapsed"
         class="na-main"
         :class="{ 'na-main--start': showStartPage, 'na-main--library': showAidPicker }"
       >
-        <ClinicalAppointmentAlertGate v-if="effectiveClientId && (noteAidAgencyId || currentAgencyId) && !supervisorReviewItem"
+        <ClinicalAppointmentAlertGate v-if="effectiveClientId && (noteAidAgencyId || currentAgencyId) && !supervisorReviewItem && !showTreatmentPlanWorkspace && !intakePlanWork"
           :agency-id="Number(noteAidAgencyId || currentAgencyId)" :client-id="Number(effectiveClientId)"
           :clinical-session-id="sessionClinicalSessionId || bookingContext.clinicalSessionId || null"
           :office-event-id="sessionOfficeEventId || bookingContext.officeEventId || null"
@@ -142,7 +144,27 @@
           @open-full="supervisorReviewFullPage = true"
           @close="closeSupervisorReview"
         />
-        <div v-show="!supervisorReviewItem">
+        <NoteAidTreatmentPlanImportReview
+          v-if="showTreatmentPlanWorkspace"
+          full-page
+          :client-label="intakePlanWork?.clientName || selectedClient?.full_name || selectedClient?.fullName || ''"
+          :intake-date="intakePlanWork?.date || ''"
+          :open="showPlanImportReview"
+          :agency-id="intakePlanWork?.agencyId || chartAgencyIdForSave"
+          :client-id="effectiveClientId"
+          :source-intake-note-id="intakePlanWork?.sourceIntakeNoteId || null"
+          :initial-text="pastedPlanText"
+          :plan-id="planDraftEditorId"
+          :mode="planImportReviewMode"
+          :initial-plan="planDraftInitialPlan"
+          :renewal-reason="planUpdaterRenewalReason"
+          :progress-excerpt="planUpdaterProgressExcerpt"
+          :return-to-chart="!!clientProfileHref && !embedded"
+          @return-to-chart="returnToTreatmentPlanChart"
+          @close="intakePlanWork ? closeNoteWorkspace() : closePlanDraftEditor()"
+          @saved="onPlanImportSaved"
+        />
+        <div v-show="!supervisorReviewItem && !showTreatmentPlanWorkspace">
         <ClinicalNoteReviewRequests
           v-if="signedNoteViewerId && activeNoteReviewRequests.length"
           :requests="activeNoteReviewRequests"
@@ -208,7 +230,9 @@
             <TreatmentPlanApprovalPanel :agency-id="intakePlanWork.agencyId" :client-id="intakePlanWork.clientId"
               :plan-id="intakePlanWork.treatmentPlanId" @updated="onIntakePlanSigned" />
           </template>
-          <button v-else type="button" class="na-btn-primary" :disabled="loadingIntakePlan" @click="openIntakePlanWork(intakePlanWork)">Open treatment plan</button>
+          <button v-else-if="!loadingIntakePlan" type="button" class="na-btn-primary" @click="openIntakePlanWork(intakePlanWork)">
+            {{ approvalError ? 'Retry loading plan' : 'Continue treatment plan' }}
+          </button>
           <span v-if="approvalMessage" role="status">{{ approvalMessage }}</span>
         </section>
 
@@ -680,9 +704,6 @@
                   :goals="activeTreatmentGoals"
                   :loading-plan="loadingClientPlan"
                   :plan-error="clientPlanError"
-                  v-model:pasted-plan-text="pastedPlanText"
-                  v-model:pasted-intake-text="pastedIntakeText"
-                  v-model:pasted-demographics-text="pastedDemographicsText"
                   :loading-intake="loadingIntake"
                   :intake-error="intakeError"
                   :intake-summary="intakeSummary"
@@ -691,9 +712,6 @@
                   @open-updater="openTreatmentPlanUpdater"
                   @use-intake="useIntakeToInformPlan"
                   @open-chart-intake="openClientChartIntake"
-                  @import-plan="openPlanImportReview"
-                  @import-intake="showIntakeImportReview = true"
-                  @import-demographics="showDemographicsImport = true"
                 />
                 <div v-if="canEditNoteSubject && draftId" class="na-subject-save-row">
                   <button
@@ -737,7 +755,7 @@
                       type="button"
                       class="na-checklist-item"
                       :disabled="!effectiveClientId"
-                      @click="showIntakeImportReview = true"
+                      @click="openClientChartIntake"
                     >
                       <span>Intake on file</span>
                       <em :class="intakeOnFile ? 'ok' : 'warn'">{{ intakeOnFile ? 'Complete' : (effectiveClientId ? 'Missing' : '—') }}</em>
@@ -1462,6 +1480,7 @@
       </main>
 
       <NoteAidWorkQueuePanel
+        v-show="!showTreatmentPlanWorkspace"
         :reports-url="['admin','agency_admin','super_admin'].includes(authStore.user?.role) ? `${route.params.organizationSlug ? '/'+encodeURIComponent(route.params.organizationSlug) : ''}/admin/narriva-compliance` : ''"
         :data-analytics-area="demoPresentation ? 'my-work' : undefined"
         :allow-add="authStore.user?.role === 'super_admin'"
@@ -1503,7 +1522,7 @@
     </div>
 
     <div
-      v-if="canUseTool && hasOpenNote && !isEmbedded && !supervisorReviewItem"
+      v-if="canUseTool && hasOpenNote && !isEmbedded && !supervisorReviewItem && !showTreatmentPlanWorkspace"
       class="na-fab-wrap"
       @keydown.escape="newNoteMenuOpen = false"
     >
@@ -1543,53 +1562,6 @@
       :default-name="createClientDefaults.name"
       @close="showCreateClientModal = false"
       @created="onMinimalClientCreated"
-    />
-    <NoteAidClientSetupDrawer
-      :open="showClientSetupDrawer"
-      :client="selectedClient"
-      :demographics-on-file="demographicsOnFile"
-      :intake-on-file="intakeOnFile"
-      :plan-on-file="planOnFile"
-      :diagnosis-on-file="!!primaryChartDiagnosis"
-      @close="showClientSetupDrawer = false"
-      @skip="showClientSetupDrawer = false"
-      @import-plan="showClientSetupDrawer = false; openPlanImportReview()"
-      @import-intake="showClientSetupDrawer = false; showIntakeImportReview = true"
-      @import-demographics="showClientSetupDrawer = false; showDemographicsImport = true"
-    />
-    <NoteAidTreatmentPlanImportReview
-      v-if="effectiveClientId && chartAgencyIdForSave"
-      :open="showPlanImportReview"
-      :agency-id="intakePlanWork?.agencyId || chartAgencyIdForSave"
-      :client-id="effectiveClientId"
-      :source-intake-note-id="intakePlanWork?.sourceIntakeNoteId || null"
-      :initial-text="pastedPlanText"
-      :plan-id="planDraftEditorId"
-      :mode="planImportReviewMode"
-      :initial-plan="planDraftInitialPlan"
-      :renewal-reason="planUpdaterRenewalReason"
-      :progress-excerpt="planUpdaterProgressExcerpt"
-      :return-to-chart="!!clientProfileHref && !embedded"
-      @return-to-chart="returnToTreatmentPlanChart"
-      @close="closePlanDraftEditor"
-      @saved="onPlanImportSaved"
-    />
-    <NoteAidIntakeImportReview
-      v-if="effectiveClientId"
-      :open="showIntakeImportReview"
-      :client-id="effectiveClientId"
-      :initial-text="pastedIntakeText"
-      @close="showIntakeImportReview = false"
-      @finalized="onIntakeImportFinalized"
-    />
-    <NoteAidDemographicsImportReview
-      v-if="effectiveClientId"
-      :open="showDemographicsImport"
-      :client-id="effectiveClientId"
-      :agency-id="Number(selectedClient?.agency_id || selectedClient?.agencyId || noteAidAgencyId || currentAgencyId || 0) || null"
-      :initial-text="pastedDemographicsText"
-      @close="showDemographicsImport = false"
-      @saved="onDemographicsImported"
     />
     <NoteAidTodoListImportModal
       :open="showTodoImportModal"
@@ -1675,12 +1647,9 @@ import NarrivaAssessmentEvidence from '../../components/clinical/NarrivaAssessme
 import { useNarrivaReview } from '../../composables/useNarrivaReview.js';
 import { NARRIVA_BRAND } from '../../config/narrivaBrand.js';
 import NoteAidCreateClientModal from '../../components/clinical/NoteAidCreateClientModal.vue';
-import NoteAidClientSetupDrawer from '../../components/clinical/NoteAidClientSetupDrawer.vue';
 import NoteAidDocumentationQueue from '../../components/clinical/NoteAidDocumentationQueue.vue';
 import NoteAidTreatmentPlanImportReview from '../../components/clinical/NoteAidTreatmentPlanImportReview.vue';
-import NoteAidIntakeImportReview from '../../components/clinical/NoteAidIntakeImportReview.vue';
 import NoteAidIntakeDraftEditor from '../../components/clinical/NoteAidIntakeDraftEditor.vue';
-import NoteAidDemographicsImportReview from '../../components/clinical/NoteAidDemographicsImportReview.vue';
 import ContactDocumentationQueue from '../../components/clinical/ContactDocumentationQueue.vue';
 import H0002ScreeningReview from '../../components/clinical/H0002ScreeningReview.vue';
 import NoteAidWorkQueuePanel from '../../components/clinical/NoteAidWorkQueuePanel.vue';
@@ -2204,8 +2173,8 @@ const showProgressSessionPicker = ref(true);
 const showActualSessionPicker = ref(false);
 const progressEntryMode = ref('appointment'); // appointment | client | unlinked
 const showCreateClientModal = ref(false);
-const showClientSetupDrawer = ref(false);
 const showPlanImportReview = ref(false);
+const showTreatmentPlanWorkspace = computed(() => showPlanImportReview.value && !!effectiveClientId.value && !!chartAgencyIdForSave.value);
 const planDraftEditorId = ref(null);
 const planDraftEditorMode = ref('import');
 const planDraftInitialPlan = ref(null);
@@ -2217,10 +2186,8 @@ const planImportReviewMode = computed(() => {
   if (planDraftEditorId.value || planDraftEditorMode.value === 'draft') return 'draft';
   return 'import';
 });
-const showIntakeImportReview = ref(false);
 const showIntakeDraftEditor = ref(false);
 const intakeDraftEditorId = ref(null);
-const showDemographicsImport = ref(false);
 const showTodoImportModal = ref(false);
 const noteBillingExpanded = ref(false);
 /** Last Add ToDo List batch — used by Undo on the work queue panel. */
@@ -2721,8 +2688,6 @@ const lastProgressNoteExcerpt = ref('');
 const loadingClientPlan = ref(false);
 const clientPlanError = ref('');
 const pastedPlanText = ref('');
-const pastedIntakeText = ref('');
-const pastedDemographicsText = ref('');
 const intakeImportedOnce = ref(false);
 const intakeDraftFinalized = ref(false);
 const planImportedOnce = ref(false);
@@ -3202,6 +3167,11 @@ const canSubmitSignature = computed(
     && (!requiresAiReviewAttestation.value || !!attestAiContentReviewed.value)
 );
 const naMainEl = ref(null);
+watch(showTreatmentPlanWorkspace, async open => {
+  if (!open) return;
+  await nextTick();
+  naMainEl.value?.scrollTo?.({ top: 0 });
+});
 const naGeneratedOutputEl = ref(null);
 const generatedOutputFresh = ref(false);
 let generatedOutputFreshTimer = null;
@@ -4341,22 +4311,10 @@ const showStartPage = computed(() => !isEmbedded.value && !hasOpenNote.value && 
 
 /** @deprecated use showAidPicker */
 const showLibraryPanel = computed(() => showAidPicker.value);
-const clientSetupHydrating = computed(
-  () => !!(effectiveClientId.value && (loadingClientPlan.value || loadingIntake.value))
+const minimalClientChartReady = computed(() =>
+  !!effectiveClientId.value && !loadingClientPlan.value && !loadingIntake.value
+  && (planOnFile.value || (demographicsOnFile.value && intakeOnFile.value && !!primaryChartDiagnosis.value))
 );
-const clientSetupComplete = computed(() => {
-  if (!effectiveClientId.value) return false;
-  // While chart is loading, do not flash "Complete client setup" for clients already on file.
-  if (clientSetupHydrating.value) return true;
-  if (planOnFile.value) return true;
-  if (demographicsOnFile.value && intakeOnFile.value && !!primaryChartDiagnosis.value) return true;
-  return demographicsOnFile.value && intakeOnFile.value && planOnFile.value && !!primaryChartDiagnosis.value;
-});
-
-function reopenClientSetupIfNeeded() {
-  if (!effectiveClientId.value || clientSetupComplete.value) return;
-  showClientSetupDrawer.value = true;
-}
 
 /** Avoid re-POSTing setup-complete for the same client in one session. */
 const noteAidSetupPromotedIds = new Set();
@@ -4364,9 +4322,9 @@ const noteAidSetupPromotedIds = new Set();
 async function promoteNoteAidClientIfSetupComplete() {
   if (props.demoPresentation) return;
   const cid = Number(effectiveClientId.value || 0);
-  if (!cid || !clientSetupComplete.value) return;
+  if (!cid || !minimalClientChartReady.value) return;
   const source = String(selectedClient.value?.source || '').toUpperCase();
-  if (source && source !== 'NOTE_AID_MINIMAL') return;
+  if (source !== 'NOTE_AID_MINIMAL') return;
   if (noteAidSetupPromotedIds.has(cid)) return;
   noteAidSetupPromotedIds.add(cid);
   try {
@@ -4399,7 +4357,7 @@ async function claimUnassignedNoteAidClients() {
 }
 
 watch(
-  [clientSetupComplete, effectiveClientId],
+  [minimalClientChartReady, effectiveClientId],
   ([complete]) => {
     if (complete) promoteNoteAidClientIfSetupComplete();
   },
@@ -7569,8 +7527,6 @@ const resetClientClinicalContext = () => {
   dismissPhiNameWarn.value = false;
   clientPlanError.value = '';
   pastedPlanText.value = '';
-  pastedIntakeText.value = '';
-  pastedDemographicsText.value = '';
   intakeImportedOnce.value = false;
   intakeDraftFinalized.value = false;
   planImportedOnce.value = false;
@@ -8123,12 +8079,10 @@ const onPlanImportSaved = async (plan, { finalized = false } = {}) => {
   } else {
     approvalMessage.value = 'Treatment plan import completed.';
   }
-  reopenClientSetupIfNeeded();
 };
 
 const closePlanDraftEditor = async () => {
-  // Cancel only closes the editor. Do NOT void bootstrap drafts — that marked the
-  // intake TP as superseded, hid setup, and left cancelled goals as "authoritative".
+  // Closing the editor keeps the current draft available for later review.
   showPlanImportReview.value = false;
   planDraftEditorId.value = null;
   planDraftEditorMode.value = 'import';
@@ -8145,7 +8099,6 @@ const closePlanDraftEditor = async () => {
     await returnToTreatmentPlanChart();
     return;
   }
-  reopenClientSetupIfNeeded();
 };
 
 const openPlanImportReview = () => {
@@ -8180,8 +8133,6 @@ const onIntakeDraftEditorFinalized = async (payload) => {
     planDraftEditorMode.value = 'draft';
     planDraftInitialPlan.value = latestTreatmentPlan.value;
     showPlanImportReview.value = true;
-  } else {
-    reopenClientSetupIfNeeded();
   }
   approvalMessage.value = 'Intake note finalized.';
 };
@@ -8200,63 +8151,6 @@ const onIntakeEditorOpenPlan = async ({ planId } = {}) => {
     }
   }
   showPlanImportReview.value = true;
-};
-
-const onIntakeImportFinalized = async () => {
-  showIntakeImportReview.value = false;
-  pastedIntakeText.value = '';
-  intakeImportedOnce.value = true;
-  if (effectiveClientId.value) {
-    await Promise.all([
-      loadClientTreatmentPlan(effectiveClientId.value),
-      loadClientIntakeSummary(effectiveClientId.value)
-    ]);
-  }
-  clientContextPanelRef.value?.switchTab?.('goals');
-  const draftId = Number(latestTreatmentPlan.value?.id || 0);
-  const isDraft = String(latestTreatmentPlan.value?.status || '').toLowerCase() === 'draft';
-  if (draftId && isDraft && !planImportedOnce.value && !planOnFile.value) {
-    planDraftEditorId.value = draftId;
-    planDraftEditorMode.value = 'draft';
-    planDraftInitialPlan.value = latestTreatmentPlan.value;
-    showPlanImportReview.value = true;
-  } else {
-    reopenClientSetupIfNeeded();
-  }
-  approvalMessage.value = 'Intake note saved to chart.';
-};
-
-const onDemographicsImported = async () => {
-  showDemographicsImport.value = false;
-  pastedDemographicsText.value = '';
-  await hydrateSelectedClient(effectiveClientId.value);
-  // Force refresh even if name was already known
-  try {
-    const cid = Number(effectiveClientId.value || 0);
-    if (cid) {
-      const res = await api.get(`/clients/${cid}`, { skipGlobalLoading: true });
-      const raw = res?.data?.client || res?.data;
-      const row = normalizeNoteAidClientRow(raw, agencyLookup.value);
-      if (row) {
-        selectedClient.value = {
-          ...row,
-          demographics_on_file: true,
-          demographics_phi_enc: raw?.demographics_phi_enc || { encrypted: true }
-        };
-      }
-    }
-  } catch {
-    if (selectedClient.value) {
-      selectedClient.value = {
-        ...selectedClient.value,
-        demographics_on_file: true,
-        demographics_phi_enc: { encrypted: true }
-      };
-    }
-  }
-  approvalMessage.value = 'Demographics encrypted and saved to the client chart.';
-  clientContextPanelRef.value?.switchTab?.('demographics');
-  reopenClientSetupIfNeeded();
 };
 
 let workQueueSyncSeq = 0;
@@ -9362,20 +9256,29 @@ const openTreatmentPlanUpdater = async ({
   if (usablePlan) {
     planDraftEditorId.value = Number(plan.id);
     planDraftEditorMode.value = planStatus === 'draft' ? 'draft' : 'update';
-    planDraftInitialPlan.value = plan;
+    planDraftInitialPlan.value = {
+      ...plan,
+      diagnoses: plan.diagnoses?.length ? plan.diagnoses : chartDiagnoses.value.filter(diagnosis =>
+        diagnosis && (diagnosis.is_active == null || Number(diagnosis.is_active) === 1))
+    };
     planUpdaterRenewalReason.value = String(renewalReason || '').trim();
     planUpdaterProgressExcerpt.value = String(progressExcerpt || '').trim();
     showPlanImportReview.value = true;
     return;
   }
 
-  // No chart plan yet — open the dedicated sessionless treatment-plan writer modal.
+  if (cid && pastedPlanText.value.trim()) {
+    openPlanImportReview();
+    return;
+  }
+
+  // Start a sessionless plan when there is no saved plan or intake context.
   selectedAidId.value = '';
   showTreatmentPlanWriterModal.value = true;
 };
 
 const useIntakeToInformPlan = async () => {
-  const intakeText = String(pastedIntakeText.value || intakeSummary.value || '').trim();
+  const intakeText = String(intakeSummary.value || '').trim();
   const dxSource = (chartDiagnoses.value?.length ? chartDiagnoses.value : [])
     .concat(primaryChartDiagnosis.value ? [primaryChartDiagnosis.value] : []);
   pastedPlanText.value = buildIntakeInformedPlanText({
@@ -9393,7 +9296,6 @@ const useIntakeToInformPlan = async () => {
       ? 'Build or update treatment plan from intake and chart diagnoses.'
       : 'Build treatment plan from chart diagnoses.'
   });
-  openPlanImportReview();
 };
 
 const openClientChartIntake = () => {
@@ -11222,6 +11124,13 @@ onBeforeUnmount(() => {
   flex-direction: column;
   flex: 1;
   min-height: 0;
+}
+.na-app .na-shell.na-shell--treatment-plan { grid-template-columns: minmax(0, 1fr); }
+.na-shell--treatment-plan .na-main {
+  display:block;
+  background:#f4f7fa;
+  box-sizing:border-box;
+  padding:clamp(10px, 2vw, 26px);
 }
 .na-main--library :deep(.nal) {
   flex: 1;
