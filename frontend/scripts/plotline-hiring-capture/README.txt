@@ -15,8 +15,10 @@ API calls and unopened nested pre-hire steps are replaced with local fixtures.
 All images and copied application-source hashes are stored in:
   frontend/public/assets/plotline/examples/hiring-showcase/
 
-The interviewer mockup is supplied separately by the user and must stay marked
-as a fictional mockup. It is not relabeled as an actual production screenshot.
+The interviewer and applicant mockups shown on the website are supplied by the
+user and must stay marked as fictional mockups. They are not relabeled as actual
+production screenshots. The generated applicant captures remain as reusable
+layout references; regenerating them does not replace either supplied mockup.
 The applicant view uses video placeholders so an image editor can add fictional
 faces. The clean version leaves the shared question unfilled. No video SDK,
 camera, microphone, live invitation, signature or submission is used.

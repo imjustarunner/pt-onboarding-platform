@@ -31,9 +31,9 @@ try{
    if(['','product'].includes(section)){
     const root=page.locator('#interview-platform');
     await root.getByRole('tab',{name:'Applicant view',exact:true}).click();
-    assert.match(await root.locator('.pl-example-open img').getAttribute('src'),/interview-applicant\.png/);
+    assert.match(await root.locator('.pl-example-open img').getAttribute('src'),/interview-applicant-mockup\.png/);
     await root.locator('.pl-example-open').click();
-    assert.match(await root.locator('dialog[open]').innerText(),/speech capture is disabled/);
+    assert.match(await root.locator('dialog[open]').innerText(),/not a live meeting or a production-record capture/);
     await page.keyboard.press('Escape');assert.equal(await page.locator('dialog[open]').count(),0);
     await root.getByRole('tab',{name:'Interview team view',exact:true}).click();await page.keyboard.press('ArrowRight');
     assert.equal(await root.getByRole('tab',{name:'Applicant view',exact:true}).evaluate(el=>el===document.activeElement),true);

@@ -127,5 +127,11 @@
         "signatureOrSubmission": false
       }
     }
-  ]
+  ],
+  "suppliedApplicantMockup": {
+    "file": "interview-applicant-mockup.png",
+    "sourceFilename": "Next Level Up Interview Dashboard (1).png",
+    "sha256": "574c0c44c8d3975582ccd75c5d59158513d883d7ac3f01173c2c633692d872f0",
+    "origin": "User-supplied fictional applicant-side mockup"
+  }
 }

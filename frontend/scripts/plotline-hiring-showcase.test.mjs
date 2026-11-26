@@ -14,7 +14,10 @@ test('new screenshots preserve current source provenance and contain only local 
   assert.equal(createHash('sha256').update(png).digest('hex'),record.sha256);
   for(const source of record.sources)assert.equal(createHash('sha256').update(readFileSync(root+source.path)).digest('hex'),source.sha256,source.path+' requires recapture');
  }
- assert.ok(existsSync(assets+'interview-team.png'));
+ for(const mockup of [provenance.suppliedMockup,provenance.suppliedApplicantMockup]){
+  assert.ok(existsSync(assets+mockup.file));
+  assert.equal(createHash('sha256').update(readFileSync(assets+mockup.file)).digest('hex'),mockup.sha256);
+ }
 });
 test('capture harness replaces real media and APIs and never imports a production identity',()=>{
  const server=readFileSync(root+'scripts/plotline-hiring-capture/server.mjs','utf8');

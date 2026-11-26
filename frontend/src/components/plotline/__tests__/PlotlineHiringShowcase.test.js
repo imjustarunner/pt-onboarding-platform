@@ -12,16 +12,16 @@ beforeEach(()=>{
 });
 afterEach(()=>{wrapper?.unmount();wrapper=null;vi.unstubAllGlobals();});
 describe('Plotline hiring presentation',()=>{
- it('separates the supplied fictional mockup from the applicant capture and supports keyboard selection',async()=>{
+ it('presents both supplied fictional interview perspectives and supports keyboard selection',async()=>{
   wrapper=mount(Showcase,{global:{stubs}});
   expect(wrapper.get('#interview-platform .pl-real-example figcaption').text()).toContain('supplied interview mockup');
   await wrapper.get('[role=tablist]').trigger('keydown',{key:'ArrowRight'});
   expect(wrapper.findAll('[role=tab]')[1].attributes('aria-selected')).toBe('true');
-  expect(wrapper.get('#interview-platform .pl-example-open img').attributes('src')).toContain('interview-applicant.png');
-  expect(wrapper.get('#interview-platform .pl-real-example figcaption').text()).toContain('simulated media');
+  expect(wrapper.get('#interview-platform .pl-example-open img').attributes('src')).toContain('interview-applicant-mockup.png');
+  expect(wrapper.get('#interview-platform .pl-real-example figcaption').text()).toContain('supplied applicant mockup');
   await wrapper.get('#interview-platform .pl-example-open').trigger('click');
   expect(wrapper.get('#interview-platform dialog').attributes('open')).toBeDefined();
-  expect(wrapper.get('#interview-platform dialog').text()).toContain('speech capture is disabled');
+  expect(wrapper.get('#interview-platform dialog').text()).toContain('not a live meeting or a production-record capture');
   await wrapper.get('#interview-platform [aria-label="Close product example"]').trigger('click');
   expect(wrapper.get('#interview-platform dialog').attributes('open')).toBeUndefined();
  });

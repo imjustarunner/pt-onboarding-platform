@@ -55,7 +55,7 @@ try{
  await capture('prehire-review.png',['src/components/prehire/HirePortalWorkspace.vue'],{actualWorkspace:true,preview:true,signatureOrSubmission:false});
  if(errors.length)throw Error(errors.join('\n'));
  if(blocked.length)throw Error('Unexpected remote requests: '+blocked.join(','));
- const provenance={createdAt:new Date().toISOString(),fictional:true,productionAccess:false,realMedia:false,suppliedMockup:{file:'interview-team.png',sourceFilename:'Next Level Up Interview Dashboard.png',sha256:createHash('sha256').update(readFileSync(output+'interview-team.png')).digest('hex'),origin:'User-approved fictional mockup'},records};
+ const provenance={createdAt:new Date().toISOString(),fictional:true,productionAccess:false,realMedia:false,suppliedMockup:{file:'interview-team.png',sourceFilename:'Next Level Up Interview Dashboard.png',sha256:createHash('sha256').update(readFileSync(output+'interview-team.png')).digest('hex'),origin:'User-approved fictional mockup'},suppliedApplicantMockup:{file:'interview-applicant-mockup.png',sourceFilename:'Next Level Up Interview Dashboard (1).png',sha256:createHash('sha256').update(readFileSync(output+'interview-applicant-mockup.png')).digest('hex'),origin:'User-supplied fictional applicant-side mockup'},records};
  writeFileSync(output+'provenance.json',JSON.stringify(provenance,null,2)+'\n');
  if(review)writeFileSync(review+'/CAPTURE.json',JSON.stringify(provenance,null,2)+'\n');
  console.log('Captured six fictional applicant/reference/pre-hire images from current components; no production or media access.');
