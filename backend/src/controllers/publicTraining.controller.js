@@ -2,6 +2,7 @@ import User from '../models/User.model.js';
 import Module from '../models/Module.model.js';
 import ModuleContent from '../models/ModuleContent.model.js';
 import AgencyPublicTraining from '../models/AgencyPublicTraining.model.js';
+import { loadTrainingFingerprintingGuide } from '../services/hireFingerprintingGuide.service.js';
 
 export async function publicTrainingAgency(req, fallback = null) {
   const supplied = req.query?.agencyId ?? req.headers?.['x-agency-id'];
@@ -159,58 +160,56 @@ export const getPublicTrainingFocuses = async (req, res, next) => {
   }
 };
 
+export async function accessiblePublicTrainingModule(req) {
+  // Check if user is archived (for approved employees)
+  if (req.user.type === 'approved_employee') {
+    const ApprovedEmployee = (await import('../models/ApprovedEmployee.model.js')).default;
+    const employee = await ApprovedEmployee.findByEmail(req.user.email);
+
+    if (employee && employee.user_id) {
+      const User = (await import('../models/User.model.js')).default;
+      const user = await User.findById(employee.user_id);
+      if (user && (user.is_archived === true || user.is_archived === 1)) {
+        throw Object.assign(new Error('Account has been archived. Access denied.'), { status: 403 });
+      }
+    }
+  }
+
+  const { id } = req.params;
+  const module = await Module.findById(id);
+
+  if (!module) {
+    throw Object.assign(new Error('Module not found'), { status: 404 });
+  }
+
+  // Check if module is accessible
+  if (!module.is_always_accessible && !module.is_public) {
+    const agencyId = await publicTrainingAgency(req);
+    let allowed = false;
+    if (agencyId) {
+      const modules = await AgencyPublicTraining.getPublicModules(agencyId);
+      allowed = modules.some(item => Number(item.module_id) === Number(id));
+      if (!allowed) {
+        const focuses = await AgencyPublicTraining.getPublicTrainingFocuses(agencyId);
+        const TrainingTrack = (await import('../models/TrainingTrack.model.js')).default;
+        for (const focus of focuses) {
+          const lessons = await TrainingTrack.getModules(focus.training_focus_id);
+          if (lessons.some(item => Number(item.module_id || item.id) === Number(id))) { allowed = true; break; }
+        }
+      }
+    }
+    if (!allowed) throw Object.assign(new Error('Module is not available in this organization’s on-demand catalog.'), { status: 403 });
+  }
+  return module;
+}
+
 export const getPublicModule = async (req, res, next) => {
   try {
-    // Check if user is archived (for approved employees)
-    if (req.user.type === 'approved_employee') {
-      const ApprovedEmployee = (await import('../models/ApprovedEmployee.model.js')).default;
-      const employee = await ApprovedEmployee.findByEmail(req.user.email);
-      
-      if (employee && employee.user_id) {
-        const User = (await import('../models/User.model.js')).default;
-        const user = await User.findById(employee.user_id);
-        if (user && (user.is_archived === true || user.is_archived === 1)) {
-          return res.status(403).json({ error: { message: 'Account has been archived. Access denied.' } });
-        }
-      }
-    }
-
-    const { id } = req.params;
-    const module = await Module.findById(id);
-    
-    if (!module) {
-      return res.status(404).json({ error: { message: 'Module not found' } });
-    }
-    
-    // Check if module is accessible
-    if (!module.is_always_accessible && !module.is_public) {
-      const agencyId = await publicTrainingAgency(req);
-      let allowed = false;
-      if (agencyId) {
-        const modules = await AgencyPublicTraining.getPublicModules(agencyId);
-        allowed = modules.some(item => Number(item.module_id) === Number(id));
-        if (!allowed) {
-          const focuses = await AgencyPublicTraining.getPublicTrainingFocuses(agencyId);
-          const TrainingTrack = (await import('../models/TrainingTrack.model.js')).default;
-          for (const focus of focuses) {
-            const lessons = await TrainingTrack.getModules(focus.training_focus_id);
-            if (lessons.some(item => Number(item.module_id || item.id) === Number(id))) { allowed = true; break; }
-          }
-        }
-      }
-      if (!allowed) return res.status(403).json({ error: { message: 'Module is not available in this organization’s on-demand catalog.' } });
-    }
-    
-    // Get module content
-    const content = await ModuleContent.findByModuleId(id);
-    
-    res.json({
-      ...module,
-      content
-    });
-  } catch (error) {
-    next(error);
-  }
+    const module = await accessiblePublicTrainingModule(req);
+    const content = await ModuleContent.findByModuleId(module.id);
+    const fingerprintingGuide = await loadTrainingFingerprintingGuide(module);
+    res.json({ ...module, content, ...(fingerprintingGuide ? { fingerprintingGuide } : {}) });
+  } catch (error) { next(error); }
 };
 
 export const getStandaloneModules = async (req, res, next) => {

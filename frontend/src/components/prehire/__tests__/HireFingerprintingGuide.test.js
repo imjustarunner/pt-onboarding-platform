@@ -20,6 +20,11 @@ it('loads all nine original references through the candidate endpoint and offers
 it('uses the protected organization-scoped staff endpoint in read-only previews', async () => {
  const w = render({ preview: true, token: 'preview' });await flushPromises();expect(http.get).toHaveBeenCalledWith(expect.stringContaining('/contracts/fingerprinting-screenshots/'), expect.objectContaining({ params: { agencyId: 9000 }, responseType: 'blob' }));expect(w.find('img').attributes('src')).toMatch(/^blob:/);expect(http.post).not.toHaveBeenCalled();
 });
+it.each([false, true])('uses course access for training screenshots (on-demand: %s)', async onDemand => {
+ render({ trainingModuleId: 32, onDemand });await flushPromises();
+ expect(http.get).toHaveBeenCalledWith(`${onDemand ? '/on-demand-training' : ''}/modules/32/fingerprinting-screenshots/${FINGERPRINTING_SCREENSHOTS[1].sha256}`, expect.objectContaining({ responseType: 'blob' }));
+ expect(http.get.mock.calls[0][1].params).toBeUndefined();expect(http.post).not.toHaveBeenCalled();
+});
 it('retries failed screenshots and frees the private object URL on unmount', async () => {
  http.get.mockRejectedValueOnce(new Error('temporary failure'));const w = render();await flushPromises();expect(w.find('[role="alert"]').exists()).toBe(true);
  await w.find('button').trigger('click');await flushPromises();expect(w.find('[role="alert"]').exists()).toBe(false);expect(w.find('img').attributes('src')).toBe('blob:fixture-1');

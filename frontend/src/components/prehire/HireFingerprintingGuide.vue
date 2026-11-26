@@ -12,12 +12,14 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { addFingerprintingScreenshots, FINGERPRINTING_SCREENSHOTS } from '../../navigation/hireFingerprintingScreenshots.js';
-const props = defineProps({ html: { type: String, required: true }, http: { type: Object, required: true }, token: String, agencyId: [Number, String], preview: Boolean });
+const props = defineProps({ html: { type: String, required: true }, http: { type: Object, required: true }, token: String, agencyId: [Number, String], preview: Boolean, trainingModuleId: [Number, String], onDemand: Boolean });
 const content = ref(null), loading = ref(false), failed = ref(false);
 // Older completed submissions retain their original stored instructions. The view can show
 // the original reference screenshots without rewriting the saved acknowledgement.
 const renderedHtml = computed(() => addFingerprintingScreenshots(props.html));
-const imageBase = computed(() => props.preview ? '/contracts/fingerprinting-screenshots'
+const imageBase = computed(() => props.trainingModuleId
+  ? `${props.onDemand ? '/on-demand-training' : ''}/modules/${encodeURIComponent(props.trainingModuleId)}/fingerprinting-screenshots`
+  : props.preview ? '/contracts/fingerprinting-screenshots'
   : '/prehire-portal/' + encodeURIComponent(props.token || '') + '/workflow/denver-school-fingerprinting/images');
 const known = new Set(FINGERPRINTING_SCREENSHOTS.map(item => item.sha256));
 let generation = 0, controller, objectUrls = [];
@@ -41,7 +43,7 @@ async function loadImages() {
     try {
       const { data } = await props.http.get(imageBase.value + '/' + id, {
         responseType: 'blob', skipGlobalLoading: true, signal,
-        ...(props.preview ? { params: { agencyId: Number(props.agencyId) } } : {})
+        ...(props.preview && !props.trainingModuleId ? { params: { agencyId: Number(props.agencyId) } } : {})
       });
       if (current !== generation) return;
       if (!(data instanceof Blob) || data.type !== 'image/png') throw new Error('Invalid screenshot');

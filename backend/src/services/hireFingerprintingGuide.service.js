@@ -30,7 +30,7 @@ function safeGuideHtml(value) {
 
 export async function loadHireFingerprintingGuide(agencyId, db = pool) {
   const [rows] = await db.execute(
-    `SELECT m.id AS module_id, mc.content_type, mc.content_data
+    `SELECT m.id AS module_id, a.prehire_settings, mc.content_type, mc.content_data
      FROM agencies a
      JOIN modules m ON m.agency_id = a.id
      JOIN agency_public_modules apm ON apm.agency_id = a.id AND apm.module_id = m.id
@@ -54,7 +54,14 @@ export async function loadHireFingerprintingGuide(agencyId, db = pool) {
     return safeGuideHtml(addFingerprintingScreenshots(safeGuideHtml(content.content || content.textContent)));
   }).filter(Boolean).join('\n');
   if (!html || !sanitizeHtml(html, { allowedTags: [], allowedAttributes: {} }).trim()) return null;
-  return { html, revision: createHash('sha256').update(html).digest('hex') };
+  return { html, revision: createHash('sha256').update(html).digest('hex'),
+    moduleId: Number(rows[0].module_id), instructions: fingerprintingDefaultInstructions(jsonObject(rows[0].prehire_settings)) };
+}
+
+export async function loadTrainingFingerprintingGuide(module, db = pool) {
+  if (module?.title !== denverFingerprintingStep.title || !module.agency_id) return null;
+  const guide = await loadHireFingerprintingGuide(module.agency_id, db);
+  return guide?.moduleId === Number(module.id) ? guide : null;
 }
 
 export async function assertHireFingerprintingAvailable(agencyId, db = pool) {

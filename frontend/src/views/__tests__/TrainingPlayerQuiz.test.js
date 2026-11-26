@@ -6,10 +6,11 @@ vi.mock('../../composables/useOnboardingActivity.js', () => ({ useOnboardingActi
 import api from '../../services/api';
 import Player from '../TrainingPlayerView.vue';
 const quiz = { id: 126, content_type: 'quiz', content_data: { minimumScore: 100, questions: [{}] } };
-let attempts, status, content;
+let attempts, status, content, guide;
 beforeEach(() => {
-  vi.clearAllMocks(); attempts = []; status = 'in_progress'; content = [quiz];
-  api.get.mockImplementation(async path => ({ data: path === '/modules/32' ? { id: 32, title: 'Demo lesson' }
+  vi.clearAllMocks(); attempts = []; status = 'in_progress'; content = [quiz]; guide = null;
+  api.get.mockImplementation(async path => ({ data: path === '/modules/32' ? { id: 32, title: 'Demo lesson', fingerprintingGuide: guide }
+    : path === '/on-demand-training/modules/32' ? { id: 32, title: 'Fingerprinting', fingerprintingGuide: guide, content }
     : path === '/modules/32/content' ? content
     : path === '/quizzes/32/attempts' ? attempts
     : path === '/progress' ? [{ module_id: 32, status }]
@@ -39,4 +40,15 @@ it('retains completion for a lesson without a quiz', async () => {
   const wrapper = shallowMount(Player); await flushPromises();
   expect(completionButton(wrapper)).toBeDefined();
   expect(api.get).not.toHaveBeenCalledWith('/quizzes/32/attempts'); wrapper.unmount();
+});
+it.each([false, true])('connects the training player to the shared fingerprinting guide (on-demand: %s)', async onDemand => {
+ guide = { html: '<ol><li><h3>Open Cabiond</h3></li></ol>', instructions: 'Separate background check.' };
+ content = [{ id: 1, content_type: 'text', content_data: { content: 'Old text lesson' } }, { id: 2, content_type: 'image', content_data: { imageUrl: '/original.png' } }, quiz];
+ const wrapper = shallowMount(Player, { props: { onDemand } });await flushPromises();
+ const course = wrapper.findComponent({ name: 'FingerprintingTrainingGuide' });
+ expect(course.props()).toMatchObject({ guide, moduleId: 32, onDemand });
+ expect(wrapper.findAllComponents({ name: 'TrainingBlockRenderer' })).toHaveLength(1);
+ expect(wrapper.findComponent({ name: 'TrainingBlockRenderer' }).props('block').id).toBe(quiz.id);
+ if (onDemand) expect(wrapper.find('.progress-card').exists()).toBe(false);
+ expect(api.post).not.toHaveBeenCalled();wrapper.unmount();
 });
