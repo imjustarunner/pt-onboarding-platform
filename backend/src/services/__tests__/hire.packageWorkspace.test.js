@@ -121,3 +121,19 @@ it('previews the applied job’s onboarding package, training and exclusions bef
   expect(state.phases.onboarding.workflow.resources.map(r => r.id)).toEqual(['job-orientation']);
   expect(state.phases.onboarding.workflow.excludedResourceIds).toContain('welcome');
 });
+
+it('adds the fingerprinting guide to an already-open pre-hire package without assigning a second training task', async () => {
+  const original = m.execute.getMockImplementation();
+  m.execute.mockImplementation((sql, params) => sql.includes('JOIN agency_public_modules')
+    ? [[{ module_id: 15, content_data: { content: '<p>Schedule fingerprinting</p>' } }]]
+    : original(sql, params));
+  expect(await getHirePackageWorkspace(8, 2)).toMatchObject({ fingerprintingAvailable: true });
+  await save('pre_hire', { workflow: { resources: [...packet.workflow.resources, {
+    id: 'denver-school-fingerprinting', title: 'Denver fingerprinting', kind: 'fingerprinting', phase: 'pre_hire'
+  }] } });
+  expect(written().workflow.resources).toContainEqual({
+    id: 'denver-school-fingerprinting', title: 'Denver School-Based Counseling – Fingerprinting',
+    kind: 'fingerprinting', phase: 'pre_hire', required: true, instructions: ''
+  });
+  expect(m.assign).not.toHaveBeenCalled();
+});

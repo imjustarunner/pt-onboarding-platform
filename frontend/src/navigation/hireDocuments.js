@@ -14,7 +14,16 @@ export function builtInHireDocument(document = {}) {
   return null;
 }
 
+export const denverFingerprintingStep = Object.freeze({
+  id: 'denver-school-fingerprinting',
+  kind: 'fingerprinting',
+  phase: 'pre_hire',
+  title: 'Denver School-Based Counseling – Fingerprinting',
+  required: true
+});
+
 export const hireResourceHelp = {
+  fingerprinting: 'The candidate reads the ITSCO lesson in their portal and confirms after completing the appointment and notifying Rachel Finch.',
   document: 'Opens in the portal. The person fills in fields or places text and a signature on the PDF, then submits it. The signed copy is saved to their record.',
   acknowledgement: 'The person opens the linked material, confirms they reviewed it, and signs an acknowledgment. The app saves a signed receipt; it does not sign the linked file.',
   upload: 'The person downloads your blank form, completes it, and uploads the completed copy. The uploaded file is saved to their record.',

@@ -1,3 +1,4 @@
+import { assertHireFingerprintingAvailable } from './hireFingerprintingGuide.service.js';
 import { createHash } from 'node:crypto';
 import pool from '../config/database.js';
 import { jsonObject, composeWorkflow, sanitizeWorkflow } from '../utils/hirePortalWorkflow.js';
@@ -34,6 +35,7 @@ export async function validateJobHireDefaults(config, agencyId, db = pool) {
   }
   const resources = config.workflow?.resources || [];
   if (resources.length > 80 || new Set(resources.map(r => r.id)).size !== resources.length) fail('Use a unique identifier for each step, with at most 80 steps.');
+  if (resources.some(item => item.kind === 'fingerprinting')) await assertHireFingerprintingAvailable(agencyId, db);
   for (const item of [...resources.filter(r => r.kind === 'document'), ...(config.documents || []).filter(d => d.templateId)]) {
     const [[template]] = await db.execute('SELECT agency_id, is_active FROM document_templates WHERE id = ?', [item.templateId || null]);
     if (!template || !Number(template.is_active) || (template.agency_id != null && Number(template.agency_id) !== Number(agencyId))) fail(`Choose an available document template for ${item.title}.`);
@@ -66,7 +68,7 @@ export async function saveSharedHireDefaults({ agencyId, actorId, phase, input }
     const resources = sanitizeWorkflow({ resources: raw }).resources;
     const other = sanitizeWorkflow(settings.portal_workflow).resources.filter(r => r.phase !== phase);
     if (resources.length + other.length > 80 || new Set([...resources, ...other].map(r => r.id)).size !== resources.length + other.length) fail('Use unique steps across both processes, with at most 80 steps.');
-    for (const item of resources) if (item.kind !== 'document' && !item.url) fail(`Add a secure link for ${item.title}.`);
+    for (const item of resources) if (!['document', 'fingerprinting'].includes(item.kind) && !item.url) fail(`Add a secure link for ${item.title}.`);
     const documents = phase === 'pre_hire' ? sanitizePrehireConfig({ documents: input.documents }).documents : [];
     if (phase === 'pre_hire' && (!Array.isArray(input.documents) || documents.length !== input.documents.length)) fail('Give every document a title.');
     const key = phase === 'pre_hire' ? 'prehirePackageId' : 'onboardingPackageId';

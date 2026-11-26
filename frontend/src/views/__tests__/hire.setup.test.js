@@ -7,6 +7,7 @@ vi.mock('../CandidatePreHirePortalView.vue', () => ({ default: { template: '<div
 vi.mock('vue-router', () => ({ useRoute: () => ({ params: { userId: 2, organizationSlug: 'itsco' }, query: {} }), useRouter: () => ({ push: vi.fn() }), onBeforeRouteLeave: vi.fn() }));
 import { onBeforeRouteLeave } from 'vue-router';
 import StartPreHire from '../admin/StartPreHireView.vue';
+import HireWorkflowEditor from '../../components/admin/HireWorkflowEditor.vue';
 import PromoteToOnboarding from '../../components/hiring/PromoteToOnboardingModal.vue';
 let wrapper;
 const officeDefaults = {
@@ -437,4 +438,25 @@ it('chooses contract credentials from the shared app dropdown and sends the same
  wrapper.vm.contract.compensationCategory='3';wrapper.vm.contract.compensationLevel='1';await flushPromises();
  await button('Update contract preview').trigger('click');await flushPromises();
  expect(http.post.mock.calls.filter(([url])=>url.endsWith('/preview')).at(-1)?.[1]).toMatchObject({credential:'MA',tokens:{CREDENTIAL:'MA',LICENSE_TYPE:'MA'}});
+});
+
+it('lets staff attach the Denver lesson directly from Select materials', async () => {
+  const original = http.get.getMockImplementation();
+  http.get.mockImplementation(async (...args) => {
+    const response = await original(...args);
+    if (args[0].includes('wizard-context')) response.data.fingerprintingAvailable = true;
+    return response;
+  });
+  wrapper = mount(StartPreHire, { global: { stubs: { RouterLink: true } } });
+  await flushPromises();
+  await wrapper.findAll('.sph-steps button')[2].trigger('click');
+  await button('Add Denver fingerprinting').trigger('click');
+  const editor = wrapper.getComponent(HireWorkflowEditor);
+  const item = editor.props('modelValue').resources.find(resource => resource.kind === 'fingerprinting');
+  expect(item).toMatchObject({ id: 'denver-school-fingerprinting', phase: 'pre_hire', required: true });
+  expect(item).not.toHaveProperty('url');
+  const card = editor.findAll('fieldset').find(field => field.text().includes('Denver School-Based Counseling'));
+  expect(card.find('input[type="url"]').exists()).toBe(false);
+  expect(card.text()).not.toContain('Attach this item before sending');
+  expect(button('Add Denver fingerprinting')).toBeUndefined();
 });

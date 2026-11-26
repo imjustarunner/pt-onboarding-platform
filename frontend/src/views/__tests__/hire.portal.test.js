@@ -321,3 +321,28 @@ it('puts account details on home with one acknowledgement and keeps them after s
   expect(wrapper.get('[aria-label="Accounts and access"]').text()).toContain('1234');
   expect(wrapper.text()).not.toContain('I have saved my account info');
 });
+
+it('opens the fingerprinting lesson in the candidate portal and saves the appointment confirmation', async () => {
+  const data = state();
+  data.candidate.status = 'PREHIRE_OPEN';
+  data.portalPhase = 'pre_hire';
+  data.journey = {};
+  data.workflow.steps.pre_hire = [{
+    key: 'denver-school-fingerprinting', kind: 'fingerprinting', title: 'Denver School-Based Counseling – Fingerprinting',
+    guide: { html: '<ol><li>Open <a href="https://abi.cabiond.com/login" target="_blank" rel="noopener noreferrer">Cabiond</a></li><li>Notify Rachel Finch</li></ol>', revision: 'lesson-revision' }
+  }];
+  await open(data);
+  await wrapper.find('.hire-nav nav').findAll('button').find(button => button.text() === 'Pre-Hire').trigger('click');
+  const guide = wrapper.get('.fingerprinting-guide');
+  expect(guide.text()).toContain('Notify Rachel Finch');
+  expect(guide.get('a').attributes('href')).toBe('https://abi.cabiond.com/login');
+  const card = guide.element.parentElement;
+  expect(card.querySelector('button').disabled).toBe(true);
+  const checkbox = wrapper.findAll('input[type="checkbox"]').find(input => input.element.parentElement.textContent.includes('notified Rachel Finch'));
+  await checkbox.setValue(true);
+  await wrapper.findAll('button').find(button => button.text() === 'Save completion').trigger('click');
+  await flushPromises();
+  expect(http.post).toHaveBeenCalledWith('/prehire-portal/test-token/workflow/denver-school-fingerprinting', {
+    acknowledged: true, guideRevision: 'lesson-revision'
+  });
+});

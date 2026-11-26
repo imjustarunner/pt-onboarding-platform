@@ -1,5 +1,5 @@
 import {validateCredentials} from './credentialDisplay.js';
-import { builtInHireDocument } from '../../../frontend/src/navigation/hireDocuments.js';
+import { builtInHireDocument, denverFingerprintingStep } from '../../../frontend/src/navigation/hireDocuments.js';
 export const PREEMPLOYMENT_FIELDS = [
   ['personal_email', 'Personal email', 'email', true],
   ['full_legal_name', 'Full legal name', 'text', true],
@@ -46,8 +46,13 @@ export function sanitizeWorkflow(input) {
     supervisorTemplateId: Number(raw.supervisorTemplateId) > 0 ? Number(raw.supervisorTemplateId) : null,
     supervisorClause: String(raw.supervisorClause || '').trim().slice(0, 12000),
     excludedResourceIds: (Array.isArray(raw.excludedResourceIds) ? raw.excludedResourceIds : []).map(resourceKey).slice(0, 80),
-    resources: (Array.isArray(raw.resources) ? raw.resources : []).slice(0, 80).filter(r => r && typeof r === 'object' && !builtInHireDocument(r)).map((r, i) => ({
-      id: resourceKey(r.id || `resource-${i}`),
+    resources: (Array.isArray(raw.resources) ? raw.resources : []).slice(0, 80).filter(r => r && typeof r === 'object' && !builtInHireDocument(r))
+      .filter(r => r.kind !== 'fingerprinting' || r.phase === 'pre_hire').map((r, i) => r.kind === 'fingerprinting' ? {
+      ...denverFingerprintingStep,
+      required: r.required !== false,
+      instructions: String(r.instructions || '').slice(0, 4000)
+    } : ({
+      id: resourceKey(r.id === denverFingerprintingStep.id ? `resource-${i}` : r.id || `resource-${i}`),
       title: String(r.title || '').trim().slice(0, 200),
       phase: r.phase === 'onboarding' ? 'onboarding' : 'pre_hire',
       kind: ['video', 'meeting', 'link', 'acknowledgement', 'upload', 'document'].includes(r.kind) ? r.kind : 'link',
