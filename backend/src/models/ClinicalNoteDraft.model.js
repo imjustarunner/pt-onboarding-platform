@@ -270,6 +270,7 @@ class ClinicalNoteDraft {
 
   static async listRecentForUser({
     userId,
+    draftId = null,
     agencyId = null,
     agencyIds = null,
     days = 7,
@@ -291,6 +292,12 @@ class ClinicalNoteDraft {
       'created_at >= (NOW() - INTERVAL ? DAY)'
     ];
     const params = [uid, d];
+    if (draftId) {
+      const id = safeInt(draftId);
+      if (!id) return [];
+      where.push('id = ?');
+      params.push(id);
+    }
     if (aids.length === 1) {
       where.push('(agency_id = ? OR agency_id IS NULL)');
       params.push(aids[0]);

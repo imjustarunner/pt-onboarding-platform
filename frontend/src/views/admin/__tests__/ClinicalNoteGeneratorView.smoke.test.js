@@ -1189,6 +1189,43 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     } finally { wrapper.unmount(); }
   });
 
+  it('reopens an exact saved draft outside the recent list with its clinical fields and review', async () => {
+    const draft = {
+      id: 42, agency_id: 7, client_id: 22, clinical_session_id: 9, office_event_id: 109,
+      service_code: '90791', date_of_service: '2026-11-19', input_text: 'Saved caregiver history.',
+      output_json: { meta: {
+        toolId: 'clinical_90791_intake_plan', writerMode: 'narriva',
+        sessionContext: { serviceCode: '90791', startTimeLocal: '08:00', endTimeLocal: '09:00', durationMinutes: 60 },
+        narrivaContext: { consentConfirmed: true, riskAssessmentIncluded: true, riskAssessmentCompleted: true },
+        structuredChart: {
+          clientId: 22,
+          diagnoses: [{ icd10_code: 'F99', justification: 'Synthetic assessment rationale', is_primary: 1 }],
+          mentalStatusExam: { source: 'clinician' },
+          riskAssessment: { patientDeniesAll: true }
+        }
+      } }
+    };
+    vi.mocked(api.get).mockImplementation(async (url, options) => {
+      if (url === '/clinical-notes/recent' && String(options?.params?.draftId) === '42') return { data: { drafts: [draft] } };
+      if (url === '/narriva/drafts/42/status') return { data: { review: { id: 51, phase: 'pre_generation', status: 'passed' } } };
+      return { data: {} };
+    });
+    const { wrapper, state } = await workspace('90791_intake_plan', {
+      preserveSelection: true, query: { draftId: '42', agencyId: '7', clientId: '22', serviceCode: '90837', dateOfService: '2026-11-18' }
+    });
+    try {
+      expect(state.inputText).toBe(draft.input_text);
+      expect(state.dateOfService).toBe('2026-11-19');
+      expect(state.actualServiceCode).toBe('90791');
+      expect(state.chartDiagnoses).toEqual(expect.arrayContaining([expect.objectContaining({ icd10_code: 'F99' })]));
+      expect(state.chartRiskAssessment.patientDeniesAll).toBe(true);
+      expect(state.chartMentalStatus.source).toBe('clinician');
+      expect(state.sessionStartTimeLocal).toBe('08:00');
+      expect(state.sessionEndTimeLocal).toBe('09:00');
+      expect(state.narrivaReview?.id).toBe(51);
+    } finally { wrapper.unmount(); }
+  });
+
   it('replaces the previous session context when switching between drafts in the library', async () => {
     const { wrapper, state } = await workspace();
     try {

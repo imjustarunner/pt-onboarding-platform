@@ -147,6 +147,7 @@ router.get(
     query('archiveStatus').optional().isIn(['all', 'active', 'archived']),
     query('status').optional().isIn(['all', 'active', 'archived']),
     query('clientIds').optional().isString(),
+    query('draftId').optional().isInt({ min: 1 }),
     query('allAccessible').optional()
   ],
   listRecentClinicalNoteDrafts

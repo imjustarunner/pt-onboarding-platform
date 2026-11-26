@@ -57,3 +57,5 @@ export function assertH0031DiagnosisScope(text,diagnoses=[]) {
  const generated=[...String(text || '').matchAll(/\bF\d{2}(?:\.[A-Z0-9]{1,4})?\b/gi)].map(match=>match[0].toUpperCase());
  if(generated.some(code=>!carried.has(code)))throw Object.assign(new Error('The H0031 draft proposed a new mental health disorder. Retry using social determinants and carry only verified diagnoses already on file.'),{status:422,code:'H0031_DIAGNOSIS_SCOPE'});
 }
+
+export const encounterTimingInstruction = 'The encounter header is the authority for date, start time, end time, and duration. Leave those details to the structured header. Do not repeat, infer, or change encounter dates, clock times, or duration in the note prose from narrative, enrollment, screening, or other sources. Preserve clinically relevant history and symptom durations.';

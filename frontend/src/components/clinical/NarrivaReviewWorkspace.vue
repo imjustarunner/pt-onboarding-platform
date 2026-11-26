@@ -45,9 +45,9 @@ const instrumentLabel=value=>({phq9:'PHQ-9',phqa:'PHQ-A',gad7:'GAD-7',psc17:'PSC
     </details>
     <div class="narriva-review-columns" :class="{'has-preview':preview}">
       <article v-if="preview" class="narriva-draft-preview" aria-label="Draft under review">
-        <header><h2>{{ review?.status === 'stale' ? 'Previous draft' : 'Draft under review' }}</h2><p>{{ review?.status === 'stale' ? 'Your source content changed. Run checks again to update the draft.' : 'Review this wording alongside the findings. Confirmed additions will be used to update the final note.' }}</p></header>
+        <header><h2>{{ review?.status === 'stale' ? 'Previous draft' : 'Draft under review' }}</h2><p>{{ review?.status === 'stale' ? 'Your source content changed. Run checks again to update the draft.' : review?.status === 'unavailable' ? 'The draft is saved. Retry the checks to review it for finalization.' : 'Review this wording alongside the findings. Confirmed additions will be used to update the final note.' }}</p></header>
         <p v-if="review?.manualEdited" class="narriva-edit-notice">Manually edited · retained for compliance review</p>
-        <button v-if="!editing" type="button" :disabled="busy || review?.status === 'stale'" @click="startEdit">Edit draft</button>
+        <button v-if="!editing" type="button" :disabled="busy || ['stale','unavailable'].includes(review?.status)" @click="startEdit">Edit draft</button>
         <p v-if="editing" class="narriva-edit-notice">Saving your changes rechecks this draft and records manual editing for compliance review.</p>
         <div v-if="approvalToken && !editing" class="narriva-approval-hint">
           <p>After reading the full draft, confirm all sections together or approve them individually.</p>

@@ -129,7 +129,7 @@ COPY backend/src ./src
 COPY frontend/src/navigation/ /frontend/src/navigation/
 # Narriva shares pure documentation rules with the frontend. Copy their complete
 # import graph into the matching runtime path; none of these modules uses Vue.
-COPY frontend/src/utils/csNoteBuild.js frontend/src/utils/noteAidMseCatalog.js frontend/src/utils/noteAidMseHistory.js frontend/src/utils/treatmentGoalAchievement.js frontend/src/utils/treatmentPlanEncounterEligibility.js frontend/src/utils/narrivaObjectiveReview.js frontend/src/utils/narrivaProgressContext.js frontend/src/utils/confidentialAttestation.js frontend/src/utils/clinicalEncounterRequirements.js frontend/src/utils/diagnosticCriteriaReview.js frontend/src/utils/clinicalNoteRecordSections.js frontend/src/utils/clinicalSupervisorFeedback.js /frontend/src/utils/
+COPY frontend/src/utils/csNoteBuild.js frontend/src/utils/noteAidMseCatalog.js frontend/src/utils/noteAidMseHistory.js frontend/src/utils/treatmentGoalAchievement.js frontend/src/utils/treatmentPlanEncounterEligibility.js frontend/src/utils/narrivaObjectiveReview.js frontend/src/utils/narrivaIdentifierMatches.js frontend/src/utils/narrivaProgressContext.js frontend/src/utils/confidentialAttestation.js frontend/src/utils/clinicalEncounterRequirements.js frontend/src/utils/diagnosticCriteriaReview.js frontend/src/utils/clinicalNoteRecordSections.js frontend/src/utils/clinicalSupervisorFeedback.js /frontend/src/utils/
 COPY frontend/src/config/clinicalInterventionSeed.js /frontend/src/config/clinicalInterventionSeed.js
 # Mark these files as ES modules so Node resolves named exports correctly.
 # Without this, Node treats the .js files as CommonJS and named imports fail.

@@ -186,12 +186,12 @@ describe('H0004 billing review and clinical signing separation',()=>{
 
 
 describe('Narriva pre-generation review', () => {
-  async function preflight() {
+  async function preflight({ backgroundQuality = false } = {}) {
     source.phase='pre_generation'; source.draftId=42; source.noteId=null; source.source.user_id=7;
     source.source.provider_signed_at=null; source.source.clinical_session_id=20;
     source.narrative=source.inputText;
     m.load.mockImplementation(async(user,input)=>({...source,phase:input.phase || 'output',sourceHash:narrivaSourceHash({narrative:source.narrative,meta:source.meta,encounter:source.encounter,phase:input.phase})}));
-    const result=await createNarrivaReview({user:clinician,body:{agencyId:2,draftId:42,phase:'pre_generation'}});
+    const result=await createNarrivaReview({user:clinician,body:{agencyId:2,draftId:42,phase:'pre_generation',backgroundQuality}});
     for(let i=0;i<4;i++)await drain();
     return readNarrivaReview(clinician,result.id,2);
   }
@@ -329,6 +329,35 @@ describe('Narriva pre-generation review', () => {
     const input={agencyId:2,clientId:10,draftId:42,clinicalSessionId:20,inputText:source.inputText+' changed'};
     await expect(assertNarrivaPreGeneration(req,input)).rejects.toMatchObject({status:409});
     await expect(assertNarrivaPreGeneration(req,{...input,draftId:43,inputText:source.inputText})).rejects.toMatchObject({status:409});
+  });
+  it('preserves a written preview if encounter verification is unavailable without granting approval', async () => {
+    const workingDraft = 'Caregiver reported challenges with home and school routines.';
+    m.model.mockImplementation(async ({ prompt, jsonMode }) => {
+      if (jsonMode) return { text: '{"currentRisk":false}' };
+      expect(prompt).toContain('The encounter header is the authority');
+      return { text: workingDraft, modelName: 'writer', finishReason: 'STOP' };
+    });
+    const review = await preflight({ backgroundQuality: true });
+    expect(review).toMatchObject({
+      status: 'unavailable',
+      message: expect.stringContaining('verify the encounter and safety details'),
+      draftPreview: workingDraft,
+      quickSignEligible: false
+    });
+    expect(review.draftApprovalToken).toBeUndefined();
+  });
+
+  it('accepts multipart line endings for an approved draft and retains the exact saved narrative', async () => {
+    source.inputText = 'Caregiver described difficulty with school routines.\nClinician discussed assessment follow-up.';
+    const review = await preflight();
+    const request = { user: clinician, body: { preflightReviewId: review.id, draftApproval: approvalFor(review) } };
+    const input = { agencyId: 2, clientId: 10, draftId: 42, clinicalSessionId: 20 };
+    await expect(assertNarrivaPreGeneration(request, {
+      ...input, inputText: source.inputText.replaceAll('\n', '\r\n')
+    })).resolves.toMatchObject({ reviewId: review.id, savedInputText: source.inputText });
+    await expect(assertNarrivaPreGeneration(request, {
+      ...input, inputText: source.inputText.replace('school', 'bedtime')
+    })).rejects.toMatchObject({ code: 'NARRIVA_PREFLIGHT_STALE' });
   });
   it('hands confirmed current clinical context to the writer without row identifiers or unrelated metadata',async()=>{
     source.meta.structuredChart={diagnoses:[{id:999,icd10_code:'F41.1',description:'Generalized anxiety disorder',justification:'Persistent worry affects school attendance.'}],diagnosticJustification:'Persistent worry affects school attendance.',privateOtherField:'Do not send'};
