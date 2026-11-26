@@ -55,3 +55,11 @@ it('reactivates only server-bound clients from a completed form, including sibli
  expect(execute.mock.calls[0][0]).toContain("s.status='submitted'");expect(execute.mock.calls[0][0]).toContain('intake_submission_clients');
  expect(reactivate).toHaveBeenCalledWith(expect.objectContaining({clientId:9,agencyId:2,sourceId:'intake:100',occurredAt:'2026-11-23 12:00:00',actorUserId:null}),expect.anything());
 });
+
+it('allows record imports to reopen only a current-client transition from ordinary Inactive', async () => {
+ store.client.client_status_key='terminated';
+ const result=await reactivateClientForActivity({...input,trigger:'records_import',sourceId:'records-import:2'},{db});
+ expect(result.reactivated).toBe(false);
+ expect(store.history).toHaveLength(0);
+ expect(store.client.status).toBe('ARCHIVED');
+});

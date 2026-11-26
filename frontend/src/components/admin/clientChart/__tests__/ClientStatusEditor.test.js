@@ -1,6 +1,6 @@
 import {beforeEach,it,expect,vi} from 'vitest';
 import {mount,flushPromises} from '@vue/test-utils';
-const m=vi.hoisted(()=>({get:vi.fn(),put:vi.fn()}));
+const m=vi.hoisted(()=>({get:vi.fn(),put:vi.fn(),post:vi.fn()}));
 vi.mock('../../../../services/api',()=>({default:m}));
 import Editor from '../ClientStatusEditor.vue';
 const client={id:7,agency_id:2,client_status_id:99,client_status_label:'Fall Confirmation Pending',full_name:'Synthetic Client',gender:'male',organization_id:null};
@@ -27,4 +27,22 @@ it('keeps the selection visible if a successful response still reports the old s
  expect(wrapper.emitted('saved')).toBeUndefined();
  expect(wrapper.get('[role=alert]').text()).toContain('previous status');
  wrapper.unmount();
+});
+
+it('reactivates from the Inactive badge using the staff reactivation action and a reason', async () => {
+ const inactive={...client,status:'ARCHIVED',client_status_label:'Inactive',client_status_key:'inactive'};
+ const updated={id:7,status:'ACTIVE',client_status_id:11,client_status_key:'current',client_status_label:'Current'};
+ m.post.mockResolvedValue({data:{reactivated:true,client:updated}});
+ const w=mount(Editor,{props:{client:inactive},global:{stubs:{Teleport:true}}});
+ await flushPromises();
+ expect(w.find('select').exists()).toBe(false);
+ expect(w.get('button[type=submit]').text()).toBe('Reactivate client');
+ expect(w.get('button[type=submit]').element.disabled).toBe(true);
+ await w.get('textarea').setValue('Client is receiving ongoing services.');
+ await w.get('form').trigger('submit');
+ await flushPromises();
+ expect(m.post).toHaveBeenCalledWith('/clients/7/reactivate',expect.objectContaining({requestId:expect.any(String),reason:'Client is receiving ongoing services.'}),expect.objectContaining({headers:{'X-Agency-Id':'2'}}));
+ expect(m.put).not.toHaveBeenCalled();
+ expect(w.emitted('saved')).toEqual([[updated]]);
+ w.unmount();
 });

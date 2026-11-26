@@ -1,11 +1,11 @@
 import {beforeEach,expect,it,vi} from 'vitest';
-const m=vi.hoisted(()=>({current:vi.fn()}));
-vi.mock('../clientRecordsStatus.service.js',()=>({markRecordsClientCurrent:m.current}));
+const m=vi.hoisted(()=>({current:vi.fn(),readStatus:vi.fn()}));
+vi.mock('../clientRecordsStatus.service.js',()=>({markRecordsClientCurrent:m.current,readRecordsClientStatus:m.readStatus}));
 vi.mock('../../config/database.js',()=>({default:{}}));
 vi.mock('../clientChartImport.service.js',()=>({chartSections:['demographics','comments','contacts','insurance','intake','plan'],readChartRecord:vi.fn()}));
 import {beginClientChartImport,completeClientChartImport} from '../clientChartImportProgress.service.js';
 const scope={clientId:12,agencyId:2};let state,db,readRecord;
-beforeEach(()=>{m.current.mockReset().mockResolvedValue({id:3,key:'current',label:'Current'});state=null;db={execute:vi.fn(async(sql,args)=>{if(sql.startsWith('SELECT'))return[[{import_state:state}]];state=JSON.parse(args[0]);return[{affectedRows:1}];})};readRecord=vi.fn().mockResolvedValue({value:{text:'Synthetic imported section',imported:true}});});
+beforeEach(()=>{m.current.mockReset().mockResolvedValue({id:3,key:'current',label:'Current'});m.readStatus.mockReset().mockResolvedValue({id:3,key:'current',label:'Current'});state=null;db={execute:vi.fn(async(sql,args)=>{if(sql.startsWith('SELECT'))return[[{import_state:state}]];state=JSON.parse(args[0]);return[{affectedRows:1}];})};readRecord=vi.fn().mockResolvedValue({value:{text:'Synthetic imported section',imported:true}});});
 it('starts a bounded import and updates only its JSON branch with actual actor attribution',async()=>{
  const result=await beginClientChartImport(scope,['demographics','comments'],10,{db});expect(result).toMatchObject({status:'pending',sections:['demographics','comments'],startedByUserId:10});
  expect(db.execute.mock.calls[1][0]).toContain('JSON_SET(COALESCE(onboarding_docs_json');expect(db.execute.mock.calls[1][1].slice(1)).toEqual([12,2,0]);
@@ -19,7 +19,7 @@ it.each([{imported:false},{imported:true,needsReview:true},null])('keeps incompl
 it('completes only after all filled sections are saved and accepts secondary-only coverage',async()=>{
  await beginClientChartImport(scope,['demographics','insurance'],10,{db});readRecord.mockImplementation(async(_scope,key)=>({value:key==='insurance'?{imported:false,coverageDrafts:{primary:{text:'',imported:false},secondary:{text:'Secondary policy',imported:true}}}:{imported:true}}));
  expect(await completeClientChartImport(scope,10,{db,readRecord})).toMatchObject({status:'complete',completedByUserId:10});
- expect(m.current).toHaveBeenCalledWith(scope,10,db);
+ expect(m.current).toHaveBeenCalledWith(scope,10,db,{importRevision:2});
  expect(readRecord).toHaveBeenCalledWith(scope,'demographics',10);const writes=db.execute.mock.calls.filter(([sql])=>sql.startsWith('UPDATE')).length;await completeClientChartImport(scope,10,{db,readRecord});expect(db.execute.mock.calls.filter(([sql])=>sql.startsWith('UPDATE'))).toHaveLength(writes);
 });
 it('rolls back completion if Current cannot be saved, and commits its progress and status together on retry',async()=>{
@@ -69,4 +69,13 @@ it('accepts a Billing handoff for only the exact coverage paste, and still requi
  receipt.primary.text='Primary paste';
  await expect(completeClientChartImport(scope,10,{db,readRecord})).resolves.toMatchObject({status:'complete'});
  expect(readRecord).toHaveBeenCalledWith(scope,'insuranceHandoff',0);
+});
+
+it('reports actual status on a retry and never reopens an enrollment closed after completion', async () => {
+ await beginClientChartImport(scope,['demographics'],10,{db});
+ await completeClientChartImport(scope,10,{db,readRecord});
+ m.readStatus.mockResolvedValue(null);
+ m.current.mockClear();
+ expect(await completeClientChartImport(scope,10,{db,readRecord})).toMatchObject({status:'complete',clientStatus:null});
+ expect(m.current).not.toHaveBeenCalled();
 });

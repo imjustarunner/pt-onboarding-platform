@@ -84,3 +84,24 @@ it.each(['admin','support','provider'])('keeps closure actions at the bottom wit
  expect(labels).toContain('Terminate client');expect(labels.includes('Mark inactive')).toBe(role!=='provider');
  expect(wrapper.findAll('.quick-actions button').some(button=>button.text().includes('Terminate'))).toBe(false);
 });
+
+it('opens the Inactive badge for an administrator and keeps the full chart after reactivation', async () => {
+  const client={status:'ARCHIVED',client_status_key:'inactive',client_status_id:12,client_status_label:'Inactive'};
+  await render({client});
+  const badge=wrapper.get('button[aria-label="Change client status"]');
+  expect(badge.text()).toContain('Inactive');
+  await badge.trigger('click');
+  await flushPromises();
+  const editor=wrapper.findComponent({name:'ClientStatusEditor'});
+  expect(editor.exists()).toBe(true);
+  editor.vm.$emit('saved',{id:7,status:'ACTIVE',client_status_id:11,client_status_key:'current',client_status_label:'Current'});
+  expect(wrapper.emitted('updated').at(-1)[0]).toMatchObject({
+    keepOpen:true,client:{full_name:'Example Client',identifier_code:'123456',status:'ACTIVE',client_status_id:11}
+  });
+});
+
+it.each([{role:'provider'},{client:{compliance_archived_at:'2026-10-01'}}])('keeps reactivation unavailable to providers and retained archives (%j)', async options => {
+  const {client,...props}=options;
+  await render({...props,client:{status:'ARCHIVED',client_status_key:'inactive',client_status_label:'Inactive',...client}});
+  expect(wrapper.find('button[aria-label="Change client status"]').exists()).toBe(false);
+});

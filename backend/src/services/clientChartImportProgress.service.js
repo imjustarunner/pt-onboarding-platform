@@ -1,7 +1,7 @@
 import pool from '../config/database.js';
 import {chartSections,readChartRecord} from './clientChartImport.service.js';
 import {billingHandoffTaskIds,insuranceDraftSlots} from './clientChartRecordRead.service.js';
-import {markRecordsClientCurrent} from './clientRecordsStatus.service.js';
+import {markRecordsClientCurrent,readRecordsClientStatus} from './clientRecordsStatus.service.js';
 const fail=(status,message)=>Object.assign(Error(message),{status});
 const object=value=>typeof value==='string'?JSON.parse(value):value||{};
 async function current(scope,db){
@@ -34,7 +34,7 @@ export async function completeClientChartImport(scope,actorId,{db=pool,readRecor
  const state=await current(scope,db);
  for(const key of keptBlankSections){const {value}=await readRecord(scope,key,actorId);if(value?.text?.trim()||Object.values(value?.coverageDrafts||{}).some(slot=>slot.text?.trim()))throw fail(409,'This section contains a saved paste. Import it or clear its draft before keeping it blank.');}
  if(!state.status&&ifPending)return null;
- if(state.status==='complete')return {...state,clientStatus:await setCurrent(scope,actorId,db)};
+ if(state.status==='complete')return {...state,clientStatus:await readRecordsClientStatus(scope,db)};
  if(state.status!=='pending'||!Array.isArray(state.sections))throw fail(409,'Resume this chart’s saved import before finishing.');
  for(const key of state.sections){
   if(!allowedSections.includes(key))throw fail(403,'Account support access is required to finish these record sections.');
@@ -52,5 +52,5 @@ export async function completeClientChartImport(scope,actorId,{db=pool,readRecor
  }
  const revision=Number(state.revision||0);
  const completed=await write(scope,{...state,status:'complete',revision:revision+1,keptBlankSections:[...new Set(keptBlankSections)],completedAt:new Date().toISOString(),completedByUserId:actorId},db,revision);
- return {...completed,clientStatus:await setCurrent(scope,actorId,db)};
+ return {...completed,clientStatus:await setCurrent(scope,actorId,db,{importRevision:completed.revision})};
 }
