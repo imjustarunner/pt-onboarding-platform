@@ -3,10 +3,11 @@ import { queueIntakeTreatmentPlan, intakePlanSource } from '../intakeTreatmentPl
 import {normalizeNarrivaPlanDraft,suggestNarrivaPlanDraft} from '../narrivaPlanDraft.service.js';
 
 const objective=(text, fields={})=>({
-  objectiveText:text, projectedCompletion:'2027-02-23', scaleCurrent:4,scaleTarget:8, kioskPrompt:'Where are you today on a 1–10 scale?',
+  objectiveText:text, projectedCompletion:'2027-02-23', scaleCurrent:4,scaleTarget:8,scaleDirection:'increase', kioskPrompt:'Where are you today on a 1–10 scale?',
   interventions:['Practice grounding; Estimated completion: January 2027'], ...fields
 });
-const plan = () => ({effectiveDate:'2026-11-23',dischargePlan:'Review readiness with the client.',presentingProblem:'Pat Synthetic reports worry.',
+const plan = () => ({effectiveDate:'2026-11-23',prescribedFrequency:'Weekly',dischargePlan:'Review readiness with the client.',presentingProblem:'Pat Synthetic reports worry.',
+  diagnoses:[{icd10Code:'F41.1',description:'Anxiety',isPrimary:true,justification:'Documented worry and functional impairment.'}],
   goals:[{goalText:'Manage anxiety',objectives:[objective('Practice emotion regulation')]},{goalText:'Improve communication',objectives:[objective('Private: Pat Synthetic will practice communication')]}]});
 
 it('preserves long imported frequency instructions through draft save and finalization', () => {
@@ -16,14 +17,16 @@ it('preserves long imported frequency instructions through draft save and finali
  expect(normalizeNarrivaPlanDraft(saved, {finalize:true}).prescribedFrequency).toBe(prescribedFrequency);
 });
 
-it('requires two distinct scaled goals and keeps the alternate-measure reason, objective dates and linked interventions',()=>{
+it('requires two scaled objectives and preserves objective dates and interventions without an exemption reason',()=>{
  const draft=plan();
- draft.goals[0].objectives.push(objective('Complete enrollment form',{skipScale:true,scaleExemption:'Track completion of the form'}));
+ draft.goals[0].objectives.push(objective('Complete enrollment form',{skipScale:true}));
  const normalized=normalizeNarrivaPlanDraft(draft,{finalize:true});
  expect(normalized.goals[0].projectedCompletion).toBe('2027-02-23');
- expect(normalized.goals[0].objectives[1]).toMatchObject({scaleCurrent:null,kioskPrompt:null,measurementMethod:'Alternate measure: Track completion of the form',interventions:['Practice grounding']});
+ expect(normalized.goals[0].objectives[1]).toMatchObject({scaleCurrent:null,kioskPrompt:null,measurementMethod:'Alternate measure:',interventions:['Practice grounding']});
  draft.goals[1].objectives[0]={...draft.goals[1].objectives[0],skipScale:true,scaleExemption:'Use session completion'};
- expect(()=>normalizeNarrivaPlanDraft(draft,{finalize:true})).toThrow(/two separate goals/);
+ expect(()=>normalizeNarrivaPlanDraft(draft,{finalize:true})).toThrow(/at least two objectives/);
+ draft.goals[0].objectives.push(objective('Practice the technique each week'));
+ expect(normalizeNarrivaPlanDraft(draft,{finalize:true}).goals).toHaveLength(2);
 });
 it('sends anonymous themes to the configured private writer and never takes a baseline from its response',async()=>{
  const generate=vi.fn(async()=>({text:JSON.stringify({objectives:[{ref:'1.1',objectiveText:'Practice grounding',baseline:8,target:3,clientQuestion:'How intense was your anxiety?',otherQuestion:'How intense was the anxiety you observed?'}],dischargePlan:'Review criteria'})}));
@@ -48,11 +51,11 @@ it('completes a third goal even when the writer omits that goal, without supplyi
   expect(result.goals).toEqual([{ ref:'3', goalText:'Build skills for sleep' }]);
   expect(result.objectives).toHaveLength(3);
   expect(result.objectives[0].otherQuestion).toBe('');
-  expect(result.objectives[2]).toMatchObject({ ref:'3.1', objectiveText:expect.any(String), target:8, clientQuestion:expect.any(String) });
+  expect(result.objectives[2]).toMatchObject({ ref:'3.1', objectiveText:expect.any(String), target:null, clientQuestion:'' });
   expect(result.objectives[2]).not.toHaveProperty('baseline');
   expect(generate.mock.calls[0][0].prompt).not.toContain('Add Goal 3 for');
   draft.goals[0].objectives[0].scaleCurrent=null;
-  expect(()=>normalizeNarrivaPlanDraft(draft,{finalize:true})).toThrow(/baseline from 1 to 10 for objective 1\.1/i);
+  expect(()=>normalizeNarrivaPlanDraft(draft,{finalize:true})).toThrow(/Objective 1\.1 needs different baseline/i);
 });
 
 it('queues an initial treatment plan from the signed encounter date and deduplicates retries', async () => {
@@ -78,4 +81,24 @@ it('sends only predefined themes from signed intake evidence to the treatment-pl
   const prompt = generate.mock.calls[0][0].prompt;
   expect(prompt).toContain('"intakeThemes":["mood","sleep"]');
   expect(prompt).not.toContain('Synthetic Name');
+});
+
+it('requires current care fields while allowing a provider to retain existing discharge criteria', () => {
+  const draft = plan();
+  expect(() => normalizeNarrivaPlanDraft({ ...draft, prescribedFrequency: '' }, { finalize: true })).toThrow(/prescribed frequency/);
+  expect(() => normalizeNarrivaPlanDraft({ ...draft, dischargePlan: '' }, { finalize: true })).toThrow(/discharge criteria/);
+  expect(normalizeNarrivaPlanDraft({ ...draft, dischargeReviewDeferred: true }, { finalize: true })).toMatchObject({ dischargeReviewDeferred: true });
+});
+
+it('requires decisions for untouched Narriva content and preserves edited and accepted decisions', () => {
+  const draft = plan();
+  draft.goals[0].reviewStatus = 'pending';
+  expect(() => normalizeNarrivaPlanDraft(draft, { finalize: true })).toThrow(/Accept, edit, or remove goal 1/);
+  draft.goals[0].reviewStatus = 'accepted';
+  draft.goals[0].objectives[0].reviewStatus = 'pending';
+  expect(() => normalizeNarrivaPlanDraft(draft, { finalize: true })).toThrow(/Accept, edit, or remove objective 1.1/);
+  draft.goals[0].objectives[0].reviewStatus = 'edited';
+  expect(normalizeNarrivaPlanDraft(draft, { finalize: true }).goals[0]).toMatchObject({
+    reviewStatus: 'accepted', objectives: [expect.objectContaining({ reviewStatus: 'edited' })]
+  });
 });

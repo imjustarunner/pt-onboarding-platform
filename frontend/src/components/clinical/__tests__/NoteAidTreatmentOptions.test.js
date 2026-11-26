@@ -2,6 +2,7 @@ import { it, expect, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import Frequency from '../NoteAidFrequencySelect.vue';
 import Interventions from '../NoteAidInterventionPicker.vue';
+import PlanEditor from '../NoteAidTreatmentPlanImportReview.vue';
 import api from '../../../services/api';
 vi.mock('../../../services/api', () => ({ default: { get: vi.fn(), post: vi.fn() } }));
 beforeEach(() => vi.resetAllMocks());
@@ -40,10 +41,11 @@ it('keeps a custom frequency in the plan when saving the personal option fails',
 it('offers AI interventions for the specific goal/objective and adds them only after review', async () => {
   vi.mocked(api.post).mockResolvedValue({ data: { interventions: ['Mindfulness Training', 'Cognitive Refocusing'] } });
   const wrapper = mount(Interventions, { props: { agencyId: 7, modelValue: ['Active Listening'], goalText: 'Manage worry', objectiveText: 'Reduce worry from 8 to 3.', 'onUpdate:modelValue': (value) => wrapper.setProps({ modelValue: value }) } });
-  await wrapper.findAll('button').find((button) => button.text().includes('Recommend interventions')).trigger('click');
+  await wrapper.get('button[aria-label="Recommend interventions"]').trigger('click');
   await flushPromises();
   expect(api.post).toHaveBeenCalledWith('/medical-billing/treatment-plans/recommend-interventions', { agencyId: 7, goalText: 'Manage worry', objectiveText: 'Reduce worry from 8 to 3.' }, expect.any(Object));
   expect(wrapper.props('modelValue')).toEqual(['Active Listening']);
+  for (const choice of wrapper.findAll('.recommendations input')) await choice.setValue(true);
   await wrapper.findAll('button').find((button) => button.text() === 'Select recommended interventions').trigger('click');
   expect(wrapper.props('modelValue')).toEqual(['Active Listening', 'Mindfulness Training', 'Cognitive Refocusing']);
   expect(wrapper.emitted('ai-used')).toHaveLength(1);
@@ -60,5 +62,44 @@ it('discards a late AI recommendation after the objective changes', async () => 
   await flushPromises();
   expect(wrapper.find('.recommendations').exists()).toBe(false);
   expect(wrapper.emitted('update:modelValue')).toBeUndefined();
+  wrapper.unmount();
+});
+
+it('accepts a generated goal, treats an edited baseline as provider review, and signs the full-page plan', async () => {
+  vi.mocked(api.get).mockResolvedValue({ data: { all: [] } });
+  const plan = {
+    title: 'Initial treatment plan', effectiveDate: '2026-09-05', aiGenerated: true,
+    presentingProblem: 'Fictional sleep concern.', prescribedFrequency: 'Weekly',
+    dischargePlan: 'Conditional on clinician review: Continue the established routine independently.',
+    diagnoses: [{ icd10Code: 'F99', description: 'Synthetic diagnosis', justification: 'Fictional clinical justification.', isPrimary: true }],
+    goals: [{ goalText: 'Clinician-reviewable priority: Establish a sleep routine', durationMonths: 3, objectives: [
+      { objectiveText: 'Use a consistent evening routine.', scaleCurrent: 3, scaleTarget: 7, scaleDirection: 'increase' },
+      { objectiveText: 'Record sleep quality each morning.', scaleCurrent: 3, scaleTarget: 6, scaleDirection: 'increase' }
+    ] }]
+  };
+  vi.mocked(api.post).mockResolvedValue({ data: { plan: { id: 18 }, providerApproval: { providerApproved: true } } });
+  const wrapper = mount(PlanEditor, { props: { open: true, fullPage: true, agencyId: 7, clientId: 9,
+    mode: 'generated', sourceIntakeNoteId: 12, initialPlan: plan } });
+  await flushPromises();
+  const button = label => wrapper.findAll('button').find(item => item.text() === label);
+  expect(button('Save draft')).toBeDefined();
+  expect(wrapper.findAll('textarea').map(field => field.element.value).join(' ')).not.toMatch(/clinician-reviewable priority|conditional on clinician review/i);
+  await button('Sign treatment plan').trigger('click');
+  expect(api.post).not.toHaveBeenCalled();
+  expect(wrapper.text()).toContain('Accept, edit, or remove goal 1.');
+  await button('Accept goal').trigger('click');
+  await wrapper.get('input[id$="-baseline"]').setValue(4);
+  expect(wrapper.findAll('button').filter(item => item.text() === 'Accept objective')).toHaveLength(1);
+  await button('Accept objective').trigger('click');
+  await button('Sign treatment plan').trigger('click');
+  await flushPromises();
+  expect(api.post).toHaveBeenCalledWith('/medical-billing/treatment-plans', expect.objectContaining({
+    sourceIntakeNoteId: 12, signPlan: true,
+    goals: [expect.objectContaining({ reviewStatus: 'accepted', objectives: [
+      expect.objectContaining({ scaleCurrent: 4, reviewStatus: 'edited' }),
+      expect.objectContaining({ reviewStatus: 'accepted' })
+    ] })]
+  }));
+  expect(wrapper.emitted('saved')?.[0]?.[1]).toMatchObject({ approval: { providerApproved: true } });
   wrapper.unmount();
 });

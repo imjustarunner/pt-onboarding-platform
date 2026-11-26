@@ -15,7 +15,8 @@ function date(value) {
 const pair = (current, target) => Number.isInteger(current) && Number.isInteger(target) && current !== target;
 const interventionText = value => bounded(value,500)
   .replace(/(?:\s*[·;|]\s*|\s+|^)(?:estimated|projected) completion(?: date)?\s*[:–-].*$/i,'').trim();
-const noScale = reason => reason ? `Alternate measure: ${reason}` : null;
+const reviewState = value => ['pending', 'accepted', 'edited'].includes(value) ? value : null;
+const withoutReviewPreamble = value => String(value || '').replace(/^\s*(?:clinician[- ]reviewable priority|conditional on clinician review)\s*[:–—-]\s*/i, '').trim();
 
 export function normalizeNarrivaPlanDraft(input, { finalize = false } = {}) {
   if (!input || !Array.isArray(input.goals) || input.goals.length > 20) throw planError('Enter up to 20 treatment goals.');
@@ -25,6 +26,10 @@ export function normalizeNarrivaPlanDraft(input, { finalize = false } = {}) {
   const effectiveDate = date(input.effectiveDate);
   const draft = {
     effectiveDate,
+    manualOnly: input.manualOnly === true,
+    aiContentUsed: input.aiContentUsed === true,
+    dischargeNeedsReview: input.dischargeNeedsReview === true,
+    dischargeReviewDeferred: input.dischargeReviewDeferred === true,
     presentingProblem: bounded(input.presentingProblem, 16000),
     // Preserve the original imported narrative when the reviewed draft is saved.
     prescribedFrequency: String(input.prescribedFrequency || '').trim(),
@@ -34,7 +39,7 @@ export function normalizeNarrivaPlanDraft(input, { finalize = false } = {}) {
     diagnoses: normalizeTreatmentPlanDiagnoses(input.diagnoses).slice(0, 20),
     goals: input.goals.map((goal, gi) => ({
       goalIndex: gi + 1, goalText: bounded(goal.goalText, 6000), durationMonths: months(goal.durationMonths),
-      projectedCompletion: date(goal.projectedCompletion), reviewed:goal.reviewed===true,
+      projectedCompletion: date(goal.projectedCompletion), reviewStatus: reviewState(goal.reviewStatus),
       objectives: goal.objectives.map((objective, oi) => {
         if (!objective) throw planError('Each objective must include its plan details.');
         const scaleExemption = bounded(objective.scaleExemption, 230);
@@ -45,12 +50,12 @@ export function normalizeNarrivaPlanDraft(input, { finalize = false } = {}) {
           objectiveIndex: oi + 1, objectiveText: bounded(objective.objectiveText, 6000),
           durationMonths: months(objective.durationMonths), projectedCompletion:date(objective.projectedCompletion),
           skipScale, scaleExemption, scaleCurrent: current, scaleTarget: target,
-          scaleDirection: pair(current,target) ? current < target ? 'increase' : 'decrease' : null,
-          measurementMethod: noScale(scaleExemption) || (pair(current,target) ? '1–10 scale (client self-report)' : null),
+          scaleDirection: !skipScale && ['increase', 'decrease'].includes(objective.scaleDirection) ? objective.scaleDirection : null,
+          measurementMethod: skipScale ? `Alternate measure: ${scaleExemption}`.trim() : (pair(current,target) ? '1–10 scale (client self-report)' : null),
           interventions: [...new Set((Array.isArray(objective.interventions) ? objective.interventions : []).slice(0,30).map(interventionText).filter(Boolean))],
           kioskPrompt: skipScale ? null : bounded(objective.kioskPrompt,500) || null,
           kioskPromptOther: skipScale ? null : bounded(objective.kioskPromptOther,500) || null,
-          reviewed:objective.reviewed===true
+          reviewStatus: reviewState(objective.reviewStatus)
         };
       })
     }))
@@ -63,43 +68,61 @@ export function normalizeNarrivaPlanDraft(input, { finalize = false } = {}) {
 }
 
 function validateNarrivaPlan(draft) {
-  if (!draft.effectiveDate || !draft.dischargePlan) throw planError('Enter an effective date and discharge criteria.');
-  let scaledGoals = 0;
+  if (!draft.effectiveDate) throw planError('Choose an effective date.');
+  if (!draft.presentingProblem) throw planError('Enter the presenting problem.');
+  if (!draft.diagnoses.length) throw planError('Select a diagnosis or documented reason for the encounter.');
+  const missingJustification = draft.diagnoses.find(diagnosis => !diagnosis.justification);
+  if (missingJustification) throw planError(`Enter clinical justification for ${missingJustification.icd10Code}.`);
+
+  if (!draft.prescribedFrequency) throw planError('Select or enter the prescribed frequency.');
+  if (!draft.dischargePlan) throw planError('Enter the discharge criteria.');
+
+  let scaledObjectives = 0;
   for (const goal of draft.goals) {
-    if (!goal.goalText || !goal.objectives.length) throw planError(`Enter goal ${goal.goalIndex} and at least one objective.`);
-    const missingBaseline = goal.objectives.find(objective => !objective.scaleExemption && !Number.isInteger(objective.scaleCurrent));
-    if (missingBaseline) throw planError(`Enter a baseline from 1 to 10 for objective ${goal.goalIndex}.${missingBaseline.objectiveIndex}.`);
-    if (goal.objectives.some(objective=>!objective.objectiveText || !objective.projectedCompletion || objective.projectedCompletion < draft.effectiveDate ||
-      (!objective.scaleExemption && (!pair(objective.scaleCurrent,objective.scaleTarget) || !objective.kioskPrompt)))) {
-      throw planError(`Complete the objective text and target dates for goal ${goal.goalIndex}. Enter a 1–10 scale and client question or specify an alternate measure.`);
+    const index = goal.goalIndex;
+    if (!goal.goalText || !goal.objectives.length) throw planError(`Enter goal ${index} and at least one objective.`);
+    if (goal.reviewStatus === 'pending') throw planError(`Accept, edit, or remove goal ${index}.`);
+    for (const objective of goal.objectives) {
+      const label = `Objective ${index}.${objective.objectiveIndex}`;
+      if (!objective.objectiveText) throw planError(`${label} needs a statement.`);
+      if (!objective.projectedCompletion || objective.projectedCompletion < draft.effectiveDate) throw planError(`${label} needs a target date on or after the effective date.`);
+      if (objective.reviewStatus === 'pending') throw planError(`Accept, edit, or remove ${label.toLowerCase()}.`);
+      if (objective.skipScale) continue;
+      if (!pair(objective.scaleCurrent, objective.scaleTarget)) throw planError(`${label} needs different baseline and target scores from 1 to 10.`);
+      const direction = objective.scaleCurrent < objective.scaleTarget ? 'increase' : 'decrease';
+      if (objective.scaleDirection !== direction) throw planError(`${label} needs a direction that matches the baseline and target.`);
+      scaledObjectives++;
     }
-    if (goal.objectives.some(objective=>pair(objective.scaleCurrent,objective.scaleTarget))) scaledGoals++;
   }
-  if (scaledGoals < 2) throw planError('At least two separate goals need a 1–10 objective.');
+  if (scaledObjectives < 2) throw planError('Keep at least two objectives with a 1–10 scale.');
 }
 
-export async function suggestNarrivaPlanDraft({ input, includeOther = false, completePlan = false, revision = '', intakeEvidence = '', generate = callGeminiText }) {
+export async function suggestNarrivaPlanDraft({ input, includeOther = false, completePlan = false, revision = '', intakeEvidence = '', writingGuidance = '', action = '', generate = callGeminiText }) {
   const draft = normalizeNarrivaPlanDraft(input);
   if (completePlan) {
     while (draft.goals.length < 3) draft.goals.push({ goalText:'', objectives:[] });
+    const alreadyScaled = draft.goals.flatMap(goal => goal.objectives).filter(objective => !objective.skipScale).length;
+    let scalesToAdd = Math.max(0, 2 - alreadyScaled);
     for (const goal of draft.goals) {
-      if (!goal.objectives.length) goal.objectives.push({ objectiveText:'', interventions:[] });
+      if (!goal.objectives.length) goal.objectives.push({ objectiveText: '', interventions: [], skipScale: scalesToAdd-- <= 0 });
     }
   }
   const revisionThemes = clinicalThemes(revision);
-  const goals = draft.goals.map((goal, gi) => ({ ref:String(gi+1), themes:clinicalThemes(goal.goalText), needsTitle:!goal.goalText }));
+  const goals = draft.goals.map((goal, gi) => ({ ref:String(gi+1), themes:clinicalThemes(goal.goalText), needsTitle:!goal.goalText || action === 'update_goal' }));
   const objectives = draft.goals.flatMap((goal, gi) => goal.objectives.map((objective, oi) => ({
     ...anonymousObjective(objective,`${gi+1}.${oi+1}`),
     goalThemes: clinicalThemes(goal.goalText),
     interventionThemes: clinicalThemes(objective.interventions.join(' ')),
     durationMonths: objective.durationMonths || goal.durationMonths,
-    alternateMeasure: !!objective.scaleExemption,
+    alternateMeasure: objective.skipScale === true,
     includeOther, needsObjective: !objective.objectiveText
   })));
   if (!objectives.length || objectives.length > 30) throw planError('Add 1–30 objectives, or use the rewrite on a single objective.');
   const result = await generate({
-    prompt: `Prepare suggestions for an outpatient treatment plan using the anonymous themes below. Return exactly one entry for every supplied objective ref. Use the supplied goal refs to write a distinct, clinically appropriate goal title wherever needsTitle is true. When a new goal or objective has little context, use a clinician-reviewable priority based on the documented themes, without asserting new clinical facts. The default complete draft has three goals with at least one 1–10 objective each; retain all supplied goals and alternate measures. Apply the clinician’s revision themes where they support the documented plan. Preserve clinical intent and rewrite each objective into a concise, observable action with a specific frequency, measurable success criterion, and timeframe. Draft a revised objective instead of repeating the input’s measurement. Preserve documented scores and use no invented facts. Suggest linked interventions without dates/durations, a duration of 1–36 months per objective, and a natural client 1–10 question with concrete anchors. Add a third-person question only when includeOther is true. When alternateMeasure is true, preserve it and omit numeric scales and questions. Never supply a baseline or imply an observed score, symptom, diagnosis, or response that was not provided. Return only JSON {"goals":[{"ref":"3","goalText":"..."}],"objectives":[{"ref":"1.1","objectiveText":"...","target":8,"durationMonths":3,"interventions":["..."],"clientQuestion":"...","otherQuestion":"..."}],"dischargePlan":"short measurable draft criteria and planning, conditional on clinician review"}.
-${JSON.stringify({ goals, objectives, presentingThemes: clinicalThemes(draft.presentingProblem), intakeThemes: clinicalThemes(intakeEvidence), revisionThemes })}`,
+    prompt: `${writingGuidance}
+
+For this response, prepare suggestions for an outpatient treatment plan using the anonymous themes below. Return exactly one entry for every supplied objective ref. Use the supplied goal refs to write a distinct, clinically appropriate goal title wherever needsTitle is true. Write each statement directly as clinical plan text. Omit boilerplate about clinician review or draft status. Do not assert new clinical facts. Keep the stated measurement choice for every objective. Apply the clinician’s revision themes where they support the documented plan. Preserve clinical intent and rewrite each objective into a concise, observable action with a specific frequency, measurable success criterion, and timeframe. Draft a revised objective instead of repeating the input’s measurement. Preserve documented scores and use no invented facts. Suggest linked interventions without dates/durations, a duration of 1–36 months per objective, and a natural client 1–10 question with concrete anchors. Add a third-person question only when includeOther is true. When alternateMeasure is true, preserve it and omit numeric scales and questions. Never supply a baseline or imply an observed score, symptom, diagnosis, or response that was not provided. Return only JSON {"goals":[{"ref":"3","goalText":"..."}],"objectives":[{"ref":"1.1","objectiveText":"...","target":8,"durationMonths":3,"interventions":["..."],"clientQuestion":"...","otherQuestion":"..."}],"dischargePlan":"short measurable criteria and discharge planning"}.
+${JSON.stringify({ action, goals, objectives, presentingThemes: clinicalThemes(draft.presentingProblem), intakeThemes: clinicalThemes(intakeEvidence), revisionThemes })}`,
     ...clinicalNoteModelOptions(), vertexOnly:true, sensitive:true, temperature:0.2, maxOutputTokens:8192, jsonMode:true
   });
   let proposed;
@@ -113,17 +136,17 @@ ${JSON.stringify({ goals, objectives, presentingThemes: clinicalThemes(draft.pre
   return {
     goals: goals.filter(goal=>goal.needsTitle).map(goal=>({
       ref:goal.ref,
-      goalText:bounded(proposedGoals.get(goal.ref)?.goalText,6000)
-        || (draft.goals[Number(goal.ref)-1].objectives[0]?.objectiveText
+      goalText:withoutReviewPreamble(bounded(proposedGoals.get(goal.ref)?.goalText,6000))
+        || (!action && draft.goals[Number(goal.ref)-1].objectives[0]?.objectiveText
           ? 'Build skills for the treatment priority described in the objective'
-          : (revisionThemes[0] ? `Build skills for ${revisionThemes[0]}` : 'Practice a strategy for a treatment priority agreed with the client'))
+          : (action ? '' : revisionThemes[0] ? `Build skills for ${revisionThemes[0]}` : 'Practice a strategy for a treatment priority agreed with the client'))
     })),
     objectives: objectives.map(objective => {
       const draftSuggestion = proposals.get(objective.ref);
       if (!draftSuggestion && !objective.needsObjective && !completePlan) return {ref:objective.ref};
       const duration = objective.durationMonths || months(draftSuggestion?.durationMonths) || 3;
-      const suggestion = objective.needsObjective && !bounded(draftSuggestion?.objectiveText,6000) ? {
-        objectiveText: `Practice a clinician-approved skill for the agreed treatment priority each week over the next ${duration} months. Rate confidence in using the skill on a 1–10 scale and work toward the agreed target.`,
+      const suggestion = completePlan && objective.needsObjective && !bounded(draftSuggestion?.objectiveText,6000) ? {
+        objectiveText: `Practice a skill for the agreed treatment priority each week over the next ${duration} months and review progress at follow-up.`,
         target: 8
       } : draftSuggestion || {};
       const suggestedTarget = safeScale(suggestion.target);
@@ -131,13 +154,14 @@ ${JSON.stringify({ goals, objectives, presentingThemes: clinicalThemes(draft.pre
         (Number.isInteger(suggestedTarget) && suggestedTarget !== objective.current ? suggestedTarget : objective.current === 8 ? 9 : 8);
       const anchors = scaleAnchorLabels(objective.themes.join(' '), objective.current != null && target < objective.current ? 'decrease' : 'increase');
       return {
-        ref: objective.ref, objectiveText:bounded(suggestion.objectiveText,6000), target,
+        ref: objective.ref, objectiveText:withoutReviewPreamble(bounded(suggestion.objectiveText,6000)), target,
+        skipScale: objective.alternateMeasure,
         durationMonths: duration,
         interventions: (Array.isArray(suggestion.interventions) ? suggestion.interventions : []).slice(0,12).map(interventionText).filter(Boolean),
         clientQuestion: objective.alternateMeasure ? '' : bounded(suggestion.clientQuestion,400) || `Where are you today on this objective from 1 (${anchors.one}) to 10 (${anchors.ten})?`,
         otherQuestion: objective.alternateMeasure || !objective.includeOther ? '' : bounded(suggestion.otherQuestion,400)
       };
     }),
-    dischargePlan: bounded(proposed.dischargePlan,16000)
+    dischargePlan: withoutReviewPreamble(bounded(proposed.dischargePlan,16000))
   };
 }

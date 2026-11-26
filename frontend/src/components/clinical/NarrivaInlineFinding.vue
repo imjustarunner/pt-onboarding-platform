@@ -46,7 +46,7 @@
       <button type="button" :disabled="disabled" @click="$emit('apply', { interactiveComplexitySelected: false })">Remove interactive complexity</button>
     </template>
     <template v-else>
-      <label>{{ answerLabel }}<textarea v-model="answer" rows="3" :placeholder="answerHint" maxlength="4000" /></label>
+      <label>{{ finding.id?.includes(':conflicting_') ? 'Clarify the two reports' : answerLabel }}<textarea v-model="answer" rows="3" :placeholder="answerHint" maxlength="4000" /></label>
       <button type="submit" :disabled="disabled || !answer.trim()">Use confirmed details</button>
     </template>
     <p v-if="saved" role="status">Updated here. Recheck the confirmed content when you finish the other prompts.</p>

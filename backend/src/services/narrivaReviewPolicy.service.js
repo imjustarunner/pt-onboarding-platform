@@ -125,6 +125,10 @@ export function deriveNarrivaCheck(id,{facts,encounter,clinical,service},{standa
   if(clinical.interactiveComplexitySelected)required(facts.interactiveComplexitySupported===true,'interactive_complexity','Describe the qualifying communication complication and its effect on this session, or remove interactive complexity.','interactive_complexity',false);
  }
  if(id==='encounter_consent') {
+  if(intake && preGeneration && facts.conflictingSafetyHistory===true)
+   add('conflicting_safety_history','The session and intake report different safety histories. Clarify what was reported, when it applied, and any follow-up.', 'edit_note');
+  if(intake && preGeneration && facts.conflictingTreatmentHistory===true)
+   add('conflicting_treatment_history','The session and intake report different prior treatment histories. Clarify the care reported and its timing.', 'edit_note');
   required(encounter.dateValid,'date','Confirm the service date.','encounter');
   // Only the transient standalone tester evaluates a declared duration without
   // encounter clocks. Saved-note reviews retain the default exact-time check.

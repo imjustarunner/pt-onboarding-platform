@@ -156,3 +156,17 @@ export function intakeSectionsForRecord(sections, { mentalStatusExam, riskAssess
   if (skipMse) for (const title of Object.keys(result)) if (/mental status|^mse$/i.test(title)) delete result[title];
   return result;
 }
+
+export function diagnosisEventMonth(diagnosis) {
+  return diagnosis?.stressorEventMonth ?? diagnosis?.review?.stressor_event_month ?? '';
+}
+
+export function diagnosesMissingEventMonth(diagnoses, dateOfService) {
+  const serviceMonth = String(dateOfService || '').slice(0, 7);
+  return (diagnoses || []).filter(diagnosis => {
+    const code = diagnosis.icd10_code || diagnosis.icd10Code || diagnosis.code || '';
+    if (!/^F43\.2/i.test(code)) return false;
+    const month = diagnosisEventMonth(diagnosis);
+    return !/^\d{4}-(0[1-9]|1[0-2])$/.test(month) || (!!serviceMonth && month > serviceMonth);
+  });
+}

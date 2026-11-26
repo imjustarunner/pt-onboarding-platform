@@ -371,8 +371,28 @@ export async function proposeNarrivaChartDraft(req,res,next) {
     const sourceId = parseIntValue(req.body.sourceIntakeNoteId);
     const intakeEvidence = sourceId ? await (await import('../services/intakeTreatmentPlanWork.service.js'))
       .intakeEvidenceForPlan({ noteId: sourceId, agencyId, clientId, userId: req.user.id }) : '';
+    const action = ['add_goal', 'add_objective', 'update_goal', 'update_objective'].includes(req.body.action) ? req.body.action : '';
+    if (action && !String(req.body.revisionInstructions || '').trim()) {
+      return res.status(400).json({ error: { message: 'Describe exactly what Narriva should add or change.' } });
+    }
+    const { getNoteAidToolById } = await import('../config/noteAidTools.js');
+    const { applyNarrivaWritingGuidance } = await import('../services/narrivaPlatformSettings.service.js');
+    const { getKnowledgeBaseContext } = await import('../services/clinicalKnowledgeBase.service.js');
+    const tool = getNoteAidToolById('clinical_psychotherapy_plan');
+    const [guidance, examples] = await Promise.all([
+      applyNarrivaWritingGuidance({ prompt: tool.systemPrompt, toolId: tool.id }),
+      getKnowledgeBaseContext({
+        query: 'treatment plan goals measurable objectives baseline target interventions discharge criteria',
+        folders: tool.kbFolders,
+        prioritizeStyleDocs: true,
+        maxChars: 6000
+      }).catch(() => '')
+    ]);
+    const writingGuidance = examples
+      ? [guidance.prompt, 'Plan-writing reference examples for style and structure only:', examples].join('\n\n')
+      : guidance.prompt;
     const proposal=await suggestNarrivaPlanDraft({
-      intakeEvidence,
+      intakeEvidence, action, writingGuidance,
       input:req.body.draft, includeOther:req.body.includeOther===true, completePlan:req.body.completePlan===true,
       revision: typeof req.body.revisionInstructions === 'string' ? req.body.revisionInstructions.slice(0,4000) : ''
     });
@@ -436,6 +456,15 @@ export const saveTreatmentPlanToChart = async (req, res, next) => {
   } catch(error) { next(error); }
 };
 
+async function recordSignedTreatmentPlanReviewSafely(plan, contentHash, draft) {
+  try {
+    const { recordTreatmentPlanReview } = await import('../services/narrivaTreatmentPlanReview.service.js');
+    await recordTreatmentPlanReview(plan, contentHash, draft);
+  } catch (error) {
+    console.warn('[treatment-plan] Documentation review could not be saved', error.code || 'unavailable');
+  }
+}
+
 async function saveTreatmentPlanRequest(req,res,next) {
   try {
     const errors = validationResult(req);
@@ -487,12 +516,21 @@ async function saveTreatmentPlanRequest(req,res,next) {
       Object.assign(req.body, normalized,{sourceToolId:'narriva_chart_plan',primaryDiagnosisId:null,
         icd10Code:primary?.icd10Code || null,diagnosisDescription:primary?.description || null});
     }
-    if(req.body.narrivaRevision===true && finalizeRequested && !chartDraftPlanId) {
+    if((req.body.narrivaRevision === true || req.body.planAuthoring === true) && finalizeRequested && !chartDraftPlanId) {
       await verifyNarrivaPlanEditor(req,agencyId,clientId);
       const { normalizeNarrivaPlanDraft }=await import('../services/narrivaPlanDraft.service.js');
       Object.assign(req.body,normalizeNarrivaPlanDraft(req.body,{finalize:true}));
     }
     const sourceDraftPlanId = parseIntValue(req.body.sourceDraftPlanId);
+    const sourceIntakeNoteId = finalizeRequested ? parseIntValue(req.body.sourceIntakeNoteId) : null;
+    if (sourceIntakeNoteId) {
+      const { intakePlanSource } = await import('../services/intakeTreatmentPlanWork.service.js');
+      const source = await ClinicalNote.findById(sourceIntakeNoteId);
+      if (!intakePlanSource(source) || Number(source.agency_id) !== agencyId || Number(source.client_id) !== clientId
+          || Number(source.created_by_user_id) !== Number(req.user.id)) {
+        return res.status(409).json({ error: { code: 'intake_not_finalized', message: 'Reopen the treatment plan from the signed intake in My Work.' } });
+      }
+    }
     if (sourceDraftPlanId) {
       assertClinicalSigner(req.user);
       const { clientAccess } = await import('../services/safetyPlans/access.js');
@@ -502,8 +540,8 @@ async function saveTreatmentPlanRequest(req,res,next) {
     // A reviewed, individualized starter plan can precede the full intake.
     if (finalizeRequested && !isReviewedStarterPlan(req.body)) {
       const ClientIntakeNoteDraft = (await import('../models/ClientIntakeNoteDraft.model.js')).default;
-      const hasFinalIntake = await ClientIntakeNoteDraft.hasFinalizedForClient({ clientId, agencyId })
-        || await ClinicalNote.hasSignedIntakeForClient({ clientId, agencyId })
+      const hasFinalIntake = sourceIntakeNoteId || await ClinicalNote.hasSignedIntakeForClient({ clientId, agencyId })
+        || await ClientIntakeNoteDraft.hasFinalizedForClient({ clientId, agencyId })
         || (await ClientIntakeNoteDraft.listForClient({ clientId, agencyId })).some(row => row.status !== 'failed' && intakeDraftChartSummary(row).records_import);
       if (!hasFinalIntake) {
         return res.status(409).json({
@@ -604,7 +642,7 @@ async function saveTreatmentPlanRequest(req,res,next) {
 
     try {
       const { fillEmptyKioskPrompts } = await import('../services/kioskObjectivePrompt.service.js');
-      const prompts = chartDraftPlanId ? [] : await fillEmptyKioskPrompts({ objectives: plan.goals.flatMap((g) => g.objectives || []).filter(o=>!String(o.measurement_method || '').startsWith('Alternate measure:')) });
+      const prompts = chartDraftPlanId || req.body.planAuthoring === true ? [] : await fillEmptyKioskPrompts({ objectives: plan.goals.flatMap((g) => g.objectives || []).filter(o=>!String(o.measurement_method || '').startsWith('Alternate measure:')) });
       for (const row of prompts) await ClinicalTreatmentPlan.updateObjectiveKioskPrompts(row.id, { kioskPrompt: row.kiosk_prompt, kioskPromptOther: row.kiosk_prompt_other });
       plan = await ClinicalTreatmentPlan.findById(plan.id);
     } catch { /* A saved plan stays saved; questions can be retried from its chart panel. */ }
@@ -644,9 +682,42 @@ async function saveTreatmentPlanRequest(req,res,next) {
     } catch {
       // best-effort
     }
-    const guardianSharing = await shareSavedPlanToGuardians(refreshed, req.user.id);
-    return res.status(201).json({ plan: refreshed, primaryDiagnosisId: primaryDiagnosisId || null, guardianSharing });
+    let providerApproval = null;
+    let providerApprovalError = null;
+    if (finalizeRequested && req.body.signPlan === true && refreshed) {
+      try {
+        const { attestTreatmentPlanProvider, getTreatmentPlanApproval, treatmentPlanContentHash } =
+          await import('../services/treatmentPlanApproval.service.js');
+        const contentHash = await treatmentPlanContentHash(refreshed);
+        await attestTreatmentPlanProvider({ user: req.user, plan: refreshed, contentHash, reviewedAndAccurate: true });
+        providerApproval = await getTreatmentPlanApproval(refreshed);
+        await logNoteAidChartEvent(req, { agencyId, clientId, action: 'clinical_treatment_plan_provider_signed',
+          metadata: { planId: refreshed.id, contentHash,
+            planAuthorship: req.body.manualOnly === true ? 'manual' : req.body.aiContentUsed === true ? 'narriva_assisted' : null,
+            dischargeReviewDeferred: req.body.dischargeReviewDeferred === true } });
+        try {
+          const { completeIntakePlanWork } = await import('../services/intakeTreatmentPlanWork.service.js');
+          await completeIntakePlanWork(refreshed, { sourceNoteId: sourceIntakeNoteId });
+        } catch { console.warn('[treatment-plan] Provider signature recorded. My Work could not be updated.'); }
+        await recordSignedTreatmentPlanReviewSafely(refreshed, contentHash, req.body);
+      } catch (error) {
+        providerApprovalError = error.status && error.status < 500
+          ? error.message : 'The plan was saved. Open its signature panel to confirm or retry your signature.';
+        console.warn('[treatment-plan] Provider signature needs confirmation', error.code || error.status || 'unavailable');
+      }
+    }
+    // An unsigned plan cannot be shared. Avoid invoking guardian delivery on the preparation path.
+    const guardianSharing = refreshed?.status === 'active' ? await shareSavedPlanToGuardians(refreshed, req.user.id) : null;
+    return res.status(201).json({ plan: refreshed, primaryDiagnosisId: primaryDiagnosisId || null,
+      guardianSharing, providerApproval, providerApprovalError });
   } catch (e) {
+    if (['ER_BAD_FIELD_ERROR', 'ER_NO_SUCH_TABLE'].includes(e.code)) {
+      console.warn('[treatment-plan] Storage schema could not accept the plan', e.code);
+      return res.status(503).json({ error: {
+        code: 'TREATMENT_PLAN_STORAGE_UNAVAILABLE',
+        message: 'Treatment plan storage could not save this version. Keep the editor open and contact support.'
+      } });
+    }
     next(e);
   }
 }

@@ -34,8 +34,22 @@ it('filters completed signed notes below the requested score and returns only ac
  ]]);
  m.clinical.mockResolvedValueOnce([[{id:41,author_id:7},{id:42,author_id:7},{id:43,author_id:7}]]);
  const result=await listNarrivaReviewResults({user:{id:9,role:'admin'},query:{agencyId:2,view:'signed',below:'70'}});
- expect(m.execute.mock.calls[0][0]).toContain('AND clinical_note_id IS NOT NULL');
+ expect(m.execute.mock.calls[0][0]).toContain('clinical_note_id IS NOT NULL');
  expect(m.clinical).toHaveBeenCalledWith(expect.stringContaining('provider_signed_at IS NOT NULL'),[2,41,42,43,44]);
  expect(result.results).toEqual([expect.objectContaining({noteId:41,score:60,missing:[{label:'Client response',message:'Describe the client’s response to the intervention.'}]})]);
  expect(JSON.stringify(result)).not.toContain('private excerpt');
+});
+
+it('shows a scored treatment plan even when it has no clinical note ID', async () => {
+  const review = { phase: 'treatment_plan', clientId: 12, planId: 49, status: 'action_required',
+    planAuthorship: 'Manual writer', scoring: { score: 55, criteria: [
+      { status: 'missing', label: 'Discharge criteria', message: 'Review discharge criteria.' }
+    ] } };
+  m.execute.mockResolvedValueOnce([[{ id: 19, actor_user_id: 7, rules_version: 'treatment-plan-v1',
+    result_encrypted: JSON.stringify(review) }]]);
+  m.clinical.mockResolvedValueOnce([[{ id: 49, client_id: 12, created_by_user_id: 7 }]]);
+  const result = await listNarrivaReviewResults({ user: { id: 9, role: 'admin' },
+    query: { agencyId: 2, view: 'signed', below: '70' } });
+  expect(result.results).toEqual([expect.objectContaining({ planId: 49, score: 55, planAuthorship: 'Manual writer',
+    missing: [{ label: 'Discharge criteria', message: 'Review discharge criteria.' }] })]);
 });

@@ -96,9 +96,13 @@ export async function intakeEvidenceForPlan({ noteId, agencyId, clientId, userId
   return [...evidence, chart.diagnosticJustification, ...diagnoses.flatMap(row => [row?.description, row?.justification])].filter(Boolean).join('\n');
 }
 
-export async function completeIntakePlanWork(plan) {
+export async function completeIntakePlanWork(plan, { sourceNoteId = null } = {}) {
   const userId = Number(plan.created_by_user_id);
   const existing = await NoteAidWorkQueueItem.findByClientKeyForUser({ clientKey: keyFor(plan), userId });
-  if (Number(existing?.treatmentPlanId) !== Number(plan.id) || existing.status === 'completed') return;
-  await NoteAidWorkQueueItem.patchForUser({ id: existing.serverId, userId, patch: { status: 'completed' } });
+  if (!existing || existing.status === 'completed') return;
+  const matchesPlan = Number(existing.treatmentPlanId) === Number(plan.id);
+  const matchesIntake = sourceNoteId && Number(existing.sourceIntakeNoteId) === Number(sourceNoteId);
+  if (!matchesPlan && !matchesIntake) return;
+  await NoteAidWorkQueueItem.patchForUser({ id: existing.serverId, userId,
+    patch: { treatmentPlanId: plan.id, treatmentPlanPrepared: true, status: 'completed' } });
 }
