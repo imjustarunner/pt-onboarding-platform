@@ -72,7 +72,11 @@ export async function evaluateClientDiagnosisPolicy({agencyId,clientId,providerU
     const record=source.find(row=>codeOf(row)===code)||{};
     const current=chart.find(row=>codeOf(row)===code);
     const justification=record.justification || (index===0 && note ? frozenPrimaryJustification : '');
-    return {...record,justification,icd10_code:code,is_primary:index===0?1:0,establishedByQualifiedClinician:current?.establishedByQualifiedClinician===true,review:current?.review || {evidenceVerified:false},created_at:record.created_at || current?.created_at};
+    const currentReview=current?.review || {evidenceVerified:false};
+    const candidateMonth=String(record.stressorEventMonth || '').trim();
+    const month=/^\d{4}-(?:0[1-9]|1[0-2])$/.test(candidateMonth) && candidateMonth<=date.slice(0,7) ? candidateMonth : null;
+    const review=month?{...currentReview,stressor_event_month:month}:currentReview;
+    return {...record,justification,icd10_code:code,is_primary:index===0?1:0,establishedByQualifiedClinician:current?.establishedByQualifiedClinician===true,review,created_at:record.created_at || current?.created_at};
   });
   if(!selected.length)return {ready:false,blockers:['A primary diagnosis with its own clinical justification is required.'],warnings:[],alerts:[]};
   const ctx=await providerContext({agencyId,clientId,providerUserId:providerUserId || note?.provider_signed_by_user_id || note?.created_by_user_id});

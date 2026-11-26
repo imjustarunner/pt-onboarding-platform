@@ -109,7 +109,7 @@ export function deriveNarrivaCheck(id,{facts,encounter,clinical,service},{standa
   required(service.allowed,'qualification',service.reason || 'Review provider qualifications and the enabled service.',serviceAction,false);
   required(service.durationAllowed,'duration','The service and duration do not match an eligible billing rule. Review the service.',serviceAction,false);
   if(documentationCode==='H0004'&&service.billingReview?.code==='H0004_DURATION_OVER_LIMIT')result.advisories=[{id:'service_code:billing_duration_review',message:service.billingReview.reason,category:'billing_review',blocksClaims:true,units:service.billingReview.units}];
-  required(service.modalityAllowed!==false,'modality','This delivery method is not allowed for the selected service.',serviceAction,false);
+
   required(nonempty(encounter.participants),'participants','Select the participants who attended.','participants');
   if(facts.clientPresent===false && encounter.clientPresent===true)add('client_absent','The narrative describes the client as absent. Update participants or confirm your note is correct.','participants');
   if(facts.clientPresent===true && encounter.clientPresent===false)add('client_present','The narrative describes the client attending. Reconcile participants.','participants');
@@ -121,7 +121,7 @@ export function deriveNarrivaCheck(id,{facts,encounter,clinical,service},{standa
     :`Was this an unscheduled crisis service? ${suggestion?`Review ${suggestion} and document the crisis justification.`:'Review the appropriate eligible service and document the crisis justification.'}`;
    add('crisis',message,serviceAction);
   }
-  if(facts.serviceDocumentationSupported!==true)add('documentation',service.proBono===true?'Review whether the narrative supports the underlying clinical service and its required documentation. Preserve pro bono funding and billing.':'Review whether the narrative supports the selected service.',serviceAction);
+  if(facts.serviceDocumentationSupported!==true)add('documentation',service.proBono===true?'The note needs documentation to support the underlying clinical service.':'The note needs documentation to support the selected service.','edit_note');
   if(clinical.interactiveComplexitySelected)required(facts.interactiveComplexitySupported===true,'interactive_complexity','Describe the qualifying communication complication and its effect on this session, or remove interactive complexity.','interactive_complexity',false);
  }
  if(id==='encounter_consent') {
@@ -132,6 +132,8 @@ export function deriveNarrivaCheck(id,{facts,encounter,clinical,service},{standa
   else required(encounter.timesValid,'times','Confirm start/end times and a matching duration.','encounter');
   required(nonempty(encounter.location),'location','Select the service location.','encounter');
   required(nonempty(encounter.modality),'method','Select the service delivery method.','encounter');
+  const testNeedsTelehealthLocation=standaloneTest && ['video','phone'].includes(encounter.modality) && !['02','10'].includes(encounter.placeOfService);
+  required(!testNeedsTelehealthLocation && service.modalityAllowed!==false || !nonempty(encounter.modality),'method_location','Confirm the actual delivery method and location in the encounter details.','encounter',false);
   if(profile.clientPresent!==false && String(encounter.placeOfService)==='02')required(nonempty(encounter.clientLocationDescription),'client_location','Describe where the client participated during the virtual session.','encounter',false);
   required(encounter.consentConfirmed===true,'consent','Confirm consent to participate in this session.','encounter',false);
   if(facts.locationMatches===false)add('location_mismatch','The narrative describes a different location than the session header. Update the location here.','encounter',false);

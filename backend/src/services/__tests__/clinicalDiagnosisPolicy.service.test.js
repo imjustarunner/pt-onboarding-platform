@@ -34,3 +34,12 @@ it('rejects malformed evidence document input without a write',async()=>{await e
 it.each(['diagnosisCodes','diagnosis_codes'])('checks explicit H0002 %s metadata without a structured diagnosis object',async field=>{credential='BA';const result=await evaluateClientDiagnosisPolicy({agencyId:2,clientId:3,providerUserId:9,serviceCode:'H0002',note:{metadata_json:{[field]:['F41.1']}}});expect(result.ready).toBe(false);expect(result.blockers.join(' ')).toContain('require a verified diagnosing clinician');expect(result.blockers.join(' ')).toContain('separate clinical justification');});
 it('does not borrow a later chart justification to cure an immutable signed snapshot',async()=>{const result=await evaluateClientDiagnosisPolicy({agencyId:2,clientId:3,providerUserId:9,serviceCode:'90834',diagnosisCodes:['F41.1'],note:{clinical_version_id:12,diagnostic_justification:null,metadata_json:{}}});expect(result.ready).toBe(false);expect(result.blockers.join(' ')).toContain('separate clinical justification');});
 it('retains an actual frozen legacy primary rationale while requiring frozen secondary rationale',async()=>{const args={agencyId:2,clientId:3,providerUserId:9,serviceCode:'90834',diagnosisCodes:['F41.1'],note:{clinical_version_id:12,diagnostic_justification:'Signed original rationale.',metadata_json:{}}};expect((await evaluateClientDiagnosisPolicy(args)).ready).toBe(true);const result=await evaluateClientDiagnosisPolicy({...args,diagnosisCodes:['F41.1','Z63.4']});expect(result.blockers).toContain('Z63.4: a separate clinical justification is required.');});
+
+it('accepts a verified event month from the unsigned intake and rejects a month after the encounter',async()=>{
+ const dateOfService='2026-11-04';
+ const diagnosis={code:'F43.22',justification:'Synthetic evidence of clinically relevant impairment.'};
+ const args={agencyId:2,clientId:3,providerUserId:9,serviceCode:'90791',dateOfService};
+ const evaluate=stressorEventMonth=>evaluateClientDiagnosisPolicy({...args,diagnoses:[{...diagnosis,stressorEventMonth}]});
+ expect(await evaluate('2026-09')).toMatchObject({ready:true});
+ expect(await evaluate('2026-12')).toMatchObject({ready:false,alerts:[expect.objectContaining({code:'adjustment_event_month_required'})]});
+});

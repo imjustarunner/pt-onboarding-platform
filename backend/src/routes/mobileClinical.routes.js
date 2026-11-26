@@ -1,4 +1,5 @@
-import {getDiagnosisReview} from '../controllers/clinicalDiagnosisPolicy.controller.js';
+import {postSupervisorReview} from '../controllers/clinicalSupervisorReview.controller.js';
+import {getDiagnosisReview,postDiagnosisReview} from '../controllers/clinicalDiagnosisPolicy.controller.js';
 import { maskMobileClientName } from '../services/narrivaAccess.service.js';
 import { enrollmentSections, listEntries, readEntry, createEntry } from '../controllers/confidentialClinicalEntries.controller.js';
 import sessionSupportingMaterials from './sessionSupportingMaterials.routes.js';
@@ -27,6 +28,7 @@ router.post('/diagnosis-search',requireClinicalChart,scoped(searchDiagnosisCatal
 const clinicalClientAccess = [excludeSupportClinicalContent,requireClinicalChart];
 const clientScope = {clientParam:'clientId',requireClient:true};
 router.get('/clients/:clientId/diagnosis-evidence',...clinicalClientAccess,scoped(getDiagnosisReview,clientScope));
+router.post('/clients/:clientId/diagnosis-evidence/:diagnosisId',...clinicalClientAccess,scoped(postDiagnosisReview,clientScope));
 router.post('/diagnosis-criteria',requireClinicalChart,scoped(narriva.postDiagnosticCriteria,{requireClient:true}));
 router.get('/clients/:clientId/diagnosis-criteria',...clinicalClientAccess,scoped(narriva.getDiagnosticCriteria,clientScope));
 router.get('/clients/:clientId/assessment-context',...clinicalClientAccess,scoped(narriva.getClinicalAssessmentContext,clientScope));
@@ -83,6 +85,7 @@ router.get('/notes/:noteId',requireClinicalChart,scoped(getClinicalNoteById,{not
 router.get('/notes/:noteId/review-insights',requireClinicalChart,scoped(getNoteReviewInsights,{noteParam:'noteId',requireClient:true}));
 router.post('/notes/:noteId/sign',requireClinicalNoteSigning,scoped(signClinicalNote,{noteParam:'noteId',requireClient:true,authorOnly:true,requireGeneratedNote:true}));
 router.post('/notes/:noteId/cosign',requireClinicalNoteSigning,scoped(cosignClinicalNote,{noteParam:'noteId',requireClient:true}));
+router.post('/notes/:noteId/supervisor-review',requireClinicalNoteSigning,scoped(postSupervisorReview,{noteParam:'noteId',requireClient:true}));
 router.post('/objectives/:objectiveId/ratings',requireClinicalChart,scoped(createObjectiveRating,{objectiveParam:'objectiveId',requireClient:true}));
 router.get('/recording/session/context',scoped(recording.sessionRecordingContext,{requireClient:true,maskRecordingNames:true}));
 router.post('/recording/session/start-setup',scoped(recording.setupClinicalSessionRecording,{requireClient:true,maskRecordingNames:true}));

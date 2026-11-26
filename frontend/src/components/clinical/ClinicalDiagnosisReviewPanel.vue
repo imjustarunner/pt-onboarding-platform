@@ -1,13 +1,13 @@
 <template>
   <section class="diagnosis-review" aria-label="Diagnosis documentation and review">
     <div v-for="alert in alerts" :key="`${alert.code}:${alert.diagnosisId}`" class="diagnosis-alert" role="status">{{ alert.message }}</div>
-    <details open>
-      <summary>Chart diagnoses and supporting records</summary>
+    <details :open="!embedded">
+      <summary>{{ embedded ? 'Supporting records and chart diagnosis history' : 'Chart diagnoses and supporting records' }}</summary>
       <p v-if="loading">Loading diagnosis documentation…</p><p v-if="error" role="alert" class="error">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p>
-      <p>Each diagnosis includes its clinical justification. Open supporting records to document the evidence for that diagnosis.</p>
+      <p v-if="!embedded">Each diagnosis includes its clinical justification. Open supporting records to document the evidence for that diagnosis.</p>
       <article v-for="diagnosis in diagnoses" :key="diagnosis.id">
         <strong>{{ diagnosis.icd10_code }} {{ diagnosis.description }} <span v-if="diagnosis.is_primary">· Primary</span></strong>
-        <p>{{ diagnosis.justification || 'Clinical justification is missing.' }}</p>
+        <p v-if="!embedded">{{ diagnosis.justification || 'Clinical justification is missing.' }}</p>
         <details v-if="!readOnly" class="diagnosis-support">
           <summary>Supporting records and clinician evaluation</summary>
           <form @submit.prevent="save(diagnosis)">
@@ -28,7 +28,7 @@
         <p>Signing adds these reviewed diagnoses and their justifications to the chart.</p>
         <ul><li v-for="diagnosis in pendingDiagnoses" :key="diagnosis.icd10_code">
           <strong>{{ diagnosis.icd10_code }} {{ diagnosis.description }}</strong>
-          <p>{{ diagnosis.justification || 'Clinical justification is required.' }}</p>
+          <p v-if="!embedded">{{ diagnosis.justification || 'Clinical justification is required.' }}</p>
         </li></ul>
       </section>
       <p v-else-if="!loading && !diagnoses.length && !error">No active chart diagnoses.</p>
@@ -45,14 +45,14 @@
 </template>
 <script setup>
 import {ref,watch} from 'vue';
-const props=defineProps({agencyId:{type:[String,Number],required:true},clientId:{type:[String,Number],required:true},providerUserId:{type:[String,Number],default:null},pendingDiagnoses:{type:Array,default:()=>[]},transport:Object,readOnly:Boolean});
+const props=defineProps({agencyId:{type:[String,Number],required:true},clientId:{type:[String,Number],required:true},providerUserId:{type:[String,Number],default:null},pendingDiagnoses:{type:Array,default:()=>[]},transport:Object,readOnly:Boolean,embedded:Boolean});
 const emit=defineEmits(['changed']);
 const diagnoses=ref([]),documents=ref([]),alerts=ref([]),drafts=ref({}),loading=ref(false),busy=ref(false),error=ref(''),notice=ref(''),allowNonFPrimary=ref(false),permissionReason=ref('');
 const canManagePermission=ref(false);
 let generation=0,permissionRequest=0;
 const clientApi=async()=>props.transport || (await import('../../services/api')).default;
 async function load(){if(!props.agencyId||!props.clientId)return;const g=++generation;loading.value=true;error.value='';try{const {data}=await (await clientApi()).get(props.transport ? `/clients/${props.clientId}/diagnosis-evidence` : '/medical-billing/diagnoses/review',{params:{agencyId:props.agencyId,clientId:props.clientId},skipGlobalLoading:true});if(g!==generation)return;diagnoses.value=data.diagnoses||[];documents.value=data.documents||[];alerts.value=data.alerts||[];drafts.value=Object.fromEntries(diagnoses.value.map(d=>[d.id,{evidenceDocumentIds:d.review?.evidenceDocumentIds||[],evaluationNote:'',stressorEventMonth:d.review?.stressor_event_month||'',reason:''}]));}catch(e){if(g===generation)error.value=e.response?.data?.error?.message||e.message;}finally{if(g===generation)loading.value=false;}}
-async function save(diagnosis){busy.value=true;error.value='';notice.value='';try{await (await clientApi()).post(`/medical-billing/diagnoses/${diagnosis.id}/review`,{agencyId:Number(props.agencyId),clientId:Number(props.clientId),...drafts.value[diagnosis.id],evaluationNote:drafts.value[diagnosis.id].evaluationNote.trim() || undefined},{skipGlobalLoading:true});notice.value='Diagnosis review recorded with your identity and timestamp.';await load();emit('changed');}catch(e){error.value=e.response?.data?.error?.message||e.message;}finally{busy.value=false;}}
+async function save(diagnosis){busy.value=true;error.value='';notice.value='';try{await (await clientApi()).post(props.transport ? `/clients/${props.clientId}/diagnosis-evidence/${diagnosis.id}` : `/medical-billing/diagnoses/${diagnosis.id}/review`,{agencyId:Number(props.agencyId),clientId:Number(props.clientId),...drafts.value[diagnosis.id],evaluationNote:drafts.value[diagnosis.id].evaluationNote.trim() || undefined},{skipGlobalLoading:true});notice.value='Diagnosis review recorded with your identity and timestamp.';await load();emit('changed');}catch(e){error.value=e.response?.data?.error?.message||e.message;}finally{busy.value=false;}}
 async function loadPermission(){
   const request=++permissionRequest;
   canManagePermission.value=false;

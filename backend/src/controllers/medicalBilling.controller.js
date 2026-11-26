@@ -15,7 +15,7 @@ import { assertClinicalBillingApproval } from '../services/billingClinicalApprov
 import { clinicalNoteSnapshotHash, ensureOriginalRevision, appendOriginalSignature, hasPendingRevision, getRevisionSummary, listPendingRevisionWork, appendRevisionAddendum } from '../services/clinicalNoteVersion.service.js';
 import { medicalCatalogActiveChoice } from '../services/serviceCodeInventoryPresentation.js';
 import { assertConfiguredTestingReferenceCodes } from '../services/testingCatalogClaimGuard.service.js';
-import { assertClientDiagnosisPolicy } from '../services/clinicalDiagnosisPolicy.service.js';
+import { assertClientDiagnosisPolicy, saveDiagnosisReview } from '../services/clinicalDiagnosisPolicy.service.js';
 import { assertClinicalSigner, CLINICAL_SIGNER_ROLES } from '../services/clinicalNoteSigningToken.service.js';
 import { getApprovedClinicalContext, assertClinicalVersionSubmission, clinicalVersionReference, approvedVersionBillingBlockers } from '../services/clinicalNoteVersionBilling.service.js';
 import { screeningEncounterProposal } from '../services/h0002EncounterDetails.js';
@@ -1995,6 +1995,12 @@ async function saveSignedIntakeDiagnoses({note, meta, session, actorUserId, db})
       clinicalSessionId: note.clinical_session_id, clinicalNoteId: note.id, icd10Code,
       description: row.description, justification: row.justification, setPrimary: row === primary
     }, { transaction: db });
+    if (/^F43\.2/.test(icd10Code) && row.stressorEventMonth) {
+      await saveDiagnosisReview({
+        agencyId: note.agency_id, clientId: note.client_id, diagnosisId: id, actorUserId,
+        input: {stressorEventMonth: row.stressorEventMonth, reason: 'Precipitating event month confirmed in the signed assessment.'}
+      }, db);
+    }
     saved.push({id, icd10Code, primary: row === primary});
   }
   const primaryId = saved.find(row => row.primary)?.id;

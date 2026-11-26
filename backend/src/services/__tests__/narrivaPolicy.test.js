@@ -95,9 +95,9 @@ describe('Narriva exact-content evidence policy',()=>{
   expect(result.findings[0].action).toBe('clinical_service');expect(result.findings[0].message).not.toContain('H2011');
   input.service.documentationCode='H2011';expect(deriveNarrivaCheck('service_code',input).findings).toEqual([]);
  });
- it('routes pro bono documentation corrections to the clinical service without treating free funding as clinical evidence',()=>{
+ it('reports insufficient service documentation without requesting a pro bono code change',()=>{
   const input=good();Object.assign(input.service,{code:'PRO-BONO SERVICE',documentationCode:'90837',proBono:true});input.facts.serviceDocumentationSupported=false;
-  expect(deriveNarrivaCheck('service_code',input).findings).toEqual([expect.objectContaining({id:'service_code:documentation',action:'clinical_service'})]);
+  expect(deriveNarrivaCheck('service_code',input).findings).toEqual([expect.objectContaining({id:'service_code:documentation',action:'edit_note'})]);
  });
  it('requires actual assessment evidence when mentioned, or records a bypass without verification',()=>{
   const input=good();input.facts.assessmentMentioned=true;

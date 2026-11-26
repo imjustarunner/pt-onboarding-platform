@@ -4,7 +4,7 @@
       <div class="ccn-head-main">
         <h3>{{ note.title || 'Clinical note' }}</h3>
         <p class="ccn-meta-line">
-          <span v-if="note.dateOfService">DOS {{ formatDos(note.dateOfService) }}</span>
+          <span v-if="note.dateOfService">Date of service {{ formatDos(note.dateOfService) }}</span>
           <span v-if="serviceCodeDisplay"> · {{ serviceCodeDisplay }}</span>
           <span v-if="note.noteType"> · {{ formatNoteType(note.noteType) }}</span>
         </p>
@@ -37,7 +37,7 @@
     <InternalDiagnosticCriteriaReview :agency-id="note.agencyId" :client-id="note.clientId" :note-id="note.id" />
     <ClinicalNoteVersionHistory ref="versionHistory" v-if="note.providerSignedAt && note.id && note.agencyId" :note-id="note.id" :agency-id="note.agencyId" :legacy-pending-service-details="note.pendingServiceDetails" :legacy-amendment="legacyPendingAmendment" prefer-pending @changed="onVersionChanged" />
 
-    <section v-if="hasSessionFacts" class="ccn-block ccn-facts" aria-label="Session details">
+    <section v-if="hasSessionFacts" class="ccn-block ccn-facts" aria-label="Session details" data-note-section="Encounter details">
       <h4 class="ccn-block-title">Session details</h4>
       <dl class="ccn-facts-grid">
         <div v-if="note.sessionTiming?.appointmentId">
@@ -81,7 +81,7 @@
       </dl>
     </section>
 
-    <section v-if="diagnosisRows.length || diagnosticJustification" class="ccn-block" aria-label="Diagnosis">
+    <section v-if="diagnosisRows.length || diagnosticJustification" class="ccn-block" aria-label="Diagnosis" data-note-section="Diagnoses">
       <div class="ccn-block-head">
         <h4 class="ccn-block-title">Diagnosis</h4>
         <button
@@ -100,7 +100,7 @@
       <p v-if="!diagnosisRows.length && diagnosticJustification" class="ccn-prose">{{ diagnosticJustification }}</p>
     </section>
 
-    <section v-if="objectiveRatings.length" class="ccn-block" aria-label="Treatment objective ratings">
+    <section v-if="objectiveRatings.length" class="ccn-block" aria-label="Treatment objective ratings" data-note-section="Treatment plan">
       <div class="ccn-block-head">
         <h4 class="ccn-block-title">Objective ratings</h4>
         <button type="button" class="ccn-copy-btn" @click="copyText(ratingsCopyText, 'ratings')">
@@ -141,7 +141,7 @@
       </div>
     </section>
 
-    <section v-if="showMse" class="ccn-block" aria-label="Mental status exam">
+    <section v-if="showMse" class="ccn-block" aria-label="Mental status exam" data-note-section="Mental status">
       <div class="ccn-block-head">
         <h4 class="ccn-block-title">Mental status</h4>
         <button v-if="mseCopyText" type="button" class="ccn-copy-btn" @click="copyText(mseCopyText, 'mse')">
@@ -160,7 +160,7 @@
       </ul>
     </section>
 
-    <section v-if="riskCopyText" class="ccn-block" aria-label="Risk assessment">
+    <section v-if="riskCopyText" class="ccn-block" aria-label="Risk assessment" data-note-section="Risk assessment">
       <div class="ccn-block-head">
         <h4 class="ccn-block-title">Risk</h4>
         <button type="button" class="ccn-copy-btn" @click="copyText(riskCopyText, 'risk')">
@@ -186,7 +186,7 @@
       </ul>
     </section>
 
-    <section v-if="medCopyText" class="ccn-block" aria-label="Medications">
+    <section v-if="medCopyText" class="ccn-block" aria-label="Medications" data-note-section="Assessments">
       <div class="ccn-block-head">
         <h4 class="ccn-block-title">Medications</h4>
         <button type="button" class="ccn-copy-btn" @click="copyText(medCopyText, 'meds')">
@@ -219,7 +219,7 @@
         </button>
       </div>
       <template v-else>
-        <article v-for="panel in panels" :key="panel.id" class="ccn-section">
+        <article v-for="panel in panels" :key="panel.id" :data-note-section="noteSectionNavigationLabel(panel.title)" class="ccn-section">
           <div class="ccn-section-head">
             <h5>
               <span v-if="panel.letter" class="ccn-letter">{{ panel.letter }}</span>
@@ -244,7 +244,7 @@
       </template>
     </section>
 
-    <section v-if="!compact && (providerAttestationStatement || supervisorCosignStatement || pastCosigns.length)" class="ccn-block ccn-esign" aria-label="Electronic signatures">
+    <section v-if="!compact && (providerAttestationStatement || supervisorCosignStatement || pastCosigns.length)" class="ccn-block ccn-esign" aria-label="Electronic signatures" data-note-section="Signature">
       <h4 class="ccn-block-title">Electronic signatures</h4>
       <p v-if="Number(note.clinicalVersion?.revisionNumber) > 1" class="ccn-field-hint">The original author signature below belongs to version 1. Note versions above identifies the signatures covering each amended version.</p>
       <button
@@ -363,7 +363,7 @@
       <p v-else class="ccn-field-hint">Clinical additions require the clinical author’s own signature. Billing changes can be proposed through Create amendment in Note versions.</p>
     </section>
 
-    <ConfidentialClinicalEntries v-if="!compact && note.id && note.clientId && note.agencyId && (note.canSignClinicalNote || Number(note.providerSignedByUserId) === Number(authStore.user?.id))" attached :note-id="note.id" :agency-id="note.agencyId" :client-id="note.clientId" />
+    <ConfidentialClinicalEntries data-note-section="Confidential addendums" v-if="!compact && note.id && note.clientId && note.agencyId && (note.canSignClinicalNote || Number(note.providerSignedByUserId) === Number(authStore.user?.id))" attached :note-id="note.id" :agency-id="note.agencyId" :client-id="note.clientId" />
     <SessionSupportingMaterials v-if="!compact && note.clinicalSessionId" :key="note.clinicalSessionId" :clinical-session-id="note.clinicalSessionId" />
 
     <section v-if="!compact && canAmendBilling && note.clinicalSessionId" class="ccn-block" aria-label="Billing amendment">
@@ -379,6 +379,7 @@ import { canAccessMedicalBilling } from '../../config/medicalBillingAccess.js';
 import ConfidentialClinicalEntries from './ConfidentialClinicalEntries.vue';
 import SessionSupportingMaterials from './SessionSupportingMaterials.vue';
 import ClinicalNoteVersionHistory from './ClinicalNoteVersionHistory.vue';
+import { noteSectionNavigationLabel } from '../../utils/clinicalNoteNavigation.js';
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api.js';
 import { MSE_DOMAINS } from '../../utils/noteAidSessionQueue.js';
@@ -1000,4 +1001,10 @@ async function copyFullNote() {
 .ccn-field-hint { font-size: 0.75rem; color: #64748b; margin: 0 0 8px; }
 .ccn-muted { font-size: 0.8rem; color: #64748b; }
 .ccn-error { color: #b91c1c; font-size: 0.8rem; }
+.ccn-view:not(.ccn-view--compact){background:#fff;border:1px solid #d1d9e1;border-radius:2px;padding:12px;color:#202a34}
+.ccn-view:not(.ccn-view--compact) .ccn-block{background:#fff;border:0;border-top:1px solid #d6dee6;border-radius:0;padding:8px 0;margin:7px 0}
+.ccn-view:not(.ccn-view--compact) .ccn-head,.ccn-view:not(.ccn-view--compact) .ccn-section{background:#fff;border-radius:0;padding:7px 0}
+.ccn-view:not(.ccn-view--compact) .ccn-block-title{font-size:.9rem}
+.ccn-view:not(.ccn-view--compact) .ccn-prose{line-height:1.55}
+@media(min-width:720px){.ccn-view:not(.ccn-view--compact) .ccn-mse-list{grid-template-columns:1fr 1fr;column-gap:18px}}
 </style>

@@ -1362,7 +1362,8 @@ describe('ClinicalNoteGeneratorView smoke', () => {
       expect(state.draftId).toBeNull();
       await flushPromises();
       expect(retiredDraftWrites).toBe(0);
-      for (const suffix of ['/sessions/9/notes','/reviews']) expect(vi.mocked(api.post).mock.calls.filter(([url])=>url.endsWith(suffix))).toHaveLength(1);
+      expect(vi.mocked(api.post).mock.calls.filter(([url])=>url.endsWith('/sessions/9/notes'))).toHaveLength(1);
+      expect(vi.mocked(api.post).mock.calls.filter(([url])=>url.endsWith('/reviews'))).toHaveLength(0);
     } finally {vi.mocked(api.patch).mockReset().mockResolvedValue({data:{}});wrapper.unmount();}
   });
 
