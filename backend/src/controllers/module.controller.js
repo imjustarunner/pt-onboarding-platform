@@ -1,5 +1,6 @@
 import Module from '../models/Module.model.js';
 import { canReadTrainingModule } from '../middleware/trainingModuleAccess.middleware.js';
+import { loadTrainingFingerprintingGuide } from '../services/hireFingerprintingGuide.service.js';
 import ModuleCopyService from '../services/moduleCopy.service.js';
 import User from '../models/User.model.js';
 import TaskAssignmentService from '../services/taskAssignment.service.js';
@@ -87,7 +88,8 @@ export const getModuleById = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Module not available' } });
     }
 
-    res.json(module);
+    const fingerprintingGuide = await loadTrainingFingerprintingGuide(module);
+    res.json(fingerprintingGuide ? { ...module, fingerprintingGuide } : module);
   } catch (error) {
     next(error);
   }

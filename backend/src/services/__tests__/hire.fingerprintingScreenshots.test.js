@@ -6,7 +6,8 @@ vi.mock('../../../../frontend/src/navigation/hireFingerprintingScreenshots.js', 
  return { ...actual, FINGERPRINTING_SCREENSHOTS: [...actual.FINGERPRINTING_SCREENSHOTS, { sha256: fixture.sha, caption: 'Synthetic fixture' }] };
 });
 import { FINGERPRINTING_SCREENSHOTS, addFingerprintingScreenshots } from '../../../../frontend/src/navigation/hireFingerprintingScreenshots.js';
-import { loadHireFingerprintingGuide, readHireFingerprintingScreenshot } from '../hireFingerprintingGuide.service.js';
+import { loadHireFingerprintingGuide, loadTrainingFingerprintingGuide, readHireFingerprintingScreenshot } from '../hireFingerprintingGuide.service.js';
+import { denverFingerprintingStep } from '../../../../frontend/src/navigation/hireDocuments.js';
 let db, bucket, download, file;
 beforeEach(() => {
  db = { execute: vi.fn(async () => [[{ id: 9000 }]]) };
@@ -29,6 +30,15 @@ it('keeps safe inline and library image blocks while removing active image conte
  const guide = await loadHireFingerprintingGuide(9000, db);
  expect(guide.html).toContain('https://example.invalid/inline.png');expect(guide.html).toContain('https://example.invalid/block.png');
  expect(guide.html).not.toMatch(/onerror|javascript:|<script/i);
+});
+it('uses the same current instructions and screenshots for the owning training course', async () => {
+ db.execute.mockResolvedValue([[{ module_id: 123, prehire_settings: { denver_fingerprinting_instructions: 'Separate from the employment background check. Contact Rachel.' }, content_type: 'text', content_data: { content: '<ol><li><h3>Open Cabiond</h3><p>Edited course wording.</p></li></ol>' } }]]);
+ const module = { id: 123, agency_id: 9000, title: denverFingerprintingStep.title };
+ const guide = await loadTrainingFingerprintingGuide(module, db);
+ expect(guide).toMatchObject({ moduleId: 123, instructions: 'Separate from the employment background check. Contact Rachel.' });
+ expect(guide.html).toContain('Edited course wording.');expect(guide.html).toContain(FINGERPRINTING_SCREENSHOTS[0].sha256);
+ expect(await loadTrainingFingerprintingGuide({ ...module, id: 124 }, db)).toBeNull();
+ db.execute.mockClear();expect(await loadTrainingFingerprintingGuide({ ...module, title: 'Other course' }, db)).toBeNull();expect(db.execute).not.toHaveBeenCalled();
 });
 it('reads only the immutable private object and verifies its original bytes', async () => {
  expect(await readHireFingerprintingScreenshot(9000, fixture.sha, { db, bucket })).toEqual(fixture.bytes);

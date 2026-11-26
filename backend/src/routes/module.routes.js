@@ -5,6 +5,7 @@ import { getAllModules, getModuleById, createModule, updateModule, archiveModule
 import { getModuleFormDefinition, submitModuleForm, uploadModuleFormFile } from '../controllers/moduleForm.controller.js';
 import { saveResponse, getResponses } from '../controllers/moduleResponse.controller.js';
 import { getLessonNotes, saveLessonNotes } from '../controllers/trainingLessonNote.controller.js';
+import { trainingFingerprintingScreenshot } from '../controllers/hireFingerprintingScreenshot.controller.js';
 import { insertLibraryItemIntoModule } from '../controllers/trainingContentLibrary.controller.js';
 import { authenticate, requireBackofficeAdmin, requireSuperAdmin, requireCapability } from '../middleware/auth.middleware.js';
 
@@ -47,6 +48,7 @@ router.post('/:id/content/from-library', requireBackofficeAdmin, [
 router.get('/:moduleId/form-definition', getModuleFormDefinition);
 router.post('/:moduleId/form-upload', uploadModuleFormFile);
 router.get('/:id', getModuleById);
+router.get('/:id/fingerprinting-screenshots/:screenshotId', trainingFingerprintingScreenshot);
 router.get('/:id/copy-preview', requireBackofficeAdmin, getCopyPreview);
 router.post('/', requireBackofficeAdmin, validateModuleCreate, createModule);
 router.post('/shared', requireSuperAdmin, validateModuleCreate, createSharedModule);

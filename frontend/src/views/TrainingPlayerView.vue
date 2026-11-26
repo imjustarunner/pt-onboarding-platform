@@ -70,8 +70,10 @@
 
             <p v-if="lessonMeta" class="lesson-meta">{{ lessonMeta }}</p>
 
+            <FingerprintingTrainingGuide v-if="fingerprintingGuide" :guide="fingerprintingGuide" :module-id="module.id" :http="api" :on-demand="onDemand" />
+
             <TrainingBlockRenderer
-              v-for="(block, index) in content"
+              v-for="(block, index) in displayedContent"
               :key="block.id || index"
               :block="block"
               :index="index"
@@ -185,7 +187,7 @@
             <div v-if="!content.length" class="empty">This lesson has no content yet.</div>
 
             <p v-if="!isPrehireMode && !isCompleted && !quizCompletionSatisfied" role="status">Pass the quiz before marking this lesson complete.</p>
-            <div class="lesson-nav">
+            <div v-if="!fingerprintingGuide || !readOnly" class="lesson-nav">
               <button
                 type="button"
                 class="btn btn-secondary"
@@ -228,7 +230,7 @@
           </main>
 
           <aside class="lesson-aside">
-            <div class="progress-card">
+            <div v-if="!fingerprintingGuide || !readOnly" class="progress-card">
               <div class="progress-label">
                 <span>{{ courseProgressPct }}% Complete</span>
                 <span class="muted">{{ completedLessonCount }} of {{ outlineLessons.length || 1 }} lessons</span>
@@ -303,6 +305,7 @@ import axios from 'axios';
 import api from '../services/api';
 import ClinicalMultiSelect from '../components/profile/ClinicalMultiSelect.vue';
 import TrainingBlockRenderer from '../components/training/TrainingBlockRenderer.vue';
+import FingerprintingTrainingGuide from '../components/training/FingerprintingTrainingGuide.vue';
 import TimeTracker from '../components/TimeTracker.vue';
 import FocusStepTimeTracker from '../components/FocusStepTimeTracker.vue';
 import PoweredByFooter from '../components/PoweredByFooter.vue';
@@ -352,6 +355,8 @@ const isPreview = computed(() => {
   return p === '1' || p === 'true' || p === true;
 });
 const readOnly = computed(() => props.onDemand === true);
+const fingerprintingGuide = computed(() => !isPrehireMode.value && module.value?.fingerprintingGuide?.html ? module.value.fingerprintingGuide : null);
+const displayedContent = computed(() => fingerprintingGuide.value ? content.value.filter(block => !['text', 'image'].includes(block.content_type)) : content.value);
 const isPrehireMode = computed(() =>
   route.meta?.isPrehireModule === true
   || Boolean(route.params.token && String(route.path || '').includes('/pre-hire/'))
