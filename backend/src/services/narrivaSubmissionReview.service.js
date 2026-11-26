@@ -15,7 +15,7 @@ export function createSubmissionReviewer({latest=latestNarrivaStatus,create=crea
    if(saved && saved.status!=='stale')return saved;
    const reviewRequest=Object.create(req);
    reviewRequest.body={agencyId,noteId};
-   return create(reviewRequest);
+   return create(reviewRequest,{submitted:true});
   })();
   pending.set(key,job);
   try{return await job;}finally{pending.delete(key);}

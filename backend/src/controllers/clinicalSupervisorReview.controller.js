@@ -1,3 +1,4 @@
+import { maybeEncryptNotePayload } from '../services/clinicalNoteCrypto.service.js';
 import { requireStaffPlanActor } from '../utils/planStaffAccess.js';
 import { getMedicalBillingFlags } from '../services/medicalBillingFlags.service.js';
 import clinicalPool from '../config/clinicalDatabase.js';
@@ -36,7 +37,7 @@ export async function postSupervisorReview(req,res,next) {
     const note = await noteScope(req,true);
     const request = await lockedNoteMutation({noteId:note.id,agencyId:note.agency_id,contentHash:req.body.contentHash || '',snapshotToken:req.body.reviewSnapshotToken,mutate:async({db,note:locked,meta,current})=>{
       const revision = await ensureLockedHistory(db,locked);
-      const r = appendReviewRequest(meta,{action:req.body.action,message:req.body.message,actorUserId:req.user.id,contentHash:current.hash});
+      const r = appendReviewRequest(meta,{action:req.body.action,message:req.body.message,correction:req.body.correction,allowDocumentationAddendum:Boolean(locked.supervisor_cosigned_at && req.body.documentationOnly === true),actorUserId:req.user.id,contentHash:current.hash});
       r.revisionId=revision.id; r.revisionContentHash=revision.contentHash;
       await reviewAudit(db,locked,revision,r,req.user.id,'review_requested');
       return r;
@@ -79,7 +80,7 @@ export async function listMyNoteReviewWork(req,res,next) {
     const [clients] = ids.length ? await pool.execute(`SELECT id,agency_id,full_name,initials FROM clients WHERE id IN (${ids.map(()=>'?').join(',')})`,ids) : [[]];
     const items = notes.flatMap(note=>{
       const agencyId=Number(note.agency_id), meta=parseObject(note.metadata_json), client=clients.find(c=>Number(c.id)===Number(note.client_id));
-      return reviewRequestsForDisplay(meta).filter(r=>!r.resolvedAt&&!r.acknowledgedAt&&!r.dismissedAt).map(r=>({id:`review_${note.id}_${r.id}`,requestId:r.id,clinicalNoteId:note.id,agencyId,clientId:note.client_id,clientName:client?.full_name || client?.initials || meta.clientName || '',title:note.title,date:meta.dateOfService || null,serviceCode:meta.serviceCode || null,status:r.action,action:r.action,message:r.message,createdByUserId:r.createdByUserId,createdAt:r.createdAt,acknowledgedAt:r.acknowledgedAt,source:r.source,revisionId:r.revisionId || null,revisionContentHash:r.revisionContentHash || r.contentHash || null}));
+      return reviewRequestsForDisplay(meta).filter(r=>!r.resolvedAt&&!r.acknowledgedAt&&!r.dismissedAt).map(r=>({id:`review_${note.id}_${r.id}`,requestId:r.id,clinicalNoteId:note.id,agencyId,clientId:note.client_id,clientName:client?.full_name || client?.initials || meta.clientName || '',title:note.title,date:meta.dateOfService || null,serviceCode:meta.serviceCode || null,status:r.action,action:r.action,resolutionMode:r.resolutionMode,message:r.message,createdByUserId:r.createdByUserId,createdAt:r.createdAt,acknowledgedAt:r.acknowledgedAt,source:r.source,revisionId:r.revisionId || null,revisionContentHash:r.revisionContentHash || r.contentHash || null}));
     });
     for (const item of authorWork) {
       const client=clients.find(c=>Number(c.id)===item.clientId && Number(c.agency_id)===item.agencyId);
@@ -94,4 +95,32 @@ export async function correctNoteServiceDetails(req,res,next) {
     await noteScope(req,true);
     throw policyError(409,'Open Amendments and versions to correct the encounter, then sign and submit the exact amended version. The original signed note and its approvals are preserved.');
   } catch(e) { next(e); }
+}
+
+export async function addNoteReviewToSupervisionAgenda(req,res,next) {
+  let db;
+  try {
+    const note=await noteScope(req);
+    const request=(parseObject(note.metadata_json).reviewRequests || []).find(item=>item.id===req.params.requestId && item.action==='review_acknowledge' && item.source==='supervisor');
+    if (!request || !/^[a-f0-9-]{36}$/i.test(request.id) || Number(req.user.id)!==noteAuthorId(note)) {
+      throw policyError(404,'Supervision comment not found for this note.');
+    }
+    db=await pool.getConnection();
+    await db.beginTransaction();
+    const [[meeting]]=await db.execute(`SELECT id FROM supervision_sessions WHERE agency_id=? AND supervisor_user_id=?
+      AND supervisee_user_id=? AND LOWER(COALESCE(session_type,'individual'))='individual'
+      AND COALESCE(UPPER(status),'')<>'CANCELLED' AND start_at>UTC_TIMESTAMP()
+      ORDER BY start_at,id LIMIT 1 FOR UPDATE`,[note.agency_id,request.createdByUserId,req.user.id]);
+    if (!meeting) throw policyError(409,'No upcoming individual supervision meeting was found with this supervisor.');
+    await db.execute(`INSERT INTO meeting_agendas(agency_id,meeting_type,meeting_id,created_by_user_id)
+      VALUES(?,'supervision_session',?,?) ON DUPLICATE KEY UPDATE id=id`,[note.agency_id,meeting.id,req.user.id]);
+    const [[agenda]]=await db.execute(`SELECT id FROM meeting_agendas WHERE agency_id=? AND meeting_type='supervision_session' AND meeting_id=?`,[note.agency_id,meeting.id]);
+    const link='/note-aid?'+new URLSearchParams({agencyId:note.agency_id,noteId:note.id,reviewRequest:request.id});
+    await db.execute(`INSERT INTO meeting_agenda_items(meeting_agenda_id,title,notes,created_by_user_id,generated_key)
+      VALUES(?,?,?,?,?) ON DUPLICATE KEY UPDATE id=id`,
+    [agenda.id,maybeEncryptNotePayload('Clinical note discussion'),maybeEncryptNotePayload(link),req.user.id,`note_review:${request.id}`]);
+    await db.commit();
+    res.status(201).json({meetingId:meeting.id});
+  } catch(e) { if(db)await db.rollback(); next(e); }
+  finally { db?.release(); }
 }

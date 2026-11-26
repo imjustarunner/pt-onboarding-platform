@@ -479,12 +479,27 @@ export async function appendRevisionAddendum(input, source = clinicalPool) {
     const note = await lockedNote(db, input.noteId, input.agencyId);
     await ensureOriginalRevision({ db, note, session: await sessionFor(db, note) });
     const head = await heads(db, note.id, note.agency_id), revision = await revisionRow(db, note.id, note.agency_id, head.effective_revision_id);
+    const metadata = object(note.metadata_json);
+    const request = input.requestId ? (metadata.reviewRequests || []).find(item => item.id === input.requestId && item.resolutionMode === 'signed_addendum') : null;
+    if (input.requestId && (!request || Number(note.provider_signed_by_user_id || note.created_by_user_id) !== id(input.actorUserId)
+      || Number(request.revisionId) !== Number(revision.id) || input.entryKind !== 'addendum')) {
+      throw fail(409, 'Open the current documentation request and sign its addendum as the original author.');
+    }
+    if (request?.resolvedAt) {
+      return {id:request.addendumId,revisionId:Number(revision.id),signatureId:request.resolutionSignatureId,
+        contentHash:request.resolutionContentHash,signedAt:request.resolvedAt};
+    }
     const [result] = await db.execute(`INSERT INTO clinical_note_addenda(clinical_note_id,agency_id,client_id,body,created_by_user_id,entry_kind,entry_reason,author_signed_at)
       VALUES(?,?,?,?,?,?,?,CURRENT_TIMESTAMP(6))`, [note.id, note.agency_id, note.client_id, maybeEncryptNotePayload(input.body.trim()), input.actorUserId, input.entryKind, input.reason.trim()]);
     const [[addition]] = await db.execute('SELECT id,author_signed_at FROM clinical_note_addenda WHERE id=?', [result.insertId]);
     const contentHash = hash({ body: input.body.trim(), reason: input.reason.trim(), entryKind: input.entryKind, actorUserId: id(input.actorUserId), authorSignedAt: iso(addition.author_signed_at), revisionId: Number(revision.id) });
     const signatureId = await insertSignature(db, { ...revision, content_hash: contentHash }, id(input.actorUserId), 'addendum_sign',
       { addendumId: Number(result.insertId), entryKind: input.entryKind, signedByUserId: id(input.actorUserId), signedAt: iso(addition.author_signed_at), boundRevisionContentHash: revision.content_hash });
+    if (request) {
+      Object.assign(request,{resolvedAt:iso(addition.author_signed_at),resolvedByUserId:id(input.actorUserId),
+        addendumId:Number(result.insertId),resolutionSignatureId:signatureId,resolutionContentHash:contentHash});
+      await db.execute('UPDATE clinical_notes SET metadata_json=? WHERE id=? AND agency_id=?',[JSON.stringify(metadata),note.id,note.agency_id]);
+    }
     committedReference = { agencyId: note.agency_id, clientId: note.client_id, sourceKind: 'note_entry', sourceId: result.insertId };
     return { id: Number(result.insertId), revisionId: Number(revision.id), signatureId, contentHash, signedAt: iso(addition.author_signed_at) };
   });

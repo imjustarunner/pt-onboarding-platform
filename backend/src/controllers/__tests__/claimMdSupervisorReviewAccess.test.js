@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-const m=vi.hoisted(()=>({clinical:vi.fn(),main:vi.fn(),find:vi.fn(),access:vi.fn(),policy:vi.fn(),mutation:vi.fn(),staff:vi.fn(),flags:vi.fn(),ensureHistory:vi.fn(),summary:vi.fn(),appendReview:vi.fn(),agencies:vi.fn(),revisionWork:vi.fn()}));
+const m=vi.hoisted(()=>({clinical:vi.fn(),main:vi.fn(),mainConnection:vi.fn(),find:vi.fn(),access:vi.fn(),policy:vi.fn(),mutation:vi.fn(),staff:vi.fn(),flags:vi.fn(),ensureHistory:vi.fn(),summary:vi.fn(),appendReview:vi.fn(),agencies:vi.fn(),revisionWork:vi.fn()}));
 vi.mock('../../config/clinicalDatabase.js',()=>({default:{execute:m.clinical}}));
-vi.mock('../../config/database.js',()=>({default:{execute:m.main},onTableWrite:vi.fn()}));
+vi.mock('../../config/database.js',()=>({default:{execute:m.main,getConnection:m.mainConnection},onTableWrite:vi.fn()}));
 vi.mock('../../models/clinical/ClinicalNote.model.js',()=>({default:{findById:m.find}}));
 vi.mock('../../models/User.model.js',()=>({default:{getAgencies:m.agencies}}));
 vi.mock('../../services/clinicalEligibility.service.js',()=>({default:{ensureAgencyAccess:m.access}}));
@@ -11,7 +11,7 @@ vi.mock('../../services/clinicalSupervisorReview.service.js',()=>({lockedNoteMut
 vi.mock('../../services/clinicalNoteVersion.service.js',()=>({ensureOriginalRevision:m.ensureHistory,getRevisionSummary:m.summary,listPendingRevisionWork:m.revisionWork}));
 vi.mock('../../utils/planStaffAccess.js',()=>({requireStaffPlanActor:m.staff}));
 vi.mock('../../services/medicalBillingFlags.service.js',()=>({getMedicalBillingFlags:m.flags}));
-import {postSupervisorReview,correctNoteServiceDetails,listMyNoteReviewWork} from '../clinicalSupervisorReview.controller.js';
+import {postSupervisorReview,correctNoteServiceDetails,listMyNoteReviewWork,addNoteReviewToSupervisionAgenda} from '../clinicalSupervisorReview.controller.js';
 const response=()=>{const res={json:vi.fn(),status:vi.fn()};res.status.mockReturnValue(res);return res;};
 describe('supervisor action tenant and author access',()=>{
   const note={id:4,agency_id:2,client_id:3,created_by_user_id:5,provider_signed_by_user_id:5,provider_signed_at:'2026-11-02',clinical_session_id:7};
@@ -77,4 +77,30 @@ it('requesting changes preserves the original supervisor approval and binds dura
   expect(meta.supervisorCosign).toBe(originalApproval);expect(meta.supervisorQueue).toBeUndefined();
   expect(m.clinical.mock.calls.some(([sql])=>sql.includes('supervisor_cosigned_at=NULL'))).toBe(false);
   expect(m.clinical).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO clinical_note_revision_audit'),expect.arrayContaining([31,'review_requested','version-hash']));
+});
+
+
+it('adds a secure agenda pointer to the next individual meeting with the reviewer, without copying the comment',async()=>{
+  const requestId='cfa86b93-c701-4bcd-bfeb-116871eafca5';
+  const note={id:4,agency_id:2,client_id:3,provider_signed_by_user_id:5,metadata_json:{reviewRequests:[
+    {id:requestId,action:'review_acknowledge',source:'supervisor',createdByUserId:9,messageEncrypted:'synthetic private clinical feedback'}
+  ]}};
+  m.find.mockResolvedValue(note);m.access.mockResolvedValue(true);
+  const db={beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn(),
+    execute:vi.fn(async sql=>sql.includes('FROM supervision_sessions')?[[{id:44}]]:sql.includes('SELECT id FROM meeting_agendas')?[[{id:85}]]:[{}])};
+  m.mainConnection.mockResolvedValue(db);
+  const req={params:{noteId:4,requestId},body:{agencyId:2},user:{id:5}};
+  const res=response(),next=vi.fn();
+  await addNoteReviewToSupervisionAgenda(req,res,next);
+  expect(next).not.toHaveBeenCalled();
+  expect(db.execute).toHaveBeenCalledWith(expect.stringContaining("='individual'"),[2,9,5]);
+  expect(db.execute).toHaveBeenCalledWith(expect.stringContaining('ON DUPLICATE KEY'),[85,'Clinical note discussion',
+    '/note-aid?agencyId=2&noteId=4&reviewRequest='+requestId,5,'note_review:'+requestId]);
+  expect(JSON.stringify(db.execute.mock.calls)).not.toContain('private clinical feedback');
+  expect(db.commit).toHaveBeenCalled();
+  expect(res.json).toHaveBeenCalledWith({meetingId:44});
+  m.mainConnection.mockClear();
+  await addNoteReviewToSupervisionAgenda({...req,user:{id:11}},response(),next);
+  expect(next).toHaveBeenCalledWith(expect.objectContaining({status:404}));
+  expect(m.mainConnection).not.toHaveBeenCalled();
 });

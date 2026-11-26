@@ -11,7 +11,7 @@
       <button type="submit" :disabled="disabled || participants !== 'Client Only' && !participantsDetail.trim()">Confirm participants</button>
     </template>
     <template v-else-if="kind === 'encounter'">
-      <div class="narriva-inline-finding__grid">
+      <div v-if="!deliveryConflict" class="narriva-inline-finding__grid">
         <label v-if="!finding.id?.endsWith(':times')">Date of service<input v-model="date" type="date" /></label>
         <label>Start<input :value="start" @input="editTime('startTime', $event.target.value)" type="time" /></label>
         <label>End<input :value="end" @input="editTime('endTime', $event.target.value)" type="time" /></label>
@@ -90,6 +90,7 @@ watch([
   answer.value = '';
   saved.value = false;
 }, { immediate: true });
+const deliveryConflict = computed(() => /:(location|method)_mismatch$/.test(props.finding.id || ''));
 const kind = computed(() => props.finding.id?.endsWith(':consent') ? 'consent' : ['participants', 'review_participants'].includes(props.finding.action) ? 'participants' : props.finding.action === 'encounter' ? 'encounter' : props.checkId === 'risk_safety' ? 'risk' : props.finding.action === 'clinical_context' ? /:presenting$/.test(props.finding.id || '') ? 'presenting' : 'diagnosis' : props.finding.action === 'service_code' || props.finding.action === 'clinical_service' ? 'service' : props.finding.action === 'interactive_complexity' ? 'complexity' : 'narrative');
 const answerLabel = computed(() => /:interventions$/i.test(props.finding.id) ? 'Describe the assessment, planning, coordination or intervention activities performed' : /engagement|response/i.test(props.finding.id) ? 'Describe the client’s engagement and response to the interventions' : /necessity|presenting/i.test(props.finding.id) ? 'Describe recent symptoms, functional needs, and the reason for this service' : /intervention/i.test(props.finding.id) ? 'Describe the intervention and how it was used' : 'Add the missing session details');
 const answerHint = computed(() => 'Use only what was observed, reported, or performed in this session. Use roles instead of names.');

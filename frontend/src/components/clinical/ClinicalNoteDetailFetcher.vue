@@ -2,7 +2,7 @@
   <div class="cndf">
     <div v-if="loading" class="cndf-muted">Loading clinical note…</div>
     <div v-else-if="error" class="cndf-error">{{ error }}</div>
-    <ClinicalNoteReadOnlyView ref="readOnlyView" v-else-if="note" :note="note" :compact="compact" @amended="onAmended" />
+    <ClinicalNoteReadOnlyView ref="readOnlyView" v-else-if="note" :note="note" :compact="compact" :linked-review-id="linkedReviewId" @amended="onAmended" />
   </div>
 </template>
 
@@ -14,12 +14,13 @@ import ClinicalNoteReadOnlyView from './ClinicalNoteReadOnlyView.vue';
 const props = defineProps({
   noteId: { type: [Number, String], required: true },
   agencyId: { type: [Number, String], default: null },
-  compact: { type: Boolean, default: false }
+  compact: { type: Boolean, default: false },
+  linkedReviewId: { type: String, default: '' }
 });
 
 const emit = defineEmits(['amended']);
 const readOnlyView = ref(null);
-defineExpose({ openRevision: revisionId => readOnlyView.value?.openRevision(revisionId) });
+defineExpose({ refresh:()=>load(),openRevision: revisionId => readOnlyView.value?.openRevision(revisionId) });
 async function onAmended(result) { emit('amended', result); await load(); }
 
 const loading = ref(false);

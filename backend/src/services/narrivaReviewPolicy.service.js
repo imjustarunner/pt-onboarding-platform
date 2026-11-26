@@ -113,7 +113,7 @@ export function deriveNarrivaCheck(id,{facts,encounter,clinical,service},{standa
   required(nonempty(encounter.participants),'participants','Select the participants who attended.','participants');
   if(facts.clientPresent===false && encounter.clientPresent===true)add('client_absent','The narrative describes the client as absent. Update participants or confirm your note is correct.','participants');
   if(facts.clientPresent===true && encounter.clientPresent===false)add('client_present','The narrative describes the client attending. Reconcile participants.','participants');
-  if(facts.additionalParticipants===true && !encounter.additionalParticipantsDocumented)add('additional','Did another person attend this session? Confirm who attended or clarify that they were only discussed.','participants',false);
+  if(facts.additionalParticipants===true && !encounter.additionalParticipantsDocumented)add('additional','Did another person attend this session? Confirm who attended or clarify that they were only discussed.','participants');
   if(facts.crisisService===true && ['90837','H0004'].includes(documentationCode)) {
    const suggestion=service.crisisSuggestion;
    const message=service.proBono===true
@@ -136,8 +136,8 @@ export function deriveNarrivaCheck(id,{facts,encounter,clinical,service},{standa
   required(!testNeedsTelehealthLocation && service.modalityAllowed!==false || !nonempty(encounter.modality),'method_location','Confirm the actual delivery method and location in the encounter details.','encounter',false);
   if(profile.clientPresent!==false && String(encounter.placeOfService)==='02')required(nonempty(encounter.clientLocationDescription),'client_location','Describe where the client participated during the virtual session.','encounter',false);
   required(encounter.consentConfirmed===true,'consent','Confirm consent to participate in this session.','encounter',false);
-  if(facts.locationMatches===false)add('location_mismatch','The narrative describes a different location than the session header. Update the location here.','encounter',false);
-  if(facts.modalityMatches===false)add('method_mismatch','The narrative describes a different delivery method than the session header. Update in person, video, or phone here.','encounter',false);
+  if(facts.locationMatches===false)add('location_mismatch','The narrative describes a different location than the session header. Update the location here.','encounter');
+  if(facts.modalityMatches===false)add('method_mismatch','The narrative describes a different delivery method than the session header. Update in person, video, or phone here.','encounter');
  }
  if(id==='necessity_interventions') {
   if(profile.requireDiagnosis && (!intake || !preGeneration))required(clinical.hasDiagnosis && clinical.hasJustification,'diagnosis','Add the clinical diagnosis and its service justification.','clinical_context');

@@ -23,7 +23,7 @@ import { logNoteAidChartEvent } from '../services/noteAidChartAudit.service.js';
 import { fullProgressNoteRequiresSession, assertActualProgressSessionSnapshot } from '../services/clinicalProgressSessionGate.service.js';
 import { assertLiveClearinghouseAgency, isSyntheticClearinghouseAgency } from '../services/syntheticClearinghouseGuard.service.js';
 import { parseObject } from '../services/supervisedBillingPolicy.service.js';
-import { sessionLocationLabel, reviewSnapshotToken, reviewRequestsForDisplay, effectiveServiceDetails, pendingServiceDetails, assertNoUnresolvedChanges, assertServiceDetailsComplete, markSupervisorQueue, synchronizeSupervisorQueue } from '../services/clinicalSupervisorReview.service.js';
+import { sessionLocationLabel, reviewSnapshotToken, reviewRequestsForDisplay, effectiveServiceDetails, pendingServiceDetails, assertNoUnresolvedChanges, appendReviewRequest, assertServiceDetailsComplete, markSupervisorQueue, synchronizeSupervisorQueue } from '../services/clinicalSupervisorReview.service.js';
 import { validateScreeningSignature, completeH0002Screening, loadScreeningSource, H0002_SOURCE } from '../services/h0002ScreeningWorkflow.service.js';
 import { providerBillingNpi } from '../services/providerBillingNpi.service.js';
 import { assignedNoteLocations } from '../services/assignedNoteLocations.service.js';
@@ -2435,6 +2435,17 @@ export const cosignClinicalNote = async (req, res, next) => {
       ? `${signerLabel}, reviewed and signed this note and all attached amendments/addenda and approved their ${approvalPurpose} under their license on ${formatAttestationClock(cosignedAtIso)}.`
       : `Supervisor reviewed and signed this note and all attached amendments/addenda and approved their ${approvalPurpose} on ${formatAttestationClock(cosignedAtIso)}.`;
 
+    if (req.body.supervisorRequest) {
+      const {message,correction}=req.body.supervisorRequest;
+      const reviewRequest=appendReviewRequest(meta,{action:correction?'changes_needed':'review_acknowledge',message,correction,
+        allowDocumentationAddendum:Boolean(correction),actorUserId:req.user.id,contentHash:current.hash});
+      reviewRequest.revisionId=originalRevision.id;
+      reviewRequest.revisionContentHash=originalRevision.content_hash;
+      await cosignDb.execute(`INSERT INTO clinical_note_revision_audit
+        (clinical_note_id,agency_id,revision_id,event_type,actor_user_id,content_hash,event_json) VALUES(?,?,?,?,?,?,?)`,
+        [note.id,note.agency_id,originalRevision.id,'review_requested',req.user.id,originalRevision.content_hash,
+          JSON.stringify({requestId:reviewRequest.id,action:reviewRequest.action,resolutionMode:reviewRequest.resolutionMode})]);
+    }
     if (meta.supervisorCosign) meta.supervisorCosignHistory = [...(meta.supervisorCosignHistory || []),meta.supervisorCosign];
     const queueMarker = markSupervisorQueue(meta,note,req.user.id,'signed');
     meta.supervisorCosign = {
@@ -4003,7 +4014,7 @@ export const createClinicalNoteAddendum = async (req, res, next) => {
       return res.status(409).json({error:{message:'Create a linked amended version for corrections to signed content or billing details. Addenda add independently signed information.'}});
     }
     const addition = await appendRevisionAddendum({noteId,agencyId:note.agency_id,actorUserId:req.user.id,
-      body:bodyText,entryKind:req.body.entryKind,reason:req.body.reason,authorAttested:req.body.authorAttested});
+      body:bodyText,entryKind:req.body.entryKind,reason:req.body.reason,authorAttested:req.body.authorAttested,requestId:req.body.requestId});
     await logAuditEvent(req, {agencyId:note.agency_id,actionType:'clinical_note_addendum_added',targetType:'clinical_note',targetId:noteId,
       metadata:{noteId,clientId:Number(note.client_id),revisionId:addition.revisionId,signatureId:addition.signatureId,contentHash:addition.contentHash}});
     return res.status(201).json({addenda:await listNoteAddenda(noteId),addition,supervisorSignoffRequired:false,claimTransmitted:false});

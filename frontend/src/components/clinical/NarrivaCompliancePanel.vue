@@ -24,7 +24,7 @@
           <template v-else>
             <slot name="finding" :check-id="check.id" :finding="finding" />
             <button v-if="!$slots.finding && finding.action && finding.action !== 'none'" type="button" :disabled="busy || readOnly" @click="$emit('action', { checkId: check.id, finding })">{{ actionLabel(finding.action) }}</button>
-            <button v-if="finding.canBypass && !readOnly" type="button" :disabled="busy || review?.status === 'stale'" @click="openBypass = openBypass === finding.id ? '' : finding.id">Keep my note as it is</button>
+            <button v-if="finding.canBypass && !readOnly" type="button" :disabled="busy || review?.status === 'stale'" @click="decideFinding(finding)">{{ isEncounterDiscrepancy(finding) ? 'Dismiss discrepancy' : 'Keep my note as it is' }}</button>
             <form v-if="openBypass === finding.id && finding.canBypass && !readOnly" @submit.prevent="bypass(finding)"><label>Reason for keeping this note<textarea v-model="reasons[finding.id]" rows="2" minlength="5" maxlength="2000" required :disabled="busy" /></label><small>This records your decision for compliance review.</small><button type="submit" :disabled="busy || (reasons[finding.id]?.trim().length || 0) < 5">Record decision</button></form>
           </template>
         </li></ul>
@@ -80,6 +80,14 @@ const criterionEvidence = criterion => (Array.isArray(criterion.evidence) ? crit
 const label = value => !props.busy && props.error && ['pending', 'running'].includes(value) ? 'Awaiting retry' : ({ pending: 'Waiting', running: 'Checking', passed: 'Confirmed', action_required: 'Review needed', bypassed: 'Kept as written', deferred: 'Reviewed after signing', unavailable: 'Unavailable', failed: 'Unavailable', stale: 'Changed' }[value] || 'Waiting');
 const symbol = value => ({ passed: '✓', running: '◌', action_required: '!', bypassed: '–', unavailable: '!', failed: '!' }[value] || '○');
 const actionLabel = action => ({ assessment:'Add assessment or attachment',encounter:'Review encounter details',clinical_context:'Review clinical context',edit_note:'Edit note content',risk_assessment: 'Open risk assessment', add_risk_assessment: 'Open risk assessment', clinical_service:'Review clinical service', service_code: 'Review service code', change_service_code: 'Review service code', participants: 'Review participants', review_participants: 'Review participants', consent: 'Review consent', add_assessment: 'Add assessment or attachment', treatment_plan: 'Review treatment plan', narrative: 'Edit Session Narrative' }[typeof action === 'string' ? action : action?.id] || action?.label || 'Review this finding');
+const isEncounterDiscrepancy = finding => /^(service_code:(additional|client_absent|client_present)|encounter_consent:(location_mismatch|method_mismatch))$/.test(finding.id);
+function decideFinding(finding) {
+  if (isEncounterDiscrepancy(finding)) {
+    emit('resolve', { findingId: finding.id, action: 'bypass', reason: 'Provider confirmed the encounter details as recorded.' });
+    return;
+  }
+  openBypass.value = openBypass.value === finding.id ? '' : finding.id;
+}
 function bypass(finding) { const reason = reasons[finding.id]?.trim(); if (!reason || reason.length < 5 || !finding.canBypass || props.busy) return; emit('resolve', { findingId: finding.id, action: 'bypass', reason }); openBypass.value = ''; }
 </script>
 <style scoped>

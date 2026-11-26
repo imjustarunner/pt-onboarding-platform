@@ -12,6 +12,8 @@ describe('persisted clinical approval shared by queue and recovery', () => {
     ['a supervisor cosigned original', {...original,supervisor_cosigned_at:'2026-11-03'}, 'ready_to_submit'],
     ['a pending supervisor amendment', {...original,approved_at:'2026-11-03',pending_revision_id:172,pending_revision_origin:'supervisor'}, 'pending_review'],
     ['an unsigned provider amendment', {...original,approved_at:'2026-11-03',pending_revision_id:172,pending_revision_origin:'provider'}, 'draft'],
+    ['an outstanding documentation addendum after co-sign', {...original,supervisor_cosigned_at:'2026-11-03',review_requests_json:[{action:'changes_needed',resolutionMode:'signed_addendum'}]}, 'ready_to_submit'],
+    ['an outstanding documentation addendum does not replace required co-sign', {...original,requires_supervisor_cosign:1,review_requests_json:[{action:'changes_needed',resolutionMode:'signed_addendum'}]}, 'pending_review'],
     ['unresolved requested changes', {...original,approved_at:'2026-11-03',review_requests_json:[{action:'changes_needed'}]}, 'revisions_needed']
   ])('%s has identical queue and recovery eligibility', async (_name,row,stage) => {
     const db={execute:vi.fn(async()=>[[row]])};

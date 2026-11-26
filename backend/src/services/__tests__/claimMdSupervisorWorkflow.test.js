@@ -24,6 +24,18 @@ describe('supervisor review workflow and service detail audit',()=>{
     expect(()=>assertNoUnresolvedChanges(meta)).toThrow(/requested changes/);
     change.resolvedAt='2026-11-02T17:00:00Z'; expect(()=>assertNoUnresolvedChanges(meta)).not.toThrow();
   });
+  it('uses the structured correction sentence and keeps additive documentation out of billing holds',()=>{
+    const meta={};
+    const correction={section:'Objective',reason:'detail',topic:'clinical interventions'};
+    const request=appendReviewRequest(meta,{action:'changes_needed',actorUserId:9,correction,allowDocumentationAddendum:true});
+    expect(request.resolutionMode).toBe('signed_addendum');
+    expect(reviewRequestsForDisplay(meta)[0].message).toBe('Can you please add additional information in the objective content section regarding clinical interventions?');
+    expect(()=>assertNoUnresolvedChanges(meta)).not.toThrow();
+    const encounter={section:'Encounter details',reason:'correct',topic:'service code'};
+    expect(()=>appendReviewRequest(meta,{action:'changes_needed',actorUserId:9,correction:encounter,allowDocumentationAddendum:true})).toThrow(/preserves the signed encounter/);
+    appendReviewRequest(meta,{action:'changes_needed',actorUserId:9,correction:encounter});
+    expect(()=>assertNoUnresolvedChanges(meta)).toThrow(/requested changes/);
+  });
   it.each([{durationMinutes:30},{locationLabel:''},{placeOfService:'school'},{startTime:'10:90'},{endTime:'09:00'},{durationMinutes:0}])('rejects inconsistent service details %j',patch=>expect(()=>normalizeServiceDetails({...details,...patch})).toThrow());
   it('preserves original fields until approval and then selects the newest approved correction',()=>{
     const note={metadata_json:{structuredChart:{durationMinutes:45,locationLabel:'Old'},serviceDetailAmendments:[{id:1,serviceDetails:details,approvedAt:null}]}};

@@ -3,7 +3,7 @@ import { getCobWorkspace, getCobPayers, createCob, reconcileCob } from '../contr
 import { getDiagnosisReview, postDiagnosisReview, getSupervisorDiagnosisPolicy, putSupervisorDiagnosisPolicy } from '../controllers/clinicalDiagnosisPolicy.controller.js';
 import { downloadClinicalNotePdf, downloadClinicalRecordPdf, downloadClinicalPlanPdf } from '../controllers/clinicalRecordExport.controller.js';
 import { getFeeSchedule, postFeeSchedule, postFeeScheduleDefaults, postFeeSchedulePayerSync } from '../controllers/feeSchedule.controller.js';
-import { postSupervisorReview, acknowledgeNoteReview, listMyNoteReviewWork, correctNoteServiceDetails } from '../controllers/clinicalSupervisorReview.controller.js';
+import { postSupervisorReview, acknowledgeNoteReview, addNoteReviewToSupervisionAgenda, listMyNoteReviewWork, correctNoteServiceDetails } from '../controllers/clinicalSupervisorReview.controller.js';
 import { listClinicalNoteVersions, getClinicalNoteVersion, createClinicalNoteVersion, updateClinicalNoteVersion, signClinicalNoteVersion, cosignClinicalNoteVersion, acknowledgeClinicalNoteVersion } from '../controllers/clinicalNoteVersions.controller.js';
 import { setTreatmentGoalProgress, getTreatmentGoalProgressHistory } from '../controllers/treatmentGoalProgress.controller.js';
 import { excludeSupportClinicalContent } from '../middleware/supportContentAccess.middleware.js';
@@ -508,6 +508,7 @@ router.post('/notes/:noteId/versions/:versionId/acknowledge', requireClinicalCha
 router.post('/notes/:noteId/supervisor-review', requireClinicalNoteSigning, postSupervisorReview);
 router.post('/notes/:noteId/service-details', requireClinicalNoteSigning, correctNoteServiceDetails);
 router.post('/notes/:noteId/review-requests/:requestId/acknowledge', requireClinicalChart, acknowledgeNoteReview);
+router.post('/notes/:noteId/review-requests/:requestId/supervision-agenda', requireClinicalChart, addNoteReviewToSupervisionAgenda);
 
 router.get(
   '/notes/:noteId',

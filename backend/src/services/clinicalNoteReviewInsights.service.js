@@ -1,3 +1,4 @@
+import { latestNarrivaStatus, recordedSubmissionReview, submissionReviewDisplay } from './narrivaReview.service.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import pool from '../config/database.js';
 import { loadNarrivaSource } from './narrivaSource.service.js';
@@ -139,7 +140,7 @@ export async function loadClinicalTreatmentHistory(source, { clinicalDb = clinic
   return finish({ sessions, objectives, ratings, events, feedback });
 }
 
-export function createClinicalNoteReviewInsights({ loadSource = loadNarrivaSource, history = loadClinicalTreatmentHistory, evidence = loadNarrivaAssessmentEvidence, audit = logNoteAidChartEvent } = {}) {
+export function createClinicalNoteReviewInsights({ loadSource = loadNarrivaSource, history = loadClinicalTreatmentHistory, evidence = loadNarrivaAssessmentEvidence, audit = logNoteAidChartEvent, loadReview = latestNarrivaStatus, loadSubmission = recordedSubmissionReview } = {}) {
   return async (req, input) => {
     if (!/^[1-9][0-9]*$/.test(String(input.noteId || '')) || !positiveId(input.noteId) || !positiveId(input.agencyId)) throw narrivaError(400, 'Choose a saved note and workspace.');
     const source = await loadSource(req.user, { agencyId: Number(input.agencyId), noteId: Number(input.noteId) });
@@ -156,6 +157,10 @@ export function createClinicalNoteReviewInsights({ loadSource = loadNarrivaSourc
       }));
     } catch { artifactsStatus = 'unavailable'; }
     const note = source.source;
+    const captured = await loadSubmission(source).catch(()=>null);
+    const submission = captured || await loadReview(req.user,source.agencyId,Number(input.noteId),{
+      actorUserId:Number(note.provider_signed_by_user_id || note.created_by_user_id)
+    }).catch(()=>null);
     const sections = quickLookSections(maybeDecryptNotePayload(note.note_payload));
     for (const entry of note.clinical_version_addenda || []) {
       const excerpt = quickLookSections({ narrative: maybeDecryptNotePayload(entry.body) })[0];
@@ -167,7 +172,9 @@ export function createClinicalNoteReviewInsights({ loadSource = loadNarrivaSourc
         reviewSourceHash: source.sourceHash || null, entryManifestHash: note.clinical_version_entry_manifest_hash || null, updatedAt: note.updated_at || null, pendingAmendment: !!note.clinical_version_pending_id },
       quickLook: { mode: 'saved_section_excerpts', description: 'Excerpts from the saved note. Open the full note to review all wording before signing.', sections,
         encounter: { serviceCode: source.service?.code || source.session?.service_code || null, date: reviewDateOnly(note.date_of_service || source.meta?.dateOfService) || localDate(source.session?.scheduled_start_at, source.session?.source_timezone), durationMinutes: source.encounter?.durationMinutes || null, modality: source.encounter?.modality || null },
-        artifacts, artifactsStatus }, treatmentHistory };
+        artifacts, artifactsStatus,
+        ...submissionReviewDisplay(submission)
+      }, treatmentHistory };
     await audit(req, { agencyId: source.agencyId, clientId: source.client.id, action: 'clinical_note_review_insights_viewed', metadata: { noteId: Number(input.noteId), sourceHash: insights.sourceRevision.contentHash, sessionCount: treatmentHistory.sessions.length } });
     return insights;
   };

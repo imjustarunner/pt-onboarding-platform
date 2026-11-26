@@ -9,6 +9,7 @@ beforeEach(()=>{
 });
 it('starts a saved-note review at author submission, using the original audit request and trusted note identity',async()=>{
  expect(await review(req,note)).toMatchObject({id:3,status:'running'});
+ expect(create.mock.calls[0][1]).toEqual({submitted:true});
  const forwarded=create.mock.calls[0][0];expect(forwarded.user).toBe(req.user);expect(forwarded.headers).toBe(req.headers);expect(forwarded.body).toEqual({agencyId:450,noteId:25});expect(req.body).toEqual({untrusted:'ignored'});
  expect(latest).toHaveBeenCalledWith(req.user,450,25,{actorUserId:7});
 });
