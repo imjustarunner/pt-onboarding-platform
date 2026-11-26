@@ -64,7 +64,9 @@
         <div class="ppp-kpis">
           <div><strong>Total Pay:</strong> {{ fmtMoney(summary.total_amount) }}</div>
           <div><strong>Credits/Hours:</strong> {{ fmtNum(summary.total_hours) }}</div>
-          <div v-if="summary.sick_leave_summary"><strong>Sick leave hours:</strong> {{ Number(summary.sick_leave_summary.sickLeaveHours || 0).toFixed(4) }}</div>
+          <div v-if="summary.sick_leave_summary"><strong>Sick leave accrual basis (equivalent hours):</strong> {{ Number(summary.sick_leave_summary.sickLeaveHours || 0).toFixed(4) }}</div>
+          <div v-if="summary.breakdown?.__adjustments?.sickPtoHours != null"><strong>Sick leave used (paid):</strong> {{ fmtNum(summary.breakdown.__adjustments.sickPtoHours) }} hours</div>
+          <div v-if="summary.sick_leave_summary?.ordinaryEarnings != null"><strong>Ordinary earnings:</strong> {{ fmtMoney(summary.sick_leave_summary.ordinaryEarnings) }}</div>
           <div v-if="summary.sick_leave_summary?.automaticIndirectHours"><strong>Automatic indirect allowance (included):</strong> {{ Number(summary.sick_leave_summary.automaticIndirectHours).toFixed(4) }} hours · {{ fmtMoney(summary.sick_leave_summary.automaticIndirectPay) }}</div>
           <div v-if="summary.sick_leave_summary?.adpAllocationRate != null"><strong>ADP earnings allocation rate:</strong> {{ fmtMoney(summary.sick_leave_summary.adpAllocationRate) }}</div>
           <div>
@@ -72,7 +74,7 @@
             {{ fmtNum(summary.tier_credits_final ?? summary.tier_credits_current) }}
           </div>
         </div>
-
+        <p v-if="summary.sick_leave_summary" class="ppp-muted">The accrual basis measures hours that qualify for earning sick leave. Sick leave used is shown separately. Use the saved dollar amounts when entering payroll; multiplying equivalent hours by a service rate or a rounded allocation rate can change the pay.</p>
 
         <details class="ppp-optional-review">
           <summary>Optional hours correction</summary>

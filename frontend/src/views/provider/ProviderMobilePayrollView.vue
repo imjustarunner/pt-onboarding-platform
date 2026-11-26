@@ -38,7 +38,9 @@
           <span class="amount">{{ formatMoney(p.total_amount ?? p.total_pay ?? 0) }}</span>
         </div>
         <div class="line2">Status: {{ p.status || 'posted' }}</div>
-        <div class="line2" v-if="p.sick_leave_summary">Sick leave hours: {{ formatNumber(p.sick_leave_summary.sickLeaveHours) }} · ADP earnings allocation rate: {{ p.sick_leave_summary.adpAllocationRate == null ? '—' : formatMoney(p.sick_leave_summary.adpAllocationRate) }}</div>
+        <div class="line2" v-if="p.sick_leave_summary">Sick leave accrual basis (equivalent hours): {{ formatNumber(p.sick_leave_summary.sickLeaveHours) }} · ADP earnings allocation rate: {{ p.sick_leave_summary.adpAllocationRate == null ? '—' : formatMoney(p.sick_leave_summary.adpAllocationRate) }}</div>
+        <div class="line2" v-if="p.breakdown?.__adjustments?.sickPtoHours != null">Sick leave used (paid): {{ formatNumber(p.breakdown.__adjustments.sickPtoHours) }} hours</div>
+        <div class="line2" v-if="p.sick_leave_summary">The accrual basis measures hours that qualify for earning sick leave. Sick leave used is shown separately.</div>
       </article>
     </div>
   </section>

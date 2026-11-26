@@ -798,7 +798,7 @@ const headerLabel = (key) => {
     taxable_adjustments_total: 'Taxable adjustments',
     non_taxable_total: 'Non-taxable total',
     total_pay: 'Total pay',
-    sick_leave_hours: 'Sick leave hours',
+    sick_leave_hours: 'Sick leave accrual basis (equivalent hours)',
     adp_allocation_rate: 'ADP earnings allocation rate',
     ordinary_earnings: 'Ordinary earnings',
     actual_worked_hours: 'Recorded actual work hours',

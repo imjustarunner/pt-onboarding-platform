@@ -185,12 +185,13 @@
         </div>
 
       <div class="card" style="margin-top: 10px;" v-if="sickLeaveSummary">
-        <h3 class="card-title" style="margin: 0 0 6px 0;">Sick leave hours and payroll allocation</h3>
-        <div class="row"><strong>Sick leave hours:</strong> {{ Number(sickLeaveSummary.sickLeaveHours || 0).toFixed(4) }}</div>
+        <h3 class="card-title" style="margin: 0 0 6px 0;">Sick leave accrual and payroll allocation</h3>
+        <div class="row"><strong>Sick leave accrual basis (equivalent hours):</strong> {{ Number(sickLeaveSummary.sickLeaveHours || 0).toFixed(4) }}</div>
+        <div class="row" v-if="expanded.breakdown?.__adjustments?.sickPtoHours != null"><strong>Sick leave used (paid):</strong> {{ fmtNum(expanded.breakdown.__adjustments.sickPtoHours) }} hours</div>
         <div class="row"><strong>Ordinary earnings:</strong> {{ fmtMoney(sickLeaveSummary.ordinaryEarnings) }}</div>
         <div class="row"><strong>ADP earnings allocation rate:</strong> {{ sickLeaveSummary.adpAllocationRate == null ? 'No ordinary hours' : fmtMoney(sickLeaveSummary.adpAllocationRate) }}</div>
         <div class="row" v-if="sickLeaveSummary.actualWorkedHours != null"><strong>Recorded actual hours:</strong> {{ Number(sickLeaveSummary.actualWorkedHours).toFixed(4) }}</div>
-        <div class="muted" style="margin-top: 6px;">The allocation rate is ordinary earnings divided by sick leave hours. Your service detail stays here in the app. Bonuses, leave pay, salary and qualifying reimbursements remain separate. Sick leave hours are accrual equivalents; actual work time, overtime and the protected sick-leave payment rate are calculated separately.</div>
+        <div class="muted" style="margin-top: 6px;">The accrual basis measures hours that qualify for earning sick leave. Sick leave used is shown separately. The allocation rate divides ordinary earnings by that basis; use the saved dollar amounts for payroll. Bonuses, leave pay, salary and qualifying reimbursements remain separate. Actual work time, overtime and the sick-leave payment rate are calculated separately.</div>
         <div class="muted" v-if="sickLeaveSummary.actualHoursReviewRequired" style="margin-top: 6px;">Actual work-time reconciliation is required; these equivalent hours do not replace your daily time records.</div>
         <div class="warn-box" v-if="sickLeaveSummary.reconciliationRequired" style="margin-top: 6px;">Payroll must reconcile {{ fmtMoney(sickLeaveSummary.unclassifiedPay) }} before using this allocation for processing.</div>
       </div>
