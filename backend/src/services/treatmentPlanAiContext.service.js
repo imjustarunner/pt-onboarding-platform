@@ -11,7 +11,12 @@ const DOMAINS = [
   ['coping with stress', /stress|coping|distress/i],
   ['emotion regulation', /anger|emotion|irritab|regulat/i],
   ['relationships', /relationship|social|family/i],
-  ['daily routines', /routine|daily.function|self.care/i]
+  ['daily routines', /routine|daily.function|self.care/i],
+  ['school participation and functioning', /school|academ|classroom|attendance|homework/i],
+  ['cooperation and following through on responsibilities', /defian|opposition|follow.through|rule.follow|responsibilit/i],
+  ['parent-child communication and conflict', /parent|caregiver|family/i, /argu|conflict|communicat|defian/i],
+  ['attention and organization', /attention|focus|organiza|distract/i],
+  ['motivation and activity engagement', /motivat|avoidance|activity.engagement/i]
 ];
 export function clinicalThemes(text) {
   return DOMAINS.filter(([, ...tests]) => tests.every((test) => test.test(String(text || '')))).map(([label]) => label);

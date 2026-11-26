@@ -24,7 +24,6 @@
       <button
         type="button"
         class="na-archive-btn"
-        :class="{ 'na-archive-btn--pulse': libraryCollapsed }"
         @click="libraryCollapsed = !libraryCollapsed"
       >
         {{ libraryCollapsed ? 'Show library' : 'Hide library' }}
@@ -32,7 +31,6 @@
       <button
         type="button"
         class="na-archive-btn"
-        :class="{ 'na-archive-btn--pulse': workQueueCollapsed }"
         @click="workQueueCollapsed = !workQueueCollapsed"
       >
         {{ workQueueCollapsed ? 'Show queue' : 'Hide queue' }}
@@ -123,6 +121,11 @@
         class="na-main"
         :class="{ 'na-main--start': showStartPage, 'na-main--library': showAidPicker }"
       >
+        <div v-if="postSignatureNotice && !hasOpenNote && !showTreatmentPlanWorkspace" class="na-sign-attest na-post-signature" role="status">
+          <strong>{{ postSignatureNotice.message }}</strong>
+          <button v-if="postSignatureNotice.nextPlan" type="button" class="na-btn-outline" @click="activateWorkQueueItem(postSignatureNotice.nextPlan)">Write treatment plan</button>
+          <button v-if="postSignatureNotice.noteId" type="button" class="na-btn-outline" @click="openSignedClinicalNote(postSignatureNotice.noteId, { agencyId: postSignatureNotice.agencyId })">View chart note</button>
+        </div>
         <ClinicalAppointmentAlertGate v-if="effectiveClientId && (noteAidAgencyId || currentAgencyId) && !supervisorReviewItem && !showTreatmentPlanWorkspace && !intakePlanWork"
           :agency-id="Number(noteAidAgencyId || currentAgencyId)" :client-id="Number(effectiveClientId)"
           :clinical-session-id="sessionClinicalSessionId || bookingContext.clinicalSessionId || null"
@@ -317,6 +320,10 @@
 
         <div v-if="workspaceHydrateDepth && !showAidPicker" class="na-session-loading" role="status">Loading the saved session and note…</div>
         <p v-if="autosaveState && !workspaceHydrateDepth" class="na-autosave-status" role="status">{{ autosaveState }}</p>
+        <div v-if="scheduledTimingDiffers && !chartNoteReadOnly && !signedNoteViewerId && !workspaceHydrateDepth && !showAidPicker" class="na-autosave-status na-scheduled-time" role="status">
+          <span>Booked for {{ scheduledEncounterTiming.start }}–{{ scheduledEncounterTiming.end }} ({{ scheduledEncounterTiming.minutes }} min). The note has different documented times.</span>
+          <button type="button" class="na-btn-outline" @click="restoreScheduledEncounterTiming">Use scheduled time</button>
+        </div>
         <NoteAidQuickSessionBar
           data-note-section="Encounter details"
           v-if="!showAidPicker && !workspaceHydrateDepth"
@@ -1121,6 +1128,7 @@
             </div>
           </template>
           <template v-if="!finalizedNarriva && narrivaPreGenerationRequired && narrivaReviewPhase === 'pre_generation'" #generate>
+            <p v-if="previewNeedsEventMonth" class="na-field-hint">This draft includes an adjustment-disorder diagnosis. After finalizing the draft, record the precipitating event month and year in Diagnoses before signing.</p>
             <p v-if="generateError" role="alert">{{ generateError }}</p>
             <button class="na-generate" type="button" :disabled="!narrivaPreflightReady || !narrivaDraftApproved || generateDisabled" @click="generateNote">{{ generating ? 'Finalizing…' : 'Finalize note' }}</button>
           </template>
@@ -1595,7 +1603,7 @@
       @saved="onStandaloneDraftSaved"
     />
     <NoteAidTreatmentPlanStandaloneModal
-      :open="showTreatmentPlanWriterModal"
+      :open="showTreatmentPlanWriterModal && !showTreatmentPlanWorkspace && !intakePlanWork"
       :agency-id="noteAidAgencyId || currentAgencyId"
       :clients="standaloneModalClients"
       @close="showTreatmentPlanWriterModal = false"
@@ -1633,7 +1641,7 @@ import SessionSupportingMaterials from '../../components/clinical/SessionSupport
 import { privateSpeechRecognition } from '../../utils/privateSpeechRecognition.js';
 import { DURATION_PRESETS, durationLabel, projectedDurationMonths, setObjectiveCompletionTime } from '../../utils/treatmentPlanDuration';
 import { narrivaIdentifierMatches } from '../../utils/narrivaIdentifierMatches.js';
-import { intakeSection, intakeDiagnoses, intakeAssessments, mergeGeneratedAssessment, generatedTreatmentPlan, intakeSectionsForRecord } from '../../utils/noteAidIntakeIntegration';
+import { diagnosesMissingEventMonth, intakeSection, intakeDiagnoses, intakeAssessments, mergeGeneratedAssessment, generatedTreatmentPlan, intakeSectionsForRecord } from '../../utils/noteAidIntakeIntegration';
 import { splitTreatmentPlanSections } from '../../utils/treatmentPlanSections.js';
 import { DEFAULT_RENEWAL_POLICY, treatmentPlanRenewalStatus } from '../../utils/treatmentPlanRenewal.js';
 import NoteAidTerminationOutcomes from '../../components/clinical/NoteAidTerminationOutcomes.vue';
@@ -2683,6 +2691,11 @@ const intakeDiagnosisAppliedFingerprint = ref('');
 const intakeAssessmentSnapshot = ref(null);
 const applyingIntakeDiagnoses = ref(false);
 const isIntakeOutput = computed(() => aidKind(selectedAid.value) === 'intake');
+const previewNeedsEventMonth = computed(() => isIntakeOutput.value
+  && diagnosesMissingEventMonth(intakeDiagnoses(narrivaReview.value?.draftPreviewSections), dateOfService.value).some(draft =>
+    !intakeDiagnosisRecommendations.value.some(current => current.icd10_code === draft.icd10_code
+      && !diagnosesMissingEventMonth([current], dateOfService.value).length)));
+
 const intakeDiagnosisFingerprint = computed(() => JSON.stringify([intakeDiagnosisRecommendations.value.map((d) => [d.icd10_code, d.description, d.justification, d.stressorEventMonth]), chartDiagnosticJustification.value]));
 const intakeDiagnosesPending = computed(() => isIntakeOutput.value && intakeDiagnosisRecommendations.value.length > 0 && intakeDiagnosisAppliedFingerprint.value !== intakeDiagnosisFingerprint.value);
 
@@ -3241,6 +3254,7 @@ const canSubmitSignature = computed(
     && (!requiresAiReviewAttestation.value || !!attestAiContentReviewed.value)
 );
 const naMainEl = ref(null);
+const postSignatureNotice = ref(null);
 watch(showTreatmentPlanWorkspace, async open => {
   if (!open) return;
   await nextTick();
@@ -4500,7 +4514,24 @@ function applySessionTimingDefaults({ force = false } = {}) {
     sessionDurationMinutes.value = Number.isFinite(minutes) && minutes > 0
       ? minutes : sessionClinicalSessionId.value ? null : defaultDurationMinutesForServiceCode(actualServiceCode.value);
   }
+  if (force && scheduledEncounterTiming.value) sessionEndTimeLocal.value = scheduledEncounterTiming.value.end;
   ensureSessionEndFromDuration();
+}
+
+const scheduledEncounterTiming = computed(() => {
+  const start = isoToLocalTime(sessionScheduledStart.value);
+  const end = isoToLocalTime(sessionScheduledEnd.value);
+  const minutes = Math.round((new Date(sessionScheduledEnd.value || '') - new Date(sessionScheduledStart.value || '')) / 60000);
+  return start && end && minutes > 0 ? { start, end, minutes } : null;
+});
+const scheduledTimingDiffers = computed(() => {
+  const timing = scheduledEncounterTiming.value;
+  return timing && sessionStartTimeLocal.value && sessionEndTimeLocal.value
+    && (timing.start !== sessionStartTimeLocal.value || timing.end !== sessionEndTimeLocal.value || timing.minutes !== Number(sessionDurationMinutes.value));
+});
+function restoreScheduledEncounterTiming() {
+  applySessionTimingDefaults({ force: true });
+  scheduleAutosave(250);
 }
 
 function collapseSidebarsForNote() {
@@ -7044,6 +7075,13 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
   if(narrivaServicePending.value){approvalError.value='Confirm the actual encounter service-code change before signing.';return;}
   if (pendingDurationChange.value || durationCodeMismatch.value) { approvalError.value = 'Review the duration and service code before signing.'; return; }
   if (silent) return;
+  if (isIntakeOutput.value && diagnosesMissingEventMonth(structuredChartDiagnoses.value, dateOfService.value).length) {
+    approvalError.value = 'Enter the precipitating event month and year in Diagnoses before signing.';
+    const field = naMainEl.value?.querySelector('.diagnosis-timing input[aria-invalid="true"]');
+    field?.scrollIntoView({ block: 'center' });
+    field?.focus({ preventScroll: true });
+    return;
+  }
   if (!mergedSectionEntries.value.length) return;
   if (approvingNote.value) return;
   if (!attestAccurateAndComplete.value || !attestMedicallyNecessary.value) {
@@ -7366,9 +7404,14 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
       approvalMessage.value = signedMsg;
       // Stay on document so print / share / sign panel remains available.
     } else {
+      const signedAgencyId = Number(noteAidAgencyId.value || currentAgencyId.value);
       activeWorkQueueItemId.value = null;
       await closeNoteWorkspace();
       approvalMessage.value = signedMsg;
+      postSignatureNotice.value = {
+        message: shouldAutosign && !isReviewOnlyAid.value && !isTreatmentSummaryAid.value ? 'Note signed and saved to the chart.' : signedMsg,
+        noteId, agencyId: signedAgencyId, nextPlan: intakePlanTodo
+      };
     }
   } catch (e) {
     approvalError.value = e.response?.data?.error?.message || e.message || 'Failed to persist approved note';
@@ -7542,7 +7585,7 @@ const bootstrapWorkspace = async ({ resetForm = false } = {}) => {
     }
     showIntakeDraftEditor.value = true;
     intakeDraftEditorId.value = qDraft || null;
-  } else if (launchAid === 'psychotherapy_plan' || launchIntentQ === 'update_treatment_plan') {
+  } else if (launchIntentQ !== 'work_queue' && (launchAid === 'psychotherapy_plan' || launchIntentQ === 'update_treatment_plan')) {
     const qClient = Number(route.query?.clientId || route.query?.client_id || 0);
     const qPlanId = Number(route.query?.planId || route.query?.plan_id || 0);
     // Clear any billable CPT context — TP writer is never a 90832/34/37 session note.
@@ -8140,10 +8183,15 @@ watch(selectedClientId, () => {
 
 watch([selectedClientId,dateOfService,sessionClinicalSessionId,sessionOfficeEventId,noteAidAgencyId],(next,previous)=>{ if((Number(next[0]) || Number(previous?.[0])) && canUseTool.value && currentAgencyId.value)refreshPayerServiceChoices(); });
 
-const onPlanImportSaved = async (plan, { finalized = false } = {}) => {
+const onPlanImportSaved = async (plan, { finalized = false, approval = null, approvalError: signatureError = null } = {}) => {
   if (intakePlanWork.value && plan?.id) {
     patchActiveWorkQueueStatus(DOC_STATUS.STARTED, { treatmentPlanId: plan.id, treatmentPlanPrepared: finalized });
     showPlanImportReview.value = false;
+    if (approval?.providerApproved) {
+      await onIntakePlanSigned(approval);
+      return;
+    }
+    approvalError.value = signatureError || '';
     approvalMessage.value = finalized ? 'Treatment plan ready for provider signature.' : 'Treatment plan draft saved.';
     return;
   }
@@ -8173,10 +8221,16 @@ const onPlanImportSaved = async (plan, { finalized = false } = {}) => {
   if (effectiveClientId.value) await loadClientTreatmentPlan(effectiveClientId.value);
   if (!plan) {
     approvalMessage.value = 'Treatment plan draft discarded.';
+  } else if (approval?.providerApproved) {
+    approvalMessage.value = 'Treatment plan signed. Supervisor review is next.';
+  } else if (finalized && signatureError) {
+    approvalMessage.value = 'Treatment plan saved for signature.';
+    approvalError.value = signatureError;
   } else if (String(plan.status || '').toLowerCase() === 'draft') {
     approvalMessage.value = `Treatment plan draft #${plan.id} saved. Reopen this saved version to continue editing.`;
   } else if (plan?.id) {
     approvalMessage.value = 'Treatment plan saved to chart.';
+    approvalError.value = signatureError || '';
   } else {
     approvalMessage.value = 'Treatment plan import completed.';
   }
@@ -8874,7 +8928,7 @@ async function activateWorkQueueItem(item) {
   sessionScheduledStart.value = scheduledStart;
   sessionScheduledEnd.value = scheduledEnd;
   sessionCodeSwitchBanner.value = '';
-  applySessionTimingDefaults({ force: sessionDurationMinutes.value == null });
+  applySessionTimingDefaults({ force: !!(scheduledStart && scheduledEnd) || sessionDurationMinutes.value == null });
   if (!sessionStartTimeLocal.value && item.timeLabel) {
     const hhmm = timeLabelToHhMm(item.timeLabel);
     if (hhmm) sessionStartTimeLocal.value = hhmm;
@@ -9163,7 +9217,10 @@ async function openIntakePlanWork(item) {
       effectiveDate: toWorkQueueDateOnly(note.dateOfService || item.date),
       diagnoses, diagnosticJustification: chart.diagnosticJustification || diagnoses.find(dx => dx.is_primary)?.justification || ''
     });
-    planDraftInitialPlan.value = item.treatmentPlanId ? null : { ...seed, title: 'Initial treatment plan', sourceToolId: 'note_aid_intake_generated' };
+    planDraftInitialPlan.value = item.treatmentPlanId ? null : {
+      ...seed, aiGenerated: seed.goals.length > 0 && Boolean(note.metadata?.aiGenerated || note.metadata?.model || note.metadata?.toolId) && !note.metadata?.manualSections,
+      title: 'Initial treatment plan', sourceToolId: 'note_aid_intake_generated'
+    };
     planDraftEditorId.value = item.treatmentPlanId || null;
     planDraftEditorMode.value = item.treatmentPlanId ? 'draft' : 'generated';
     planUpdaterRenewalReason.value = '';
@@ -9181,7 +9238,7 @@ async function onIntakePlanSigned(approval) {
   if (!approval?.providerApproved || !intakePlanWork.value) return;
   markActiveWorkQueueItemCompleted();
   await closeNoteWorkspace();
-  approvalMessage.value = 'Treatment plan signed. Supervisor review is next.';
+  postSignatureNotice.value = { message: 'Treatment plan signed. Supervisor review is next.' };
 }
 
 async function ensureWorkQueueDraft(item) {
@@ -9381,7 +9438,20 @@ const openTreatmentPlanUpdater = async ({
     return;
   }
 
-  // Start a sessionless plan when there is no saved plan or intake context.
+  if (cid && chartAgencyIdForSave.value) {
+    planDraftEditorId.value = null;
+    planDraftEditorMode.value = 'generated';
+    planDraftInitialPlan.value = {
+      title: 'Treatment plan',
+      diagnoses: chartDiagnoses.value.filter(diagnosis => diagnosis && (diagnosis.is_active == null || Number(diagnosis.is_active) === 1)),
+      presentingProblem: String(chartPresentingProblem.value || ''),
+      goals: []
+    };
+    planUpdaterRenewalReason.value = '';
+    planUpdaterProgressExcerpt.value = '';
+    showPlanImportReview.value = true;
+    return;
+  }
   selectedAidId.value = '';
   showTreatmentPlanWriterModal.value = true;
 };
@@ -10822,24 +10892,6 @@ onBeforeUnmount(() => {
   border-color: var(--na-teal);
   color: var(--na-teal-dark);
   background: #ccfbf1;
-}
-
-.na-archive-btn--pulse {
-  animation: na-panel-pulse 2.2s ease-in-out infinite;
-  border-color: #2dd4bf;
-  background: linear-gradient(180deg, #ccfbf1 0%, #f0fdfa 100%);
-  box-shadow: 0 0 0 0 rgba(13, 148, 136, 0.35);
-}
-
-@keyframes na-panel-pulse {
-  0%, 100% {
-    box-shadow: 0 0 0 0 rgba(13, 148, 136, 0.28);
-    transform: translateY(0);
-  }
-  50% {
-    box-shadow: 0 0 0 6px rgba(13, 148, 136, 0);
-    transform: translateY(-1px);
-  }
 }
 
 .na-shell {
@@ -12684,7 +12736,9 @@ a.na-chip--link {
   gap: 8px;
 }
 
+.na-scheduled-time, .na-post-signature { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .na-soap-card {
+  border-top: 2px solid #7497b3;
   border: 1px solid var(--na-border);
   border-radius: 12px;
   overflow: hidden;
@@ -13032,7 +13086,7 @@ a.na-chip--link {
 .clinical-note-workspace :deep(.narriva-compliance),
 .clinical-note-workspace :deep(.narriva-draft-preview),
 .na-workspace-head,.na-session-card,.na-output,.na-sign-attest,.na-soap-card,.na-config{
-  border-radius:5px;padding:8px;margin-block:8px
+  border-radius:5px;padding:7px;margin-block:7px
 }
 .clinical-note-workspace :deep(.na-chart__block){border-radius:4px;padding:7px;margin-block:7px}
 .clinical-note-workspace :deep(.clp){gap:5px}

@@ -1,7 +1,7 @@
 <template>
   <div class="frequency-select">
     <label>Prescribed frequency
-      <select :value="customMode ? '__custom__' : modelValue" @change="select($event.target.value)">
+      <select :id="inputId" :aria-invalid="invalid || undefined" :value="customMode ? '__custom__' : modelValue" @change="select($event.target.value)">
         <option value="">Select frequency</option>
         <option v-for="name in choices" :key="name" :value="name">{{ name }}</option>
         <option value="__custom__">Other / enter a frequency</option>
@@ -9,7 +9,7 @@
     </label>
     <div v-if="customMode">
       <label>Custom frequency
-        <input :value="modelValue" maxlength="160" placeholder="Enter treatment frequency" @input="emit('update:modelValue', $event.target.value)" />
+        <input :aria-invalid="invalid || undefined" :value="modelValue" maxlength="160" placeholder="Enter treatment frequency" @input="emit('update:modelValue', $event.target.value)" />
       </label>
       <button type="button" :disabled="saving || !modelValue.trim()" @click="save">{{ saving ? 'Saving…' : 'Add to my frequency list' }}</button>
     </div>
@@ -20,7 +20,7 @@
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
 const DEFAULTS = ['Twice per week', 'Weekly', 'Biweekly (every two weeks)', 'Monthly'];
-const props = defineProps({ modelValue: { type: String, default: '' }, agencyId: { type: [Number, String], required: true } });
+const props = defineProps({ inputId: String, invalid: Boolean, modelValue: { type: String, default: '' }, agencyId: { type: [Number, String], required: true } });
 const emit = defineEmits(['update:modelValue']);
 const names = ref([]);
 const customMode = ref(false);

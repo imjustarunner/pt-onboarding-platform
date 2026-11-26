@@ -2,14 +2,17 @@ import clinicalPool from '../../config/clinicalDatabase.js';
 
 class ClinicalNote {
   static async hasSignedIntakeForClient({ agencyId, clientId }) {
+    const metadata = "IF(JSON_VALID(n.metadata_json), n.metadata_json, '{}')";
+    const service = `COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(${metadata}, '$.serviceCode')), 'null'), s.service_code)`;
     const [rows] = await clinicalPool.execute(
       `SELECT n.id FROM clinical_notes n
-       JOIN clinical_sessions s ON s.id = n.clinical_session_id
+       LEFT JOIN clinical_sessions s ON s.id = n.clinical_session_id AND s.agency_id = n.agency_id
        WHERE n.agency_id = ? AND n.client_id = ? AND n.is_deleted = 0
          AND n.provider_signed_at IS NOT NULL
-         AND (COALESCE(JSON_UNQUOTE(JSON_EXTRACT(n.metadata_json, '$.serviceCode')), s.service_code) = '90791'
-           OR (JSON_UNQUOTE(JSON_EXTRACT(n.metadata_json, '$.toolId')) = 'clinical_h0031_intake'
-             AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(n.metadata_json, '$.serviceCode')), s.service_code) = 'H0031'))
+         AND ${service} IN ('90791', 'H0031')
+         AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(${metadata}, '$.narrivaContext.assessmentKind')), '') <> 'additional'
+         AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(${metadata}, '$.assessmentContext.assessmentKind')), '') <> 'additional'
+         AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(${metadata}, '$.toolId')), '') NOT LIKE '%additional%'
        LIMIT 1`, [agencyId, clientId]
     );
     return !!rows?.length;
