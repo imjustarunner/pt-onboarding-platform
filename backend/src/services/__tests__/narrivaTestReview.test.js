@@ -25,7 +25,7 @@ describe('standalone compliance tester',()=>{
  it.each([['video','11',false],['in_person','10',false],['video','10',true],['phone','02',true],['video','',false]])('reconciles %s with POS %s',async(modality,placeOfService,allowed)=>{
   const rows=await m.codes();m.codes.mockResolvedValue([{...rows[0],allowed_place_of_service_json:'["11","02","10"]'}]);
   const result=await runNarrivaTestReview({id:7},body({context:{...context(),modality,placeOfService,location:['video','phone'].includes(modality)?'Telehealth':'Office'}}));
-  expect(!result.checks[1].findings.some(f=>f.id==='service_code:modality')).toBe(allowed);
+  expect(!result.checks[2].findings.some(f=>f.id==='encounter_consent:method_location')).toBe(allowed);
  });
  it('uses the shared five checks and scoring without any chart reads, writes, billing or signing eligibility',async()=>{const result=await runNarrivaTestReview({id:7},body());expect(result).toMatchObject({testOnly:true,status:'passed',quickSignEligible:false,signingActions:[],scoring:{score:100,possible:95,passed:true,mandatoryPassed:true}});expect(result.checks).toHaveLength(5);expect(result.checks.every(c=>c.status==='passed')).toBe(true);expect(m.db).not.toHaveBeenCalled();const source=m.inspect.mock.calls[0][0];expect(source.client).toEqual({});expect(source.source).not.toHaveProperty('client_id');expect(source.source).not.toHaveProperty('clinical_session_id');expect(source.identifiers).toEqual([]);});
  it.each(['clientId','draftId','noteId','clinicalSessionId','officeEventId','reviewId'])('rejects a %s linkage before any model dispatch',async key=>{await expect(runNarrivaTestReview({id:7},body({[key]:99}))).rejects.toMatchObject({status:422});expect(m.inspect).not.toHaveBeenCalled();expect(m.db).not.toHaveBeenCalled();});

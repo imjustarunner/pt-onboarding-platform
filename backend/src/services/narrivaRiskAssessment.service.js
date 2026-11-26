@@ -52,10 +52,19 @@ export async function verifiedNarrivaPreflight({draft,session,authorUserId,evide
   || id(draft.user_id)!==id(authorUserId) || id(draft.agency_id)!==id(session.agency_id)
   || id(draft.client_id)!==id(session.client_id) || id(draft.clinical_session_id)!==id(session.id))throw stale();
  const [rows]=await database.execute(`SELECT * FROM narriva_reviews WHERE agency_id=? AND draft_id=? AND actor_user_id=? AND clinical_note_id IS NULL ORDER BY id DESC LIMIT 1`,[session.agency_id,draft.id,authorUserId]);
- const row=rows?.[0];
+ let row=rows?.[0];
  if(!row && !evidence?.reviewId)return null;
  let review;try{review=object(maybeDecryptNotePayload(row?.result_encrypted));}catch{throw stale();}
+ if(review.phase==='output' && evidence?.reviewId && (id(evidence.reviewId)!==id(row?.id)) &&
+   (!allowCurrentOutput || !['passed','bypassed'].includes(row?.status) || review.draftEvidenceHash!==narrivaDraftEvidenceHash(draft))){
+  [[row]]=await database.execute('SELECT * FROM narriva_reviews WHERE id=? AND agency_id=? AND draft_id=? AND actor_user_id=?',[evidence.reviewId,session.agency_id,draft.id,authorUserId]);
+  try{review=object(maybeDecryptNotePayload(row?.result_encrypted));}catch{throw stale();}
+ }
  const currentOutput=allowCurrentOutput && review.phase==='output';
+ // An advisory output review is not a prerequisite for an author signature.
+ // Risk is independently checked against persisted requirements.
+ if(currentOutput && !evidence?.reviewId && !decisions(review).length && (!['passed','bypassed'].includes(row.status)
+  || review.draftEvidenceHash!==narrivaDraftEvidenceHash(draft)))return null;
  if(!row || !currentOutput && id(row.id)!==id(evidence?.reviewId) || id(row.agency_id)!==id(session.agency_id)
   || id(row.draft_id)!==id(draft.id) || id(row.actor_user_id)!==id(authorUserId)
   || id(row.clinical_session_id)!==id(session.id) || row.clinical_note_id
@@ -69,7 +78,7 @@ export async function verifiedNarrivaPreflight({draft,session,authorUserId,evide
   || review.inputHash!==inputHash
   || review.phase==='output' && review.draftEvidenceHash!==narrivaDraftEvidenceHash(draft))throw stale();
  const kept=decisions(review);
- return {reviewId:id(row.id),phase:review.phase,draftEvidenceHash:review.draftEvidenceHash || null,sourceHash:row.source_hash,inputHash,keptAsIs:kept.length>0,decisions:kept,
+ return {reviewId:id(row.id),phase:review.phase,draftEvidenceHash:review.draftEvidenceHash || null,sourceHash:row.source_hash,inputHash,keptAsIs:kept.length>0 || review.manualEdited===true,manualEdited:review.manualEdited===true,decisions:kept,
   advisories:(review.checks || []).flatMap(check=>(check.advisories || []).filter(advisory=>advisory.category==='risk')),riskAssessmentIncluded:review.riskAssessmentIncluded===true,riskBypassed:riskBypassed(review,authorUserId)};
 }
 function evidenceHash(notePayload,metadata) {
@@ -90,7 +99,7 @@ export async function protectNarrivaPreflightMetadata({metadata,draft,session,au
  if(!id(draft.clinical_session_id) && !evidence?.reviewId)return clean;
  const verified=await verifiedNarrivaPreflight({draft,session,authorUserId,evidence},{database,allowCurrentOutput:true});
  if(!verified)return clean;
- clean.narrivaPreflight={phase:verified.phase,reviewId:verified.reviewId,sourceHash:verified.sourceHash,inputHash:verified.inputHash,keptAsIs:verified.keptAsIs,decisions:verified.decisions};
+ clean.narrivaPreflight={phase:verified.phase,reviewId:verified.reviewId,sourceHash:verified.sourceHash,inputHash:verified.inputHash,keptAsIs:verified.keptAsIs,manualEdited:verified.manualEdited,decisions:verified.decisions};
  if(verified.keptAsIs){
   clean.quickSignEligible=false;
   clean.narrivaSupervisorFlags=verified.decisions.map(decision=>({category:decision.checkId==='risk_safety'?'risk':'documentation',...decision,reviewId:verified.reviewId}));
@@ -121,7 +130,7 @@ async function boundReviewEvidence(note,metadata,claim,{database,drafts}) {
  const [[later]]=await database.execute(`SELECT id FROM narriva_reviews WHERE agency_id=? AND id>? AND risk_assessment_required=1 AND ((clinical_note_id IS NOT NULL AND clinical_note_id=?) OR (draft_id IS NOT NULL AND draft_id=?) OR (clinical_session_id IS NOT NULL AND clinical_session_id=?)) LIMIT 1`,[note.agency_id,row.id,note.id,claim.draftId,note.clinical_session_id]);
  if(later)return null;
  const kept=decisions(review);
- return {reviewId:id(row.id),sourceHash:row.source_hash,inputHash:review.inputHash,decisions:kept,riskBypassed:riskBypassed(review,note.created_by_user_id)};
+ return {reviewId:id(row.id),sourceHash:row.source_hash,inputHash:review.inputHash,decisions:kept,manualEdited:review.manualEdited===true,riskBypassed:riskBypassed(review,note.created_by_user_id)};
 }
 export async function verifiedBoundNarrivaReview(note,{database=pool,drafts=ClinicalNoteDraft}={}) {
  const metadata=object(note.metadata_json);

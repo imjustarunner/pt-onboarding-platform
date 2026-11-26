@@ -18,12 +18,12 @@
 import {computed} from 'vue';
 const props=defineProps({modelValue:{type:Object,default:()=>({})},choices:{type:Array,default:()=>[]},clientPresent:{type:Boolean,default:null},disabled:Boolean,unavailable:Boolean});
 const emit=defineEmits(['update:modelValue']);
-const sites=computed(()=>props.choices.filter(choice=>['11','03','99'].includes(String(choice.placeOfService))));
-const remoteValue=method=>/phone|telephone/i.test(method || '')?'__telehealth_phone__':/video/i.test(method || '')?'__telehealth_video__':/virtual|telehealth/i.test(method || '')?'__telehealth_unspecified__':'';
+const sites=computed(()=>props.choices.filter(choice=>choice.placeOfService && !['02','10','12'].includes(String(choice.placeOfService))));
+const remoteValue=method=>/phone|telephone|audio/i.test(method || '')?'__telehealth_phone__':/video/i.test(method || '')?'__telehealth_video__':/virtual|telehealth/i.test(method || '')?'__telehealth_unspecified__':'';
 const selection=computed(()=>{
  const current=props.modelValue;
  if(current.locationSelection && ['__telehealth_video__','__telehealth_phone__','__telehealth_unspecified__','__home__',...sites.value.map(s=>s.value)].includes(current.locationSelection))return current.locationSelection;
- if(['02','10'].includes(String(current.placeOfService)) || /telehealth|virtual|video|phone|audio only/i.test(current.locationLabel || ''))return remoteValue(current.modality) || '__telehealth_unspecified__';
+ if(['02','10'].includes(String(current.placeOfService)) || /telehealth|virtual|video|phone|audio only|^online/i.test(current.locationLabel || ''))return remoteValue(current.modality) || remoteValue(current.locationLabel) || '__telehealth_unspecified__';
  if(String(current.placeOfService)==='12' || /^home$|patient.?s?\s+(?:home|residence)/i.test(current.locationLabel || ''))return '__home__';
  const site=sites.value.find(choice=>{
   const label=!current.locationLabel || [choice.name,choice.label,choice.value,...(choice.aliases || [])].includes(current.locationLabel);
@@ -32,7 +32,12 @@ const selection=computed(()=>{
  return site?.value || (current.locationLabel?'saved':'');
 });
 const remote=computed(()=>selection.value.startsWith('__telehealth_'));
-const clientPlace=computed(()=>['02','10'].includes(String(props.modelValue.placeOfService))?String(props.modelValue.placeOfService):'');
+const clientPlace=computed(()=>{
+ const {locationLabel,placeOfService}=props.modelValue;
+ if(['02','10'].includes(String(placeOfService)))return String(placeOfService);
+ if(/client at home/i.test(locationLabel || ''))return '10';
+ return /client (?:away from home|elsewhere)/i.test(locationLabel || '')?'02':'';
+});
 function choose(value,place) {
  if(value==='saved')return;
  if(!value){emit('update:modelValue',{locationSelection:'',locationLabel:'',serviceLocationId:null,billingOfficeLocationId:null,placeOfService:'',modality:''});return;}
@@ -56,5 +61,5 @@ function choose(value,place) {
 }
 </script>
 <style scoped>
-.clp{min-width:0;display:grid;gap:8px}.clp label{display:grid;gap:6px;font-size:13px;font-weight:600}.clp select{font:inherit;font-weight:400;color:inherit;width:100%;min-width:0;box-sizing:border-box;padding:10px;border:1px solid #bacddd;border-radius:7px;background:white}.clp p{font-size:12px;margin:0;line-height:1.5}
+.clp{min-width:0;display:grid;gap:8px}.clp label{display:grid;gap:6px;font-size:13px;font-weight:600}.clp input,.clp select{font:inherit;font-weight:400;color:inherit;width:100%;min-width:0;box-sizing:border-box;padding:6px;border:1px solid #bacddd;border-radius:4px;background:white}.clp p{font-size:12px;margin:0;line-height:1.5}
 </style>

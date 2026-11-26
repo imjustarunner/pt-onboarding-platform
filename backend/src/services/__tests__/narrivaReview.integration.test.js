@@ -16,7 +16,7 @@ vi.mock('../noteAidChartAudit.service.js',()=>({logNoteAidChartEvent:m.audit}));
 // Source ownership is exercised by its own tests; this suite drives the real
 // asynchronous review runner, persisted result transitions, rules and sign gate.
 vi.mock('../narrivaAccess.service.js',async importOriginal=>{const actual=await importOriginal();return {...actual,requireNarrivaAgency:m.requireAgency};});
-import {createNarrivaReview,readNarrivaReview,resolveNarrivaFinding,assertNarrivaQuickSign,assertNarrivaPreGeneration,narrivaModelPayload} from '../narrivaReview.service.js';
+import {createNarrivaReview,readNarrivaReview,resolveNarrivaFinding,assertNarrivaQuickSign,assertNarrivaPreGeneration,narrivaModelPayload,inspectNarrivaFacts} from '../narrivaReview.service.js';
 import {assertNarrivaRiskBeforeSignature} from '../narrivaRiskAssessment.service.js';
 import {narrivaSourceHash,NARRIVA_QUALITY_CRITERIA,NARRIVA_RULES_VERSION} from '../narrivaReviewPolicy.service.js';
 let rows,source,facts,features,riskRequired,referenceVersion,requiredReferenceComplete,supportCoverageComplete;
@@ -49,6 +49,22 @@ beforeEach(()=>{
  });
 });
 describe('server-owned Narriva review and Quick Sign boundary',()=>{
+ it('writes the draft while checking source safety and leaves documentation scoring for the signed copy',async()=>{
+  const draft={...source,phase:'pre_generation',draftId:43,noteId:null};
+  let resolveSafety;
+  const pendingSafety=new Promise(resolve=>{resolveSafety=resolve;});
+  const model=vi.fn(async ({prompt})=>{
+   if(prompt.includes('Check these clinician-supplied encounter facts'))return pendingSafety;
+   return {text:'Subjective\nSynthetic documented clinical concerns.',modelName:'synthetic-test',finishReason:'STOP'};
+  });
+  const running=inspectNarrivaFacts(draft,{model,review:{backgroundQuality:true}});
+  await drain();
+  expect(model).toHaveBeenCalledTimes(2);
+  resolveSafety({text:JSON.stringify({currentRisk:true,riskUncertain:false,clientPresent:true,additionalParticipants:false,locationMatches:true,modalityMatches:true})});
+  const checks=await running;
+  expect(checks).toMatchObject({workingDraft:expect.stringContaining('Synthetic documented'),facts:{currentRisk:true},reviewedWriter:{model:'synthetic-test'}});
+  expect(checks).not.toHaveProperty('qualityEvidence');
+ });
  it.each(['narrative','inputText'])('blocks known identifiers in %s before model dispatch and preserves the saved source',async field=>{
   const original=source[field]+' Private Client';source[field]=original;
   const review=await completedReview();expect(review.status).toBe('unavailable');expect(review.quickSignEligible).toBe(false);expect(review.message).toContain('identifying information');

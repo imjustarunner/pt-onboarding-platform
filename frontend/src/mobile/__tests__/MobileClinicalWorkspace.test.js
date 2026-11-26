@@ -61,6 +61,24 @@ describe('scoped mobile clinical writer',()=>{
     const data=fixture();data.note={id:99,readOnly:true,outputJson:{sections:{Narrative:'Signed current clinical note.'},meta:{}}};data.review={canCosign:true,contentHash:'current-version',reviewSnapshotToken:'current-snapshot',entryManifestHash:'current-entries',narriva:review()};api.get.mockResolvedValue({data});api.post.mockImplementation(async url=>({data:url.endsWith('/narriva/reviews')?{review:review()}:url.endsWith('/cosign')?{ok:true,cosignedAt:'2026-11-06T19:00:00Z'}:{}}));
     const {w}=await mountWriter();expect(w.findAll('button').some(b=>['Run Narriva checks','Check Note'].includes(b.text()))).toBe(false);expect(w.get('#mobile-encounter-details').find('input,select,textarea').exists()).toBe(false);expect(w.get('.mn-note').find('textarea').exists()).toBe(false);expect(api.post).not.toHaveBeenCalled();expect(w.get('.mn-quick-sign').element.disabled).toBe(true);await w.get('.mn-sign input[type="checkbox"]').setValue(true);await w.get('.mn-quick-sign').trigger('click');await flushPromises();expect(api.post).toHaveBeenCalledWith('/api/quick-view/clinical/notes/99/cosign',{agencyId:7,contentHash:'current-version',reviewSnapshotToken:'current-snapshot',expectedEntryManifestHash:'current-entries',reviewedAndApproved:true,quickSign:true,narrivaReviewId:41},expect.objectContaining({headers:{'X-Quick-View-Session':'scoped'}}));expect(w.text()).toContain('Supervisor signature saved');expect(w.findComponent(MobileClinicalWorkspace).emitted('signed')[0][0]).toMatchObject({noteId:99,agencyId:7,kind:'cosign',openNext:false});w.unmount();
   });
+  it('returns the exact signed version for correction with the supervisor’s request',async()=>{
+    const data=fixture();
+    data.note={id:99,readOnly:true,outputJson:{sections:{Narrative:'Signed clinical note.'},meta:{}}};
+    data.review={canCosign:true,contentHash:'current-version',reviewSnapshotToken:'current-snapshot',narriva:{...review(),status:'action_required',quickSignEligible:false}};
+    api.get.mockResolvedValue({data});
+    const {w}=await mountWriter();
+    await w.findAll('button').find(button=>button.text()==='Return for correction').trigger('click');
+    await w.get('.mn-sign form textarea').setValue('Please document the response to the intervention.');
+    await w.get('.mn-sign form').trigger('submit');
+    await flushPromises();
+    expect(api.post).toHaveBeenCalledWith('/api/quick-view/clinical/notes/99/supervisor-review',{
+      agencyId:7,contentHash:'current-version',reviewSnapshotToken:'current-snapshot',
+      action:'changes_needed',message:'Please document the response to the intervention.'
+    },expect.objectContaining({headers:{'X-Quick-View-Session':'scoped'}}));
+    expect(w.text()).toContain('Returned to the author for correction.');
+    expect(w.findComponent(MobileClinicalWorkspace).emitted('signed')).toBeUndefined();
+    w.unmount();
+  });
   it('offers memory-only unsaved recovery after lock without replacing a newer server draft or saving automatically',async()=>{
     const first=await mountWriter();await first.w.get('textarea[aria-label="Narrative note section"]').setValue('UNSAVED-LOCAL-SYNTHETIC');first.w.unmount();
     const data=fixture();data.draft={id:61,inputText:'',outputJson:{sections:{Narrative:'NEWER-SERVER-SYNTHETIC'},meta:{writerMode:'manual'}}};api.get.mockResolvedValue({data});api.post.mockClear();api.patch.mockClear();
@@ -114,7 +132,7 @@ describe('assigned locations and portal readiness',()=>{
  it('keeps a secure-message setup option visible with no portal contacts without dispatching a message or invitation',async()=>{api.get.mockResolvedValue({data:{client:{maskedName:'Syn* Cli*',age:14},contacts:[],secureMessaging:{available:false,reason:'Review Portal settings to arrange authorized access.'}}});const w=mount(MobileClientSummary,{props:{apiBase:'/api/quick-view',sessionToken:'scoped',clientId:31}});await flushPromises();await w.findAll('button').find(b=>b.text()==='Secure message · Set up access').trigger('click');expect(w.text()).toContain('Review Portal settings');expect(api.post).not.toHaveBeenCalled();w.unmount();});
 });
 
-it('checks the saved narrative before generation, reviews output separately and makes the finalized draft editable without regeneration',async()=>{
+it('checks encounter facts before generation and keeps the finalized draft editable without a second review',async()=>{
  vi.stubGlobal('crypto',webcrypto);const data=fixture();data.preferences.defaultMode='narriva';api.get.mockResolvedValue({data});
  const text='The clinician practiced grounding; the client engaged and planned continued practice.';
  const claim={v:1,sourceHash:createHash('sha256').update(JSON.stringify([text,'90834','narriva'])).digest('hex')};
@@ -122,7 +140,7 @@ it('checks the saved narrative before generation, reviews output separately and 
  api.post.mockImplementation(async (url,body)=>({data:url.endsWith('/drafts')?{draft:{id:61}}:url.endsWith('/generate')?{draftId:61,outputJson:{sections:{Narrative:'Generated supported clinical note.'},meta:{generationReceipt:receipt}}}:url.endsWith('/narriva/reviews')?{review:review(body?.phase)}:{}}));
  const {w}=await mountWriter();expect(w.find('.mn-note').exists()).toBe(false);expect(w.find('.mn-sign').exists()).toBe(false);expect(w.find('.narriva-compliance').exists()).toBe(false);
  await w.get('[aria-label="Session Narrative"]').setValue(text);await flushPromises();expect(api.post.mock.calls.some(([u])=>u.endsWith('/reviews'))).toBe(false);expect(w.find('.mn-sign').exists()).toBe(false);
- await w.get('.mn-generate').trigger('click');await flushPromises();expect(api.post.mock.calls.some(([u])=>u.endsWith('/generate'))).toBe(false);expect(w.get('.mn-generate').text()).toMatch(/Finalize note|Continue/);expect(w.find('.mn-sign').exists()).toBe(false);expect(w.get('.mn-generate').element.disabled).toBe(true);await w.get('.narriva-section-approval input').setValue(true);await w.get('.mn-generate').trigger('click');await vi.waitFor(()=>expect(w.find('.mn-sign').exists()).toBe(true));expect(w.get('.mn-note').text()).toContain('Finalized draft');expect(api.post.mock.calls.find(([u])=>u.endsWith('/generate'))[1].preflightReviewId).toBe(41);expect(api.post.mock.calls.filter(([u])=>u.endsWith('/reviews')).map(([,body])=>body.phase)).toEqual(['pre_generation','output']);
+ await w.get('.mn-generate').trigger('click');await flushPromises();expect(api.post.mock.calls.some(([u])=>u.endsWith('/generate'))).toBe(false);expect(w.get('.mn-generate').text()).toMatch(/Finalize note|Continue/);expect(w.find('.mn-sign').exists()).toBe(false);expect(w.get('.mn-generate').element.disabled).toBe(true);await w.get('.narriva-section-approval input').setValue(true);await w.get('.mn-generate').trigger('click');await vi.waitFor(()=>expect(w.find('.mn-sign').exists()).toBe(true));expect(w.get('.mn-note').text()).toContain('Finalized draft');expect(api.post.mock.calls.find(([u])=>u.endsWith('/generate'))[1].preflightReviewId).toBe(41);expect(api.post.mock.calls.filter(([u])=>u.endsWith('/reviews')).map(([,body])=>body.phase)).toEqual(['pre_generation']);
  expect(w.get('.mn-note').find('textarea').exists()).toBe(false);
  expect(w.get('.mn-note').text()).toContain('Generated supported clinical note.');
  expect(w.get('.mn-note').text()).toContain('Presenting Problem');
@@ -131,7 +149,9 @@ it('checks the saved narrative before generation, reviews output separately and 
  w.findComponent({name:'NoteAidStructuredChartPanel'}).vm.$emit('mse-all-normal');await flushPromises();
  expect(w.get('#mobile-assessment-todos h2').text()).toBe('Assessments complete');
  const sign=w.get('.mn-sign');
- await sign.findAll('input[type="checkbox"]')[0].setValue(true);await sign.findAll('input[type="checkbox"]')[1].setValue(true);
+ if(!sign.get('button.mn-sign-submit').element.disabled)throw new Error('Signing must follow the author attestation');
+ const consent=sign.findAll('input[type="checkbox"]')[0];if(sign.text().includes('I confirm consent'))await consent.setValue(true);
+ for(const checkbox of sign.findAll('input[type="checkbox"]'))await checkbox.setValue(true);
  expect(sign.get('button.mn-sign-submit').element.disabled).toBe(false);
  expect(w.find('[aria-label="Session Narrative"]').exists()).toBe(false);
  expect(w.find('.mn-generate').exists()).toBe(false);
@@ -150,7 +170,7 @@ it('opens a previously generated note with its saved scores and signs it after t
  const sourceHash=createHash('sha256').update(JSON.stringify([inputText,'90834','narriva'])).digest('hex');
  const generationReceipt=Buffer.from(JSON.stringify({v:1,sourceHash})).toString('base64url')+'.synthetic-signature';
  data.treatmentPlan.goals=[{id:1,title:'Skill practice',objectives:[{id:8,title:'Use a grounding skill'},{id:9,title:'Practice at home'}]}];
- data.draft={id:61,inputText,outputJson:{sections:{Narrative:'The client practiced the grounding skill.'},meta:{writerMode:'narriva',generationReceipt,objectiveRatings:[{objectiveId:8,scaleValue:6},{objectiveId:9,disposition:'not_addressed'}]}}};
+ data.draft={id:61,inputText,outputJson:{sections:{Narrative:'The client practiced the grounding skill.'},meta:{writerMode:'narriva',generationReceipt,narrivaContext:{consentConfirmed:true},objectiveRatings:[{objectiveId:8,scaleValue:6},{objectiveId:9,disposition:'not_addressed'}]}}};
  api.get.mockResolvedValue({data});
  api.post.mockImplementation(async(url,body)=>{
    if(url.endsWith('/narriva/reviews'))return {data:{review:review(body.phase)}};

@@ -33,7 +33,7 @@
       <p v-else-if="!diagnoses.length" class="muted tiny">No diagnostic justification on file.</p>
     </div>
 
-    <div v-if="!skipMse" class="na-chart__block na-chart__block--mse">
+    <div v-if="!skipMse" data-note-section="Mental status" class="na-chart__block na-chart__block--mse">
       <div class="na-chart__row">
         <div class="na-chart__title-row">
           <h3>Current Mental Status</h3>
@@ -103,7 +103,7 @@
     </div>
     <p v-else class="na-chart__skip muted">{{ mseSkipLabel }}</p>
 
-    <div v-if="includeRisk" class="na-chart__block na-chart__block--risk">
+    <div v-if="includeRisk" data-note-section="Risk assessment" class="na-chart__block na-chart__block--risk">
       <h3>Risk Assessment</h3>
 
       <div class="na-risk-deny" :class="{ on: !!risk.patientDeniesAll }">

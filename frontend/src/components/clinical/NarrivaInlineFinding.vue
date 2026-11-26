@@ -37,8 +37,8 @@
     </template>
     <template v-else-if="kind === 'service'">
       <label>Service performed<select v-model="serviceCode"><option value="">Choose an eligible service</option><option v-for="item in serviceOptions" :key="item.code" :value="item.code">{{ item.label }}</option></select></label>
-      <label>Reason for changing the session’s service<textarea v-model="serviceReason" rows="2" minlength="5" maxlength="4000" /></label>
-      <button type="submit" :disabled="disabled || !serviceCode || serviceReason.trim().length < 5">Confirm and update service</button>
+      <label v-if="serviceCode !== context.serviceCode">Reason for changing the session’s service<textarea v-model="serviceReason" rows="2" minlength="5" maxlength="4000" /></label>
+      <button v-if="serviceCode !== context.serviceCode" type="submit" :disabled="disabled || !serviceCode || serviceReason.trim().length < 5">Confirm and update service</button>
     </template>
     <template v-else-if="kind === 'complexity'">
       <label>Qualifying communication complication and response<textarea v-model="answer" rows="3" maxlength="4000" placeholder="Describe what complicated communication, how it affected service delivery, and the provider’s response." /></label>

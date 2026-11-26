@@ -56,8 +56,8 @@ export async function getClientServiceCodeEligibility(req, res, next) {
     }
     const eligibility = await clientPayerServiceEligibility({ agencyId, clientId, providerUserId, dateOfService });
     const { pendingClassificationCodes = [], billingBasisUnrecorded, ...billing } = eligibility;
-    if (billingBasisUnrecorded && await getAgencySelfPayOnly(agencyId)) billing.message = '';
+    if (billingBasisUnrecorded && (clinicalSessionId || officeEventId || await getAgencySelfPayOnly(agencyId))) billing.message = '';
     const documentationCode = pendingClassificationCodes.includes(bookedCode) ? bookedCode : null;
-    res.set('Cache-Control', 'no-store').json({ ...billing, agencyId, ...(documentationCode ? {documentationCode} : {}) });
+    res.set('Cache-Control', 'no-store').json({ ...billing, ...(billingBasisUnrecorded ? {billingBasisUnrecorded:true} : {}), agencyId, ...(documentationCode ? {documentationCode} : {}) });
   } catch (error) { next(error); }
 }
