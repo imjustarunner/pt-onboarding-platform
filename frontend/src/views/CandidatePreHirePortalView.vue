@@ -605,6 +605,7 @@ import PlotlineCompanyFrame from '../components/plotline/PlotlineCompanyFrame.vu
 import { useRoute, useRouter } from 'vue-router';
 import DOMPurify from 'dompurify';
 import axios from 'axios';
+import staffApi from '../services/api';
 import PreHirePortalChat from '../components/prehire/PreHirePortalChat.vue';
 import { usePortalIdle } from '../composables/usePortalIdle.js';
 import AdaptiveSignatureCapture from '../components/adaptive-intake/AdaptiveSignatureCapture.vue';
@@ -627,6 +628,13 @@ const portalApi = axios.create({
   withCredentials: false,
   ...(props.previewData ? { adapter: async config => {
     const url = new URL(config.url, 'https://preview.invalid');
+    if (config.method === 'get' && /^\/contracts\/fingerprinting-screenshots\/[a-f0-9]{64}$/.test(url.pathname)) {
+      const response = await staffApi.get(url.pathname, {
+        params: { agencyId: Number(props.previewData.agency.id) },
+        responseType: 'blob', skipGlobalLoading: true, signal: config.signal
+      });
+      return { ...response, config };
+    }
     if (config.method === 'get' && props.previewHandbook && /^\/prehire-portal\/preview\/resources\/handbook(?:\/reference)?$/.test(url.pathname)) {
       const response = await props.previewHandbook({ ...Object.fromEntries(url.searchParams), ...config.params });
       return { ...response, config };

@@ -108,7 +108,7 @@
             <div v-else-if="step.kind === 'fingerprinting'" class="card">
               <template v-if="step.guide?.html">
                 <p v-if="step.instructions">{{ step.instructions }}</p>
-                <div class="fingerprinting-guide" v-html="step.guide.html" />
+                <HireFingerprintingGuide :html="step.guide.html" :http="http" :token="token" :agency-id="agency.id" :preview="preview" />
                 <template v-if="!closed && !preview && !step.complete">
                   <label class="check-label"><input v-model="acknowledged" type="checkbox" />I completed my fingerprinting appointment, notified Rachel Finch, and sent her any confirmation I received.</label>
                   <button class="primary" :disabled="busy || !acknowledged" @click="save(step.key, { acknowledged, guideRevision: step.guide.revision })">Save completion</button>
@@ -149,6 +149,7 @@
 <script setup>
 import '../../styles/brandTypography.css';
 import PlotlineSignature from '../plotline/PlotlineSignature.vue';
+import HireFingerprintingGuide from './HireFingerprintingGuide.vue';
 import HireWorkEmailPicker from './HireWorkEmailPicker.vue';
 import DocumentLearningCatalog from '../training/DocumentLearningCatalog.vue';
 import { computed, ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';

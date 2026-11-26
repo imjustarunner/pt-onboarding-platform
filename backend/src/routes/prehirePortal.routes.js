@@ -1,5 +1,6 @@
 import { saveWorkflowStep, uploadWorkflowFile, viewWorkflowFile, previewPortalDocument } from '../controllers/hirePortalWorkflow.controller.js';
 import express from 'express';
+import { portalFingerprintingScreenshot } from '../controllers/hireFingerprintingScreenshot.controller.js';
 import {portalStaffEnrollments} from '../controllers/hireStaffEnrollments.controller.js';
 import {portalHiringChoices} from '../controllers/hiringCommunication.controller.js';
 import { listSupervisionAgreements, signAgreement, downloadAgreement } from '../controllers/supervisionAgreement.controller.js';
@@ -79,6 +80,7 @@ const workflowUpload = multer({ storage: multer.memoryStorage(), limits: { fileS
 router.post('/:token/workflow/:stepKey', saveWorkflowStep);
 router.post('/:token/workflow/:stepKey/upload', workflowUpload.single('file'), uploadWorkflowFile);
 router.get('/:token/workflow/:phase/:stepKey/file', viewWorkflowFile);
+router.get('/:token/workflow/denver-school-fingerprinting/images/:screenshotId', portalFingerprintingScreenshot);
 router.get('/:token/tasks/:taskId/preview', previewPortalDocument);
 
 router.get('/:token/staff-enrollments',portalStaffEnrollments);

@@ -3,11 +3,12 @@ import sanitizeHtml from 'sanitize-html';
 import pool from '../config/database.js';
 import { denverFingerprintingStep } from '../../../frontend/src/navigation/hireDocuments.js';
 import { jsonObject, safePortalUrl } from '../utils/hirePortalWorkflow.js';
+import { addFingerprintingScreenshots, FINGERPRINTING_SCREENSHOTS } from '../../../frontend/src/navigation/hireFingerprintingScreenshots.js';
 
 function safeGuideHtml(value) {
   return sanitizeHtml(String(value || ''), {
-    allowedTags: ['p', 'h2', 'h3', 'h4', 'ol', 'ul', 'li', 'strong', 'b', 'em', 'i', 'br', 'a'],
-    allowedAttributes: { a: ['href', 'target', 'rel'] },
+    allowedTags: ['p', 'h2', 'h3', 'h4', 'ol', 'ul', 'li', 'strong', 'b', 'em', 'i', 'br', 'a', 'figure', 'figcaption', 'img'],
+    allowedAttributes: { a: ['href', 'target', 'rel'], img: ['src', 'alt', 'data-fingerprinting-screenshot'] },
     allowedSchemes: ['https'],
     allowProtocolRelative: false,
     transformTags: {
@@ -16,6 +17,12 @@ function safeGuideHtml(value) {
         return href
           ? { tagName: 'a', attribs: { href, target: '_blank', rel: 'noopener noreferrer' } }
           : { tagName: 'span', attribs: {} };
+      },
+      img: (_tag, attributes) => {
+        const screenshot = FINGERPRINTING_SCREENSHOTS.find(item => item.sha256 === attributes['data-fingerprinting-screenshot']);
+        if (screenshot) return { tagName: 'img', attribs: { 'data-fingerprinting-screenshot': screenshot.sha256, alt: screenshot.caption } };
+        const src = safePortalUrl(attributes.src);
+        return src ? { tagName: 'img', attribs: { src, alt: String(attributes.alt || '') } } : { tagName: 'span', attribs: {} };
       }
     }
   }).trim();
@@ -23,11 +30,11 @@ function safeGuideHtml(value) {
 
 export async function loadHireFingerprintingGuide(agencyId, db = pool) {
   const [rows] = await db.execute(
-    `SELECT m.id AS module_id, mc.content_data
+    `SELECT m.id AS module_id, mc.content_type, mc.content_data
      FROM agencies a
      JOIN modules m ON m.agency_id = a.id
      JOIN agency_public_modules apm ON apm.agency_id = a.id AND apm.module_id = m.id
-     JOIN module_content mc ON mc.module_id = m.id AND mc.content_type = 'text'
+     JOIN module_content mc ON mc.module_id = m.id AND mc.content_type IN ('text', 'image')
      WHERE a.id = ? AND a.slug = 'itsco' AND a.organization_type = 'agency'
        AND a.is_active = 1 AND COALESCE(a.is_archived, 0) = 0
        AND m.title = CONVERT(? USING utf8mb4) COLLATE utf8mb4_unicode_ci AND m.is_active = 1
@@ -38,7 +45,13 @@ export async function loadHireFingerprintingGuide(agencyId, db = pool) {
   if (rows.some(row => row.module_id !== rows[0]?.module_id)) return null;
   const html = rows.map(row => {
     const content = jsonObject(row.content_data);
-    return safeGuideHtml(content.content || content.textContent);
+    if (row.content_type === 'image') {
+      const src = safePortalUrl(content.imageUrl);
+      if (!src) return '';
+      const escape = value => String(value || '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
+      return safeGuideHtml('<figure><img src="' + escape(src) + '" alt="' + escape(content.alt || content.title) + '" /></figure>');
+    }
+    return safeGuideHtml(addFingerprintingScreenshots(safeGuideHtml(content.content || content.textContent)));
   }).filter(Boolean).join('\n');
   if (!html || !sanitizeHtml(html, { allowedTags: [], allowedAttributes: {} }).trim()) return null;
   return { html, revision: createHash('sha256').update(html).digest('hex') };
@@ -47,5 +60,20 @@ export async function loadHireFingerprintingGuide(agencyId, db = pool) {
 export async function assertHireFingerprintingAvailable(agencyId, db = pool) {
   if (!await loadHireFingerprintingGuide(agencyId, db)) {
     throw Object.assign(new Error('The ITSCO Denver fingerprinting lesson must be available in On-Demand Training before you can attach it.'), { status: 400 });
+  }
+}
+
+export async function readHireFingerprintingScreenshot(agencyId, screenshotId, { db = pool, bucket } = {}) {
+  const screenshot = FINGERPRINTING_SCREENSHOTS.find(item => item.sha256 === screenshotId);
+  if (!screenshot) throw Object.assign(new Error('Screenshot not found.'), { status: 404 });
+  const [[agency]] = await db.execute('SELECT id FROM agencies WHERE id = ? AND slug = ? AND organization_type = ? AND is_active = 1 AND COALESCE(is_archived, 0) = 0', [Number(agencyId), 'itsco', 'agency']);
+  if (!agency) throw Object.assign(new Error('This lesson belongs to ITSCO.'), { status: 403 });
+  try {
+    const storage = bucket || await (await import('./storage.service.js')).default.getGCSBucket();
+    const [bytes] = await storage.file('training-assets/itsco-denver-fingerprinting/' + screenshot.sha256 + '.png').download();
+    if (createHash('sha256').update(bytes).digest('hex') !== screenshot.sha256) throw new Error('Screenshot integrity check failed');
+    return bytes;
+  } catch (error) {
+    throw Object.assign(new Error('The screenshot could not be loaded. Please retry.', { cause: error }), { status: 503 });
   }
 }

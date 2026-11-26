@@ -1,4 +1,5 @@
 import express from 'express';
+import { staffFingerprintingScreenshot } from '../controllers/hireFingerprintingScreenshot.controller.js';
 import { authenticate, requireCapability } from '../middleware/auth.middleware.js';
 import {
   getContractLibrary,
@@ -34,6 +35,7 @@ router.use(async (req, res, next) => {
 });
 
 router.get('/library', getContractLibrary);
+router.get('/fingerprinting-screenshots/:screenshotId', staffFingerprintingScreenshot);
 router.post('/library/employment-starter', postEmploymentStarter);
 router.get('/candidates', listContractCandidates);
 router.get('/infer-compensation', inferContractCompensation);
