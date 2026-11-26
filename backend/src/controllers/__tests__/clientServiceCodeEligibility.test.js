@@ -63,5 +63,16 @@ it.each([true, false])('keeps service eligibility and scopes the missing-policy 
   const { res, next } = await call(request());
   expect(next).not.toHaveBeenCalled();
   expect(m.selfPayOnly).toHaveBeenCalledWith(2);
-  expect(res.json).toHaveBeenCalledWith({ agencyId: 2, serviceCodes: ['90834'], message: selfPayOnly ? '' : message });
+  expect(res.json).toHaveBeenCalledWith({ agencyId: 2, serviceCodes: ['90834'], billingBasisUnrecorded: true, message: selfPayOnly ? '' : message });
+});
+
+it('preserves Billing follow-up without showing the insurance advisory in a saved encounter', async () => {
+  m.session.mockResolvedValue({ ...session, agency_id: 2, service_code: '90834' });
+  m.eligibility.mockResolvedValue({ serviceCodes: ['90834'], billingBasisUnrecorded: true, message: 'Confirm billing before submission.' });
+  const req = request(); req.query.clinicalSessionId = 90;
+  const { res, next } = await call(req);
+  expect(next).not.toHaveBeenCalled();
+  expect(m.eligibility).toHaveBeenCalledWith({ agencyId: 2, clientId: 3, providerUserId: 8, dateOfService: '2026-11-16' });
+  expect(res.json).toHaveBeenCalledWith({ agencyId: 2, serviceCodes: ['90834'], billingBasisUnrecorded: true, message: '' });
+  expect(m.selfPayOnly).not.toHaveBeenCalled();
 });

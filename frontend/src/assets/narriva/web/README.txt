@@ -12,5 +12,5 @@ Recreate with cwebp:
   cwebp -quiet -q 90 -resize WIDTH 0 ../NAME.png -o NAME.webp
 WIDTH=160 for icon-navy, verified, not-verified; WIDTH=640 for other marks.
 
-The eight derivatives total approximately 160 KiB. Their purpose is to keep the
+The nine derivatives total approximately 188 KiB. Their purpose is to keep the
 public interactive website from embedding about 5 MiB of full-size app graphics.
