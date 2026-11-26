@@ -1,3 +1,4 @@
+import { saveFingerprintingDefaultInstructions } from '../services/hireFingerprintingGuide.service.js';
 import { getSharedHireDefaults, saveSharedHireDefaults, validateJobHireDefaults } from '../services/hireJobDefaults.service.js';
 import { getPrehireDraft, savePrehireDraft } from '../services/prehireDraft.service.js';
 import { candidatePrehireProgress } from '../services/hireCandidateProgress.service.js';
@@ -3868,6 +3869,17 @@ export const getHiringSettings = async (req, res, next) => {
   } catch (e) { next(e); }
 };
 
+export const updateFingerprintingDefaultInstructions = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+    const result = await saveFingerprintingDefaultInstructions({
+      agencyId, instructions: req.body?.instructions, previousInstructions: req.body?.previousInstructions
+    });
+    res.set('Cache-Control', 'private, no-store').json(result);
+  } catch (error) { next(error); }
+};
+
 export const updateHiringSettings = async (req, res, next) => {
   try {
     const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
@@ -3908,18 +3920,22 @@ export const updateHiringSettings = async (req, res, next) => {
       }
     }
 
-    const [existingRows] = await pool.execute(
-      'SELECT prehire_settings FROM agencies WHERE id = ? LIMIT 1',
-      [agencyId]
-    );
-    const rawExisting = existingRows[0]?.prehire_settings;
-    const existing = typeof rawExisting === 'string' ? JSON.parse(rawExisting) : (rawExisting || {});
-    const merged = { ...existing, ...patch };
-
-    await pool.execute(
-      'UPDATE agencies SET prehire_settings = ? WHERE id = ?',
-      [JSON.stringify(merged), agencyId]
-    );
+    const db = await pool.getConnection();
+    let merged;
+    try {
+      await db.beginTransaction();
+      const [[agency]] = await db.execute('SELECT prehire_settings FROM agencies WHERE id = ? FOR UPDATE', [agencyId]);
+      const raw = agency?.prehire_settings;
+      const existing = typeof raw === 'string' ? JSON.parse(raw) : (raw || {});
+      merged = { ...existing, ...patch };
+      await db.execute('UPDATE agencies SET prehire_settings = ? WHERE id = ?', [JSON.stringify(merged), agencyId]);
+      await db.commit();
+    } catch (error) {
+      await db.rollback();
+      throw error;
+    } finally {
+      db.release();
+    }
     res.json(handbookResponseForReader({ agencyId, settings: merged }, req.user));
   } catch (e) { next(e); }
 };
@@ -4145,15 +4161,12 @@ export const previewCandidatePrehire = async (req, res, next) => {
     const body = req.body || {};
     const packet = body.resend ? null : await prepareHirePacket({ userId: candidateUserId, agencyId, body });
     res.set('Cache-Control', 'no-store');
-    if (body.kind === 'email') {
-      const { previewPrehireInviteEmail, prehireInviteDetails } = await import('../services/prehireInviteEmail.service.js');
-      return res.json(await previewPrehireInviteEmail({
-        agencyId, candidateUserId, customSubject: body.msgSubject, customBody: body.msgBody, customNote: body.msgNote,
-        inviteDetails: packet ? prehireInviteDetails(body, packet.documents.map(doc => doc.title)) : null
-      }));
+    const emailInput = { agencyId, candidateUserId, customSubject: body.msgSubject, customBody: body.msgBody, customNote: body.msgNote };
+    if (body.kind === 'email' && !packet) {
+      const { previewPrehireInviteEmail } = await import('../services/prehireInviteEmail.service.js');
+      return res.json(await previewPrehireInviteEmail(emailInput));
     }
-
-    if (!packet || body.kind !== 'portal') return res.status(400).json({ error: { message: 'Choose an email or portal preview.' } });
+    if (!packet || !['portal', 'email'].includes(body.kind)) return res.status(400).json({ error: { message: 'Choose an email or portal preview.' } });
     const [agency, user] = await Promise.all([Agency.findById(agencyId), User.findById(candidateUserId)]);
     if (!agency || !user) return res.status(404).json({ error: { message: 'Candidate not found in this agency' } });
     const [{ buildAgencyBranding }, { buildBackgroundCheckLegalCopy }, { buildPortalWorkflow }] = await Promise.all([
@@ -4162,8 +4175,12 @@ export const previewCandidatePrehire = async (req, res, next) => {
     const legalName = [user.first_name, user.last_name].filter(Boolean).join(' ');
     const backgroundCheck = { signed: false };
     const previewUser = { credential: body.contractTokens?.CREDENTIAL, first_name: user.first_name, last_name: user.last_name, personal_email: user.personal_email || user.email, status: 'PREHIRE_OPEN', work_location: body.contractTokens?.ASSIGNED_OFFICE_NAME };
+    const collection = packet.prehirePackageId
+      ? await (await import('../models/OnboardingPackage.model.js')).default.getDocuments(packet.prehirePackageId)
+      : [];
     const templateIds = [...new Set([
       ...(Array.isArray(body.documentTemplateIds) ? body.documentTemplateIds : []),
+      ...collection.map(item => item.document_template_id),
       ...(Array.isArray(body.previewTemplates) ? body.previewTemplates.map(item => item?.templateId) : []),
       ...packet.workflow.resources.map(resource => resource.templateId),
       ...packet.documents.map(doc => doc.templateId),
@@ -4184,6 +4201,12 @@ export const previewCandidatePrehire = async (req, res, next) => {
     const { hireAccountModeForUser } = await import('../utils/hireAccountMode.js');
     const hireAccountMode = hireAccountModeForUser(agency, user);
     const workflow = await buildPortalWorkflow({ user: previewUser, agencyId, tasks, prehireTasks: [], extras, backgroundCheck, hireAccountMode, journey: {}, previewPacket: packet });
+    if (body.kind === 'email') {
+      const { previewPrehireInviteEmail, prehireInviteDetails } = await import('../services/prehireInviteEmail.service.js');
+      return res.json(await previewPrehireInviteEmail({
+        ...emailInput, inviteDetails: prehireInviteDetails(body, workflow.steps.pre_hire)
+      }));
+    }
     return res.json({
       candidate: { firstName: user.first_name, lastName: user.last_name, appliedRole: packet.jobDescription?.title, status: 'PREHIRE_OPEN' },
       agency: buildAgencyBranding(req, agency), workflow, tasks, prehireDocs: packet.documents,
@@ -4603,22 +4626,7 @@ export const sendPreHire = async (req, res, next) => {
 
     await retainHirePacket({ userId: candidateUserId, agencyId, packet: preparedPacket, actorId: req.user.id });
 
-    const checklistTitles = [];
     try {
-      const tokens = req.body?.contractTokens && typeof req.body.contractTokens === 'object'
-        ? req.body.contractTokens
-        : {};
-      const profile = await HiringProfile.findByCandidateUserId(candidateUserId);
-      let jobConfig = null;
-      if (profile?.job_description_id) {
-        const jd = await HiringJobDescription.findById(profile.job_description_id);
-        jobConfig = jd?.prehire_config_json || null;
-      }
-      const merged = mergePrehireDocuments(jobConfig, {
-        documents: Array.isArray(prehireSettings?.default_prehire_docs)
-          ? prehireSettings.default_prehire_docs
-          : []
-      });
       const seedItems = [
         {
           itemKey: 'background_check',
@@ -4640,7 +4648,6 @@ export const sendPreHire = async (req, res, next) => {
         }))
       ];
       for (const item of seedItems) {
-        checklistTitles.push(item.title);
         try {
           await pool.execute(
             `INSERT INTO hiring_prehire_checklist_items
@@ -4669,7 +4676,7 @@ export const sendPreHire = async (req, res, next) => {
         : {};
       // Finish the send before returning: request-based runtimes can suspend background work.
       try {
-        const { sendPrehirePortalInviteEmail, prehireInviteDetails } = await import('../services/prehireInviteEmail.service.js');
+        const { sendPrehirePortalInviteEmail } = await import('../services/prehireInviteEmail.service.js');
         emailResult = await sendPrehirePortalInviteEmail({
           agencyId,
           candidateUserId,
@@ -4679,7 +4686,7 @@ export const sendPreHire = async (req, res, next) => {
           customNote: req.body?.msgNote,
           generatedByUserId: req.user?.id || null,
           source: 'manual',
-          inviteDetails: prehireInviteDetails({ ...req.body, contractTokens: tokens }, checklistTitles)
+          offer: { startDate: req.body?.startDate, contractTokens: tokens }
         });
       } catch (emailErr) {
         console.error('[sendPreHire] Failed to send invite email:', emailErr?.message);
@@ -4874,6 +4881,37 @@ export const listOnboardingCandidates = async (req, res, next) => {
 
     res.json(result);
   } catch (e) { next(e); }
+};
+
+export const emailPrehireStaffCopy = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+    const userId = parseIntParam(req.params.userId);
+    if (!userId || !await ensureCandidateInAgency(userId, agencyId)) {
+      return res.status(404).json({ error: { message: 'Candidate not found in this organization.' } });
+    }
+    const [{ PREHIRE_PORTAL_ACCESS_TRIGGER }, { storedHiringInviteMessage }, { sendHiringInviteReceipt }] = await Promise.all([
+      import('../services/hiringInviteMailPolicy.js'),
+      import('../services/hiringInviteStaffCopy.js'),
+      import('../services/hiringInviteDelivery.service.js')
+    ]);
+    const [[original]] = await pool.execute(
+      `SELECT subject, body FROM user_communications
+       WHERE agency_id = ? AND user_id = ? AND template_type = ? AND channel = 'email'
+         AND delivery_status IN ('sent', 'delivered') AND sent_at IS NOT NULL
+         AND JSON_EXTRACT(metadata, '$.testInboxRedirect') IS NULL
+       ORDER BY sent_at DESC, id DESC LIMIT 1`,
+      [agencyId, userId, PREHIRE_PORTAL_ACCESS_TRIGGER]
+    );
+    if (!original?.body) return res.status(404).json({ error: { message: 'No sent pre-hire invitation was found for this candidate.' } });
+    const result = await sendHiringInviteReceipt({
+      agencyId, userId, generatedByUserId: req.user.id, source: 'manual',
+      templateType: PREHIRE_PORTAL_ACCESS_TRIGGER, message: storedHiringInviteMessage(original)
+    });
+    if (result.status === 'failed') return res.status(409).json({ error: { message: 'The staff copy could not be sent.' }, email: result });
+    res.status(result.status === 'pending' ? 202 : 200).json({ email: result });
+  } catch (error) { next(error); }
 };
 
 /**

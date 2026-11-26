@@ -2,6 +2,7 @@ import { maybeDecryptNotePayload } from './clinicalNoteCrypto.service.js';
 import EmailService from './email.service.js';
 import UserCommunication from '../models/UserCommunication.model.js';
 import {sendEmailFromIdentity} from './unifiedEmail/unifiedEmailSender.service.js';
+import { storedHiringInviteMessage } from './hiringInviteStaffCopy.js';
 import { hiringInviteReceiptTemplate, hiringInviteTemplateForReceipt } from './hiringInviteMailPolicy.js';
 
 export async function communicationRecordAttachments(comm,meta,userId){
@@ -50,7 +51,7 @@ export async function sendCommunicationRecord(comm,meta,userId,{attachments=null
     const { sendHiringInviteReceipt } = await import('./hiringInviteDelivery.service.js');
     return sendHiringInviteReceipt({
       agencyId: comm.agency_id, userId: comm.user_id, templateType: inviteTemplate,
-      generatedByUserId: userId, source: 'manual', existingCommunicationId: comm.id
+      generatedByUserId: userId, source: 'manual', message: storedHiringInviteMessage(comm), existingCommunicationId: comm.id
     });
   }
   if (hiringInviteReceiptTemplate(comm.template_type)) {
@@ -79,7 +80,7 @@ export async function recordCommunicationSent(comm,meta,result,actorUserId,{appr
     const { copySuccessfulHiringInvite } = await import('./hiringInviteDelivery.service.js');
     const peopleOperationsCopy = await copySuccessfulHiringInvite({
       agencyId: comm.agency_id, userId: comm.user_id, templateType: comm.template_type,
-      generatedByUserId: actorUserId, source: 'manual'
+      generatedByUserId: actorUserId, source: 'manual', message: storedHiringInviteMessage(comm)
     });
     return { ...updated, peopleOperationsCopy };
   }

@@ -66,7 +66,7 @@ it('sends the staff copy after an approved invitation has been recorded as sent'
   expect(result).toMatchObject({ delivery_status: 'sent', peopleOperationsCopy: { status: 'sent' } });
   expect(m.inviteCopy).toHaveBeenCalledWith({
     agencyId: invite.agency_id, userId: invite.user_id, templateType: invite.template_type,
-    generatedByUserId: 501, source: 'manual'
+    generatedByUserId: 501, source: 'manual', message: expect.objectContaining({ subject: invite.subject })
   });
   await recordCommunicationSent(invite, {}, { id: 'gmail-test', redirected: true }, 501);
   expect(m.inviteCopy).toHaveBeenCalledTimes(1);
@@ -76,7 +76,7 @@ it('rebuilds a staff receipt on retry using the current route and generated body
   await sendCommunicationRecord({ ...comm, template_type: 'onboarding_invitation_receipt' }, { cc: 'stale@tenant.test' }, 501);
   expect(m.inviteReceipt).toHaveBeenCalledWith({
     agencyId: comm.agency_id, userId: comm.user_id, templateType: 'onboarding_portal_invite',
-    generatedByUserId: 501, source: 'manual', existingCommunicationId: comm.id
+    generatedByUserId: 501, source: 'manual', message: expect.objectContaining({ subject: comm.subject }), existingCommunicationId: comm.id
   });
   expect(m.identity).not.toHaveBeenCalled();
 });

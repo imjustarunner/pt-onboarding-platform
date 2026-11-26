@@ -69,6 +69,7 @@ import {
   getHiringSettings,
   hirePackageDefaults,
   updateHiringSettings,
+  updateFingerprintingDefaultInstructions,
   uploadPrehireDocFile,
   addPrehireDocToAgencyDefaults,
   listSignerRoles,
@@ -82,6 +83,7 @@ import {
   candidateHirePackages,
   getCandidatePrehireLink,
   emailPrehirePortalLink,
+  emailPrehireStaffCopy,
   listPrehireCandidates,
   listOnboardingCandidates,
   sendOnboardingInvite,
@@ -229,6 +231,7 @@ router.get('/candidates/:userId/prehire-preview/handbook', previewCandidateHandb
 router.get('/candidates/:userId/prehire-link', getCandidatePrehireLink);
 router.post('/candidates/:userId/send-prehire', sendPreHire);
 router.post('/candidates/:userId/email-prehire-link', emailPrehirePortalLink);
+router.post('/candidates/:userId/email-prehire-staff-copy', emailPrehireStaffCopy);
 router.post('/candidates/:userId/send-document', sendDocumentToCandidate);
 router.get('/prehire-candidates', listPrehireCandidates);
 router.get('/onboarding-candidates', listOnboardingCandidates);
@@ -239,6 +242,7 @@ router.get('/package-defaults', hirePackageDefaults);
 router.put('/package-defaults/:phase', hirePackageDefaults);
 router.get('/settings', getHiringSettings);
 router.put('/settings', updateHiringSettings);
+router.put('/settings/fingerprinting-instructions', updateFingerprintingDefaultInstructions);
 router.post('/prehire-doc-files', upload.single('file'), uploadPrehireDocFile);
 router.post('/prehire-docs/agency-default', addPrehireDocToAgencyDefaults);
 

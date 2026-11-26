@@ -8,6 +8,7 @@ vi.mock('../../models/PayrollServiceCodeRule.model.js', () => ({ default: { list
 import { itscoAgreementBuilder, buildItscoAgreementPlan } from '../itscoAgreementBuilder.service.js';
 import { loadContractBundle, renderContractHtml } from '../contractMerge.service.js';
 import { ITSCO_CONTRACT_CONFIGS, ITSCO_CONTRACT_CLAUSES, mdToHtml } from '../../seeds/itscoContractClauseLibrary.js';
+import { studentTrainingClauseForPhase } from '../../content/studentTrainingAgreement.js';
 
 const configs = ITSCO_CONTRACT_CONFIGS.map((config, index) => ({ ...config, id: index + 1, is_active: 1, clause_keys_json: config.clause_keys }));
 const configFor = variant => configs.find(c => c.slug === ({ student: 'itsco_intern_practicum', provider: 'itsco_licensed_ffs', facilitator: 'itsco_facilitator' })[variant]);
@@ -41,13 +42,22 @@ describe('selection-driven ITSCO agreements', () => {
   it.each(['practicum', 'internship'])('uses one standing, paid student agreement starting in %s', async phase => {
     const result = await render({ TRAINING_START_PHASE: phase, TRAINING_START_PHASE_LABEL: 'stale phase' });
     expect(result.html).toContain(`starting phase is ${phase === 'practicum' ? 'Practicum' : 'Internship'}`);
-    expect(result.html).toContain('unless either party gives the other written notice');
-    expect(result.html).toContain('End-of-practicum review');
-    expect(result.html).toContain('fit with the training placement');
-    expect(result.html).toContain('Practice may determine that the placement will end after practicum');
-    expect(result.html).toContain('academic program does not require practicum');
-    expect(result.html).toContain('practicum prerequisites have already been satisfied elsewhere');
-    expect(result.html).toContain('replacement agreement or separate phase-transition addendum is not required');
+    if (phase === 'practicum') {
+      expect(result.html).toContain('unless either party gives the other written notice');
+      expect(result.html).toContain('End-of-practicum review');
+      expect(result.html).toContain('fit with the training placement');
+      expect(result.html).toContain('Practice may determine that the placement will end after practicum');
+      expect(result.html).toContain('replacement agreement or separate phase-transition addendum is not required');
+      expect(result.html).not.toContain('Direct-entry internship:');
+    } else {
+      expect(result.html).toContain('Direct-entry internship:');
+      expect(result.html).toContain('academic program does not require practicum');
+      expect(result.html).toContain('practicum prerequisites have already been satisfied elsewhere');
+      expect(result.html).not.toMatch(/Practicum-to-internship continuation:|End-of-practicum review:|during both practicum and internship|applicable practicum and internship phases/);
+    }
+    expect(result.html).toContain('coordinate required academic notifications');
+    expect(result.html).toContain('Any approved compensation change must be documented');
+    expect(result.html).toContain('School mileage reimbursement is not available to students in practicum or internship');
     expect(result.html).toContain('Compensation Category 2, Level 1');
     expect(result.html).toContain('Clinical Session Rate');
     expect(result.html).toContain('<td>$42.00</td>');
@@ -57,10 +67,36 @@ describe('selection-driven ITSCO agreements', () => {
     expect(result.config.pay_mode).toBe('ffs');
     expect(result.tokens.TRAINING_START_PHASE_LABEL).toBe(phase === 'practicum' ? 'Practicum' : 'Internship');
   });
-  it('supplies new clauses before a library upgrade without reviving explicitly disabled clauses', async () => {
+  it.each(['practicum', 'internship'])('excludes school mileage for school-assigned students starting in %s', async phase => {
+    const result = await render({ TRAINING_START_PHASE: phase, SERVICE_FOCUS: 'School-Based Counseling', MIN_DAYS_PER_WEEK: 1 });
+    expect(result.html).toContain('School mileage reimbursement is not available to students in practicum or internship');
+    expect(result.html).toContain('regardless of school assignment or benefit tier');
+    expect(result.html).toContain('Reimbursements required by applicable law remain available');
+    expect(result.html).not.toContain('While assigned to a school, I am eligible for mileage reimbursement');
+  });
+  it.each(['yes', 'no'])('shows the selected probation policy once (%s)', async choice => {
+    const result = await render({ PROBATION_APPLIES: choice, PROBATION_TERMS: 'Approved original-start terms.' });
+    expect(result.html.match(/<(?:h3|strong)>New-hire probation/g)).toHaveLength(1);
+    expect(result.html).toContain(`New-hire probation · ${choice === 'yes' ? 'Yes' : 'No'}`);
+    expect(result.html).toContain('Approved original-start terms.');
+    expect(result.html).toContain(choice === 'yes' ? 'Selected probationary rate' : 'Probation not applied');
+    expect(result.html).toContain('Minimum-workload rate reductions are not activated');
+  });
+  it('selects the phase in saved clauses while preserving agency additions and original clauses', () => {
+    const original = { ...clauses.find(c => c.clause_key === 'TERM_STUDENT_TRAINING') };
+    original.body_html += '<p>Additional university reporting is required.</p>';
+    const result = studentTrainingClauseForPhase(original, 'internship');
+    expect(result.body_html).not.toContain('End-of-practicum review:');
+    expect(result.body_html).toContain('Additional university reporting is required.');
+    expect(original.body_html).toContain('End-of-practicum review:');
+    expect(studentTrainingClauseForPhase(original, undefined)).toBe(original);
+  });
+  it.each(['practicum', 'internship'])('supplies phase-specific %s terms before a library upgrade without reviving explicitly disabled clauses', async phase => {
     const oldRows = clauses.filter(c => !['COMP_CATEGORY_LEVEL', 'INTRO_STUDENT_TRAINING', 'TERM_STUDENT_TRAINING'].includes(c.clause_key));
     mockLibrary('student', oldRows);
-    expect((await render()).html).toContain('End-of-practicum review');
+    const html = (await render({ TRAINING_START_PHASE: phase })).html;
+    expect(html).toContain(phase === 'practicum' ? 'End-of-practicum review' : 'Direct-entry internship:');
+    expect(html).not.toContain(phase === 'practicum' ? 'Direct-entry internship:' : 'End-of-practicum review');
     mockLibrary('student', [...oldRows, { clause_key: 'TERM_STUDENT_TRAINING', is_active: 0 }]);
     await expect(render()).rejects.toThrow('TERM_STUDENT_TRAINING');
   });
@@ -88,6 +124,12 @@ describe('selection-driven ITSCO agreements', () => {
     expect(result.html).not.toContain('Modification or Transition of Compensation Model');
     expect(result.html).not.toMatch(/\$65\.00|\$32\.50/);
     expect(result.unresolvedTokens).toEqual([]);
+  });
+  it.each(['provider', 'facilitator'])('preserves school mileage terms for a school-assigned %s', async variant => {
+    mockLibrary(variant);
+    const result = await render({ AGREEMENT_VARIANT: variant, CREDENTIAL: variant === 'facilitator' ? 'BA' : 'LPC', LICENSING_BOARD: 'DORA', SERVICE_FOCUS: 'School-Based Counseling', MIN_DAYS_PER_WEEK: 2 });
+    expect(result.html).toContain('While assigned to a school, I am eligible for mileage reimbursement');
+    expect(result.html).not.toContain('School mileage reimbursement is not available');
   });
   it('selects provider duties and licensure terms from the current selections', () => {
     const plan = buildItscoAgreementPlan({ variant: 'provider', config: configFor('provider'), tokens: { SERVICE_FOCUS: 'School-Based Counseling', LICENSURE_DEADLINE: '2027-01-01' } });

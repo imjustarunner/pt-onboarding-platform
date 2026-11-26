@@ -1,3 +1,4 @@
+import { denverFingerprintingDefaultInstructions } from '../../navigation/hireDocuments.js';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 const http = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), put: vi.fn(), patch: vi.fn() }));
@@ -453,10 +454,37 @@ it('lets staff attach the Denver lesson directly from Select materials', async (
   await button('Add Denver fingerprinting').trigger('click');
   const editor = wrapper.getComponent(HireWorkflowEditor);
   const item = editor.props('modelValue').resources.find(resource => resource.kind === 'fingerprinting');
-  expect(item).toMatchObject({ id: 'denver-school-fingerprinting', phase: 'pre_hire', required: true });
+  expect(item).toMatchObject({ id: 'denver-school-fingerprinting', phase: 'pre_hire', required: true, instructions: denverFingerprintingDefaultInstructions });
   expect(item).not.toHaveProperty('url');
   const card = editor.findAll('fieldset').find(field => field.text().includes('Denver School-Based Counseling'));
   expect(card.find('input[type="url"]').exists()).toBe(false);
   expect(card.text()).not.toContain('Attach this item before sending');
   expect(button('Add Denver fingerprinting')).toBeUndefined();
+});
+
+it('saves the reusable fingerprinting instructions and prefills the next attachment', async () => {
+  http.put.mockImplementation(async (path, body) => ({ data: path.endsWith('fingerprinting-instructions')
+    ? { instructions: body.instructions }
+    : { revision: body.revision + 1 } }));
+  const request = http.get.getMockImplementation();
+  http.get.mockImplementation(async (...args) => {
+    const response = await request(...args);
+    if (args[0].includes('wizard-context')) response.data.fingerprintingAvailable = true;
+    return response;
+  });
+  wrapper = mount(StartPreHire, { global: { stubs: { RouterLink: true } } });
+  await flushPromises();
+  await wrapper.findAll('.sph-steps button')[2].trigger('click');
+  await button('Edit default fingerprinting instructions').trigger('click');
+  const input = wrapper.get('.fingerprinting-defaults textarea');
+  expect(input.element.value).toBe(denverFingerprintingDefaultInstructions);
+  await input.setValue('Notify Rachel before submitting.');
+  await button('Save default instructions').trigger('click');
+  await flushPromises();
+  expect(http.put).toHaveBeenCalledWith('/hiring/settings/fingerprinting-instructions', {
+    instructions: 'Notify Rachel before submitting.', previousInstructions: denverFingerprintingDefaultInstructions
+  }, { params: { agencyId: 1 } });
+  await button('Add Denver fingerprinting').trigger('click');
+  expect(wrapper.getComponent(HireWorkflowEditor).props('modelValue').resources)
+    .toContainEqual(expect.objectContaining({ kind: 'fingerprinting', instructions: 'Notify Rachel before submitting.' }));
 });

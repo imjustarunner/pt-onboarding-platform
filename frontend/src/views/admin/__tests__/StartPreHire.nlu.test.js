@@ -74,3 +74,25 @@ it('takes a server-side rate error to its service without losing entered hours',
  expect(document.activeElement.closest('article').id).toBe('prehire-service-childcare');
  expect(field('Total work hours / week').element.value).toBe('20–25');
 });
+
+it('explains only the selected student training path and previews that selection',async()=>{
+ const defaultGet=m.get.getMockImplementation();
+ m.get.mockImplementation(async(...args)=>{
+  const response=await defaultGet(...args);
+  if(args[0].endsWith('/wizard-context'))return {data:{...response.data,contractTenant:'itsco',
+   tokens:{...response.data.tokens,AGENCY_SLUG:'itsco',CREDENTIAL:'Intern',UNIVERSITY_NAME:'QA University',CONTRACT_SERVICE_ROLES:[]},
+   agreementBuilder:{suggestedVariant:'student',suggestedTrainingStartPhase:'internship',options:[{value:'student',label:'Student training agreement',configId:1}]}}};
+  return response;
+ });
+ await page();
+ const phase=wrapper.findAll('label').find(node=>node.text().startsWith('Starting training phase'));
+ expect(phase.text()).toContain('This agreement begins directly in internship.');
+ expect(phase.text()).not.toContain('One agreement covers both phases.');
+ await phase.get('select').setValue('practicum');
+ expect(phase.text()).toContain('Practicum continues into internship');
+ expect(phase.text()).not.toContain('This agreement begins directly in internship.');
+ await phase.get('select').setValue('internship');
+ await wrapper.get('#prehire-level').setValue('4');await wrapper.get('input[type=radio][value=no]').setValue(true);
+ await wrapper.get('#prehire-preview-button').trigger('click');await flushPromises();
+ expect(m.post.mock.calls.at(-1)[1].tokens).toMatchObject({AGREEMENT_VARIANT:'student',TRAINING_START_PHASE:'internship'});
+});

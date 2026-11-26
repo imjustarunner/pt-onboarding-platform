@@ -30,7 +30,7 @@ import { availableContractRoles, contractServiceTrack, inferContractServiceRoles
 import { NLU_COMPENSATION_CATEGORIES } from '../content/nluCompensationPolicy.js';
 import { individualRoleCompensationTerms } from '../content/individualRoleCompensationTerms.js';
 import { employmentStarterClauses } from './employmentStarter.service.js';
-import { STUDENT_TRAINING_CLAUSES } from '../content/studentTrainingAgreement.js';
+import { STUDENT_TRAINING_CLAUSES, studentTrainingClauseForPhase } from '../content/studentTrainingAgreement.js';
 import {
   classifyPayCategory,
   determineLicenseStatus
@@ -690,7 +690,8 @@ export async function renderContractHtml({
       // assignments remain separately authorized; do not fabricate one to hire.
       deferTestingAssignment:!!nluSchedule});
   }
-  const payClauses = terms ? applyEmploymentPayTerms(originalClauses,terms) : originalClauses;
+  const trainingClauses = originalClauses.map(clause => studentTrainingClauseForPhase(clause, agreementPlan?.trainingStartPhase));
+  const payClauses = terms ? applyEmploymentPayTerms(trainingClauses,terms) : trainingClauses;
   const handbookClauses = handbookTenant(agency) ? applyEmploymentHandbookCompensation(payClauses,{tenant:handbookTenant(agency)}) : payClauses;
   const replaceFallbackClinicalDuties = rolePlan.roles.length > 0 && !rolePlan.roles.includes('psychotherapy');
   const roleClauses = applyContractServiceRoleClauses(handbookClauses,rolePlan,{replaceFallbackClinicalDuties});

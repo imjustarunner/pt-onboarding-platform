@@ -14,6 +14,9 @@ export function builtInHireDocument(document = {}) {
   return null;
 }
 
+export const denverFingerprintingDefaultInstructions = 'Please ensure Rachel is able to receive your fingerprints in a timely manner. This background check is separate from our employment background check and must be completed for the school districts and be kept on file with ITSCO.';
+export const denverFingerprintingInstructionsLimit = 4000;
+
 export const denverFingerprintingStep = Object.freeze({
   id: 'denver-school-fingerprinting',
   kind: 'fingerprinting',

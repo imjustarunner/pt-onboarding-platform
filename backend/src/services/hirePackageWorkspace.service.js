@@ -1,4 +1,4 @@
-import { assertHireFingerprintingAvailable, loadHireFingerprintingGuide } from './hireFingerprintingGuide.service.js';
+import { assertHireFingerprintingAvailable, fingerprintingDefaultInstructions, loadHireFingerprintingGuide } from './hireFingerprintingGuide.service.js';
 import { getAppliedJobHireDefaults, resolveOnboardingDefaults } from './hireJobDefaults.service.js';
 import { createHash } from 'node:crypto';
 import pool from '../config/database.js';
@@ -37,7 +37,7 @@ async function context(userId, agencyId, db, lock = false) {
   const workflow = preparing ? defaults.workflow : sanitizeWorkflow(packet.workflow);
   // Defaults for the future phase must not change the retained pre-hire configuration.
   workflow.resources = [...(packet.workflow?.resources || []).filter(r => r.phase === 'pre_hire'), ...workflow.resources.filter(r => r.phase === 'onboarding')];
-  return { user: { ...user, applied_role: profile?.applied_role }, journey: journey || {}, packet, workflow, preparing, training: defaults.training,
+  return { user: { ...user, applied_role: profile?.applied_role }, journey: journey || {}, packet, workflow, preparing, training: defaults.training, fingerprintingInstructions: fingerprintingDefaultInstructions(settings),
     suggestedOnboardingPackageId: defaults.packageId || mapping?.packageId || settings.default_onboarding_package_id || null };
 }
 export async function getHirePackageWorkspace(userId, agencyId, db = pool) {
@@ -62,7 +62,7 @@ export async function getHirePackageWorkspace(userId, agencyId, db = pool) {
     }
   }
   const fingerprintingAvailable = !packageClosed('pre_hire', ctx.user, ctx.journey) && !!await loadHireFingerprintingGuide(agencyId, db);
-  return { candidate: ctx.user, fingerprintingAvailable, revision: revisionOf(ctx.packet), phases: Object.fromEntries(['pre_hire','onboarding'].map(phase => [phase, {
+  return { candidate: ctx.user, fingerprintingAvailable, ...(fingerprintingAvailable ? { fingerprintingInstructions: ctx.fingerprintingInstructions } : {}), revision: revisionOf(ctx.packet), phases: Object.fromEntries(['pre_hire','onboarding'].map(phase => [phase, {
     closed: packageClosed(phase, ctx.user, ctx.journey), preparing: phase === 'onboarding' && ctx.preparing,
     training: phase === 'onboarding' ? ctx.training : null,
     packageId: ctx.packet[packetKey(phase)] || null,

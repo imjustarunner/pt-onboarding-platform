@@ -149,9 +149,11 @@ export const getPortal = async (req, res, next) => {
                 a.street_address, a.city, a.state, a.postal_code
          FROM agencies a
          JOIN user_agencies ua ON ua.agency_id = a.id
-         WHERE ua.user_id = ?
+         LEFT JOIN hire_portal_packets hp ON hp.user_id = ua.user_id AND hp.agency_id = a.id
+         WHERE ua.user_id = ? AND (? IS NULL OR a.id = ?)
+         ORDER BY (hp.user_id IS NOT NULL) DESC, a.id
          LIMIT 1`,
-        [userId]
+        [userId, req.hireAgencyId || null, req.hireAgencyId || null]
       );
       agencyRaw = agRows[0] || null;
       if (agencyRaw) {
@@ -159,6 +161,7 @@ export const getPortal = async (req, res, next) => {
         supportTeam = await loadSupportTeam(req, agencyRaw.id);
       }
     } catch { /* ignore */ }
+    if (!agencyRaw) return res.status(404).json({ error: { message: 'Pre-hire organization not found.' } });
 
     // Hiring profile (role, stage)
     let hiringProfile = null;
@@ -643,12 +646,17 @@ export const portalAcknowledge = async (req, res, next) => {
 
 // ─── POST /api/prehire-portal/:token/complete ────────────────────────────────
 // A candidate closes the current process; staff controls the next lifecycle transition.
-export async function portalStateForUser(userId) {
+export async function portalStateForUser(userId, { agencyId = null } = {}) {
   const user = await User.findById(userId);
   let state;
   let failure;
-  await getPortal({ portalUser: user, params: {}, protocol: 'https', get: () => 'localhost' },
-    { json: (value) => { state = value; } }, (e) => { failure = e; });
+  const response = {
+    json(value) { state = value; return this; },
+    status(status) {
+      return { json: value => { failure = Object.assign(new Error(value?.error?.message || 'The pre-hire portal is unavailable.'), { status }); } };
+    }
+  };
+  await getPortal({ portalUser: user, hireAgencyId: agencyId, params: {}, protocol: 'https', get: () => 'localhost' }, response, (e) => { failure = e; });
   if (failure) throw failure;
   return state;
 }

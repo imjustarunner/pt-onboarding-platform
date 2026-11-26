@@ -48,19 +48,26 @@ export function formatOfferDate(value) {
   return Number.isFinite(date.getTime()) ? date.toLocaleDateString('en-US', { timeZone: 'UTC', month: 'long', day: 'numeric', year: 'numeric' }) : raw;
 }
 
-export function prehireInviteDetails(body, documentTitles = []) {
+export function prehireInviteDetails(body, portalSteps) {
   const tokens = body?.contractTokens || {};
   return {
-    startDate: tokens.START_DATE || body.startDate,
+    startDate: tokens.START_DATE || body?.startDate,
     expirationDate: tokens.EXPIRATION_DATE || tokens.CONTRACT_EXPIRATION,
     minDays: tokens.MIN_DAYS_PER_WEEK || tokens.MIN_DAYS,
     minHours: tokens.MIN_HOURS || tokens.MIN_HOURS_PER_WEEK,
-    steps: [...new Set([
-      'Authorization for Background Check', 'Acknowledge job description', 'Review and sign the employment agreement',
-      'Choose a work username', 'Complete pre-employment information and upload a professional headshot', ...documentTitles,
-      'Submit pre-hire for review'
-    ])]
+    steps: portalSteps.filter(step => String(step.title || '').trim()).map(step => step.kind === 'review'
+      ? 'Submit pre-hire for review'
+      : step.required === false ? `${step.title} (optional)` : step.title)
   };
+}
+
+async function savedPrehireInviteSteps(candidateUserId, agencyId) {
+  const { portalStateForUser } = await import('../controllers/prehirePortal.controller.js');
+  const state = await portalStateForUser(candidateUserId, { agencyId });
+  if (Number(state?.agency?.id) !== Number(agencyId) || !Array.isArray(state?.workflow?.steps?.pre_hire)) {
+    throw Object.assign(new Error('The pre-hire checklist could not be loaded for this organization.'), { status: 409 });
+  }
+  return state.workflow.steps.pre_hire;
 }
 
 function buildDefaultInviteContent({ firstName, agencyName, jobTitle, portalLink, inviteDetails }) {
@@ -133,7 +140,8 @@ async function prepareInvitation({
   customSubject = null,
   customBody = null,
   customNote = null,
-  inviteDetails = null
+  inviteDetails = null,
+  offer = null
 }) {
   const user = await User.findById(candidateUserId);
   if (!user) return { skipped: true, reason: 'user_not_found' };
@@ -167,12 +175,10 @@ async function prepareInvitation({
        WHERE g.agency_id = ? AND g.candidate_user_id = ? AND t.status != 'overridden'
        ORDER BY g.id DESC LIMIT 1`, [agencyId, candidateUserId]
     );
-    const [steps] = await pool.execute(
-      'SELECT title FROM hiring_prehire_checklist_items WHERE agency_id = ? AND user_id = ? ORDER BY id',
-      [agencyId, candidateUserId]
-    );
     const tokens = parseObject(generations[0]?.token_values_json);
-    inviteDetails = prehireInviteDetails({ contractTokens: tokens }, steps.map(step => step.title));
+    inviteDetails = prehireInviteDetails({
+      ...offer, contractTokens: { ...offer?.contractTokens, ...tokens }
+    }, await savedPrehireInviteSteps(candidateUserId, agencyId));
   }
 
   let subject;
