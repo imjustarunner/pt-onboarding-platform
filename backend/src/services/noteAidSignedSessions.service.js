@@ -80,8 +80,8 @@ async function attachClientLabels(sessions = []) {
         clientName: full || s.clientName || null,
         client_full_name: full || s.client_full_name || null,
         initials: initials || s.initials || null,
-        agencyId: c.agency_id || s.agencyId || null,
-        agencyName: c.agency_name || s.agencyName || null
+        agencyId: s.agencyId || c.agency_id || null,
+        agencyName: s.agencyName || (Number(s.agencyId || c.agency_id) === Number(c.agency_id) ? c.agency_name : null)
       };
     });
   } catch {
@@ -114,7 +114,7 @@ export async function listSignedNoteSessions({ userId = null, clientIds = [], ag
 
   try {
     const [rows] = await clinicalPool.execute(
-      `SELECT n.id, n.client_id, n.clinical_session_id, n.provider_signed_at, n.metadata_json,
+      `SELECT n.id, n.agency_id, n.client_id, n.clinical_session_id, n.provider_signed_at, n.metadata_json,
               n.created_at, cs.service_code, cs.scheduled_start_at, cs.office_event_id
        FROM clinical_notes n
        LEFT JOIN clinical_sessions cs ON cs.id = n.clinical_session_id
@@ -128,6 +128,7 @@ export async function listSignedNoteSessions({ userId = null, clientIds = [], ag
       const dos = String(meta.dateOfService || r.scheduled_start_at || r.created_at || '').slice(0, 10);
       return {
         noteId: r.id,
+        agencyId: r.agency_id,
         clientId: r.client_id,
         clinicalSessionId: r.clinical_session_id || null,
         officeEventId: r.office_event_id || meta.officeEventId || null,

@@ -124,6 +124,28 @@ it('uses the approved revision hash in shared review reads, recorded reviews, an
   expect(list.json.mock.calls[0][0].documents[0]).toMatchObject({ title: 'Approved amended title', clinicalVersion: { revisionId: 12 }, cosignedAt: '2026-10-23', amendmentSignoffRequired: false });
 });
 
+it('lists provider-signed plans for their assigned supervisor when discretionary review is off', async () => {
+  const draft = { id: 42, agency_id: 450, client_id: 2297, created_by_user_id: 7, title: 'Signed plan for review', status: 'draft' };
+  const unsigned = { ...draft, id: 43, title: 'Plan in progress' };
+  m.policy.mockResolvedValue({ supervisorUserId: 9, reviewSupervisorIds: [9], nonBillableReview: 'none' });
+  m.clinical.mockResolvedValueOnce([[]]).mockResolvedValueOnce([[unsigned, draft]]);
+  const defaultMain = m.main.getMockImplementation();
+  m.main.mockImplementation((sql, params) => sql.includes('SELECT DISTINCT treatment_plan_id')
+    ? Promise.resolve([[{ treatment_plan_id: 42 }]]) : defaultMain(sql, params));
+  const req = { user: { id: 9, role: 'supervisor' }, params: { providerId: '7' }, query: { agencyId: '450' } };
+  const list = response(), next = vi.fn();
+  await listSuperviseeDocumentReviews(req, list, next);
+  expect(next).not.toHaveBeenCalled();
+  expect(list.json.mock.calls[0][0].documents).toEqual([
+    expect.objectContaining({ id: 42, type: 'treatment_plan', awaitingPlanReview: true })
+  ]);
+
+  const unrelated = response();
+  await listSuperviseeDocumentReviews({ ...req, user: { id: 10, role: 'supervisor' } }, unrelated, next);
+  expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 403 }));
+  expect(unrelated.json).not.toHaveBeenCalled();
+});
+
 it.skipIf(process.env.CLINICAL_REVIEW_MYSQL_TEST !== '1')('reads and approves corrections against the migrated MySQL encounter schema', async () => {
   // Only the disposable CI database is allowed. A connection-local temporary
   // table shadows the fixture table; no retained database records are changed.

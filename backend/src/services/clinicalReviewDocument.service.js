@@ -44,7 +44,7 @@ export async function loadReviewDocument(s,type,id, db = clinicalPool) {
     const plan = await ClinicalTreatmentPlan.findById(id);
     content=JSON.stringify(plan);
     const { treatmentPlanContentHash } = await import('./treatmentPlanApproval.service.js');
-    return { row, content, session, hash: await treatmentPlanContentHash(plan) };
+    return { row, plan, content, session, hash: await treatmentPlanContentHash(plan) };
   }
   return {row,content,session,hash:row.clinical_version_content_hash || crypto.createHash('sha256').update(String(content)).digest('hex')};
 }

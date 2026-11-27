@@ -1,5 +1,5 @@
 import pool from '../config/database.js';
-import { maybeEncryptNotePayload } from './clinicalNoteCrypto.service.js';
+import { maybeDecryptNotePayload, maybeEncryptNotePayload } from './clinicalNoteCrypto.service.js';
 
 export const PLAN_REVIEW_RULES = 'treatment-plan-v1';
 
@@ -32,6 +32,29 @@ export function scoreTreatmentPlan(plan, draft = {}) {
   }));
   const score = criteria.reduce((total, criterion) => total + (criterion.status === 'supported' ? criterion.points : 0), 0);
   return { criteria, score };
+}
+
+// Call only after the plan and the requested version have been authorized.
+export async function loadTreatmentPlanReview(plan, contentHash, database = pool) {
+  try {
+    const [[row]] = await database.execute(`SELECT result_encrypted, completed_at FROM narriva_reviews
+      WHERE agency_id=? AND actor_user_id=? AND rules_version=? AND source_hash=?
+        AND completed_at IS NOT NULL ORDER BY id DESC LIMIT 1`,
+    [plan.agency_id, plan.created_by_user_id, PLAN_REVIEW_RULES, contentHash]);
+    if (!row) return null;
+    const result = JSON.parse(maybeDecryptNotePayload(row.result_encrypted));
+    if (result.phase !== 'treatment_plan' || Number(result.planId) !== Number(plan.id)
+        || Number(result.clientId) !== Number(plan.client_id) || !Number.isFinite(result.scoring?.score)) return null;
+    return {
+      score: result.scoring.score,
+      completedAt: row.completed_at,
+      missing: result.scoring.criteria.filter(item => item.status === 'missing')
+        .map(({ label, message }) => ({ label, message }))
+    };
+  } catch (error) {
+    console.warn('[treatment-plan] Documentation review could not be loaded', error.code || 'unavailable');
+    return null;
+  }
 }
 
 export async function recordTreatmentPlanReview(plan, contentHash, draft, database = pool) {

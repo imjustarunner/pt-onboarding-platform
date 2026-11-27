@@ -292,7 +292,7 @@
 
           <section v-if="planSections.dischargePlan" class="ctp-goal ctp-plan-section"><h4>Discharge plan</h4><p>{{ planSections.dischargePlan }}</p></section>
 
-          <TreatmentPlanApprovalPanel v-if="detailPlan.source_tool_id==='narriva_chart_plan' && detailPlan.status==='draft'"
+          <TreatmentPlanApprovalPanel v-if="!isLearning && ['draft', 'active', 'final', 'finalized'].includes(detailPlan.status) && detailPlan.source_tool_id !== 'intake_packet_bootstrap'"
             :agency-id="agencyId" :client-id="clientId" :plan-id="detailPlan.id" @updated="onAckUpdated" />
           <TreatmentPlanAckPanel
             v-if="!isLearning && detailPlan?.id"

@@ -1,6 +1,7 @@
 import ClinicalTreatmentPlan from '../models/clinical/ClinicalTreatmentPlan.model.js';
 import { requireNarrivaClient } from '../services/narrivaAccess.service.js';
 import { getTreatmentPlanApproval, attestTreatmentPlanProvider } from '../services/treatmentPlanApproval.service.js';
+import { loadTreatmentPlanReview, recordTreatmentPlanReview } from '../services/narrivaTreatmentPlanReview.service.js';
 import { logNoteAidChartEvent } from '../services/noteAidChartAudit.service.js';
 
 async function scopedPlan(req) {
@@ -12,7 +13,12 @@ async function scopedPlan(req) {
   return plan;
 }
 export async function getPlanApproval(req, res, next) {
-  try { const plan = await scopedPlan(req); res.set('Cache-Control', 'no-store').json({ approval: await getTreatmentPlanApproval(plan), canProviderSign: Number(plan.created_by_user_id) === Number(req.user.id) }); }
+  try {
+    const plan = await scopedPlan(req);
+    const approval = await getTreatmentPlanApproval(plan);
+    const documentationReview = approval.providerApproved ? await loadTreatmentPlanReview(plan, approval.contentHash) : null;
+    res.set('Cache-Control', 'no-store').json({ approval, documentationReview, canProviderSign: Number(plan.created_by_user_id) === Number(req.user.id) });
+  }
   catch (error) { next(error); }
 }
 export async function signPlanProviderReview(req, res, next) {
@@ -23,11 +29,12 @@ export async function signPlanProviderReview(req, res, next) {
     try { await (await import('../services/intakeTreatmentPlanWork.service.js')).completeIntakePlanWork(plan); }
     catch { console.warn('[treatment-plan] Provider signature recorded. My Work could not be updated.'); }
     try {
-      const { recordTreatmentPlanReview } = await import('../services/narrivaTreatmentPlanReview.service.js');
       await recordTreatmentPlanReview(plan, req.body.contentHash);
     } catch (error) {
       console.warn('[treatment-plan] Documentation review could not be saved', error.code || 'unavailable');
     }
-    res.json({ approval: await getTreatmentPlanApproval(plan) });
+    const approval = await getTreatmentPlanApproval(plan);
+    const documentationReview = await loadTreatmentPlanReview(plan, approval.contentHash);
+    res.set('Cache-Control', 'no-store').json({ approval, documentationReview });
   } catch (error) { next(error); }
 }

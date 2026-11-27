@@ -46,6 +46,10 @@ export function useClientEncounterNote() {
       return;
     }
 
+    if (row?.draft_id && row.note_status !== 'signed') {
+      return navigateToNoteAid(router, { ...baseCtx, draftId: row.draft_id }, { organizationSlug });
+    }
+
     if (Number(row?.clinical_note_id || 0) > 0) {
       const sessionId = Number(row?.clinical_session_id || 0);
       await navigateToNoteAid(
@@ -58,10 +62,6 @@ export function useClientEncounterNote() {
         { organizationSlug }
       );
       return;
-    }
-
-    if (verifyAppointment && row?.draft_id) {
-      return navigateToNoteAid(router, { ...baseCtx, agencyId: aid, draftId: row.draft_id }, { organizationSlug });
     }
 
     if (verifyAppointment && (baseCtx.clinicalSessionId || baseCtx.appointmentId || baseCtx.officeEventId)) {
@@ -83,7 +83,8 @@ export function useClientEncounterNote() {
         if (!found) throw new Error('This appointment could not be verified for documentation. Open the assigned appointment from the schedule.');
         return await navigateToNoteAid(router, {
           ...baseCtx, agencyId: aid, clinicalSessionId: found.clinicalSessionId,
-          draftId: found.draftId || undefined, noteId: found.clinicalNoteId || undefined
+          draftId: found.noteStatus === 'signed' ? undefined : found.draftId || undefined,
+          noteId: found.noteStatus === 'signed' ? found.clinicalNoteId || undefined : undefined
         }, { organizationSlug });
       } finally {
         openingId.value = null;

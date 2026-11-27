@@ -42,3 +42,18 @@ it('discards an approval response when the authorized client or plan changes', a
   expect(api.post).toHaveBeenCalledWith('/medical-billing/treatment-plans/11/provider-review', { agencyId: 4, clientId: 51, contentHash: 'current-hash', reviewedAndAccurate: true });
   wrapper.unmount();
 });
+
+
+it('shows the saved score, missing criteria, and missing supervisor on a signed plan', async () => {
+  api.get.mockResolvedValue({ data: {
+    approval: { providerApproved: true, supervisorApproved: false, supervisorUserId: null },
+    documentationReview: { score: 90, missing: [{ label: 'Discharge criteria', message: 'Review against the current goals.' }] }
+  } });
+  const wrapper = mount(Panel, { props: { agencyId: 4, clientId: 50, planId: 10 } });
+  await flushPromises();
+  expect(wrapper.text()).toContain('Signed and reviewed');
+  expect(wrapper.text()).toContain('No clinical supervisor is assigned');
+  expect(wrapper.text()).toContain('90%');
+  expect(wrapper.text()).toContain('Review against the current goals.');
+  wrapper.unmount();
+});

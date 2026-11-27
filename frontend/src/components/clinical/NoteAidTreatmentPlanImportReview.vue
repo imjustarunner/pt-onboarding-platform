@@ -13,8 +13,8 @@
         </div>
         <div class="na-plan-navigation">
           <a v-if="signedIntakeHref" :href="signedIntakeHref" target="_blank" rel="noopener" class="na-btn-outline">View signed intake (new tab)</a>
-          <button v-if="returnToChart" type="button" class="na-btn-outline" :disabled="saving" @click="emit('return-to-chart')">Back to client chart</button>
-          <button type="button" class="na-link-btn" :disabled="saving" @click="emit('close')">{{ inPage ? (intakeDate ? 'Back to My Work' : 'Back') : 'Close' }}</button>
+          <button v-if="returnToChart" type="button" class="na-btn-outline" :disabled="saving" @click="exitEditor('return-to-chart')">Back to client chart</button>
+          <button type="button" class="na-link-btn" :disabled="saving" @click="exitEditor('close')">{{ inPage ? (intakeDate ? 'Back to My Work' : 'Back') : 'Close' }}</button>
         </div>
       </header>
 
@@ -57,6 +57,13 @@
       <p v-if="!model && error" class="error" role="alert">{{ error }}</p>
       <details v-if="importedSourceText" class="hint hint-block"><summary>Original imported treatment plan</summary><pre style="white-space:pre-wrap">{{ importedSourceText }}</pre></details>
 
+      <div v-if="activeSuggestion" class="na-modal-actions na-modal-actions--start" role="status">
+        <span>Narriva is preparing suggestions. You can keep editing.</span>
+        <button type="button" class="na-btn-outline" @click="cancelPlanSuggestion">Cancel suggestions</button>
+      </div>
+      <p v-if="model && usesChartDraft" class="muted" role="status">
+        {{ saving && !finalizing ? 'Saving draft…' : unsavedChanges ? 'Unsaved changes' : draftNotice === 'Draft saved.' ? 'Draft saved.' : '' }}
+      </p>
       <template v-if="model">
         <div v-if="planAuthoring && !manualOnly" class="narriva-plan-actions">
           <button type="button" v-if="!model.goals.some(goal => goal.goalText.trim())" class="na-btn-primary narriva-plan-button" :disabled="suggestingPlan || !!rewriteKey || saving" @click="runNarrivaPlan()">
@@ -66,7 +73,7 @@
           <label class="na-check"><input v-model="includeOtherQuestions" type="checkbox" /> Include third-person rating questions</label>
           <button v-if="aiContentUsed" type="button" class="na-btn-outline" :disabled="saving" @click="startManualPlan">Wipe and write myself</button>
           <p class="hint">Keep at least two objectives on a 1–10 scale. Use your assessment to set each baseline.</p>
-          <p v-if="draftNotice || suggestingPlan" role="status">{{ suggestingPlan ? 'Preparing the treatment plan for review…' : draftNotice }}</p>
+          <p v-if="draftNotice && draftNotice !== 'Draft saved.'" role="status">{{ draftNotice }}</p>
         </div>
         <section class="na-plan-section" :id="sectionId('overview')" tabindex="-1">
           <h2>Plan overview</h2>
@@ -396,7 +403,7 @@
         <p v-if="error" class="error" role="alert">{{ error }}</p>
         <p v-if="inPage" class="hint">Signing confirms the plan is accurate and sends it for supervisor review.</p>
         <div class="na-modal-actions">
-          <button type="button" class="na-btn-outline" @click="emit('close')">Cancel</button>
+          <button type="button" class="na-btn-outline" @click="exitEditor('close')">Cancel</button>
           <button
             v-if="!embedded && isDraftEditor && Number(props.planId || 0)"
             type="button"
@@ -411,7 +418,7 @@
             v-if="inPage || isDraftEditor || isUpdaterMode || allowImportedDraft"
             type="button"
             class="na-btn-outline"
-            :disabled="saving || suggestingPlan || !!rewriteKey"
+            :disabled="saving"
             @click="save({ finalize: false })"
           >
             {{ saving && !finalizing ? 'Saving…' : (allowImportedDraft ? 'Save for review' : 'Save draft') }}
@@ -419,7 +426,7 @@
           <button
             type="button"
             class="na-btn-primary"
-            :disabled="saving || suggestingPlan || !!rewriteKey"
+            :disabled="saving"
             @click="save({ finalize: true })"
           >
             {{ finalizing ? (inPage ? 'Signing…' : 'Saving…') : (inPage ? 'Sign treatment plan' : 'Finalize treatment plan') }}
@@ -539,9 +546,7 @@ function startPlanAction(type, goal, objective) {
 
 function startManualPlan() {
   if (!window.confirm('Clear the draft goals, objectives, interventions and care recommendations and write them yourself?')) return;
-  editScope++;
-  suggestingPlan.value = false;
-  rewriteKey.value = '';
+  cancelPlanSuggestion();
   planAction.value = null;
   aiContentUsed.value = false;
   manualOnly.value = true;
@@ -578,7 +583,58 @@ const planAuthoring = computed(() => props.embedded || usesChartDraft.value || i
 const hasProposedObjectiveChanges = computed(() => model.value?.goals.some(goal => goal.objectives.some(o =>
   o.renewalRecommendation && (o.suggestedObjective || o.suggestedInterventions.length))));
 let editScope = 0;
-onBeforeUnmount(() => { editScope += 1; });
+const activeSuggestion = ref(null);
+
+function startPlanSuggestion() {
+  if (saving.value || activeSuggestion.value) return null;
+  const request = new AbortController();
+  activeSuggestion.value = request;
+  return request;
+}
+
+function endPlanSuggestion(request) {
+  if (activeSuggestion.value !== request) return;
+  activeSuggestion.value = null;
+  suggestingPlan.value = false;
+  rewriteKey.value = '';
+  suggestingDischarge.value = false;
+  proposingUpdate.value = false;
+}
+
+function cancelPlanSuggestion() {
+  const request = activeSuggestion.value;
+  if (!request) return;
+  endPlanSuggestion(request);
+  request.abort();
+}
+
+async function requestPlanSuggestion(request, url, payload) {
+  const timeoutMs = 60000;
+  let timer;
+  let onAbort;
+  try {
+    const interruption = new Promise((_, reject) => {
+      onAbort = () => reject(new Error('Suggestions canceled.'));
+      request.signal.addEventListener('abort', onAbort, { once: true });
+      timer = setTimeout(() => {
+        reject(new Error('Narriva took too long to respond. You can continue editing or retry suggestions.'));
+        request.abort();
+      }, timeoutMs);
+    });
+    return await Promise.race([
+      api.post(url, payload, { skipGlobalLoading: true, signal: request.signal }),
+      interruption
+    ]);
+  } finally {
+    clearTimeout(timer);
+    request.signal.removeEventListener('abort', onAbort);
+  }
+}
+
+onBeforeUnmount(() => {
+  editScope += 1;
+  cancelPlanSuggestion();
+});
 const renewalPolicy = ref(null), renewalPolicyError = ref('');
 let renewalPolicyRequest = 0;
 watch(() => [props.open, props.agencyId], async ([open, agencyId]) => {
@@ -919,19 +975,23 @@ async function suggestRewrite(gi, oi, { withParams = false } = {}) {
     error.value = 'Enter parameters for the AI rewrite first.';
     return;
   }
+  const request = startPlanSuggestion();
+  if (!request) return;
+  const snapshot = JSON.stringify(draftPayload());
   rewriteKey.value = `${gi}-${oi}`;
   error.value = '';
   try {
-    const res = await api.post(
+    const res = await requestPlanSuggestion(
+      request,
       '/medical-billing/treatment-plans/normalize-objective',
       {
         agencyId: Number(props.agencyId),
         clientId: Number(props.clientId),
         objectiveText: o.objectiveText,
         clinicianInstructions: instructions || undefined
-      },
-      { skipGlobalLoading: true, timeout: 90000 }
-    );
+      });
+    if (activeSuggestion.value !== request) return;
+    if (snapshot !== JSON.stringify(draftPayload())) throw new Error('The plan changed while Narriva was working. Request suggestions for the updated plan.');
     const suggestion = res?.data?.suggestion || null;
     if (!suggestion) {
       error.value = 'Could not generate a suggestion for this objective.';
@@ -940,9 +1000,9 @@ async function suggestRewrite(gi, oi, { withParams = false } = {}) {
     applySuggestionToObjective(o, suggestion);
     aiContentUsed.value = true;
   } catch (e) {
-    error.value = e.response?.data?.error?.message || e.message || 'AI suggestion failed';
+    if (activeSuggestion.value === request) error.value = e.response?.data?.error?.message || e.message || 'AI suggestion failed';
   } finally {
-    rewriteKey.value = '';
+    endPlanSuggestion(request);
   }
 }
 
@@ -976,16 +1036,18 @@ async function runNarrivaPlan(gi, oi, revisionInstructions = '') {
   const includeOther = includeOtherQuestions.value;
   const snapshot = JSON.stringify(payload);
   const run = editScope;
+  const request = startPlanSuggestion();
+  if (!request) return;
   suggestingPlan.value = !single;
   rewriteKey.value = single ? `${gi}-${oi}` : '';
   error.value = '';
   draftNotice.value = '';
   try {
-    const {data}=await api.post('/medical-billing/treatment-plans/narriva-suggestions',{
+    const {data}=await requestPlanSuggestion(request, '/medical-billing/treatment-plans/narriva-suggestions',{
       agencyId:Number(props.agencyId),clientId:Number(props.clientId),planId:loadedPlanId.value,chartDraft:usesChartDraft.value,
       sourceIntakeNoteId: props.sourceIntakeNoteId || undefined, draft:payload, includeOther, completePlan:!single, revisionInstructions
-    },{skipGlobalLoading:true,timeout:90000});
-    if (run!==editScope || model.value!==working || (single && working.goals[gi]?.objectives[oi]!==selected)) return;
+    });
+    if (activeSuggestion.value !== request || run!==editScope || model.value!==working || (single && working.goals[gi]?.objectives[oi]!==selected)) return;
     if (JSON.stringify(draftPayload(selectedGoals))!==snapshot || includeOtherQuestions.value!==includeOther) throw new Error('The draft changed while Narriva was working. Request suggestions again for the updated text.');
     const proposal = data?.proposal || {};
     const revisionRefs = Array.from(revisionInstructions.matchAll(/\b(?:goal|objective)\s+(\d+(?:\.\d+)?)/gi), match=>match[1]);
@@ -1036,18 +1098,22 @@ async function runNarrivaPlan(gi, oi, revisionInstructions = '') {
     draftNotice.value='Review the proposed plan and enter any missing baselines before signing.';
     return true;
   } catch(e) {
-    if (run===editScope) error.value=e.response?.data?.error?.message || e.message || 'Narriva suggestions are unavailable.';
+    if (activeSuggestion.value === request) error.value=e.response?.data?.error?.message || e.message || 'Narriva suggestions are unavailable.';
   } finally {
-    if (run===editScope) { suggestingPlan.value=false; rewriteKey.value=''; }
+    endPlanSuggestion(request);
   }
 }
 
 async function suggestDischarge() {
   if (!model.value) return;
+  const request = startPlanSuggestion();
+  if (!request) return;
+  const snapshot = JSON.stringify(draftPayload());
   suggestingDischarge.value = true;
   error.value = '';
   try {
-    const res = await api.post(
+    const res = await requestPlanSuggestion(
+      request,
       '/medical-billing/treatment-plans/suggest-discharge',
       {
         agencyId: Number(props.agencyId),
@@ -1056,9 +1122,9 @@ async function suggestDischarge() {
         prescribedFrequency: model.value.prescribedFrequency || '',
         diagnoses: model.value.diagnoses || [],
         goals: (model.value.goals || []).map((g) => ({ goalText: g.goalText }))
-      },
-      { skipGlobalLoading: true, timeout: 90000 }
-    );
+      });
+    if (activeSuggestion.value !== request) return;
+    if (snapshot !== JSON.stringify(draftPayload())) throw new Error('The plan changed while Narriva was working. Request suggestions for the updated plan.');
     const suggestion = res?.data?.suggestion;
     if (!suggestion?.dischargePlan) {
       error.value = 'Could not generate discharge criteria.';
@@ -1067,9 +1133,9 @@ async function suggestDischarge() {
     model.value.dischargePlan = suggestion.dischargePlan;
     aiContentUsed.value = true;
   } catch (e) {
-    error.value = e.response?.data?.error?.message || e.message || 'Discharge suggestion failed';
+    if (activeSuggestion.value === request) error.value = e.response?.data?.error?.message || e.message || 'Discharge suggestion failed';
   } finally {
-    suggestingDischarge.value = false;
+    endPlanSuggestion(request);
   }
 }
 
@@ -1151,6 +1217,9 @@ async function runUpdaterPropose() {
   if (!model.value || proposingUpdate.value) return;
   const scope = editScope;
   const existingSourceDate = sourceEffectiveDate.value;
+  const request = startPlanSuggestion();
+  if (!request) return;
+  const snapshot = JSON.stringify(draftPayload());
   proposingUpdate.value = true;
   error.value = '';
   changeSummary.value = '';
@@ -1166,7 +1235,8 @@ async function runUpdaterPropose() {
           effectiveDate: model.value.effectiveDate
         }
       : props.initialPlan;
-    const res = await api.post(
+    const res = await requestPlanSuggestion(
+      request,
       '/medical-billing/treatment-plans/propose-update',
       {
         agencyId: Number(props.agencyId),
@@ -1176,10 +1246,10 @@ async function runUpdaterPropose() {
         pasteRewriteSource: pasteText.value || '',
         progressExcerpt: props.progressExcerpt || '',
         renewalReason: props.renewalReason || ''
-      },
-      { skipGlobalLoading: true, timeout: 120000 }
-    );
+      });
     if (scope !== editScope) return;
+    if (activeSuggestion.value !== request) return;
+    if (snapshot !== JSON.stringify(draftPayload())) throw new Error('The plan changed while Narriva was working. Request suggestions for the updated plan.');
     const proposed = res?.data?.proposed;
     if (!proposed) throw new Error('No update proposal returned');
     const diagnoses = model.value.diagnoses;
@@ -1192,9 +1262,9 @@ async function runUpdaterPropose() {
       aiContentUsed.value = true;
       }
   } catch (e) {
-    if (scope === editScope) error.value = e.response?.data?.error?.message || e.message || 'Could not propose treatment plan update';
+    if (activeSuggestion.value === request) error.value = e.response?.data?.error?.message || e.message || 'Could not propose treatment plan update';
   } finally {
-    if (scope === editScope) proposingUpdate.value = false;
+    endPlanSuggestion(request);
   }
 }
 
@@ -1211,16 +1281,18 @@ async function applyPlanAction() {
   if (!goals[0].objectives.length) goals[0].objectives = [sourceObjective];
   const snapshot = JSON.stringify(draftPayload());
   const scope = editScope;
+  const request = startPlanSuggestion();
+  if (!request) return;
   suggestingPlan.value = true;
   error.value = '';
   try {
-    const { data } = await api.post('/medical-billing/treatment-plans/narriva-suggestions', {
+    const { data } = await requestPlanSuggestion(request, '/medical-billing/treatment-plans/narriva-suggestions', {
       agencyId: Number(props.agencyId), clientId: Number(props.clientId),
       planId: loadedPlanId.value, chartDraft: usesChartDraft.value,
       sourceIntakeNoteId: props.sourceIntakeNoteId || undefined, draft: draftPayload(goals),
       action: type, includeOther: includeOtherQuestions.value, revisionInstructions: instructions
-    }, { skipGlobalLoading: true, timeout: 90000 });
-    if (scope !== editScope || planAction.value !== action || model.value !== working) return;
+    });
+    if (activeSuggestion.value !== request || scope !== editScope || planAction.value !== action || model.value !== working) return;
     if (snapshot !== JSON.stringify(draftPayload())) throw new Error('The plan changed while Narriva was working. Submit the request again.');
     const proposal = data?.proposal;
     const title = proposal?.goals?.find(item => item.ref === '1')?.goalText;
@@ -1255,9 +1327,9 @@ async function applyPlanAction() {
     await nextTick();
     jumpToSection('goals', objective ? `objective-${objective.editorKey}-text` : `goal-${targetGoal.editorKey}-text`);
   } catch (e) {
-    if (scope === editScope) error.value = e.response?.data?.error?.message || e.message || 'Narriva could not complete this request.';
+    if (activeSuggestion.value === request) error.value = e.response?.data?.error?.message || e.message || 'Narriva could not complete this request.';
   } finally {
-    if (scope === editScope) suggestingPlan.value = false;
+    endPlanSuggestion(request);
   }
 }
 
@@ -1288,10 +1360,39 @@ async function loadPlan() {
   }
 }
 
+const savedDraftFingerprint = ref('');
+const workingDraftFingerprint = computed(() => model.value ? JSON.stringify(draftPayload()) : '');
+const unsavedChanges = computed(() => !!workingDraftFingerprint.value
+  && workingDraftFingerprint.value !== savedDraftFingerprint.value);
+
+watch([workingDraftFingerprint, savedDraftFingerprint], (_, __, onCleanup) => {
+  if (!props.open || !usesChartDraft.value || !loadedPlanId.value || !unsavedChanges.value) return;
+  const timer = setTimeout(() => { void save({ finalize: false, autosave: true }); }, 1800);
+  onCleanup(() => clearTimeout(timer));
+}, { flush: 'post' });
+
+function exitEditor(event) {
+  if (saving.value) return;
+  if (unsavedChanges.value && !window.confirm('This treatment plan has unsaved changes. Leave the editor?')) return;
+  emit(event);
+}
+
+function warnAboutUnsavedPlan(event) {
+  if (!props.open || !unsavedChanges.value) return;
+  event.preventDefault();
+  event.returnValue = '';
+}
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', warnAboutUnsavedPlan);
+  onBeforeUnmount(() => window.removeEventListener('beforeunload', warnAboutUnsavedPlan));
+}
+
 watch(
   () => [props.open,props.clientId,props.agencyId,props.planId],
   ([open]) => {
     editScope++;
+    cancelPlanSuggestion();
+    savedDraftFingerprint.value = '';
     if (!open) return;
     pasteText.value = props.initialText || '';
     providerNarrative.value = props.renewalReason || '';
@@ -1306,6 +1407,8 @@ watch(
     diagnosisQuery.value = '';
     attemptedFinalize.value = false;
     bulkDurationMonths.value = 0;
+    saving.value = false;
+    finalizing.value = false;
     rewriteKey.value = '';
     draftNotice.value = '';
     draftRevision.value = 0;
@@ -1320,6 +1423,7 @@ watch(
       const scope = editScope;
       void loadPlan().then(() => {
         if (scope !== editScope) return;
+        savedDraftFingerprint.value = workingDraftFingerprint.value;
         if (props.sourceIntakeNoteId && !props.planId && !props.initialPlan?.goals?.some(goal => goal.goalText?.trim())) {
           void runNarrivaPlan();
         }
@@ -1384,8 +1488,9 @@ function reviewedPlanSignoff() {
   return finalizing.value && finalizationIssues.value.length === 0;
 }
 
-async function save({ finalize = true } = {}) {
-  if (!model.value || saving.value || suggestingPlan.value || rewriteKey.value) return;
+async function save({ finalize = true, autosave = false } = {}) {
+  if (!model.value || saving.value) return;
+  const scope = editScope;
   attemptedFinalize.value = finalize;
   error.value = '';
   const firstIssue = finalize ? finalizationIssues.value[0] : null;
@@ -1394,26 +1499,32 @@ async function save({ finalize = true } = {}) {
     jumpToSection(firstIssue.section, firstIssue.field);
     return;
   }
+  if (!autosave) cancelPlanSuggestion();
   saving.value = true;
   finalizing.value = !!finalize;
   try {
-    for (const g of model.value.goals || []) {
-      if (!g.durationMonths && g.projectedCompletion && !planAuthoring.value) continue;
-      if (g.durationMonths) syncGoalCompletion(g);
-      if (planAuthoring.value) {
-        const dates=g.objectives.map(o=>o.projectedCompletion || g.projectedCompletion).filter(Boolean).sort();
-        g.projectedCompletion=dates.at(-1) || null;
+    if (!autosave) {
+      for (const goal of model.value.goals) {
+        if (goal.durationMonths) syncGoalCompletion(goal);
+        if (planAuthoring.value) {
+          const dates = goal.objectives.map(objective => objective.projectedCompletion || goal.projectedCompletion).filter(Boolean).sort();
+          goal.projectedCompletion = dates.at(-1) || null;
+        }
       }
     }
 
     const primary = (model.value.diagnoses || []).find((d) => d.isPrimary) || model.value.diagnoses?.[0];
     if (usesChartDraft.value) {
+      const draft = draftPayload();
+      const fingerprint = JSON.stringify(draft);
       const {data}=await api.put(`/medical-billing/treatment-plans/${loadedPlanId.value}/chart-draft`,{
-        agencyId:Number(props.agencyId),clientId:Number(props.clientId),revision:draftRevision.value,draft:draftPayload()
-      });
-      draftRevision.value=data.revision;
+        agencyId: Number(props.agencyId), clientId: Number(props.clientId), revision: draftRevision.value, draft
+      }, { skipGlobalLoading: true });
+      if (scope !== editScope) return;
+      draftRevision.value = data.revision;
+      savedDraftFingerprint.value = fingerprint;
       draftNotice.value='Draft saved.';
-      emit('draft-updated', { revision: data.revision, value: data.value || draftPayload() });
+      emit('draft-updated', { revision: data.revision, value: data.value || draft });
       if (!finalize) return;
     }
     const asDraft = !finalize;
@@ -1461,6 +1572,7 @@ async function save({ finalize = true } = {}) {
         }))
       }))
     });
+    if (scope !== editScope) return;
     const plan = res?.data?.plan || null;
     if (asDraft && planAuthoring.value && plan?.id && !usesChartDraft.value) {
       loadedPlanId.value = plan.id;
@@ -1469,10 +1581,13 @@ async function save({ finalize = true } = {}) {
       const { data } = await api.put(`/medical-billing/treatment-plans/${plan.id}/chart-draft`, {
         agencyId: Number(props.agencyId), clientId: Number(props.clientId), revision: 0, draft: draftPayload()
       });
+      if (scope !== editScope) return;
       draftRevision.value = data.revision;
+      savedDraftFingerprint.value = workingDraftFingerprint.value;
     }
     emit('saved', plan, { finalized: !!finalize, approval: res?.data?.providerApproval, approvalError: res?.data?.providerApprovalError });
   } catch (e) {
+    if (scope !== editScope) return;
     const code = e.response?.data?.error?.code;
     if (code === 'intake_not_finalized') {
       error.value = 'Finalize the intake note before finalizing the treatment plan.';
@@ -1480,8 +1595,10 @@ async function save({ finalize = true } = {}) {
       error.value = e.response?.data?.error?.message || e.message || 'Save failed';
     }
   } finally {
-    saving.value = false;
-    finalizing.value = false;
+    if (scope === editScope) {
+      saving.value = false;
+      finalizing.value = false;
+    }
   }
 }
 
