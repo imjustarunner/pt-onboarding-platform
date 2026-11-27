@@ -38,6 +38,28 @@ it('sends anonymous themes to the configured private writer and never takes a ba
  expect(response.objectives[0]).not.toHaveProperty('baseline');
 });
 
+it('retains a clinician’s explicit frequency and duration in the targeted objective request', async () => {
+  const draft = plan();
+  draft.goals = [{ ...draft.goals[0], durationMonths: 4 }];
+  const generate = vi.fn(async () => ({ text: JSON.stringify({
+    objectives: [{ ref: '1.1', objectiveText: 'Practice grounding at least 3 school days per week over 6 months.', durationMonths: 4 }]
+  }) }));
+  const result = await suggestNarrivaPlanDraft({
+    input: draft, revision: 'Pat Synthetic should practice at least 3 school days per week over 6 months.',
+    action: 'update_objective', generate
+  });
+  const prompt = generate.mock.calls[0][0].prompt;
+  expect(prompt).toContain('"weeklyFrequency":{"qualifier":"at least","count":3,"unit":"school days"}');
+  expect(prompt).not.toContain('Pat Synthetic');
+  expect(result.objectives[0]).toMatchObject({ durationMonths: 6, objectiveText: expect.stringContaining('3 school days per week') });
+  generate.mockResolvedValue({ text: JSON.stringify({
+    objectives: [{ ref: '1.1', objectiveText: 'Practice grounding at least 4 school days per week over 4 months.' }]
+  }) });
+  await expect(suggestNarrivaPlanDraft({
+    input: draft, revision: 'Practice at least 3 school days per week over 6 months.', action: 'update_objective', generate
+  })).rejects.toThrow('did not include the requested weekly frequency');
+});
+
 it('completes a third goal even when the writer omits that goal, without supplying a baseline or observer question', async () => {
   const draft = plan();
   draft.goals[0].objectives[0].kioskPromptOther = 'An old observer question';

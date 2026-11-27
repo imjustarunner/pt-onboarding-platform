@@ -1,25 +1,25 @@
 <template>
   <section class="plan-review" aria-label="Treatment plan review and signatures">
     <h3>Treatment plan review</h3>
-    <p>Treatment plans require provider and supervisor signoff. Quick sign does not apply. The approved version is then shared for client or guardian approval.</p>
+    <p>Review the plan before signing. After clinical approval, it can be shared with the client or guardian.</p>
     <p v-if="error" role="alert">{{ error }}</p>
     <template v-if="approval">
-      <p v-if="!approval.legacyRecordOnFile"><strong>Provider:</strong> {{ approval.providerApproved ? 'Signed and reviewed' : 'Review required' }} · <strong>Supervisor:</strong> {{ approval.supervisorApproved ? 'Approved' : 'Review required' }}</p>
-      <p v-if="approval.legacyRecordOnFile">This historical finalized plan remains on file. Provider and supervisor signatures were not captured in this workflow; new sharing requires their review.</p>
-      <template v-if="canProviderSign && !readOnly && !approval.providerApproved">
-        <label><input v-model="confirmed" type="checkbox" :disabled="busy || disabled" /> I reviewed the full plan and confirm its clinical content is accurate and supported.</label>
-        <button type="button" :disabled="!confirmed || busy || disabled" @click="sign">{{ busy ? 'Saving…' : 'Sign plan and send for supervisor review' }}</button>
+      <p v-if="!approval.legacyRecordOnFile"><strong>Provider:</strong> {{ approval.providerApproved ? 'Signed and reviewed' : 'Review required' }}<template v-if="approval.supervisorRequired !== false"> · <strong>Supervisor:</strong> {{ approval.supervisorApproved ? 'Approved' : 'Review required' }}</template></p>
+      <p v-if="approval.legacyRecordOnFile">This historical finalized plan remains on file. Review and sign this version before sharing it.</p>
+      <template v-if="canProviderSign && !readOnly && (!approval.providerApproved || needsFinalization)">
+        <label v-if="!needsFinalization"><input v-model="confirmed" type="checkbox" :disabled="busy || disabled" /> I reviewed the full plan and confirm its clinical content is accurate and supported.</label>
+        <button type="button" :disabled="(!confirmed && !needsFinalization) || busy || disabled" @click="sign">{{ busy ? 'Saving…' : needsFinalization ? 'Complete plan approval' : approval.supervisorRequired === false ? 'Sign and approve plan' : 'Sign plan and send for supervisor review' }}</button>
       </template>
-      <p v-if="approval.providerApproved && !approval.supervisorApproved && approval.supervisorUserId === null">No clinical supervisor is assigned to the plan author. Supervisor review will be available once the practice assigns one.</p>
-      <p v-else-if="!approval.ready && !approval.legacyRecordOnFile">The assigned supervisor can open this plan under the author’s Clinical documentation review.</p>
+      <p v-if="approval.supervisorRequired !== false && approval.providerApproved && !approval.supervisorApproved && approval.supervisorUserId === null">No clinical supervisor is assigned to the plan author. Supervisor review will be available once the practice assigns one.</p>
+      <p v-else-if="approval.supervisorRequired !== false && !approval.ready && !approval.legacyRecordOnFile">The assigned supervisor can open this plan under the author’s Clinical documentation review.</p>
       <TreatmentPlanDocumentationReview v-if="approval.providerApproved" :review="documentationReview" />
-      <p v-if="approval.ready">Both reviews are complete for this version. Client or guardian approval remains a separate step.</p>
+      <p v-if="approval.ready && !needsFinalization">Clinical approval is complete. Use Share in the client chart to request acknowledgment.</p>
     </template>
     <button type="button" :disabled="busy" @click="load">Refresh review status</button>
   </section>
 </template>
 <script setup>
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
 import TreatmentPlanDocumentationReview from './TreatmentPlanDocumentationReview.vue';
 const props = defineProps({ agencyId: [Number, String], clientId: [Number, String], planId: [Number, String], disabled: Boolean, readOnly: Boolean });
@@ -27,20 +27,22 @@ const emit = defineEmits(['updated']);
 let requestSequence = 0;
 const documentationReview = ref(null);
 const approval = ref(null), canProviderSign = ref(false), confirmed = ref(false), busy = ref(false), error = ref('');
+const planStatus = ref('');
+const needsFinalization = computed(() => planStatus.value === 'draft' && approval.value?.ready === true && approval.value.supervisorRequired === false);
 async function load() {
   const request = ++requestSequence;
   approval.value = null; documentationReview.value = null; confirmed.value = false; canProviderSign.value = false; busy.value = false;
   if (!props.agencyId || !props.clientId || !props.planId) return;
   busy.value = true; error.value = '';
-  try { const { data } = await api.get(`/medical-billing/treatment-plans/${props.planId}/approval`, { params: { agencyId: props.agencyId, clientId: props.clientId } }); if (request !== requestSequence) return; approval.value = data.approval; documentationReview.value = data.documentationReview; canProviderSign.value = data.canProviderSign; }
+  try { const { data } = await api.get(`/medical-billing/treatment-plans/${props.planId}/approval`, { params: { agencyId: props.agencyId, clientId: props.clientId } }); if (request !== requestSequence) return; approval.value = data.approval; planStatus.value = data.planStatus; documentationReview.value = data.documentationReview; canProviderSign.value = data.canProviderSign; }
   catch (e) { if (request === requestSequence) error.value = e.response?.data?.error?.message || 'Could not load treatment plan review status.'; }
   finally { if (request === requestSequence) busy.value = false; }
 }
 async function sign() {
-  if (busy.value || props.disabled || props.readOnly || !confirmed.value || !approval.value?.contentHash) return;
+  if (busy.value || props.disabled || props.readOnly || (!confirmed.value && !needsFinalization.value) || !approval.value?.contentHash) return;
   const request = ++requestSequence;
   busy.value = true; error.value = '';
-  try { const { data } = await api.post(`/medical-billing/treatment-plans/${props.planId}/provider-review`, { agencyId: props.agencyId, clientId: props.clientId, contentHash: approval.value.contentHash, reviewedAndAccurate: true }); if (request !== requestSequence) return; approval.value = data.approval; documentationReview.value = data.documentationReview; emit('updated', data.approval); }
+  try { const { data } = await api.post(`/medical-billing/treatment-plans/${props.planId}/provider-review`, { agencyId: props.agencyId, clientId: props.clientId, contentHash: approval.value.contentHash, reviewedAndAccurate: true }); if (request !== requestSequence) return; approval.value = data.approval; planStatus.value = data.planStatus; documentationReview.value = data.documentationReview; emit('updated', data.approval); }
   catch (e) { if (request === requestSequence) error.value = e.response?.data?.error?.message || 'Could not sign this treatment plan.'; }
   finally { if (request === requestSequence) busy.value = false; }
 }

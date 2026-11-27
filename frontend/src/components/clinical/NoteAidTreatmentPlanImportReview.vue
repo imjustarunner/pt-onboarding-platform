@@ -77,7 +77,7 @@
         </div>
         <section class="na-plan-section" :id="sectionId('overview')" tabindex="-1">
           <h2>Plan overview</h2>
-          <p class="hint hint-block">The provider and supervisor sign the plan before it goes to the client for approval.</p>
+          <p class="hint hint-block">Sign the plan before sharing it for client acknowledgment. A supervisor signs when clinical supervision is required.</p>
           <label class="na-label">
             Effective date
             <input v-model="model.effectiveDate" :id="sectionId('effective-date')" type="date" class="na-input" :aria-invalid="!model.effectiveDate" required />
@@ -1305,7 +1305,8 @@ async function applyPlanAction() {
       targetGoal.reviewStatus = 'pending';
     } else {
       const targetObjective = objective || mapGoal({ objectives: [{}] }, working.effectiveDate).objectives[0];
-      const months = targetObjective.durationMonths || targetGoal.durationMonths || suggestion.durationMonths;
+      const months = suggestion.durationMonths || targetObjective.durationMonths || targetGoal.durationMonths;
+      const durationChanged = !!suggestion.durationMonths && Number(suggestion.durationMonths) !== Number(targetObjective.durationMonths || targetGoal.durationMonths);
       Object.assign(targetObjective, {
         objectiveText: withoutReviewPreamble(suggestion.objectiveText),
         reviewStatus: 'pending',
@@ -1314,7 +1315,7 @@ async function applyPlanAction() {
         kioskPrompt: suggestion.clientQuestion || targetObjective.kioskPrompt,
         kioskPromptOther: suggestion.otherQuestion || targetObjective.kioskPromptOther,
         durationMonths: months,
-        projectedCompletion: targetObjective.projectedCompletion || completionDateFromDurationMonths(months, working.effectiveDate) || '',
+        projectedCompletion: (!durationChanged && targetObjective.projectedCompletion) || completionDateFromDurationMonths(months, working.effectiveDate) || '',
         interventions: [...new Set([...targetObjective.interventions, ...(suggestion.interventions || [])])],
         scaleEdited: true
       });

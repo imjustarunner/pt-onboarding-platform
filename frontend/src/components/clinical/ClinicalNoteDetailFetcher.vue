@@ -2,7 +2,11 @@
   <div class="cndf">
     <div v-if="loading" class="cndf-muted">Loading clinical note…</div>
     <div v-else-if="error" class="cndf-error">{{ error }}</div>
-    <ClinicalNoteReadOnlyView ref="readOnlyView" v-else-if="note" :note="note" :compact="compact" :linked-review-id="linkedReviewId" @amended="onAmended" />
+    <template v-else-if="note">
+      <p v-if="amendmentNotice" role="status" class="cndf-notice">{{ amendmentNotice }}</p>
+      <ClinicalRecordDownloads v-if="note.providerSignedAt && note.agencyId" :note-id="note.id" :agency-id="note.agencyId" />
+      <ClinicalNoteReadOnlyView ref="readOnlyView" :note="note" :compact="compact" :linked-review-id="linkedReviewId" @amended="onAmended" />
+    </template>
   </div>
 </template>
 
@@ -10,6 +14,7 @@
 import { onBeforeUnmount, ref, watch } from 'vue';
 import api from '../../services/api.js';
 import ClinicalNoteReadOnlyView from './ClinicalNoteReadOnlyView.vue';
+import ClinicalRecordDownloads from './ClinicalRecordDownloads.vue';
 
 const props = defineProps({
   noteId: { type: [Number, String], required: true },
@@ -21,7 +26,12 @@ const props = defineProps({
 const emit = defineEmits(['amended']);
 const readOnlyView = ref(null);
 defineExpose({ refresh:()=>load(),openRevision: revisionId => readOnlyView.value?.openRevision(revisionId), openCorrection: () => readOnlyView.value?.openCorrection() });
-async function onAmended(result) { emit('amended', result); await load(); }
+const amendmentNotice = ref('');
+async function onAmended(result) {
+  amendmentNotice.value = result?.message || '';
+  emit('amended', result);
+  await load();
+}
 
 const loading = ref(false);
 const error = ref('');
@@ -75,10 +85,11 @@ async function load() {
   }
 }
 
-watch(() => [props.noteId, props.agencyId], load, { immediate: true });
+watch(() => [props.noteId, props.agencyId], () => { amendmentNotice.value = ''; return load(); }, { immediate: true });
 </script>
 
 <style scoped>
+.cndf-notice { color: #145c45; padding: 8px 10px; background: #edf8f3; }
 .cndf-muted { color: #64748b; font-size: 0.8rem; padding: 6px 2px; }
 .cndf-error { color: #b91c1c; font-size: 0.8rem; padding: 6px 2px; }
 </style>

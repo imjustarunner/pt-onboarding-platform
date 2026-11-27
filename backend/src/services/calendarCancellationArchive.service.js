@@ -36,14 +36,17 @@ export async function archiveCanceledCalendarItem({ providerId, type, id, actor,
   await authorize(actor, providerId, [agencyId]);
   if (type === 'appointment') await authorizeAppointment(actor, { id, agencyId, providerUserId: providerId });
   if (!isCanceled(row.status)) throw fail('Cancel this item before deleting it from the calendar.', 409);
-  const [recorded] = await db.execute(`INSERT INTO calendar_cancellation_archives (resource_type,resource_id,agency_id,archived_by_user_id)
-    SELECT ?,a.id,?,? FROM ${source.table} a WHERE a.id=? AND ${source.provider}=? AND LOWER(a.status) REGEXP ?
-    ON DUPLICATE KEY UPDATE archived_at=calendar_cancellation_archives.archived_at`, [type, agencyId, actor.id, id, providerId, canceledSql]);
-  if (!recorded.affectedRows) {
-    const [[existing]] = await db.execute('SELECT 1 FROM calendar_cancellation_archives WHERE resource_type=? AND resource_id=? AND agency_id=?', [type, id, agencyId]);
-    if (!existing) throw fail('This calendar item changed. Refresh the schedule and try again.', 409);
+  try {
+    const [recorded] = await db.execute(`INSERT INTO calendar_cancellation_archives (resource_type,resource_id,agency_id,archived_by_user_id)
+      SELECT ?,a.id,?,? FROM ${source.table} a WHERE a.id=? AND ${source.provider}=? AND LOWER(a.status) REGEXP ?`,
+    [type, agencyId, actor.id, id, providerId, canceledSql]);
+    if (recorded.affectedRows === 1) return { archived: true, agencyId, newlyArchived: true };
+  } catch (error) {
+    if (error.code !== 'ER_DUP_ENTRY') throw error;
   }
-  return { archived: true };
+  const [[existing]] = await db.execute('SELECT 1 FROM calendar_cancellation_archives WHERE resource_type=? AND resource_id=? AND agency_id=?', [type, id, agencyId]);
+  if (!existing) throw fail('This calendar item changed. Refresh the schedule and try again.', 409);
+  return { archived: true, agencyId, newlyArchived: false };
 }
 
 function calendarResource(row, type) {

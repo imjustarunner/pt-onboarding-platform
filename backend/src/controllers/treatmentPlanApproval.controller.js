@@ -1,6 +1,6 @@
 import ClinicalTreatmentPlan from '../models/clinical/ClinicalTreatmentPlan.model.js';
 import { requireNarrivaClient } from '../services/narrivaAccess.service.js';
-import { getTreatmentPlanApproval, attestTreatmentPlanProvider } from '../services/treatmentPlanApproval.service.js';
+import { getTreatmentPlanApproval, finalizeTreatmentPlanProviderSignature } from '../services/treatmentPlanApproval.service.js';
 import { loadTreatmentPlanReview, recordTreatmentPlanReview } from '../services/narrivaTreatmentPlanReview.service.js';
 import { withHistoricalImportLock } from '../services/ehrHistoricalImportLock.service.js';
 import { logNoteAidChartEvent } from '../services/noteAidChartAudit.service.js';
@@ -18,18 +18,17 @@ export async function getPlanApproval(req, res, next) {
     const plan = await scopedPlan(req);
     const approval = await getTreatmentPlanApproval(plan);
     const documentationReview = approval.providerApproved ? await loadTreatmentPlanReview(plan, approval.contentHash) : null;
-    res.set('Cache-Control', 'no-store').json({ approval, documentationReview, canProviderSign: Number(plan.created_by_user_id) === Number(req.user.id) });
+    res.set('Cache-Control', 'no-store').json({ approval, documentationReview, planStatus: plan.status, canProviderSign: Number(plan.created_by_user_id) === Number(req.user.id) });
   }
   catch (error) { next(error); }
 }
 export async function signPlanProviderReview(req, res, next) {
   try {
     const scope = await scopedPlan(req);
-    const plan = await withHistoricalImportLock(scope.agency_id, scope.client_id, 'plan', async () => {
+    const { plan, approval } = await withHistoricalImportLock(scope.agency_id, scope.client_id, 'plan', async () => {
       const current = await ClinicalTreatmentPlan.findById(scope.id);
       if (!current) throw Object.assign(new Error('Treatment plan not found.'), { status: 404 });
-      await attestTreatmentPlanProvider({ user: req.user, plan: current, contentHash: req.body.contentHash, reviewedAndAccurate: req.body.reviewedAndAccurate });
-      return current;
+      return finalizeTreatmentPlanProviderSignature({ user: req.user, plan: current, contentHash: req.body.contentHash, reviewedAndAccurate: req.body.reviewedAndAccurate });
     });
     await logNoteAidChartEvent(req, { agencyId: plan.agency_id, clientId: plan.client_id, action: 'clinical_treatment_plan_provider_signed', metadata: { planId: plan.id, contentHash: req.body.contentHash } });
     try { await (await import('../services/intakeTreatmentPlanWork.service.js')).completeIntakePlanWork(plan); }
@@ -39,8 +38,7 @@ export async function signPlanProviderReview(req, res, next) {
     } catch (error) {
       console.warn('[treatment-plan] Documentation review could not be saved', error.code || 'unavailable');
     }
-    const approval = await getTreatmentPlanApproval(plan);
     const documentationReview = await loadTreatmentPlanReview(plan, approval.contentHash);
-    res.set('Cache-Control', 'no-store').json({ approval, documentationReview });
+    res.set('Cache-Control', 'no-store').json({ approval, documentationReview, planStatus: plan.status });
   } catch (error) { next(error); }
 }

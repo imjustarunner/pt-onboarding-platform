@@ -4,7 +4,7 @@
       <div class="ccn-head-main">
         <h3>{{ note.title || 'Clinical note' }}</h3>
         <p class="ccn-meta-line">
-          <span v-if="note.dateOfService">Date of service {{ formatDos(note.dateOfService) }}</span>
+          <span v-if="note.id">Note #{{ note.id }} · </span><span v-if="note.dateOfService">Date of service {{ formatDos(note.dateOfService) }}</span>
           <span v-if="serviceCodeDisplay"> · {{ serviceCodeDisplay }}</span>
           <span v-if="note.noteType"> · {{ formatNoteType(note.noteType) }}</span>
         </p>
@@ -49,6 +49,9 @@
     <section v-if="hasSessionFacts" class="ccn-block ccn-facts" aria-label="Session details" data-note-section="Encounter details">
       <h4 class="ccn-block-title">Session details</h4>
       <dl class="ccn-facts-grid">
+        <div v-if="compact && note.id">
+          <dt>Note</dt><dd>#{{ note.id }}</dd>
+        </div>
         <div v-if="note.sessionTiming?.appointmentId">
           <dt>Appointment</dt><dd>#{{ note.sessionTiming.appointmentId }}</dd>
         </div>
@@ -547,14 +550,14 @@ const providerNpi = computed(() => props.note?.providerSigner?.npi || null);
 const participantsDisplay = computed(() => props.note?.effectiveServiceDetails?.participants || structuredChart.value?.participants || '');
 
 const durationDisplay = computed(() => {
-  const d = props.note?.durationMinutes ?? structuredChart.value?.durationMinutes ?? props.note?.sessionTiming?.durationMinutes;
+  const d = props.note?.effectiveServiceDetails?.durationMinutes ?? props.note?.durationMinutes ?? structuredChart.value?.durationMinutes ?? props.note?.sessionTiming?.durationMinutes;
   if (d == null || d === '') return '';
   return `${d} min`;
 });
 
 const startEndDisplay = computed(() => {
-  const start = props.note?.startTime || structuredChart.value?.startTime;
-  const end = props.note?.endTime || structuredChart.value?.endTime;
+  const start = props.note?.effectiveServiceDetails?.startTime || props.note?.startTime || structuredChart.value?.startTime;
+  const end = props.note?.effectiveServiceDetails?.endTime || props.note?.endTime || structuredChart.value?.endTime;
   const zone = props.note?.sessionTiming?.sourceTimezone;
   if (start && end) return `${start} – ${end}${zone ? ` (${zone})` : ''}`;
   if (props.note?.sessionTiming?.startAt) {
@@ -578,7 +581,7 @@ const startEndDisplay = computed(() => {
 });
 
 const locationDisplay = computed(
-  () => props.note?.locationLabel || structuredChart.value?.locationLabel || props.note?.sessionTiming?.locationLabel || ''
+  () => props.note?.effectiveServiceDetails?.locationLabel || props.note?.sessionTiming?.locationLabel || props.note?.locationLabel || structuredChart.value?.locationLabel || ''
 );
 
 const panels = computed(() => {

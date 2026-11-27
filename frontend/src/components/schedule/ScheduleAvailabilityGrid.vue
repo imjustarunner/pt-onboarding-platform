@@ -6638,7 +6638,7 @@ function setShowDeletedCalendarItems(value) {
 }
 function openCalendarCancellation(block, openDetails = null) {
   if (!block?.calendarCancellation || block.peerOnly) return false;
-  canceledCalendarItem.value = { ...block.calendarCancellation, label: block.shortLabel || block.label || 'Calendar item', openDetails };
+  canceledCalendarItem.value = { ...block.calendarCancellation, label: block.shortLabel || block.label || 'Calendar item', clientName: block.clientName || '', openDetails };
   return true;
 }
 function openOriginalCalendarDetails() {
@@ -9670,18 +9670,18 @@ const editorServiceChoices=computed(()=>{
    ...(isSelf && workspace.canChildcare ? [{value:'childcare',label:'Childcare'}] : [])
  ];
 });
-const bookingProviderBusinessTypes = ref(null);
 const bookingAccessReason = ref('');
 const checkingBookingAccess = ref(false);
 const clientSessionCategories = ref(null);
 const clientBookingIssue = ref('');
-const editorBookServiceChoices = computed(() => editorTypeOptions.value.filter(option => {
-  if (clientSessionCategories.value && !clientSessionCategories.value.includes(option.value)) return false;
-  const offered = bookingProviderBusinessTypes.value;
-  if (option.value === 'tutoring') return offered?.includes('tutoring');
-  if (option.value === 'mental_health') return !offered || offered.includes('mental_health');
-  return ['coaching', 'consulting'].includes(option.value);
-}));
+const editorBookServiceChoices = computed(() => {
+  const categories = new Set(editorTenantServices.value.map(service =>
+    practiceCategoryForBusinessType(service.businessType || service.business_type)
+  ).filter(Boolean));
+  return [...categories]
+    .filter(category => !clientSessionCategories.value || clientSessionCategories.value.includes(category))
+    .map(category => ({ value: category, label: practiceCategoryLabel(category) }));
+});
 const mixedSessionServices = computed(() => editorBookServiceChoices.value.length > 1);
 function openChildcareFromCalendar(){void router.push(scheduleOrgTo('/childcare'));}
 const clientSessionBookingEnabled = ref(false);
@@ -9707,8 +9707,6 @@ const refreshClientSessionBookingAccess = async () => {
     const access = providerAccess.data || {};
     selectedProviderOfferings.value = Array.isArray(access.serviceOfferings) ? access.serviceOfferings : null;
     publicAgencyServices.value = access.enabledPublicationServices || null;
-    bookingProviderBusinessTypes.value = Array.isArray(access.availableBusinessTypes) ? access.availableBusinessTypes
-      : tutoringWorkspaceOnly.value && access.enabled ? ['tutoring'] : null;
     providerSessionBookingEnabled.value = access.enabled === true;
     bookingAccessReason.value = access.reason || '';
     const choosingAction = !showRequestModal.value || !CLIENT_SESSION_CREATE_ACTIONS.has(requestType.value);
@@ -9723,7 +9721,6 @@ const refreshClientSessionBookingAccess = async () => {
       bookingAccessReason.value = error.response?.status === 423
         ? 'Unlock your session, then try scheduling again.'
         : 'Booking access could not be verified for this provider. Try scheduling again.';
-      bookingProviderBusinessTypes.value = [];
       selectedProviderOfferings.value = [];
       providerSessionBookingEnabled.value = clientSessionBookingEnabled.value = false;
     }
@@ -9744,7 +9741,6 @@ watch([clientSessionBookingAgencyId, scheduleActorUserId, tutoringWorkspaceOnly]
   // Revoke the previous provider/agency capability synchronously, before another click.
   clientSessionBookingEnabled.value = false;
   providerSessionBookingEnabled.value = false;
-  bookingProviderBusinessTypes.value = null;
   selectedProviderOfferings.value = null;
   publicAgencyServices.value = null;
   bookingAccessReason.value = '';
@@ -10246,8 +10242,12 @@ function closeOfficeTransition() { const query={...route.query}; delete query.sc
 const showBulkScheduler = ref(false), bulkSchedulerBusy = ref(false), bulkSchedulerAgencyId = ref(0);
 const canUseBulkScheduler = computed(() => !props.teamAvailabilityOnly && Number(props.userId) > 0
   && (Number(props.userId) === Number(authStore.user?.id) || ['admin', 'super_admin', 'superadmin'].includes(String(authStore.user?.role).toLowerCase())));
-const bulkSchedulerDate = computed(() => viewingCurrentWeek.value ? todayLocalYmd.value : weekJumpDateValue.value);
-function openBulkScheduler() { bulkSchedulerAgencyId.value = Number(effectiveAgencyId.value || 0); showBulkScheduler.value = true; }
+const bulkSchedulerDate = ref('');
+function openBulkScheduler() {
+  bulkSchedulerDate.value = viewingCurrentWeek.value ? todayLocalYmd.value : weekJumpDateValue.value;
+  bulkSchedulerAgencyId.value = Number(effectiveAgencyId.value || 0);
+  showBulkScheduler.value = true;
+}
 function closeBulkScheduler() { if (!bulkSchedulerBusy.value) showBulkScheduler.value = false; }
 function onBulkScheduleSaved() { invalidateScheduleSummaryCacheForUser(props.userId); void load({ forceRefresh: true }); }
 const routedDayCancellationClosed = ref(false);
@@ -11937,7 +11937,8 @@ const scheduleEventBlockTitle = (ev, dayName, hour) => {
   const raw = String(ev?.title || '').trim() || 'Schedule event';
   if (ev.meetingSubtype === 'interview') return [scheduleEventShortLabel(ev), dayName, clockRangeLabel(ev.startAt, ev.endAt)].filter(Boolean).join(' · ');
   const privateTag = ev?.isPrivate ? ' • Private' : '';
-  const cancelledTag = calendarSessionState(ev) ? ` • ${calendarSessionState(ev)}` : '';
+  const state = ev.calendarCancellation?.archived ? 'Deleted' : calendarSessionState(ev);
+  const cancelledTag = state ? ` • ${state}` : '';
   const conf = sessionConfirmationState(ev);
   const confTag = conf === 'confirmed' ? ' • Confirmed' : (conf === 'unconfirmed' ? ' • Unconfirmed' : '');
   const note = sessionSchedulingNoteSnippet(ev);
@@ -17008,15 +17009,21 @@ let editorOptionsIdentity='';
 async function loadEditorTenantServices() {
   const request=++editorServicesRequest;
   const aid = Number(editorAgencyId.value || effectiveAgencyId.value || 0);
-  if (!aid || !editorIsClinical.value) return;
-  const identity=[aid,Number(bookingTargetUserId.value||props.userId||0),...(virtualSessionSelectedClientIds.value||[]).map(Number)].join(':');
+  if (!aid || !editorIsClinical.value) {
+    editorServicesLoading.value = false;
+    editorTenantServices.value = [];
+    clientSessionCategories.value = null;
+    clientBookingIssue.value = '';
+    return;
+  }
+  const providerId = Number(bookingTargetUserId.value || scheduleActorUserId.value || props.userId || 0);
+  const selectedClients = (virtualSessionSelectedClientIds.value || []).map(Number).filter(id => id > 0);
+  const identity = [aid, providerId, ...selectedClients].join(':');
   if(identity!==editorOptionsIdentity&&!editorHydratingAppointment.value&&!isAppointmentEditMode.value&&!isScheduleEventEditMode.value){editorOptionsIdentity=identity;editorPackageEntitlements.value=[];editorPackageEntitlementId.value=0;editorTutoringSubjects.value=[];editorTutoringSubject.value='assigned';}
   editorServicesLoading.value = true;
   try {
     const params = {quote:'1'};
-    const providerId = Number(bookingTargetUserId.value || props.userId || 0);
     if (providerId) params.providerId = providerId;
-    const selectedClients = (virtualSessionSelectedClientIds.value || []).map(Number).filter(id => id > 0);
     if (selectedClients.length === 1) params.clientId = selectedClients[0];
     params.sessionOnly = '1';
     const r = await api.get(`/tenant-booking/agencies/${aid}/booking-options`, { params, skipGlobalLoading: true });
@@ -17060,6 +17067,8 @@ async function loadEditorTenantServices() {
     if(request!==editorServicesRequest||aid!==Number(editorAgencyId.value||effectiveAgencyId.value||0))return;
     editorCanSetTutoringPrice.value = false;
     editorTenantServices.value = [];
+    clientSessionCategories.value = null;
+    clientBookingIssue.value = 'Booking options could not be loaded. Re-select the client or reopen scheduling to retry.';
     editorPackageEntitlements.value = [];
   } finally {
     if(request===editorServicesRequest)editorServicesLoading.value=false;
@@ -17620,7 +17629,7 @@ const requestSubmitBlockedReason = computed(() => {
   if(editorIsClinical.value&&mixedSessionServices.value&&!editorPracticeCategory.value)return 'Choose whether this session is tutoring or counseling.';
   if (!editorHistoricalBooking.value && uncoveredReservationDates.value.length) return 'Choose appointment dates covered by your room reservation.';
   if (isSessionBookingRequestType.value && primarySessionClientId.value && editorServicesLoading.value) return 'Checking client service and provider access…';
-  if (isSessionBookingRequestType.value && primarySessionClientId.value && clientSessionCategories.value && !editorBookServiceChoices.value.length) {
+  if (isSessionBookingRequestType.value && primarySessionClientId.value && (clientBookingIssue.value || clientSessionCategories.value) && !editorBookServiceChoices.value.length) {
     return clientBookingIssue.value || bookingAccessReason.value
       || 'The provider’s practice categories or service offerings do not match this client’s active service in this agency.';
   }

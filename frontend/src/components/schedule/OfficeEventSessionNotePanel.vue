@@ -55,11 +55,11 @@
         {{ generating ? 'Generating…' : 'Generate Note' }}
       </button>
     </div>
+    <p v-if="errorMsg" class="oesn-error" role="alert">{{ errorMsg }}</p>
     <p class="oesn-hint">Write the Session Narrative above or record this actual session after participant waivers and consent are confirmed. Use the reviewed narrative explicitly; existing edits are preserved. Do not enter identifying information into narrative text.</p>
     <p class="oesn-hint">After the scheduled end, saving session content confirms attendance and may collect the authorized copay today. Opening this panel alone does not confirm attendance. For a session that did not occur, use Missed appointment or Cancel instead.</p>
     <p v-if="attendanceNotice" class="oesn-hint" role="status">{{ attendanceNotice }}</p>
     <p v-if="statusMsg" class="oesn-status">{{ statusMsg }}</p>
-    <p v-if="errorMsg" class="oesn-error">{{ errorMsg }}</p>
     <ClinicalWorkArchiveControl v-if="clinicalSessionId" :agency-id="agencyId" :target="{ type: 'clinical_session', id: Number(clinicalSessionId) }" @changed="emit('archived')" />
     <SessionSupportingMaterials v-if="clinicalSessionId" :key="clinicalSessionId" :clinical-session-id="clinicalSessionId" />
 
@@ -319,7 +319,7 @@ async function openInNoteAid() {
   errorMsg.value = '';
   try {
     clearTimeout(saveTimer);
-    await persistDraft({ allowEmpty: true });
+    if (String(inputText.value || '').trim()) await persistDraft();
     const ctx = {
       agencyId: Number(props.agencyId || 0),
       practiceCategory: props.practiceCategory,

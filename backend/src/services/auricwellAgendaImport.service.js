@@ -90,6 +90,7 @@ async function loadContext({ actor, agencyId, providerId, planner }) {
 
 async function findExisting(row) {
   const [found] = await pool.execute(`SELECT DISTINCT a.* FROM appointments a WHERE a.agency_id=? AND a.provider_user_id=?
+    AND a.status NOT IN ('canceled_by_provider','canceled_by_client','canceled_by_guardian','canceled_by_organization','late_canceled','rescheduled','voided')
     AND (a.source=? OR (a.start_at=? AND a.end_at=? AND EXISTS (SELECT 1 FROM appointment_participants p WHERE p.appointment_id=a.id AND p.client_id=?)))
     ORDER BY a.id LIMIT 3`, [row.agencyId, row.providerId, row.source, row.startAt, row.endAt, row.clientId]);
   if (found.length > 1) throw fail(409, 'Multiple existing appointments match this row. Resolve the duplicate appointments before importing.');

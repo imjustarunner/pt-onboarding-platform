@@ -391,7 +391,10 @@ export function createDayCancellationService(overrides = {}) {
     if (scopeMode === 'forward') {
       plan.date = dates[0];
       plan.messagesReviewed = true;
-      plan.facts = dayCancellationFacts({ urgent: false, notificationMode: 'none', suppressionReason: 'Future schedule canceled without notification.' });
+      plan.facts = {
+        ...dayCancellationFacts({ urgent: false, notificationMode: 'none', suppressionReason: 'Future schedule canceled without notification.' }),
+        cancelForward: true
+      };
     }
     for (const agencyId of agencyIds) for (const date of dates) {
       const timeZone = input.absenceSource === 'planned_out' && input.timeZone ? input.timeZone : await deps.timeZone(agencyId), bounds = dayBounds(date, timeZone);

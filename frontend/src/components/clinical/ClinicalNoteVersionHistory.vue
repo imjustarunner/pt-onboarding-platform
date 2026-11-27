@@ -80,7 +80,7 @@ import ClinicalNoteVersionAddenda from './ClinicalNoteVersionAddenda.vue';
 import { synchronizeServiceTimes, serviceTimeFeedback } from '../../utils/clinicalServiceTimes.js';
 import { cloneRevisionValue, revisionNarrativeFields, revisedNarrativePayload, revisionSignatureLabel, revisionStatusLabel } from '../../utils/clinicalNoteVersions.js';
 
-const props = defineProps({ noteId: { type: [Number, String], required: true }, agencyId: { type: [Number, String], required: true }, clientId: [Number, String], preferPending: { type: Boolean, default: false }, legacyPendingServiceDetails: { type: Object, default: null }, legacyAmendment: { type: Object, default: null } });
+const props = defineProps({ noteId: { type: [Number, String], required: true }, agencyId: { type: [Number, String], required: true }, clientId: [Number, String], preferredRevisionId: { type: [Number, String], default: null }, preferPending: { type: Boolean, default: false }, legacyPendingServiceDetails: { type: Object, default: null }, legacyAmendment: { type: Object, default: null } });
 const emit = defineEmits(['changed', 'loaded', 'editing']);
 defineExpose({ openRevision, openCorrection });
 const route = useRoute();
@@ -138,7 +138,7 @@ watch(editing, value => emit('editing', value));
 watch([draftFields, draftContext, draftReason, draftTitle, draftOrigin], () => { draftAttested.value = false; }, { deep: true });
 watch(draftLocationId, value => { const location = serviceLocations.value.find(item => String(item.id) === value); const original = draftSavedLocation.value; if (location) Object.assign(draftContext.value, { serviceLocationId: Number(location.id), locationLabel: location.name, placeOfService: location.place_of_service }); else for (const key of ['serviceLocationId', 'locationLabel', 'placeOfService']) { if (Object.prototype.hasOwnProperty.call(original, key)) draftContext.value[key] = original[key]; else delete draftContext.value[key]; } });
 watch(selectedId, () => { attested.value = false; supervisorComment.value = ''; diagnosisBlocked.value = false; viewOpen.value = !!selected.value && (String(selected.value.id) !== String(effective.value?.id) || !!selectedAction.value); });
-watch(() => `${props.agencyId}:${props.noteId}`, () => { notice.value = ''; summary.value = null; selectedId.value = null; editing.value = false; expandedChoice.value = null; load(); }, { immediate: true });
+watch(() => `${props.agencyId}:${props.noteId}:${props.preferredRevisionId || ''}`, () => { notice.value = ''; summary.value = null; selectedId.value = null; editing.value = false; expandedChoice.value = null; load(props.preferredRevisionId); }, { immediate: true });
 onBeforeUnmount(() => { generation++; });
 async function openRevision(revisionId) {
   expandedChoice.value = true;
@@ -158,7 +158,7 @@ async function openCorrection() {
 }
 async function load(preferredId = null) {
   const g = ++generation; loading.value = true; error.value = ''; attested.value = false;
-  try { const { data } = await api.get(`/medical-billing/notes/${props.noteId}/versions`, { params: { agencyId: Number(props.agencyId) }, skipGlobalLoading: true }); if (g !== generation) return; if (!Array.isArray(data?.revisions)) throw new Error('Version history is unavailable. Refresh before amending or signing.'); summary.value = data; selectedId.value = typeof preferredId === 'number' || typeof preferredId === 'string' ? preferredId : props.preferPending && data.pendingRevisionId ? data.pendingRevisionId : data.effectiveRevisionId || data.originalRevisionId; conflicted.value = false; editing.value = false; emit('loaded', data); }
+  try { const { data } = await api.get(`/medical-billing/notes/${props.noteId}/versions`, { params: { agencyId: Number(props.agencyId) }, skipGlobalLoading: true }); if (g !== generation) return; if (!Array.isArray(data?.revisions)) throw new Error('Version history is unavailable. Refresh before amending or signing.'); summary.value = data; if (preferredId && !data.revisions.some(item => String(item.id) === String(preferredId))) throw new Error('This amendment is no longer available. Refresh the co-sign queue.'); selectedId.value = typeof preferredId === 'number' || typeof preferredId === 'string' ? preferredId : props.preferPending && data.pendingRevisionId ? data.pendingRevisionId : data.effectiveRevisionId || data.originalRevisionId; conflicted.value = false; editing.value = false; emit('loaded', data); }
   catch (e) { if (g === generation) error.value = errorMessage(e); }
   finally { if (g === generation) loading.value = false; }
 }
@@ -223,9 +223,12 @@ async function signRevision() {
     const { data } = await api.post(`/medical-billing/notes/${props.noteId}/versions/${revision.id}/${action}`, { agencyId: Number(props.agencyId), expectedContentHash: revision.contentHash, ...(revision.entryManifestHash ? { expectedEntryManifestHash: revision.entryManifestHash } : {}), attested: true, ...(action === 'cosign' && supervisorComment.value.trim() ? { supervisorComment: supervisorComment.value.trim() } : {}) }, { skipGlobalLoading: true });
     if (g !== generation) return;
     if (String(data?.revision?.id) !== String(revision.id) || data.revision.contentHash !== revision.contentHash || (revision.origin === 'supervisor' && action === 'cosign' && data.revision.status !== 'approved')) throw new Error('The server did not confirm this signature. Refresh versions before continuing.');
+    const includedComment = action === 'cosign' && !!supervisorComment.value.trim();
     attested.value = false; supervisorComment.value = '';
-    notice.value = action === 'acknowledge' ? 'Your review acknowledgement was recorded for this revision.' : `Signature recorded for version ${revision.revisionNumber}. ${statusLabel(data.revision.status)}.`;
-    emit('changed', { noteId: Number(props.noteId), agencyId: Number(props.agencyId), revision: data.revision, action });
+    notice.value = action === 'acknowledge'
+      ? 'Your review acknowledgement was recorded for this revision.'
+      : `Signature recorded for version ${revision.revisionNumber}. ${statusLabel(data.revision.status)}.${includedComment ? ' Your comment was sent to the note author.' : ''}`;
+    emit('changed', { noteId: Number(props.noteId), agencyId: Number(props.agencyId), revision: data.revision, action, message: notice.value });
     if (g === generation) await load(revision.id);
   }
   catch (e) { if (g === generation) { attested.value = false; error.value = errorMessage(e);

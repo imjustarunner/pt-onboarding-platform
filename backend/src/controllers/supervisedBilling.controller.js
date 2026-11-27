@@ -9,6 +9,7 @@ import { encryptFamilyBilling, decryptFamilyBilling } from '../services/familyBi
 import { loadReviewDocument, noteReviewContent } from '../services/clinicalReviewDocument.service.js';
 import { getApprovedClinicalContext, clinicalVersionReference } from '../services/clinicalNoteVersionBilling.service.js';
 import { getRevisionSummary } from '../services/clinicalNoteVersion.service.js';
+import { hasBlockingSupervisorChanges } from '../services/billingClinicalApproval.service.js';
 import { recordClaimEvent } from '../services/claimMdWorkflow.service.js';
 import { resolveDocumentationPolicy, resolveNoteDocumentationPolicy, normalizeSupervisionPolicy, normalizePayerPolicy, policyError, parseObject, normalizeNoteType, nonBillableReviewTypes, requiredDocumentReviewTypes, validNpi, isNonBillableDocument, hasCurrentSupervisorCosign, documentReviewRequirement } from '../services/supervisedBillingPolicy.service.js';
 import { withSupervisorTimeLock, reviewInterval, assertNoReviewTimeOverlap, assertNoMeetingOverlap } from '../services/supervisionReviewTime.service.js';
@@ -214,6 +215,7 @@ export async function listSuperviseeDocumentReviews(req,res,next) {
       Object.assign(d,documentReviewRequirement({note_type:d.noteType,addendum_count:d.amendmentSignoffRequired?1:0,metadata_json:{nonBillable:d.nonBillable}},s.policy,cache.get(key)));
       d.latestReview=reviews.find(r=>r.document_type===d.type&&Number(r.document_id)===Number(d.id))||null;
       const row=d.type==='note'?approvedNotes.find(n=>Number(n.id)===Number(d.id)):null;
+      if (row) d.changesNeeded = hasBlockingSupervisorChanges(parseObject(row.metadata_json).reviewRequests);
       if(d.latestReview || row?.supervisor_cosigned_at) {
         const current=await loadReviewDocument(s,d.type,d.id);
         if(row && hasCurrentSupervisorCosign(current.row,(await resolveNoteDocumentationPolicy(current.row)).supervisorUserId,current.hash)){ d.cosignedAt=current.row.supervisor_cosigned_at; d.amendmentSignoffRequired=false; }

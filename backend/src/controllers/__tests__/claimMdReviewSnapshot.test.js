@@ -124,6 +124,20 @@ it('uses the approved revision hash in shared review reads, recorded reviews, an
   expect(list.json.mock.calls[0][0].documents[0]).toMatchObject({ title: 'Approved amended title', clinicalVersion: { revisionId: 12 }, cosignedAt: '2026-10-23', amendmentSignoffRequired: false });
 });
 
+it('shows an outstanding structured return in the author’s documentation list', async () => {
+  m.policy.mockResolvedValue({ supervisorUserId: 9, reviewSupervisorIds: [9], cosignDueDays: 7 });
+  note.metadata_json.reviewRequests = [
+    { action: 'changes_needed', resolvedAt: '2026-10-25' },
+    { action: 'changes_needed', resolutionMode: 'signed_addendum' },
+    { action: 'changes_needed', resolvedAt: null }
+  ];
+  const req = { user: { id: 7, role: 'provider' }, params: { providerId: '7' }, query: { agencyId: '450' } };
+  const list = response(), next = vi.fn();
+  await listSuperviseeDocumentReviews(req, list, next);
+  expect(next).not.toHaveBeenCalled();
+  expect(list.json.mock.calls[0][0].documents[0]).toMatchObject({ id: 444, changesNeeded: true });
+});
+
 it('lists provider-signed plans for their assigned supervisor when discretionary review is off', async () => {
   const draft = { id: 42, agency_id: 450, client_id: 2297, created_by_user_id: 7, title: 'Signed plan for review', status: 'draft' };
   const unsigned = { ...draft, id: 43, title: 'Plan in progress' };

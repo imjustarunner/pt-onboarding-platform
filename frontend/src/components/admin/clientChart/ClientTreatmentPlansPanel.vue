@@ -586,7 +586,7 @@ function statusLabel(plan) {
   const s = String(plan?.status || plan?.plan_status || '').trim().toLowerCase();
   if (s === 'discarded' || s === 'inactive') return 'Discarded draft';
   if (s === 'superseded') return 'Superseded';
-  if (s === 'draft' && plan.providerApproved) return 'Provider signed · Supervisor review pending';
+  if (s === 'draft' && plan.providerApproved) return plan.supervisorRequired === false ? 'Provider signed · Complete approval' : 'Provider signed · Supervisor review pending';
   if (s === 'draft') return 'Draft — updating';
   if (s === 'active') return 'Active';
   return s ? s.replace(/_/g, ' ') : 'On file';

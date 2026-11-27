@@ -582,7 +582,7 @@ function rowTypeLabel(d) {
     const code = singleCode(d.service_code || d.raw?.serviceCode);
     if (kind === 'intake') return `Intake${code ? ` (${code})` : ''}`;
     if (kind === 'termination') return 'Termination note';
-    if (kind === 'treatment_plan') return 'Treatment plan renewal';
+    if (kind === 'treatment_plan') return d.raw?.sourceIntakeNoteId ? 'Initial treatment plan' : 'Treatment plan renewal';
     return `Progress${code ? ` (${code})` : ''}`;
   }
   return props.typeLabel(d.raw || d);

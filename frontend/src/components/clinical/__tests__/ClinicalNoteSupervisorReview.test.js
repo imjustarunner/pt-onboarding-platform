@@ -7,7 +7,7 @@ vi.mock('../../../services/api.js', () => ({ default: { get: vi.fn(), post: vi.f
 
 const note = () => ({ id: 71, agencyId: 2, reviewSnapshotToken: 'metadata-version', clientName: 'DEMO QA Client', providerSignedAt: '2026-11-02T16:00:00Z', providerSignedByUserId: 9, providerSigner: { id: 9, name: 'DEMO QA Author', credentials: 'LSW' }, dateOfService: '2026-11-01', serviceCode: 'H0002', durationMinutes: 45, locationLabel: 'Office', startTime: '10:00', endTime: '10:45', placeOfService: '11', serviceLocationId: 5, clinicalSessionId: 100, structuredChart: { participants: 'Client only', patientPresent:true, mentalStatusExam: { domains: { Appearance: { status: 'normal' }, Mood: { status: 'abnormal', detail: 'Anxious' } } }, medications: { noneCurrently: true } }, outputJson: { sections: { Subjective: 'Stale fetched text' } }, objectiveRatings: [{ id: 1, goalIndex: 1, objectiveIndex: 1, scaleStart: 3, scalePrevious: 4, scaleValue: 5, scaleTarget: 8, objectiveText: 'Use a grounding strategy', disposition: 'rated' }] });
 const review = () => ({ reviewSnapshotToken: 'metadata-version', contentHash: 'reviewed-current-version', canCosign: true, content: JSON.stringify({ note: { sections: { Subjective: 'Current signed narrative', Objective: '', Plan: 'Practice the agreed strategy.' } }, addenda: [{ id: 4, body: 'A signed correction', entry_kind: 'correction', entry_reason: 'Clarification', created_by_user_id: 3 }] }) });
-const versionStub = { name: 'ClinicalNoteVersionHistory', emits: ['loaded', 'changed', 'editing'], template: '<section>Immutable version history</section>', mounted() { this.$emit('loaded', { pendingRevisionId: null, originalRevisionId: 701, revisions: [{ id: 701, revisionNumber: 1 }] }); } };
+const versionStub = { name: 'ClinicalNoteVersionHistory', props: ['preferredRevisionId'], emits: ['loaded', 'changed', 'editing'], template: '<section>Immutable version history</section>', mounted() { this.$emit('loaded', { pendingRevisionId: null, originalRevisionId: 701, revisions: [{ id: 701, revisionNumber: 1 }] }); } };
 const mounted = () => mount(ClinicalNoteSupervisorReview, { props: { noteId: 71, agencyId: 2 }, global: { stubs: { CosignReviewTimer: true, ClinicalNoteVersionHistory: versionStub } } });
 const byText = (wrapper, label) => wrapper.findAll('button').find(button => button.text() === label);
 
@@ -36,6 +36,20 @@ describe('supervisor note review', () => {
     await w.find('[data-testid="cosign"]').trigger('click'); await flushPromises();
     expect(api.post).toHaveBeenCalledWith('/medical-billing/notes/71/cosign', { agencyId: 2, contentHash: 'reviewed-current-version', reviewSnapshotToken: 'metadata-version', reviewedAndApproved: true }, {skipGlobalLoading:true});
     expect(w.emitted('signed')).toHaveLength(1); w.unmount();
+  });
+
+  it('opens the pending revision directly from an amendment queue item', async () => {
+    const w = mount(ClinicalNoteSupervisorReview, {
+      props: { noteId: 71, agencyId: 2, revisionId: 702 },
+      global: { stubs: { CosignReviewTimer: true, ClinicalNoteVersionHistory: versionStub } }
+    });
+    await flushPromises();
+    const history = w.findComponent({ name: 'ClinicalNoteVersionHistory' });
+    expect(history.props('preferredRevisionId')).toBe(702);
+    expect(api.get).not.toHaveBeenCalled();
+    history.vm.$emit('changed', { action: 'cosign', message: 'Supervisor signature saved.' });
+    expect(w.emitted('signed')).toEqual([[{ noteId: 71, agencyId: 2, action: 'cosign', message: 'Supervisor signature saved.' }]]);
+    w.unmount();
   });
 
   it('requires passing server evidence and an explicit attestation for Quick Sign', async () => {
