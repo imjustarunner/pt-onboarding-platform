@@ -230,4 +230,4 @@ export const generateContractForCandidate = async (req, res, next) => {
   }
 };
 
-export async function postEmploymentStarter(req,res,next){try{const agencyId=parseAgencyId(req);if(!agencyId)return res.status(400).json({error:{message:"Organization required"}});res.json(await installEmploymentStarter(agencyId,req.user.id));}catch(e){next(e);}}
+export async function postEmploymentStarter(req,res,next){try{const agencyId=parseAgencyId(req);if(!agencyId)return res.status(400).json({error:{message:"Organization required"}});res.json(await installEmploymentStarter(agencyId,req.user.id,{ general: Number(req.plotlineCompanyId) === agencyId }));}catch(e){next(e);}}

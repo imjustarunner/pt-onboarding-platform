@@ -29,6 +29,7 @@ import { CATEGORY_LEVEL_COMPENSATION_CLAUSE } from '../content/contractCategoryL
 import { availableContractRoles, contractServiceTrack, inferContractServiceRoles, inferNluContractCategory, contractServiceRolePlan, applyContractServiceRoleClauses } from '../content/contractServiceRoles.js';
 import { NLU_COMPENSATION_CATEGORIES } from '../content/nluCompensationPolicy.js';
 import { individualRoleCompensationTerms } from '../content/individualRoleCompensationTerms.js';
+import { PLOTLINE_EMPLOYMENT_SLUG, plotlineEmploymentContent } from './plotlineEmploymentAgreement.service.js';
 import { employmentStarterClauses } from './employmentStarter.service.js';
 import { STUDENT_TRAINING_CLAUSES, studentTrainingClauseForPhase } from '../content/studentTrainingAgreement.js';
 import {
@@ -604,6 +605,25 @@ export async function renderContractHtml({
     reviewInactiveConfig,
     tokens: mergedInput
   });
+  if (config.slug === PLOTLINE_EMPLOYMENT_SLUG) {
+    const agency = await Agency.findById(agencyId);
+    const { sections, unresolvedTokens, values } = plotlineEmploymentContent({
+      clauses: originalClauses, tokens: { ...mergedInput, CANDIDATE_NAME: tokens.CANDIDATE_NAME ?? mergedInput.CANDIDATE_NAME }, companyName: agency.name
+    });
+    const { resolvePacketBrandChrome, packetBodyFontCss } = await import('./packetBrandChrome.service.js');
+    const brand = await resolvePacketBrandChrome(agency);
+    const logo = brand.headerImageDataUrl || brand.headerLogoDataUrl;
+    const accent = agencyDocumentPresentation(agency).agencyBrand?.primary;
+    const line = /^#[a-f0-9]{6}$/i.test(accent || '') ? accent : '#205846';
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${packetBodyFontCss(brand)}
+      body{font-family:${brand.bodyFontFamily};color:#26362e;line-height:1.65;max-width:760px;margin:auto;padding:28px}
+      header{border-bottom:2px solid ${line};padding-bottom:16px} h2{font-size:1.2rem} img{max-height:72px;max-width:240px}
+      section{overflow-wrap:anywhere}
+      </style></head><body><header>${logo ? `<img src="${escapeHtml(logo)}" alt="">` : ''}
+      <h1>${escapeHtml(agency.name)}</h1></header>${sections}
+      <footer><p>Prepared with Plotline · A People Operations Platform</p></footer></body></html>`;
+    return { html, tokens: { ...values }, unresolvedTokens, config, template, clauseManifest: [] };
+  }
   const mergedTokens = {
     ...mergedInput,
     ROLE_LABEL: mergedInput.ROLE_LABEL || contractRoleLabel({jobTitle:mergedInput.JOB_TITLE,roleType:mergedInput.ROLE_TYPE,credential:mergedInput.CREDENTIAL}),

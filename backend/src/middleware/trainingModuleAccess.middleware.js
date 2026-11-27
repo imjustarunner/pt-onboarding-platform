@@ -6,7 +6,7 @@ import AgencyPublicTraining from '../models/AgencyPublicTraining.model.js';
 export async function canReadTrainingModule(user, module, agencies = null) {
   if (!user?.id || !module) return false;
   if (user.role === 'super_admin') return true;
-  const manager = user.role === 'admin';
+  const manager = user.role === 'admin' || user.role === 'support';
   if (!manager && ([false, 0, '0', null, undefined].includes(module.is_active) || module.publish_status === 'draft' || [true, 1, '1'].includes(module.is_archived))) return false;
   if (module.agency_id == null) return !!(module.is_shared || module.is_public || module.is_always_accessible || (manager && Number(module.created_by_user_id) === Number(user.id)));
   const memberships = agencies || await User.getAgencies(user.id);
@@ -25,6 +25,9 @@ export async function requireTrainingModuleAccess(req, res, next) {
     if (!Number.isSafeInteger(id) || id < 1) return res.status(400).json({ error: { message: 'Invalid module ID' } });
     const module = await Module.findById(id);
     if (!module) return res.status(404).json({ error: { message: 'Module not found' } });
+    if (req.plotlineCompanyId && Number(module.agency_id) !== Number(req.plotlineCompanyId)) {
+      return res.status(404).json({ error: { message: 'Lesson not found in this company.' } });
+    }
     if (!await canReadTrainingModule(req.user, module)) return res.status(403).json({ error: { message: 'This training module is not available to your organization.' } });
     if (req.method !== 'GET' && req.path?.includes('/content') && req.user.role !== 'super_admin') {
       const agencies = await User.getAgencies(req.user.id);

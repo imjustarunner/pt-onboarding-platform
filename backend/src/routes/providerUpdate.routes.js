@@ -102,6 +102,7 @@ router.post('/handbook/answer', authenticate, handbookAssistantLimit, hb.answerQ
 router.get('/handbook/workspace', authenticate, hb.getWorkspace);
 router.post('/handbook/source/stage', authenticate, hb.stageSource);
 router.get('/handbook/draft', authenticate, hb.getDraft);
+router.post('/handbook/draft', authenticate, hb.getDraft);
 router.post('/handbook/sections', authenticate, hb.saveSection);
 router.put('/handbook/sections/:sectionId', authenticate, hb.saveSection);
 router.delete('/handbook/sections/:sectionId', authenticate, hb.removeSection);

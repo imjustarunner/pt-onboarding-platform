@@ -4,8 +4,8 @@
     <header class="cg-header">
       <div>
         <router-link class="cg-back" :to="peopleOpsRoute">← People Operations</router-link>
-        <h1>Contract Generator</h1>
-        <p>Build ongoing agreements from the person’s role and compensation selections. Manage standard terms and existing document presets in the library.</p>
+        <h1>{{ isPlotline ? 'Company contracts' : 'Contract Generator' }}</h1>
+        <p>{{ isPlotline ? 'Enter your approved terms, review the agreement, and assign it for signature.' : 'Build ongoing agreements from the person’s role and compensation selections. Manage standard terms and existing document presets in the library.' }}</p>
         <label v-if="canChooseAgency" class="cg-agency-picker">
           Agency
           <select :value="selectedAgencyId" @change="onPickAgency">
@@ -24,9 +24,49 @@
 
     <template v-else>
       <p v-if="wizardErr" class="cg-error" role="alert">{{ wizardErr }}</p>
-      <details class="cg-panel"><summary>Plotline employment template for this agency</summary><p>Create an editable agency copy with separate hourly and fee-for-service clause sets. It uses this agency’s branding and compensation settings. Existing agreements and posting defaults are preserved.</p><p>New configurations remain inactive until reviewed. Subscription packaging and pricing are managed separately.</p><button class="cg-btn" :disabled="busy" @click="installStarter">Add agency template library</button></details>
-      <!-- Build (spreadsheet-style front page) -->
-      <section v-if="tab === 'build'" class="cg-panel">
+      <details v-if="!isPlotline" class="cg-panel"><summary>Plotline employment template for this agency</summary><p>Create an editable agency copy with separate hourly and fee-for-service clause sets. It uses this agency’s branding and compensation settings. Existing agreements and posting defaults are preserved.</p><p>New configurations remain inactive until reviewed. Subscription packaging and pricing are managed separately.</p><button class="cg-btn" :disabled="busy" @click="installStarter">Add agency template library</button></details>
+      <section v-if="tab === 'build' && isPlotline && !advancedContracts" class="cg-panel general-contract">
+        <div class="contract-heading">
+          <div><h2>Employment agreement</h2><p>Use your company’s terms for each candidate.</p></div>
+          <button v-if="configs.some(config => config.id !== generalConfig?.id)" type="button" class="cg-btn" @click="openAdvanced">Open existing presets</button>
+        </div>
+        <template v-if="!generalConfig">
+          <p>Add an editable company template with sections for work arrangements, pay, and additional terms.</p>
+          <button type="button" class="cg-btn primary" :disabled="busy" @click="installStarter">Create company template</button>
+        </template>
+        <template v-else-if="!Number(generalConfig.is_active)">
+          <p>Your template is ready for review. Open the library to review the sections and activate it when it’s ready to use.</p>
+          <button type="button" class="cg-btn" @click="tab = 'library'; libraryTab = 'clauses'">Review template sections</button>
+        </template>
+        <template v-else>
+          <p v-if="!contractCandidates.length">Add an applicant in Hiring to prepare their agreement.</p>
+          <label>Applicant
+            <select v-model="build.candidateUserId" :disabled="busy" @change="loadGeneralCandidate">
+              <option value="">Select an applicant</option>
+              <option v-for="candidate in contractCandidates" :key="candidate.id" :value="candidate.id">{{ candidate.label || `${candidate.firstName} ${candidate.lastName}` }}</option>
+            </select>
+          </label>
+          <fieldset v-if="build.candidateUserId" :disabled="busy">
+            <legend>Agreement details</legend>
+            <div class="general-form">
+              <label>Candidate name <input v-model="generalTerms.CANDIDATE_NAME" maxlength="255" /></label>
+              <label>Job title <input v-model="generalTerms.JOB_TITLE" maxlength="255" /></label>
+              <label>Start date <input v-model="generalTerms.START_DATE" type="date" /></label>
+            </div>
+            <label>Duties and work arrangements <textarea v-model="generalTerms.WORK_ARRANGEMENT" maxlength="6000" rows="4" placeholder="Role responsibilities, schedule, and work location" /></label>
+            <label>Compensation <textarea v-model="generalTerms.PAY_TERMS" maxlength="6000" rows="3" placeholder="Approved pay amount, currency, and how and when it is paid" /></label>
+            <label>Additional terms <textarea v-model="generalTerms.ADDITIONAL_TERMS" maxlength="16000" rows="4" /></label>
+          </fieldset>
+          <div class="cg-actions">
+            <button type="button" class="cg-btn" :disabled="busy || !generalReady" @click="runGeneral(false)">Preview agreement</button>
+            <button type="button" class="cg-btn primary" :disabled="busy || !reviewedGeneral" @click="runGeneral(true)">Assign for signature</button>
+          </div>
+          <p v-if="wizardMsg" class="cg-ok" role="status">{{ wizardMsg }}</p>
+          <iframe v-if="generalPreview" title="Draft employment agreement" sandbox :srcdoc="generalPreview" class="general-preview" />
+        </template>
+      </section>
+      <section v-else-if="tab === 'build'" class="cg-panel">
+        <button v-if="isPlotline" type="button" class="cg-btn" @click="advancedContracts = false">Back to company agreement</button>
         <div class="cg-build-toolbar">
           <label>
             Applicant / candidate
@@ -73,7 +113,7 @@
             <span class="cg-label">2 · Configuration</span>
             <select v-model="build.configId" required>
               <option value="">— select —</option>
-              <option v-for="c in configs.filter(c => c.is_active)" :key="c.id" :value="c.id">{{ c.name }}</option>
+              <option v-for="c in legacyConfigs.filter(c => c.is_active)" :key="c.id" :value="c.id">{{ c.name }}</option>
             </select>
             <span class="cg-note">Clause chain (hourly, FFS, intern, addendum…)</span>
           </div>
@@ -171,7 +211,7 @@
         <template v-if="libraryTab === 'configs'">
           <div v-for="c in configs" :key="c.id" class="cg-card">
             <strong>{{ c.name }}</strong>
-            <div class="cg-muted">{{ c.slug }} · {{ c.pay_mode }} · {{ (c.clause_keys || []).length }} clauses · {{ c.is_active ? 'Active' : 'Inactive — review required' }}</div><details><summary>Included clauses</summary><ul><li v-for="key in c.clause_keys || []" :key="key">{{ key }}</li></ul></details><button v-if="!c.is_active" class="cg-btn" @click="activateConfig(c)">Activate reviewed configuration</button>
+            <div class="cg-muted"><span v-if="!isPlotline || c.id !== generalConfig?.id">{{ c.slug }} · {{ c.pay_mode }} · </span>{{ (c.clause_keys || []).length }} clauses · {{ c.is_active ? 'Active' : 'Inactive — review required' }}</div><details><summary>Included clauses</summary><ul><li v-for="key in c.clause_keys || []" :key="key">{{ key }}</li></ul></details><button v-if="!Number(c.is_active)" class="cg-btn" :disabled="busy" @click="activateConfig(c)">Activate reviewed configuration</button>
           </div>
         </template>
         <template v-else-if="libraryTab === 'clauses'">
@@ -182,8 +222,9 @@
               <button type="button" class="cg-link" @click="editClause(cl)">Edit</button>
             </div>
             <div v-if="editingClauseId === cl.id" class="cg-form">
-              <input v-model="clauseDraft.title" placeholder="Title" />
-              <textarea v-model="clauseDraft.bodyHtml" rows="8" />
+              <label>Clause title <input v-model="clauseDraft.title" /></label>
+              <DraftHtmlEditor v-if="isPlotline" v-model="clauseDraft.bodyHtml" label="Clause content" />
+              <label v-else>Clause content <textarea v-model="clauseDraft.bodyHtml" rows="8" /></label>
               <button type="button" class="cg-btn" @click="saveClause">Save clause</button>
             </div>
           </div>
@@ -200,6 +241,7 @@
 </template>
 
 <script setup>
+import DraftHtmlEditor from '../../components/admin/DraftHtmlEditor.vue';
 import CredentialPicker from '../../components/CredentialPicker.vue';
 import ContractExpectationsEditor from '../../components/careers/ContractExpectationsEditor.vue';
 import { ref, onMounted, computed, watch } from 'vue';
@@ -208,6 +250,7 @@ import ContractProbationChoice from '../../components/hiring/ContractProbationCh
 import {PROVIDER_DESIGNATION_LABELS} from '../../constants/providerDesignationLevels.js';
 import ContractHandbookModal from '../../components/documents/ContractHandbookModal.vue';
 import {referenceFromContractClick} from '../../utils/contractHandbookReferences.js';
+import { usePlotlineCompanyScope } from '../../composables/usePlotlineCompanyScope';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
@@ -231,7 +274,9 @@ const agencyChoices = computed(() => {
     .filter((a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency')
     .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
 });
-const canChooseAgency = computed(() => agencyChoices.value.length > 1);
+const scope = usePlotlineCompanyScope(route, agencyStore);
+const isPlotline = computed(() => scope.locked.value);
+const canChooseAgency = computed(() => !isPlotline.value && agencyChoices.value.length > 1);
 const userPickedAgency = ref(false);
 const selectedAgencyId = ref('');
 
@@ -260,6 +305,7 @@ function onPickAgency(e) {
 }
 
 const agencyId = computed(() => {
+  if (isPlotline.value) return scope.companyId.value;
   const fromPicker = Number(selectedAgencyId.value);
   if (Number.isFinite(fromPicker) && fromPicker > 0) return fromPicker;
   const fromQuery = Number(route.query.agencyId);
@@ -379,6 +425,65 @@ const previewHash = ref('');
 const wizardMsg = ref('');
 const wizardErr = ref('');
 
+const advancedContracts = ref(false);
+const generalConfig = computed(() => configs.value.find(config => config.slug === 'plotline_general_employment_v1'));
+const legacyConfigs = computed(() => configs.value.filter(config => config.id !== generalConfig.value?.id));
+const emptyTerms = () => ({ CANDIDATE_NAME: '', JOB_TITLE: '', START_DATE: '', WORK_ARRANGEMENT: '', PAY_TERMS: '', ADDITIONAL_TERMS: '' });
+const generalTerms = ref(emptyTerms());
+const generalPreview = ref('');
+const generalReview = ref(null);
+const generalFingerprint = computed(() => JSON.stringify([agencyId.value, build.value.candidateUserId, generalConfig.value?.id, generalTerms.value]));
+const generalReady = computed(() => !!build.value.candidateUserId &&
+  ['CANDIDATE_NAME', 'JOB_TITLE', 'START_DATE', 'WORK_ARRANGEMENT', 'PAY_TERMS'].every(key => generalTerms.value[key]?.trim()));
+const reviewedGeneral = computed(() => generalReady.value && generalReview.value?.fingerprint === generalFingerprint.value);
+
+async function loadGeneralCandidate() {
+  generalTerms.value = emptyTerms();
+  wizardErr.value = ''; wizardMsg.value = '';
+  if (!build.value.candidateUserId) return;
+  const id = build.value.candidateUserId;
+  const agency = agencyId.value;
+  busy.value = true;
+  try {
+    const { data } = await api.get(`/contracts/candidates/${id}/wizard-context`, { params: { agencyId: agency } });
+    if (agency !== agencyId.value || id !== build.value.candidateUserId) return;
+    const tokens = data.tokens || {};
+    const selected = contractCandidates.value.find(candidate => Number(candidate.id) === Number(id));
+    generalTerms.value.CANDIDATE_NAME = tokens.CANDIDATE_NAME || [selected?.firstName, selected?.lastName].filter(Boolean).join(' ');
+    generalTerms.value.JOB_TITLE = tokens.JOB_TITLE || selected?.jobTitle || '';
+  } catch (e) { wizardErr.value = e.response?.data?.error?.message || 'Could not load this applicant. You can enter their details.'; }
+  finally { busy.value = false; }
+}
+
+async function runGeneral(assign) {
+  if (busy.value || !generalReady.value || (assign && !reviewedGeneral.value)) return;
+  busy.value = true;
+  wizardErr.value = ''; wizardMsg.value = '';
+  const fingerprint = generalFingerprint.value;
+  if (!assign) generalReview.value = null;
+  try {
+    const { data } = await api.post(`/contracts/candidates/${build.value.candidateUserId}/${assign ? 'generate' : 'preview'}`, {
+      agencyId: agencyId.value, configId: generalConfig.value.id,
+      tokens: { ...generalTerms.value },
+      ...(assign ? { expectedPreviewHash: generalReview.value.hash } : {})
+    });
+    if (fingerprint !== generalFingerprint.value) return;
+    if (assign) {
+      generalReview.value = null;
+      wizardMsg.value = data.reused ? 'This agreement is already assigned.' : 'Agreement assigned for signature.';
+    } else {
+      generalPreview.value = data.html;
+      generalReview.value = !data.unresolvedTokens?.length && data.previewHash ? { fingerprint, hash: data.previewHash } : null;
+      wizardMsg.value = generalReview.value ? 'Review the agreement below.' : 'Complete the missing fields before assigning this agreement.';
+    }
+  } catch (e) { wizardErr.value = e.response?.data?.error?.message || 'The agreement could not be saved.'; }
+  finally { busy.value = false; }
+}
+
+watch(generalFingerprint, () => { generalPreview.value = ''; generalReview.value = null; wizardMsg.value = ''; });
+function openAdvanced() { advancedContracts.value = true; if (build.value.candidateUserId) onCandidateSelected(); }
+
+
 const showSchoolDays = computed(() => schoolDaysEnabled.value && /\bschools?\b/i.test(build.value.tokens.SERVICE_FOCUS || ''));
 watch(showSchoolDays, visible => { if (!visible) build.value.tokens.MIN_DAYS_PER_WEEK = ''; });
 
@@ -436,7 +541,9 @@ async function loadContractCandidates() {
     return;
   }
   try {
-    const { data } = await api.get('/contracts/candidates', { params: { agencyId: agencyId.value, limit: 300 } });
+    const company = agencyId.value;
+    const { data } = await api.get('/contracts/candidates', { params: { agencyId: company, limit: 300 } });
+    if (company !== agencyId.value) return;
     contractCandidates.value = data.candidates || [];
   } catch {
     contractCandidates.value = [];
@@ -512,7 +619,9 @@ async function loadCandidateContext() {
     if (data.credentialOptions?.length) credentialOptions.value = [...data.credentialOptions, { key: 'CUSTOM', label: 'Custom / other…' }];
     if (data.agency) applyAgencyDefaults(data.agency);
     if (data.suggested?.templateId) build.value.templateId = data.suggested.templateId;
-    if (data.suggested?.configId) build.value.configId = data.suggested.configId;
+    if (data.suggested?.configId && (!isPlotline.value || Number(data.suggested.configId) !== Number(generalConfig.value?.id))) {
+      build.value.configId = data.suggested.configId;
+    }
     if (data.suggested?.jobDescClauseKey) build.value.jobDescClauseKey = data.suggested.jobDescClauseKey;
     if (data.suggested?.compensationCategory) build.value.compensationCategory = data.suggested.compensationCategory;
     if (data.suggested?.compensationLevel) build.value.compensationLevel = data.suggested.compensationLevel;
@@ -539,7 +648,17 @@ async function loadCandidateContext() {
 }
 
 async function installStarter(){busy.value=true;try{await api.post('/contracts/library/employment-starter',{agencyId:agencyId.value});await loadLibrary();tab.value='library';libraryTab.value='configs';}catch(e){wizardErr.value=e.response?.data?.error?.message||e.message;}finally{busy.value=false;}}
-async function activateConfig(c){try{await api.patch(`/contracts/configs/${c.id}`,{agencyId:agencyId.value,isActive:true});await loadLibrary();}catch(e){wizardErr.value=e.response?.data?.error?.message||e.message;}}
+async function activateConfig(config) {
+  if (busy.value) return;
+  busy.value = true;
+  wizardErr.value = '';
+  try {
+    await api.patch(`/contracts/configs/${config.id}`, { agencyId: agencyId.value, isActive: true });
+    await loadLibrary();
+    if (isPlotline.value && config.slug === 'plotline_general_employment_v1') tab.value = 'build';
+  } catch (error) { wizardErr.value = error.response?.data?.error?.message || error.message; }
+  finally { busy.value = false; }
+}
 async function loadLibrary() {
   loading.value = true;
   error.value = '';
@@ -549,7 +668,9 @@ async function loadLibrary() {
     return;
   }
   try {
-    const { data } = await api.get('/contracts/library', { params: { agencyId: agencyId.value } });
+    const company = agencyId.value;
+    const { data } = await api.get('/contracts/library', { params: { agencyId: company } });
+    if (company !== agencyId.value) return;
     templates.value = data.templates || [];
     clauses.value = data.clauses || [];
     configs.value = data.configs || [];
@@ -569,7 +690,7 @@ async function loadLibrary() {
       .filter((c) => String(c.clause_key || '').startsWith('JOB_DESC_'))
       .map((c) => ({ key: c.clause_key, title: c.title }));
     if (!build.value.templateId && templates.value[0]) build.value.templateId = templates.value[0].id;
-    if (!selectionDriven.value && !build.value.configId && configs.value[0]) build.value.configId = configs.value[0].id;
+    if (!selectionDriven.value && !build.value.configId && legacyConfigs.value[0]) build.value.configId = legacyConfigs.value[0].id;
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e.message || 'Failed to load';
   } finally {
@@ -614,12 +735,21 @@ function editClause(cl) {
 }
 
 async function saveClause() {
-  await api.patch(`/contracts/clauses/${editingClauseId.value}`, {
-    agencyId: agencyId.value,
-    ...clauseDraft.value
-  });
-  editingClauseId.value = null;
-  await loadLibrary();
+  if (busy.value) return;
+  busy.value = true;
+  wizardErr.value = '';
+  try {
+    await api.patch(`/contracts/clauses/${editingClauseId.value}`, {
+      agencyId: agencyId.value,
+      ...clauseDraft.value
+    });
+    editingClauseId.value = null;
+    generalReview.value = null;
+    generalPreview.value = '';
+    await loadLibrary();
+  } catch (error) {
+    wizardErr.value = error.response?.data?.error?.message || 'Could not save this clause. Your edits are still here.';
+  } finally { busy.value = false; }
 }
 
 async function preview() {
@@ -666,6 +796,7 @@ async function generate() {
 
 watch(agencyId, (id, previousId) => {
   if (previousId && id !== previousId) {
+    generalTerms.value = emptyTerms(); advancedContracts.value = false;
     build.value.candidateUserId = ''; build.value.configId = ''; build.value.templateId = '';
     build.value.credential = ''; build.value.credentialKey = ''; build.value.officeLocationId = '';
     for (const key of Object.keys(build.value.tokens)) build.value.tokens[key] = '';
@@ -675,7 +806,10 @@ watch(agencyId, (id, previousId) => {
   if (id) {
     loadLibrary().then(() => {
       loadContractCandidates().then(() => {
-        if (build.value.candidateUserId) loadCandidateContext();
+        if (build.value.candidateUserId) {
+          if (isPlotline.value && !advancedContracts.value) loadGeneralCandidate();
+          else loadCandidateContext();
+        }
       });
     });
     return;
@@ -785,4 +919,12 @@ onMounted(async () => {
   border: 1px solid #cbd5e1; background: #fff; border-radius: 8px; padding: 8px 12px; cursor: pointer;
 }
 .cg-library-tabs button.active { background: #0f172a; color: #fff; border-color: #0f172a; }
+
+.general-contract { max-width: 940px; }
+.contract-heading { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; align-items: start; }
+.contract-heading h2, .contract-heading p { margin: 0 0 7px; }
+.general-contract fieldset { margin: 18px 0; padding: 0; border: 0; min-width: 0; }
+.general-contract legend { font-weight: 700; }
+.general-form { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%, 185px),1fr)); gap: 12px; }
+.general-contract .general-preview { width: 100%; min-height: 560px; border: 1px solid #cadad0; border-radius: 12px; background: #fff; }
 </style>

@@ -1,4 +1,5 @@
 // Agency-owned copies of this versioned starter never overwrite existing clauses.
+import { PLOTLINE_EMPLOYMENT_SLUG, plotlineEmploymentClauses } from './plotlineEmploymentAgreement.service.js';
 import { ITSCO_CONTRACT_CLAUSES, mdToHtml } from '../seeds/itscoContractClauseLibrary.js';
 export const EMPLOYMENT_STARTER_VERSION='2026-10-11';
 const original=key=>ITSCO_CONTRACT_CLAUSES.find(c=>c.clause_key===key);
@@ -31,13 +32,32 @@ export const starterReviewNotes=[
  'Choose hourly or fee-for-service configuration, then the agency’s actual pay category and level. No rates are copied from ITSCO.',
  'Confirm supervision, benefits, scope, work expectations, applicable law and any separately proposed restrictions. The starter is not a legal opinion.'
 ];
-export async function installEmploymentStarter(agencyId,userId) {
+export async function installEmploymentStarter(agencyId,userId,{ general = false } = {}) {
  const {default:pool}=await import('../config/database.js');
  const db=await pool.getConnection();
  try{
   await db.beginTransaction();
   const [[agency]]=await db.execute('SELECT id FROM agencies WHERE id = ? FOR UPDATE',[agencyId]);
   if(!agency)throw Object.assign(new Error('Organization not found'),{status:404});
+  if (general) {
+   const [[existing]] = await db.execute('SELECT id FROM contract_configs WHERE agency_id=? AND slug=?', [agencyId, PLOTLINE_EMPLOYMENT_SLUG]);
+   if (!existing) {
+    const [template] = await db.execute(
+     "INSERT INTO contract_templates (agency_id,name,font_family,is_active,created_by_user_id) VALUES (?,?,'Montserrat, sans-serif',1,?)",
+     [agencyId, 'Plotline company letterhead', userId]
+    );
+    const keys = [];
+    for (const [index, section] of plotlineEmploymentClauses.entries()) {
+     const key = `PLOTLINE_EMPLOYMENT_V1_${section.key}`;
+     await db.execute('INSERT INTO contract_clauses (agency_id,clause_key,title,body_html,sort_hint,is_active) VALUES (?,?,?,?,?,1)', [agencyId,key,section.title,section.body,index*10]);
+     keys.push(key);
+    }
+    await db.execute("INSERT INTO contract_configs (agency_id,name,slug,contract_template_id,pay_mode,clause_keys_json,is_active,created_by_user_id) VALUES (?,?,?,?,'none',?,0,?)",
+      [agencyId,'Company employment agreement',PLOTLINE_EMPLOYMENT_SLUG,template.insertId,JSON.stringify(keys),userId]);
+   }
+   await db.commit();
+   return { existing: !!existing, version: 'plotline-1.0.0' };
+  }
   const [existing]=await db.execute("SELECT id FROM contract_configs WHERE agency_id = ? AND slug LIKE 'plotline_starter_v1_%'",[agencyId]);
   if(existing.length){await db.commit();return {existing:true,version:EMPLOYMENT_STARTER_VERSION};}
   const [template]=await db.execute("INSERT INTO contract_templates (agency_id,name,font_family,is_active,created_by_user_id) VALUES (?,?,'Montserrat, sans-serif',1,?)",[agencyId,'Plotline employment starter · agency copy',userId]);

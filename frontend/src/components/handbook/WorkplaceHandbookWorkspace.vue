@@ -5,11 +5,11 @@
     <p v-if="success" class="workspace-success" role="status">{{ success }}</p>
     <template v-if="workspace">
       <div class="workspace-toolbar">
-        <div><strong>Handbook workspace</strong><p>Review supplied sections, then publish them for your team.</p></div>
+        <div><strong>Handbook workspace</strong><p>{{ plotlineSelfService ? 'Fill in the policies that apply to your company. Review your draft before publishing.' : 'Review supplied sections, then publish them for your team.' }}</p></div>
         <div class="workspace-actions">
           <label v-if="options.length > 1">View <select :value="view" @change="changeView($event.target.value)"><option v-for="option in options" :key="option.value" :value="option.value">{{ option.label }}</option></select></label>
-          <button v-if="canStage" type="button" :disabled="busy" @click="stage">Add supplied content to draft</button>
-          <button v-if="workspace.draft || workspace.published?.version" type="button" :disabled="busy" @click="startEditing">Edit sections</button>
+          <button v-if="canStage" type="button" :disabled="busy" @click="stage">{{ plotlineSelfService ? 'Start with guided sections' : 'Add supplied content to draft' }}</button>
+          <button v-if="plotlineSelfService || workspace.draft || workspace.published?.version" type="button" :disabled="busy" @click="startEditing">{{ plotlineSelfService && !workspace.draft && !workspace.published?.version ? 'Start a blank draft' : 'Edit sections' }}</button>
         </div>
       </div>
       <div v-if="workspace.draft && view === 'draft'" class="publish-box">
@@ -35,7 +35,7 @@ import api from '../../services/api';
 import WorkplaceHandbookBook from './WorkplaceHandbookBook.vue';
 import HandbookSectionEditor from './HandbookSectionEditor.vue';
 import { useDocumentBranding } from '../../composables/useDocumentBranding.js';
-const props = defineProps({ agencyId: { type: [Number, String], required: true }, adminUpdateId: { type: [Number, String], default: null }, pushId: { type: [Number, String], default: null }, updates: { type: Array, default: () => [] }, fullHandbookUrl: { type: String, default: '' } });
+const props = defineProps({ agencyId: { type: [Number, String], required: true }, adminUpdateId: { type: [Number, String], default: null }, pushId: { type: [Number, String], default: null }, updates: { type: Array, default: () => [] }, fullHandbookUrl: { type: String, default: '' }, plotlineSelfService: Boolean });
 const emit = defineEmits(['published', 'sections', 'dirty', 'draft-changed']);
 const workspace = ref(null);
 const book = ref(null);
@@ -56,7 +56,8 @@ async function startEditing() {
   if (editorDirty.value) { view.value = 'draft'; return; }
   busy.value = true; error.value = '';
   try {
-    await api.get('/provider-update/handbook/draft', { params: { agencyId: props.agencyId } });
+    if (props.plotlineSelfService) await api.post('/provider-update/handbook/draft', { agencyId: Number(props.agencyId) });
+    else await api.get('/provider-update/handbook/draft', { params: { agencyId: props.agencyId } });
     await load('draft'); editing.value = true; emit('draft-changed');
   } catch (e) { error.value = e?.response?.data?.error?.message || 'The draft could not be opened.'; }
   finally { busy.value = false; }
@@ -64,7 +65,7 @@ async function startEditing() {
 async function sectionSaved() { editorDirty.value = false; await load('draft'); success.value = 'Section saved to the draft. Publish to update the team handbook.'; }
 const reviewUpdates = computed(() => workspace.value?.reviewUpdates || workspace.value?.source?.reviewUpdates || []);
 let request = 0;
-const options = computed(() => [workspace.value?.draft && { value: 'draft', label: 'Draft' }, workspace.value?.published?.version && { value: 'published', label: 'Published handbook' }, workspace.value?.source && { value: 'source', label: 'Supplied content' }].filter(Boolean));
+const options = computed(() => [workspace.value?.draft && { value: 'draft', label: 'Draft' }, workspace.value?.published?.version && { value: 'published', label: 'Published handbook' }, workspace.value?.source && { value: 'source', label: props.plotlineSelfService ? 'Guided sections' : 'Supplied content' }].filter(Boolean));
 const canStage = computed(() => workspace.value?.source && workspace.value.source.revision !== workspace.value.published?.version?.source_revision && workspace.value.source.revision !== workspace.value.draft?.version?.source_revision);
 const shown = computed(() => {
   if (view.value === 'source' && workspace.value?.source) return { sections: workspace.value.source.sections, metadata: workspace.value.source };
@@ -104,7 +105,7 @@ async function stage() {
   busy.value = true; error.value = ''; success.value = '';
   try {
     await api.post('/provider-update/handbook/source/stage', { agencyId: Number(props.agencyId), sourceRevision: workspace.value.source.revision, expectedPublishedVersionId: workspace.value.published?.version?.id || null });
-    await load('draft'); success.value = 'Supplied content is in the draft. Review it below before publishing.'; emit('draft-changed');
+    await load('draft'); if (props.plotlineSelfService) editing.value = true; success.value = 'Review and complete the sections in your draft before publishing.'; emit('draft-changed');
   } catch (e) { error.value = e?.response?.data?.error?.message || 'The draft could not be prepared.'; }
   finally { busy.value = false; }
 }

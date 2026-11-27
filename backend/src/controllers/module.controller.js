@@ -21,6 +21,10 @@ export const getAllModules = async (req, res, next) => {
     
     const includeInactive = req.user.role === 'admin' || req.user.role === 'super_admin' || req.user.role === 'support';
     const filters = {};
+    if (req.plotlineCompanyId) {
+      const modules = await Module.findByAgency(req.plotlineCompanyId, includeInactive);
+      return res.json(modules.filter(module => !Number(module.is_archived)));
+    }
     
     // Super Admin sees all modules
     if (req.user.role === 'super_admin') {
@@ -117,7 +121,7 @@ export const createModule = async (req, res, next) => {
       iconId
     } = req.body;
     
-    let finalAgencyId = agencyId ?? null;
+    let finalAgencyId = req.plotlineCompanyId || agencyId || null;
 
     // Agency Admin/Support: agency is required (auto-default if exactly one agency)
     if (req.user.role === 'admin' || req.user.role === 'support') {

@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { PLOTLINE_HANDBOOK_STARTER } from '../content/plotlineHandbookStarter.js';
 import EmployeeEvaluationTemplate from '../models/EmployeeEvaluationTemplate.model.js';
 import { handbookTenant } from './handbookTenant.js';
 import { getHandbookSource, handbookMetadata, mergeSuppliedSections, handbookChanges, cleanHandbookHtml, validateHandbookSections } from './workplaceHandbookContent.js';
@@ -7,12 +8,19 @@ import { parseHandbookMetadata } from './workplaceHandbookContent.js';
 
 const fail = (message, status = 409) => Object.assign(new Error(message), { status });
 
-export async function sourceForAgency(agencyId, { includeCurrentForms = true } = {}) {
-  const [rows] = await pool.execute('SELECT id, slug, name, logo_url, color_palette FROM agencies WHERE id = ? LIMIT 1', [agencyId]);
+export async function sourceForAgency(agencyId, { includeCurrentForms = true, includePlotlineStarter = false } = {}) {
+  const [rows] = await pool.execute('SELECT id, slug, name, logo_url, color_palette, feature_flags FROM agencies WHERE id = ? LIMIT 1', [agencyId]);
   if (!rows[0]) return null;
   if (!handbookTenant(rows[0])) {
     const [assignments] = await pool.execute("SELECT * FROM workplace_document_assignments WHERE agency_id = ? AND document_key = 'workplace-handbook'", [agencyId]);
-    return assignments[0] ? companyHandbookSource(rows[0], assignments[0]) : null;
+    if (assignments[0]) return companyHandbookSource(rows[0], assignments[0]);
+    if (includePlotlineStarter && parseHandbookMetadata(rows[0].feature_flags).plotlineOnly === true) {
+      return companyHandbookSource(rows[0], {
+        agency_id: agencyId, document_key: PLOTLINE_HANDBOOK_STARTER.key,
+        template_version: PLOTLINE_HANDBOOK_STARTER.version
+      });
+    }
+    return null;
   }
   const employeeTemplates = includeCurrentForms ? await EmployeeEvaluationTemplate.listForAgency(agencyId) : undefined;
   return getHandbookSource(rows[0], { employeeTemplates });
@@ -30,8 +38,8 @@ async function sectionsForVersion(conn, versionId) {
   return rows;
 }
 
-export async function stageHandbookSource({ agencyId, expectedPublishedVersionId, sourceRevision }) {
-  const source = await sourceForAgency(agencyId);
+export async function stageHandbookSource({ agencyId, expectedPublishedVersionId, sourceRevision, includePlotlineStarter = false }) {
+  const source = await sourceForAgency(agencyId, { includePlotlineStarter });
   if (!source) throw fail('No supplied handbook is available for this organization.', 404);
   if (sourceRevision !== source.revision) throw fail('The supplied content has changed. Reload its preview before adding it.');
   const conn = await pool.getConnection();

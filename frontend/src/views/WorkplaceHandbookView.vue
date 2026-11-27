@@ -19,6 +19,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../services/api';
 import { useRoute, useRouter } from 'vue-router';
+import { usePlotlineCompanyScope } from '../composables/usePlotlineCompanyScope';
 import { useAgencyStore } from '../store/agency';
 import WorkplaceHandbookHistory from '../components/handbook/WorkplaceHandbookHistory.vue';
 import WorkplaceHandbookReader from '../components/handbook/WorkplaceHandbookReader.vue';
@@ -26,6 +27,7 @@ import ContractHandbookModal from '../components/documents/ContractHandbookModal
 import { useDocumentBranding } from '../composables/useDocumentBranding.js';
 const agencyStore = useAgencyStore(); const route = useRoute();
 const router = useRouter();
+const scope = usePlotlineCompanyScope(route, agencyStore);
 const sections = ref([]);
 const showingUpdates = computed(() => !!route.query.updates);
 const requestedDigestId = computed(() => /^\d+$/.test(String(route.query.updates)) ? Number(route.query.updates) : null);
@@ -37,8 +39,9 @@ watch(() => selectedId.value, async agencyId => {
   if (!agencyId) return;
   try { const { data } = await api.get('/provider-update/handbook/library', { params: { agencyId } }); if (Number(selectedId.value) === Number(agencyId)) sections.value = data.handbook?.sections || []; } catch { /* The handbook itself remains accessible from the main link. */ }
 });
-const companies = computed(() => agencyStore.userAgencies || []);
+const companies = computed(() => scope.locked.value ? [scope.company.value].filter(Boolean) : agencyStore.userAgencies || []);
 const brandStyle = useDocumentBranding(() => ({ presentation: { theme: { itsco: 'itsco-foundations', nlu: 'nlu-foundations', tisi: 'isi-foundations' }[companies.value.find(company => Number(company.id) === Number(selectedId.value))?.slug] } }), () => selectedId.value);
+watch(() => scope.companyId.value, id => { if (scope.locked.value) selectedId.value = id; });
 const citedReferenceOpen = ref(false);
 const citedReference = computed(() => {
   const expectedVersionId = Number(route.query.versionId), agencyId = Number(route.query.agencyId || selectedId.value);
@@ -51,10 +54,10 @@ onMounted(async () => {
   try {
     await agencyStore.fetchUserAgencies();
     const requested = Number(route.query.agencyId);
-    const explicitCompany = requested > 0 ? companies.value.find(company => Number(company.id) === requested) : null;
-    if (requested > 0 && !explicitCompany) throw new Error('The referenced company is not available to this account.');
+    const explicitCompany = !scope.locked.value && requested > 0 ? companies.value.find(company => Number(company.id) === requested) : null;
+    if (!scope.locked.value && requested > 0 && !explicitCompany) throw new Error('The referenced company is not available to this account.');
     const scoped = companies.value.find(c => c.slug === route.params.organizationSlug);
-    const selected = explicitCompany || scoped || companies.value.find(c => Number(c.id) === Number(agencyStore.currentAgency?.id)) || companies.value[0];
+    const selected = scope.locked.value ? scope.company.value : explicitCompany || scoped || companies.value.find(c => Number(c.id) === Number(agencyStore.currentAgency?.id)) || companies.value[0];
     selectedId.value = selected?.id ? Number(selected.id) : null;
   } catch { error.value = 'Your company could not be loaded. Please reload to try again.'; }
   finally { loading.value = false; }

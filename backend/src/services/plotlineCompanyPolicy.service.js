@@ -8,6 +8,11 @@ export function assertPlotlineCareersPublished(agency){
  if(flags.plotlineOnly===true && flags.plotlineCareersPublished!==true)throw plotlineFailure(404,'CAREERS_NOT_PUBLISHED','This company’s careers page is not published.');
 }
 export const plotlineApiAllowed=(path,method='GET')=>/^\/api\/(?:plotline|auth|account-security|passkeys|session-security|sessions|users|agencies|branding|platform-branding|fonts|uploads|icons|notifications|hiring|contracts|evaluations|employee-relations|lifecycle|prehire-portal|modules|tracks|tasks|documents|training|onboarding|learning|user-activity|preferences|public-intake|public|intake-links)(?:\/|$)/.test(path)
+  || (method === 'GET' && /^\/api\/(?:progress|acknowledgments\/\d+(?:\/details)?|quizzes\/\d+\/attempts)\/?$/.test(path))
+  || (method === 'POST' && /^\/api\/(?:progress\/(?:start|complete|time)|acknowledgments|quizzes\/\d+\/submit)\/?$/.test(path))
+  || (method === 'GET' && /^\/api\/provider-update\/handbook\/(?:library|workspace|reference|history(?:\/\d+)?)\/?$/.test(path))
+  || (method === 'POST' && /^\/api\/provider-update\/handbook\/(?:draft|source\/stage|sections|publish|views|answer)\/?$/.test(path))
+  || (method === 'DELETE' && /^\/api\/provider-update\/handbook\/sections\/\d+\/?$/.test(path))
   || /^\/api\/presence\/(?:heartbeat|me|status(?:\/clear)?)\/?$/.test(path)
   || (['GET','HEAD','OPTIONS'].includes(method) && /^\/api\/(?:onboarding-packages|document-templates)\/?$/.test(path));
 export function createPlotlineCompanyPolicy({db=pool,now=()=>new Date()}={}) {

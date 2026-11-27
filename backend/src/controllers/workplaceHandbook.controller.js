@@ -62,7 +62,7 @@ export const answerQuestionByToken = async (req, res, next) => {
 export const getWorkspace = async (req, res, next) => {
   try {
     const agencyId = await assertAgencyAdmin(req.user, req.query.agencyId);
-    const [source, published] = await Promise.all([sourceForAgency(agencyId), getPublishedHandbook(agencyId)]);
+    const [source, published] = await Promise.all([sourceForAgency(agencyId, { includePlotlineStarter: !!req.plotlineCompanyId }), getPublishedHandbook(agencyId)]);
     const [drafts] = await pool.execute('SELECT * FROM workplace_handbook_versions WHERE document_id = ? AND is_draft = 1 ORDER BY version_number DESC LIMIT 1', [published.document.id]);
     let draft = null;
     if (drafts[0]) {
@@ -80,7 +80,7 @@ export const getWorkspace = async (req, res, next) => {
 export const stageSource = async (req, res, next) => {
   try {
     const agencyId = await assertAgencyAdmin(req.user, req.body.agencyId);
-    res.json(handbookResponseForReader(await stageHandbookSource({ agencyId, sourceRevision: req.body.sourceRevision, expectedPublishedVersionId: req.body.expectedPublishedVersionId }), req.user));
+    res.json(handbookResponseForReader(await stageHandbookSource({ agencyId, sourceRevision: req.body.sourceRevision, expectedPublishedVersionId: req.body.expectedPublishedVersionId, includePlotlineStarter: !!req.plotlineCompanyId }), req.user));
   } catch (error) { next(error); }
 };
 
@@ -170,7 +170,7 @@ export const getHistory = async (req, res, next) => {
 
 export const getDraft = async (req, res, next) => {
   try {
-    const agencyId = await assertAgencyAdmin(req.user, req.query.agencyId);
+    const agencyId = await assertAgencyAdmin(req.user, req.body?.agencyId ?? req.query.agencyId);
     res.json(handbookResponseForReader(await getDraftOrCreate(agencyId, req.user.id), req.user));
   } catch (e) {
     if (e.status) return res.status(e.status).json({ error: { message: e.message } });

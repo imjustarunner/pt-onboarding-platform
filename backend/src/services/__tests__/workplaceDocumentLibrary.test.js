@@ -1,3 +1,4 @@
+import { PLOTLINE_HANDBOOK_STARTER } from '../../content/plotlineHandbookStarter.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js', () => ({ default: { getConnection: vi.fn(), execute: vi.fn() } }));
 vi.mock('../../models/User.model.js', () => ({ default: { getAgencies: vi.fn() } }));
@@ -166,4 +167,15 @@ describe('agency-scoped document manager', () => {
   it('rejects a normal administrator trying to scope another company', async () => {
     await expect(listCompanyDocuments({ id: 8, role: 'admin' }, { agencyId: 99 })).rejects.toThrow('access denied');
   });
+});
+
+it('creates a branded starter with pending policy prompts rather than published sample policy', () => {
+  const source = companyHandbookSource({ id: 463, name: 'Juniper & Co', color_palette: { primary: '#214538' } },
+    { agency_id: 463, document_key: 'workplace-handbook', template_version: PLOTLINE_HANDBOOK_STARTER.version });
+  expect(source.presentation.primaryColor).toBe('#214538');
+  expect(source.sections[0].title).toBe('Welcome to Juniper & Co');
+  expect(companyHandbookReadiness({ template: source.template }, source.sections)).toHaveLength(7);
+  expect(companyHandbookReadiness({ template: source.template }, source.sections.map(section => ({
+    ...section, content_status: 'ready', body_html: '<p>Approved company policy</p>'
+  })))).toEqual([]);
 });

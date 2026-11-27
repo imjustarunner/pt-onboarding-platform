@@ -2,8 +2,8 @@
   <div class="acknowledgment-form">
     <div v-if="!acknowledged" class="acknowledgment-content">
       <h3>{{ content.title || 'Acknowledgment Required' }}</h3>
-      <p v-if="content.description" class="acknowledgment-description">
-        {{ content.description }}
+      <p v-if="content.description || content.text" class="acknowledgment-description">
+        {{ content.description || content.text }}
       </p>
       <div class="acknowledgment-checkbox">
         <label>
