@@ -38,7 +38,7 @@
           <template v-else>
             <label v-if="guardians.length > 1"><input data-testid="all-guardians" type="checkbox" :checked="allGuardiansSelected" @change="selectAllGuardians($event.target.checked)" /> Share with all eligible parents / guardians listed below</label>
             <label v-for="person in recipients" :key="person.id"><input v-model="recipientIds" :data-testid="`material-recipient-${person.id}`" type="checkbox" :value="person.id" /> {{ person.kind === 'client' ? 'Share with client' : 'Share with' }} {{ person.name }}</label>
-            <p v-if="!recipients.length">No linked client or guardian currently has permission to receive documents.</p>
+            <p v-if="!recipients.length">No linked client or guardian has permission to receive this file. {{ sharingMaterial ? 'Ask your practice administrator to review portal access.' : 'Clear the sharing option to save it for the care team.' }}</p>
           </template>
           <label><input v-model="reviewed" data-testid="material-sharing-reviewed" type="checkbox" /> I reviewed this file and approve sharing it with the selected people.</label>
         </fieldset>

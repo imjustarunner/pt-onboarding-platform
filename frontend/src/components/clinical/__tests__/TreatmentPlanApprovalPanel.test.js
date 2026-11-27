@@ -13,7 +13,7 @@ it('requires an explicit provider attestation and preserves the supervisor revie
   await flushPromises();
   const button = wrapper.findAll('button').find(item => item.text().includes('Sign plan'));
   expect(button.attributes('disabled')).toBeDefined();
-  expect(wrapper.text()).toContain('Quick sign does not apply');
+  expect(wrapper.text()).not.toMatch(/quick sign/i);
   await wrapper.find('input[type=checkbox]').setValue(true);
   await button.trigger('click'); await flushPromises();
   expect(api.post).toHaveBeenCalledWith('/medical-billing/treatment-plans/10/provider-review', { agencyId: 4, clientId: 50, contentHash: 'current-hash', reviewedAndAccurate: true });
@@ -55,5 +55,22 @@ it('shows the saved score, missing criteria, and missing supervisor on a signed 
   expect(wrapper.text()).toContain('No clinical supervisor is assigned');
   expect(wrapper.text()).toContain('90%');
   expect(wrapper.text()).toContain('Review against the current goals.');
+  wrapper.unmount();
+});
+
+it('allows an independent provider to activate their previously signed draft and share it', async () => {
+  const approval = { contentHash: 'current-hash', providerApproved: true, supervisorApproved: false, supervisorRequired: false, ready: true };
+  api.get.mockResolvedValue({ data: { approval, planStatus: 'draft', canProviderSign: true } });
+  api.post.mockResolvedValue({ data: { approval, planStatus: 'active' } });
+  const wrapper = mount(Panel, { props: { agencyId: 4, clientId: 50, planId: 10 } });
+  await flushPromises();
+  expect(wrapper.text()).not.toMatch(/supervisor/i);
+  expect(wrapper.find('input[type=checkbox]').exists()).toBe(false);
+  await wrapper.findAll('button').find(item => item.text() === 'Complete plan approval').trigger('click');
+  await flushPromises();
+  expect(api.post).toHaveBeenCalledWith('/medical-billing/treatment-plans/10/provider-review', {
+    agencyId: 4, clientId: 50, contentHash: 'current-hash', reviewedAndAccurate: true
+  });
+  expect(wrapper.text()).toContain('Clinical approval is complete');
   wrapper.unmount();
 });

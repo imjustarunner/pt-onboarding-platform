@@ -137,6 +137,7 @@
           v-if="supervisorReviewItem"
           :key="`${supervisorReviewItem.agencyId}-${supervisorReviewItem.clinicalNoteId}`"
           :note-id="supervisorReviewItem.clinicalNoteId"
+          :revision-id="supervisorReviewItem.clinicalRevisionId || null"
           :agency-id="supervisorReviewItem.agencyId"
           :provider-id="supervisorReviewItem.providerId || null"
           :client-name="supervisorReviewItem.clientName || ''"
@@ -242,6 +243,8 @@
           <span v-if="approvalMessage" role="status">{{ approvalMessage }}</span>
         </section>
 
+        <div v-else-if="showStartPage && !workspaceReady && (route.query.noteId || route.query.clinicalNoteId || route.query.clinical_note_id || route.query.draftId || route.query.draft_id)"
+          class="na-session-loading" role="status">Opening the saved note…</div>
         <template v-else-if="showStartPage">
         <p v-if="approvalError" class="na-delete-err" role="alert">{{ approvalError }}</p>
         <NoteAidStartPage
@@ -1184,7 +1187,7 @@
         >
           <div class="na-output-head">
             <div>
-              <h2>{{ outputObj?.meta?.manualSections ? 'Clinician-authored note' : (noteTypeDisplayLabel.includes('Treatment') || noteTypeDisplayLabel.includes('Plan') ? 'Narriva Treatment Plan' : 'Narriva Note') }}</h2>
+              <h2>{{ outputObj?.meta?.manualSections ? 'Clinician-authored note' : (noteTypeDisplayLabel.includes('Treatment') || noteTypeDisplayLabel.includes('Plan') ? 'Treatment plan draft' : 'Note draft') }}</h2>
               <span class="na-ready-badge">Ready for review</span>
             </div>
             <button type="button" class="na-link-btn" @click="collapseAllSections = !collapseAllSections">
@@ -1513,11 +1516,11 @@
         :data-analytics-area="demoPresentation ? 'my-work' : undefined"
         :allow-add="authStore.user?.role === 'super_admin'"
         v-if="canUseTool && !isEmbedded && !(libraryExpanded && !libraryCollapsed)"
-        :items="workQueueItems"
+        :items="myWorkItems"
         :filter-user-id="authStore.user?.id"
         :highlighted-note="highlightedWorkNote"
-        :loading="workQueueLoading && !workQueueItems.length"
-        :error="workQueueLoadError && !workQueueItems.length ? workQueueLoadError : ''"
+        :loading="(workQueueLoading || recentLoading) && !myWorkItems.length"
+        :error="!myWorkItems.length ? (workQueueLoadError || recentError) : ''"
         @highlight-note="highlightedWorkNote = $event"
         :active-id="activeWorkQueueItemId"
         :collapsed="workQueueCollapsed"
@@ -2556,7 +2559,7 @@ function sessionLocationMetadata() {
     serviceAddress: choice.address || null,
     billingAddress: choice.billingAddress || null,
     defaultModifiers: choice.defaultModifiers || null,
-    modality: ['02','10'].includes(String(choice.placeOfService)) ? (narrivaModality.value || choice.modality || 'telehealth') : choice.placeOfService ? 'in_person' : '',
+    modality: ['02','10'].includes(String(choice.placeOfService)) ? (narrivaModality.value || choice.modality || 'telehealth') : choice.modality || (choice.placeOfService ? 'in_person' : ''),
     ...delivery
   } : delivery;
 }
@@ -8216,6 +8219,7 @@ watch(selectedClientId, () => {
 watch([selectedClientId,dateOfService,sessionClinicalSessionId,sessionOfficeEventId,noteAidAgencyId],(next,previous)=>{ if((Number(next[0]) || Number(previous?.[0])) && canUseTool.value && currentAgencyId.value)refreshPayerServiceChoices(); });
 
 function planSignedMessage(approval) {
+  if (approval.ready && approval.supervisorRequired === false) return 'Treatment plan signed and approved. Ready to share for client acknowledgment.';
   return approval.supervisorUserId === null && !approval.supervisorApproved
     ? 'Treatment plan signed. Your practice needs to assign a clinical supervisor to review this plan.'
     : 'Treatment plan signed. Supervisor review is next.';
@@ -8482,12 +8486,14 @@ async function onWorkQueueDeleteDraft(item) {
   }
 
   if (item.draftId) {
-    if (!window.confirm('Archive this draft? Its content is retained and the ToDo stays in the queue as not started.')) return;
+    const prompt = item.draftOnly ? 'Delete this draft? This cannot be undone.'
+      : 'Delete this draft? The appointment stays in My Work as not started.';
+    if (!window.confirm(prompt)) return;
     try {
       await api.post(
         '/clinical-notes/drafts/delete',
         {
-          agencyId: agencyIdForDraftDelete(),
+          agencyId: agencyIdForDraftDelete(item),
           draftIds: [Number(item.draftId)]
         },
         { skipGlobalLoading: true }
@@ -8515,7 +8521,8 @@ async function onWorkQueueDeleteDraft(item) {
   });
   if (String(activeWorkQueueItemId.value) === String(item.id)) activeWorkQueueItemId.value = null;
   persistWorkQueue();
-  approvalMessage.value = item.draftId ? 'Draft deleted. ToDo is waiting to be started.' : 'Reset to not started.';
+  approvalMessage.value = item.draftOnly ? 'Draft deleted.'
+    : item.draftId ? 'Draft deleted. The appointment is ready to start again.' : 'Reset to not started.';
 }
 
 function normalizeWorkQueueItemStatus(item) {
@@ -8648,6 +8655,7 @@ function matchesSupervisorSelection(result) {
 
 async function onSupervisorReviewCompleted(result) {
   if (!matchesSupervisorSelection(result)) return;
+  if (result?.message) supervisorReviewNotice.value = result.message;
   const completedId = activeCosignQueueId.value;
   const ids = cosignVisibleOrder.value.length ? cosignVisibleOrder.value : cosignQueueItems.value.map(item => item.id);
   const position = ids.indexOf(completedId);
@@ -10575,6 +10583,9 @@ async function openWorkspaceRouteSelection() {
       }
     }
     if (hit) {
+      if (!recentDrafts.value.some(row => String(row.id) === qDraft)) {
+        recentDrafts.value = [hit, ...recentDrafts.value];
+      }
       if (String(draftId.value || '') !== qDraft || signedNoteViewerId.value) {
         await loadDraftIntoWorkspace(hit, { expectedClientId: Number(route.query.clientId || route.query.client_id || 0) });
       }

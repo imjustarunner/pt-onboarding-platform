@@ -65,6 +65,21 @@ describe('server-owned Narriva review and Quick Sign boundary',()=>{
   expect(checks).toMatchObject({workingDraft:expect.stringContaining('Synthetic documented'),facts:{currentRisk:true},reviewedWriter:{model:'synthetic-test'}});
   expect(checks).not.toHaveProperty('qualityEvidence');
  });
+ it('uses explicit source safety facts even when optional encounter fields are omitted',async()=>{
+  const draft={...source,phase:'pre_generation',draftId:43,noteId:null};
+  const model=vi.fn(async ({prompt})=>prompt.includes('Check these clinician-supplied encounter facts')
+   ? {text:JSON.stringify({currentRisk:true,riskUncertain:false,locationMatches:false})}
+   : {text:'Subjective\nSynthetic documented clinical concerns.',modelName:'synthetic-test',finishReason:'STOP'});
+  const result=await inspectNarrivaFacts(draft,{model,review:{backgroundQuality:true}});
+  expect(result).toMatchObject({workingDraft:expect.stringContaining('Synthetic documented'),facts:{currentRisk:true,riskUncertain:false,locationMatches:false,additionalParticipants:null}});
+ });
+ it('reports the source check as unavailable when the model omits required safety evidence',async()=>{
+  const draft={...source,phase:'pre_generation',draftId:43,noteId:null};
+  const model=vi.fn(async ({prompt})=>prompt.includes('Check these clinician-supplied encounter facts')
+   ? {text:JSON.stringify({currentRisk:false})}
+   : {text:'Subjective\nSynthetic documented clinical concerns.',modelName:'synthetic-test',finishReason:'STOP'});
+  await expect(inspectNarrivaFacts(draft,{model,review:{backgroundQuality:true}})).rejects.toMatchObject({code:'NARRIVA_ENCOUNTER_CHECK_UNAVAILABLE'});
+ });
  it.each(['narrative','inputText'])('blocks known identifiers in %s before model dispatch and preserves the saved source',async field=>{
   const original=source[field]+' Private Client';source[field]=original;
   const review=await completedReview();expect(review.status).toBe('unavailable');expect(review.quickSignEligible).toBe(false);expect(review.message).toContain('identifying information');

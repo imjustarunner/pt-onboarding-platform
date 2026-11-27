@@ -8,8 +8,10 @@ export async function canceledSessionSummary(appointment, { user = id=>User.find
   const provider = appointment.providerUserId ? await user(appointment.providerUserId) : null;
   const name = u=>[u?.preferred_name || u?.first_name,u?.last_name].filter(Boolean).join(' ');
   const facts = appointment.cancellationRecommendationJson?.facts || {};
+  const source = facts.cancelForward === true || facts.suppressionReason === 'Future schedule canceled without notification.'
+    ? 'cancel_forward' : facts.absenceSource || 'individual_session';
   return { actorUserId:appointment.canceledByUserId,actorName:name(actor) || null,providerName:name(provider) || null,
     canceledAt:appointment.canceledAt,reason:facts.clientFacingReason || appointment.cancellationReason || null,
-    source:facts.absenceSource || 'individual_session',urgent:facts.urgent === true,feeCents:appointment.cancellationFeeCents,
+    source,urgent:facts.urgent === true,feeCents:appointment.cancellationFeeCents,
     nonBillable:true,serviceRendered:false };
 }

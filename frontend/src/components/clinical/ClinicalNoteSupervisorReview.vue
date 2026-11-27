@@ -9,7 +9,8 @@
     </header>
     <p v-if="loading" class="review-message" role="status">Loading signed note and review details…</p>
     <div v-if="error" class="review-error" role="alert">{{ error }} <button v-if="!busy" type="button" @click="load">Reload note</button></div>
-    <template v-if="note && review && !loading">
+    <ClinicalNoteVersionHistory v-if="revisionId" :note-id="noteId" :agency-id="agencyId" :preferred-revision-id="revisionId" prefer-pending @changed="onVersionChanged" />
+    <template v-else-if="note && review && !loading">
       <div class="review-summary">
         <dl class="service-facts">
           <div><dt>Date of service</dt><dd>{{ date(note.dateOfService) }}</dd></div>
@@ -93,7 +94,7 @@
           <h3>Send to note author</h3>
           <label>Action<select v-model="feedbackAction" data-testid="feedback-action" :disabled="busy"><option value="changes_needed">Changes needed · return for correction</option><option value="request_addendum">Request a signed addendum</option><option value="review_acknowledge">Review / acknowledge needed · no new signature</option><option value="feedback">Feedback · no response required</option></select></label>
           <p v-if="!feedbackSentence" class="muted">{{ feedbackHelp }}</p>
-          <SupervisorCorrectionFields v-if="structuredFeedback" v-model="correction" :disabled="busy" />
+          <SupervisorCorrectionFields v-if="structuredFeedback" v-model="correction" :disabled="busy" :addendum="feedbackAction === 'request_addendum'" />
           <label>Your request or feedback<textarea v-model="feedbackMessage" data-testid="feedback-message" rows="3" maxlength="4000" :required="!feedbackSentence" :disabled="busy" /></label>
           <p v-if="feedbackAction === 'request_addendum' && correction.section && !documentationAddendum" class="muted">Choose a documentation section that can be updated by addendum.</p>
           <button type="submit" :disabled="busy || !feedbackReady">{{ feedbackAction === 'changes_needed' ? 'Return and hold claim' : feedbackAction === 'request_addendum' ? 'Send addendum request' : feedbackAction === 'feedback' ? 'Send feedback' : 'Send request' }}</button>
@@ -133,7 +134,7 @@ import ClinicalNoteVersionHistory from './ClinicalNoteVersionHistory.vue';
 import { formatMedicationsText, formatRiskAssessmentText } from '../../utils/noteAidUiHelpers.js';
 import { missingSupervisorServiceDetails, parseReviewContent, supervisorMentalStatus, supervisorNoteSections, supervisorObjectiveRatings, supervisorServiceDetails } from '../../utils/supervisorNoteReview.js';
 
-const props = defineProps({ noteId: { type: [Number, String], required: true }, agencyId: { type: [Number, String], required: true }, providerId: { type: [Number, String], default: null }, clientName: { type: String, default: '' }, fullPage: { type: Boolean, default: false }, quickSignRequested: { type:Boolean, default:false } });
+const props = defineProps({ noteId: { type: [Number, String], required: true }, agencyId: { type: [Number, String], required: true }, revisionId: { type: [Number, String], default: null }, providerId: { type: [Number, String], default: null }, clientName: { type: String, default: '' }, fullPage: { type: Boolean, default: false }, quickSignRequested: { type:Boolean, default:false } });
 const emit = defineEmits(['signed', 'returned', 'open-full', 'close']);
 const note = ref(null), review = ref(null), reviewProviderId = ref(null), loading = ref(false), busy = ref(false), error = ref(''), notice = ref(''), attested = ref(false);
 const correction = ref({});
@@ -161,7 +162,9 @@ const currentVersionLabel = computed(() => {
 const hasPendingVersion = computed(() => !!versionSummary.value?.pendingRevisionId);
 function onVersionChanged(result) {
   invalidateNarriva();
-  if (result.action === 'cosign' || (result.action === 'sign' && result.revision?.status === 'approved')) emit('signed', { ...context.value, ...result });
+  if (result.action === 'cosign' || (result.action === 'sign' && result.revision?.status === 'approved')) {
+    emit('signed', { ...context.value, ...result, message: result.message || 'Amendment co-signed.' });
+  }
   else emit('returned', { ...context.value, ...result, action: result.action === 'sign' ? 'review_acknowledge' : result.action });
 }
 let generation = 0;
@@ -207,7 +210,11 @@ const errorMessage = (e, fallback) => e.response?.data?.error?.message || e.mess
 
 watch(showFeedback, async value => { if (value) await focusForm('.feedback-form'); });
 watch(hasUnfinishedAction, value => { if (value) attested.value = false; });
-watch(() => `${Number(props.agencyId)}:${Number(props.noteId)}`, () => { notice.value = ''; load(); }, { immediate: true });
+watch(() => `${Number(props.agencyId)}:${Number(props.noteId)}:${Number(props.revisionId || 0)}`, () => {
+  notice.value = '';
+  if (!props.revisionId) void load();
+  else { generation++; loading.value = false; error.value = ''; }
+}, { immediate: true });
 onBeforeUnmount(() => { generation++; });
 
 async function focusForm(selector) {
@@ -255,7 +262,7 @@ async function sign(quick = false, withRequest = false) {
   const g = generation; busy.value = true; error.value = '';
   try {
     const { data } = await api.post(`/medical-billing/notes/${props.noteId}/cosign`, { agencyId: Number(props.agencyId), contentHash: review.value.contentHash, reviewSnapshotToken: review.value.reviewSnapshotToken, ...(review.value.revisionSummary?.effectiveRevision?.entryManifestHash || review.value.revisionSummary?.entryManifestHash ? { expectedEntryManifestHash: review.value.revisionSummary.effectiveRevision?.entryManifestHash || review.value.revisionSummary.entryManifestHash } : {}), reviewedAndApproved: true, ...(withRequest || approvalComment.value.trim() ? { supervisorRequest: { message: (withRequest ? feedbackMessage.value : approvalComment.value).trim(), ...(withRequest && feedbackAction.value === 'request_addendum' ? { correction: correction.value } : {}) } } : {}), ...(quickSign ? {quickSign:true,narrivaReviewId:narrivaReview.value.id} : {}) }, {skipGlobalLoading:true});
-    if (g === generation) { if (!data?.cosignedAt) throw new Error('The server did not confirm supervisor approval. Reload before continuing.'); attested.value = false; review.value = { ...review.value, cosignedAt: data.cosignedAt }; emit('signed', { ...context.value, ...data }); }
+    if (g === generation) { if (!data?.cosignedAt) throw new Error('The server did not confirm supervisor approval. Reload before continuing.'); attested.value = false; review.value = { ...review.value, cosignedAt: data.cosignedAt }; emit('signed', { ...context.value, ...data, message: 'Note co-signed.' }); }
   } catch (e) { if (g === generation) { attested.value = false; error.value = errorMessage(e, 'Unable to approve this note.'); } }
   finally { if (g === generation) busy.value = false; }
 }

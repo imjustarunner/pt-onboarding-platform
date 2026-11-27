@@ -108,6 +108,17 @@ export async function suggestNarrivaPlanDraft({ input, includeOther = false, com
     }
   }
   const revisionThemes = clinicalThemes(revision);
+  const requestedDurationMonths = months(revision.match(/\b(\d{1,2})\s+months?\b/i)?.[1]);
+  const weeklyFrequency = /\b(?:(at least|at most|up to)\s+)?([1-7])\s+(school days?|days?|times?)\s+(?:per|each|a)\s+week\b/i;
+  const requestedWeeklyFrequency = revision.match(weeklyFrequency);
+  const requestedMeasurement = {
+    durationMonths: requestedDurationMonths,
+    weeklyFrequency: requestedWeeklyFrequency ? {
+      qualifier: requestedWeeklyFrequency[1]?.toLowerCase() || null,
+      count: Number(requestedWeeklyFrequency[2]),
+      unit: requestedWeeklyFrequency[3].toLowerCase()
+    } : null
+  };
   const goals = draft.goals.map((goal, gi) => ({ ref:String(gi+1), themes:clinicalThemes(goal.goalText), needsTitle:!goal.goalText || action === 'update_goal' }));
   const objectives = draft.goals.flatMap((goal, gi) => goal.objectives.map((objective, oi) => ({
     ...anonymousObjective(objective,`${gi+1}.${oi+1}`),
@@ -121,8 +132,8 @@ export async function suggestNarrivaPlanDraft({ input, includeOther = false, com
   const result = await generate({
     prompt: `${writingGuidance}
 
-For this response, prepare suggestions for an outpatient treatment plan using the anonymous themes below. Return exactly one entry for every supplied objective ref. Use the supplied goal refs to write a distinct, clinically appropriate goal title wherever needsTitle is true. Write each statement directly as clinical plan text. Omit boilerplate about clinician review or draft status. Do not assert new clinical facts. Keep the stated measurement choice for every objective. Apply the clinician’s revision themes where they support the documented plan. Preserve clinical intent and rewrite each objective into a concise, observable action with a specific frequency, measurable success criterion, and timeframe. Draft a revised objective instead of repeating the input’s measurement. Preserve documented scores and use no invented facts. Suggest linked interventions without dates/durations, a duration of 1–36 months per objective, and a natural client 1–10 question with concrete anchors. Add a third-person question only when includeOther is true. When alternateMeasure is true, preserve it and omit numeric scales and questions. Never supply a baseline or imply an observed score, symptom, diagnosis, or response that was not provided. Return only JSON {"goals":[{"ref":"3","goalText":"..."}],"objectives":[{"ref":"1.1","objectiveText":"...","target":8,"durationMonths":3,"interventions":["..."],"clientQuestion":"...","otherQuestion":"..."}],"dischargePlan":"short measurable criteria and discharge planning"}.
-${JSON.stringify({ action, goals, objectives, presentingThemes: clinicalThemes(draft.presentingProblem), intakeThemes: clinicalThemes(intakeEvidence), revisionThemes })}`,
+For this response, prepare suggestions for an outpatient treatment plan using the anonymous themes below. Return exactly one entry for every supplied objective ref. Use the supplied goal refs to write a distinct, clinically appropriate goal title wherever needsTitle is true. Write each statement directly as clinical plan text. Omit boilerplate about clinician review or draft status. Do not assert new clinical facts. Keep the stated measurement choice for every objective. Apply the clinician’s revision themes where they support the documented plan. In a targeted objective revision, use the requested measurement, including its qualifier, count and unit, and the requested duration wherever supplied. Use digits and state weekly frequency as “per week”. Preserve clinical intent and rewrite each objective into a concise, observable action with a specific frequency, measurable success criterion, and timeframe. Draft a revised objective instead of repeating the input’s measurement. Preserve documented scores and use no invented facts. Suggest linked interventions without dates/durations, a duration of 1–36 months per objective, and a natural client 1–10 question with concrete anchors. Add a third-person question only when includeOther is true. When alternateMeasure is true, preserve it and omit numeric scales and questions. Never supply a baseline or imply an observed score, symptom, diagnosis, or response that was not provided. Return only JSON {"goals":[{"ref":"3","goalText":"..."}],"objectives":[{"ref":"1.1","objectiveText":"...","target":8,"durationMonths":3,"interventions":["..."],"clientQuestion":"...","otherQuestion":"..."}],"dischargePlan":"short measurable criteria and discharge planning"}.
+${JSON.stringify({ action, goals, objectives, presentingThemes: clinicalThemes(draft.presentingProblem), intakeThemes: clinicalThemes(intakeEvidence), revisionThemes, requestedMeasurement })}`,
     ...clinicalNoteModelOptions(), vertexOnly:true, sensitive:true, temperature:0.2, maxOutputTokens:8192, jsonMode:true
   });
   let proposed;
@@ -131,6 +142,13 @@ ${JSON.stringify({ action, goals, objectives, presentingThemes: clinicalThemes(d
   const proposals = new Map((Array.isArray(proposed?.objectives) ? proposed.objectives : []).filter(item=>item?.ref).map(item=>[String(item.ref),item]));
   if (![...proposals.keys()].some(ref=>objectives.some(objective=>objective.ref===ref))) {
     throw Object.assign(new Error('Narriva did not return a suggestion for these objectives.'),{status:502});
+  }
+  if (action === 'update_objective' && requestedWeeklyFrequency) {
+    const updated = String(proposals.get(objectives[0].ref)?.objectiveText || '').match(weeklyFrequency);
+    const measurement = match => match?.slice(1, 4).map(value => (value || '').toLowerCase().replace(/s$/, '')).join(' ');
+    if (measurement(updated) !== measurement(requestedWeeklyFrequency)) {
+      throw Object.assign(new Error('Narriva did not include the requested weekly frequency. Retry or edit the objective directly.'), { status: 502 });
+    }
   }
   const proposedGoals = new Map((Array.isArray(proposed?.goals) ? proposed.goals : []).filter(item=>item?.ref).map(item=>[String(item.ref),item]));
   return {
@@ -144,7 +162,8 @@ ${JSON.stringify({ action, goals, objectives, presentingThemes: clinicalThemes(d
     objectives: objectives.map(objective => {
       const draftSuggestion = proposals.get(objective.ref);
       if (!draftSuggestion && !objective.needsObjective && !completePlan) return {ref:objective.ref};
-      const duration = objective.durationMonths || months(draftSuggestion?.durationMonths) || 3;
+      const duration = (action && action !== 'update_goal' ? requestedDurationMonths : null)
+        || objective.durationMonths || months(draftSuggestion?.durationMonths) || 3;
       const suggestion = completePlan && objective.needsObjective && !bounded(draftSuggestion?.objectiveText,6000) ? {
         objectiveText: `Practice a skill for the agreed treatment priority each week over the next ${duration} months and review progress at follow-up.`,
         target: 8

@@ -59,7 +59,7 @@
           </table>
         </div>
         <button type="button" :disabled="busy || !rows.some(row => row.include !== false)" @click="previewReviewed">{{ previewing ? 'Checking appointments…' : 'Check reviewed appointments' }}</button>
-        <div v-if="summary" class="aw-agenda-summary" role="status">{{ summary.newAppointments }} new appointments · {{ summary.existingAppointments }} already scheduled · {{ summary.blockedRows }} rows need review.</div>
+        <div v-if="summary" class="aw-agenda-summary" role="status">{{ summary.newAppointments }} new appointments · {{ summary.existingAppointments }} already scheduled · {{ summary.blockedRows }} blocked {{ summary.blockedRows === 1 ? 'row' : 'rows' }}<template v-if="summary.sameDayWarning"> · Same-day services require acknowledgment</template>.</div>
         <p v-if="rows.length && !previewToken" class="aw-agenda-hint">Check the reviewed appointments again after making changes. The final preview expires after 15 minutes.</p>
         <label v-if="summary?.sameDayWarning" class="aw-agenda-check"><input v-model="acknowledgeSameDay" type="checkbox" :disabled="busy" />I reviewed the same-day services. No billing modifier will be applied automatically.</label>
         <label class="aw-agenda-check"><input v-model="confirmed" type="checkbox" :disabled="busy || !previewToken" />I reviewed the client identities, time zone, times, locations, and recurrence. Create these appointments and use normal scheduling notifications.</label>

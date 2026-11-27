@@ -31,7 +31,7 @@ async function archive() {
 <template>
   <dialog ref="dialog" class="calendar-cancellation-dialog" aria-labelledby="calendar-cancellation-title" @cancel.prevent="!busy && emit('close')">
     <h2 id="calendar-cancellation-title">{{ item.archived ? 'Deleted calendar item' : 'Canceled calendar item' }}</h2>
-    <p>{{ item.label }}</p>
+    <p>{{ item.clientName || item.label }}<template v-if="item.type === 'appointment'"> · Appointment #{{ item.id }}</template></p>
     <CanceledSessionDetails v-if="item.type === 'appointment'" :appointment-id="item.id" />
     <p v-if="item.archived">This item is in the calendar archive.</p>
     <p v-else-if="item.canArchive">Deleting removes this item from the calendar and keeps its history in the archive.</p>

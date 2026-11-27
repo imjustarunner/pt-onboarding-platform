@@ -10,7 +10,7 @@ watch(()=>props.appointmentId,async(id)=>{const run=++generation;summary.value=n
 <template>
   <section aria-label="Retained session cancellation" class="canceled-session-details">
     <p v-if="error" role="alert">{{ error }}</p>
-    <template v-if="summary"><p><strong>Canceled by {{ summary.actorName || `user #${summary.actorUserId}` }}</strong> for {{ summary.providerName }} · {{ reportViewerDateTime(summary.canceledAt) }}.</p><p>{{ summary.reason }} · {{ summary.source === 'planned_out' ? 'Planned Out' : summary.source === 'cancel_day' ? 'Cancel day' : 'Individual session cancellation' }}. No service rendered; nonbillable.<template v-if="summary.feeCents === 0"> No cancellation fee.</template></p></template>
+    <template v-if="summary"><p><strong>Canceled by {{ summary.actorName || `user #${summary.actorUserId}` }}</strong> for {{ summary.providerName }} · {{ reportViewerDateTime(summary.canceledAt) }}.</p><p>{{ summary.reason }} · {{ summary.source === 'cancel_forward' ? 'Cancel everything forward' : summary.source === 'planned_out' ? 'Planned Out' : summary.source === 'cancel_day' ? 'Cancel day' : 'Individual session cancellation' }}. No service rendered; nonbillable.<template v-if="summary.feeCents === 0"> No cancellation fee.</template></p></template>
     <details><summary>Recipients, delivery results, and receipt confirmations</summary><AppointmentCommunicationsPanel :appointment-id="appointmentId" /></details>
   </section>
 </template>

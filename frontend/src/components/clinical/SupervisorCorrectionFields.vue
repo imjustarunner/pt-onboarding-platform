@@ -2,7 +2,7 @@
 import { computed } from 'vue';
 import { eligibleForDocumentationAddendum, supervisorFeedbackSections, supervisorFeedbackSentence } from '../../utils/clinicalSupervisorFeedback.js';
 
-const props = defineProps({ modelValue: Object, disabled: Boolean });
+const props = defineProps({ modelValue: Object, disabled: Boolean, addendum: Boolean });
 const emit = defineEmits(['update:modelValue']);
 const selection = computed(() => props.modelValue || {});
 const sentence = computed(() => supervisorFeedbackSentence(selection.value));
@@ -35,6 +35,6 @@ function update(field, value) {
     </label>
   </div>
   <blockquote v-if="sentence">{{ sentence }}</blockquote>
-  <p v-if="eligibleForDocumentationAddendum(selection)">Co-signing with this request lets the claim continue through billing review. The author will sign a separate addendum.</p>
-  <p v-else-if="sentence">The corrected version must be signed and reviewed before the claim can proceed.</p>
+  <p v-if="sentence && addendum && eligibleForDocumentationAddendum(selection)">Co-signing with this request lets the claim continue through billing review. The author will sign a separate addendum.</p>
+  <p v-else-if="sentence && !addendum">The corrected version must be signed and reviewed before the claim can proceed.</p>
 </template>

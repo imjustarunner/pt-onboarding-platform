@@ -5,7 +5,7 @@
         <h2>Bulk scheduler</h2>
         <p>{{ providerLabel || 'My schedule' }}<span v-if="options"> · {{ options.timeZone.replaceAll('_', ' ') }}</span></p>
       </div>
-      <label>Schedule date <input v-model="date" type="date" :min="today" :disabled="busy" /></label>
+      <label>Schedule date <input v-model.lazy="date" type="date" :min="today" :disabled="busy" /></label>
     </header>
 
     <p v-if="loading" role="status">Loading booking options…</p>
@@ -125,7 +125,7 @@
 
           <footer v-if="rows.length" class="planner-footer">
             <p v-if="error" class="error" role="alert">{{ error }}</p>
-            <p v-if="summary" role="status">{{ summary.newAppointments }} new · {{ summary.existingAppointments }} already scheduled · {{ summary.blockedRows }} need review</p>
+            <p v-if="summary" role="status">{{ summary.newAppointments }} new · {{ summary.existingAppointments }} already scheduled · {{ summary.blockedRows }} blocked<span v-if="summary.sameDayWarning"> · Same-day visits need review</span></p>
             <label v-if="summary?.sameDayWarning" class="check"><input v-model="acknowledge" type="checkbox" :disabled="busy" /> I reviewed the same-day visits.</label>
             <p v-if="token && uncoveredOfficeRows" class="warning">The room check found gaps. Any uncovered visits will be booked at the selected building. You can wait for approval and check again.</p>
             <div class="planner-actions">
@@ -350,7 +350,9 @@ async function commit() {
     }
     drafts.value[date.value] = [];
     invalidate();
-    result.value = `Booked ${data.createdCount} new appointments · ${data.existingCount} already on the calendar.`;
+    const appointmentRefs = (data.appointments || []).filter(item => !item.existing && item.id > 0).map(item => `#${item.id}`);
+    result.value = `Booked ${data.createdCount} new ${data.createdCount === 1 ? 'appointment' : 'appointments'} · ${data.existingCount} already on the calendar.`;
+    if (appointmentRefs.length) result.value += ` Appointment ${appointmentRefs.length === 1 ? 'number' : 'numbers'} ${appointmentRefs.join(', ')}.`;
     if (data.officeRoomsBooked || data.officeVisitsWithoutRoom) result.value += ` ${data.officeRoomsBooked} with a room · ${data.officeVisitsWithoutRoom} awaiting a room.`;
     void loadDay();
     emit('saved', data);

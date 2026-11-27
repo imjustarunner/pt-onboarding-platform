@@ -171,6 +171,8 @@ export const AUDIT_ACTION_REGISTRY = {
   OFFICE_EVENT_DELETE_REQUESTED: { label: 'Office event delete requested', category: 'Office & Scheduling' },
   OFFICE_EVENT_DELETE_APPROVED: { label: 'Office event delete approved', category: 'Office & Scheduling' },
   OFFICE_EVENT_DELETE_DENIED: { label: 'Office event delete denied', category: 'Office & Scheduling' },
+  appointment_canceled: { label: 'Appointment canceled', category: 'Office & Scheduling' },
+  calendar_item_archived: { label: 'Calendar item deleted', category: 'Office & Scheduling' },
   OFFICE_EVENT_DELETE_EXECUTED: { label: 'Office event deleted', category: 'Office & Scheduling' },
 
   // AI & Tools

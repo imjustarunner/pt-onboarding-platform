@@ -669,7 +669,7 @@ async function saveTreatmentPlanRequest(req,res,next) {
       });
     }
 
-    const refreshed = plan?.id ? await ClinicalTreatmentPlan.findById(plan.id) : plan;
+    let refreshed = plan?.id ? await ClinicalTreatmentPlan.findById(plan.id) : plan;
     primaryDiagnosisId = refreshed?.primary_diagnosis_id || primaryDiagnosisId;
     try {
       const { logNoteAidChartEvent } = await import('../services/noteAidChartAudit.service.js');
@@ -686,11 +686,12 @@ async function saveTreatmentPlanRequest(req,res,next) {
     let providerApprovalError = null;
     if (finalizeRequested && req.body.signPlan === true && refreshed) {
       try {
-        const { attestTreatmentPlanProvider, getTreatmentPlanApproval, treatmentPlanContentHash } =
+        const { finalizeTreatmentPlanProviderSignature, treatmentPlanContentHash } =
           await import('../services/treatmentPlanApproval.service.js');
         const contentHash = await treatmentPlanContentHash(refreshed);
-        await attestTreatmentPlanProvider({ user: req.user, plan: refreshed, contentHash, reviewedAndAccurate: true });
-        providerApproval = await getTreatmentPlanApproval(refreshed);
+        const signed = await finalizeTreatmentPlanProviderSignature({ user: req.user, plan: refreshed, contentHash, reviewedAndAccurate: true });
+        refreshed = signed.plan;
+        providerApproval = signed.approval;
         await logNoteAidChartEvent(req, { agencyId, clientId, action: 'clinical_treatment_plan_provider_signed',
           metadata: { planId: refreshed.id, contentHash,
             planAuthorship: req.body.manualOnly === true ? 'manual' : req.body.aiContentUsed === true ? 'narriva_assisted' : null,
@@ -707,7 +708,8 @@ async function saveTreatmentPlanRequest(req,res,next) {
       }
     }
     // An unsigned plan cannot be shared. Avoid invoking guardian delivery on the preparation path.
-    const guardianSharing = refreshed?.status === 'active' ? await shareSavedPlanToGuardians(refreshed, req.user.id) : null;
+    const guardianSharing = refreshed?.status === 'active' && !providerApproval?.ready
+      ? await shareSavedPlanToGuardians(refreshed, req.user.id) : null;
     return res.status(201).json({ plan: refreshed, primaryDiagnosisId: primaryDiagnosisId || null,
       guardianSharing, providerApproval, providerApprovalError });
   } catch (e) {

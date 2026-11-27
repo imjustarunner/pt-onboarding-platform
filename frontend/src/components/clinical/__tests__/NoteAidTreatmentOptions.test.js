@@ -52,6 +52,17 @@ it('offers AI interventions for the specific goal/objective and adds them only a
   wrapper.unmount();
 });
 
+it('explains when the recommended interventions are already selected', async () => {
+  vi.mocked(api.post).mockResolvedValue({ data: { interventions: ['Mindfulness Training'] } });
+  const wrapper = mount(Interventions, { props: { agencyId: 7, modelValue: ['Mindfulness training'],
+    goalText: 'Manage worry', objectiveText: 'Worry less.' } });
+  await wrapper.get('button[aria-label="Recommend interventions"]').trigger('click');
+  await flushPromises();
+  expect(wrapper.get('[role=status]').text()).toBe('The recommended interventions are already selected.');
+  expect(wrapper.emitted('update:modelValue')).toBeUndefined();
+  wrapper.unmount();
+});
+
 it('discards a late AI recommendation after the objective changes', async () => {
   let resolve;
   vi.mocked(api.post).mockImplementation(() => new Promise((done) => { resolve = done; }));

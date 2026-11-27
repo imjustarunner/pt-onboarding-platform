@@ -87,7 +87,7 @@ it('adds a secure agenda pointer to the next individual meeting with the reviewe
   ]}};
   m.find.mockResolvedValue(note);m.access.mockResolvedValue(true);
   const db={beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn(),
-    execute:vi.fn(async sql=>sql.includes('FROM supervision_sessions')?[[{id:44}]]:sql.includes('SELECT id FROM meeting_agendas')?[[{id:85}]]:[{}])};
+    execute:vi.fn(async sql=>sql.includes('FROM supervision_sessions')?[[{id:44,start_utc:'2026-12-03T22:00:00Z'}]]:sql.includes('SELECT id FROM meeting_agendas')?[[{id:85}]]:[{}])};
   m.mainConnection.mockResolvedValue(db);
   const req={params:{noteId:4,requestId},body:{agencyId:2},user:{id:5}};
   const res=response(),next=vi.fn();
@@ -98,7 +98,7 @@ it('adds a secure agenda pointer to the next individual meeting with the reviewe
     '/note-aid?agencyId=2&noteId=4&reviewRequest='+requestId,5,'note_review:'+requestId]);
   expect(JSON.stringify(db.execute.mock.calls)).not.toContain('private clinical feedback');
   expect(db.commit).toHaveBeenCalled();
-  expect(res.json).toHaveBeenCalledWith({meetingId:44});
+  expect(res.json).toHaveBeenCalledWith({meetingId:44,meetingStartsAt:'2026-12-03T22:00:00Z'});
   m.mainConnection.mockClear();
   await addNoteReviewToSupervisionAgenda({...req,user:{id:11}},response(),next);
   expect(next).toHaveBeenCalledWith(expect.objectContaining({status:404}));

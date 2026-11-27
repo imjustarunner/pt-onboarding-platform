@@ -75,7 +75,7 @@ test('an expired current plan cannot fall back to an older unexpired plan', () =
   const allowed = evaluateTreatmentPlanForEncounter({ plans: [older, current, renewed], dateOfService: '2026-11-16', policy: { renewAfterDays: 90 } });
   assert.equal(allowed.eligible, true); assert.equal(allowed.planId, 3); assert.equal(allowed.latePlan, true);
 });
-test('plan approval always requires distinct actual provider and supervisor attestations on current content', () => {
+test('supervised plan approval requires distinct actual provider and supervisor attestations on current content', () => {
   const base = { plan, contentHash: 'current', providerSignoff: { provider_user_id: 8, content_hash: 'current', signed_at: '2026-11-17' }, supervisorReview: { provider_user_id: 8, supervisor_user_id: 9, content_hash: 'current', outcome: 'approved' }, supervisorUserId: 9 };
   assert.equal(treatmentPlanApprovalState(base).ready, true); assert.equal(treatmentPlanApprovalState(base).quickSignEligible, false);
   assert.equal(treatmentPlanApprovalState({ ...base, providerSignoff: null }).ready, false);
@@ -83,6 +83,15 @@ test('plan approval always requires distinct actual provider and supervisor atte
   assert.equal(treatmentPlanApprovalState({ ...base, supervisorReview: { ...base.supervisorReview, supervisor_user_id: 8 } }).ready, false);
   assert.equal(treatmentPlanApprovalState({ ...base, supervisorReview: { ...base.supervisorReview, outcome: 'changes_requested' } }).ready, false);
   assert.equal(treatmentPlanApprovalState({ ...base, providerSignoff: null }).legacyRecordOnFile, true);
+});
+test('an independent signer can approve the current plan with their own signature', () => {
+  const signoff = { provider_user_id: 8, content_hash: 'current' };
+  const base = { plan, contentHash: 'current', providerSignoff: signoff };
+  assert.equal(treatmentPlanApprovalState(base).ready, false);
+  assert.equal(treatmentPlanApprovalState({ ...base, independent: true }).ready, true);
+  assert.equal(treatmentPlanApprovalState({ ...base, independent: true }).supervisorRequired, false);
+  assert.equal(treatmentPlanApprovalState({ ...base, independent: true, supervisorUserId: 9 }).ready, false);
+  assert.equal(treatmentPlanApprovalState({ ...base, independent: true, contentHash: 'changed' }).ready, false);
 });
 test('plan approval hash ignores changing observations and client acknowledgment, but detects target edits', async () => {
   const hash = await treatmentPlanContentHash(plan);

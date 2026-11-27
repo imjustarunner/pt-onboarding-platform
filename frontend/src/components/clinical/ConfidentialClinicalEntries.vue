@@ -5,10 +5,15 @@
       <button type="button" :aria-expanded="opened" @click="toggle">{{ opened ? 'Close' : 'Open' }}</button></header>
     <div v-if="opened">
       <p v-if="loading" role="status">Loading entries…</p>
-      <ul v-if="entries.length"><li v-for="entry in entries" :key="entry.id">
-        <button type="button" @click="show(entry)">{{ entry.kind==='addendum'?'Confidential addendum':'Confidential note' }} · {{ new Date(entry.createdAt).toLocaleString() }}</button>
-        <p v-if="selected===entry.id" class="entry-body">{{ detail }}</p>
-      </li></ul>
+      <template v-for="group in entryGroups" :key="group.kind">
+        <h4 v-if="!attached">{{ group.heading }}</h4>
+        <ul><li v-for="entry in group.entries" :key="entry.id">
+          <button type="button" :aria-expanded="selected === entry.id" @click="show(entry)">
+            {{ group.label }} #{{ entry.id }} · {{ new Date(entry.createdAt).toLocaleString() }}
+          </button>
+          <p v-if="selected === entry.id" class="entry-body">{{ detail }}</p>
+        </li></ul>
+      </template>
       <form @submit.prevent="save">
         <label>{{ attached?'New confidential addendum':'New confidential note' }}<textarea v-model="body" rows="4" maxlength="32000" required :disabled="saving" /></label>
         <label class="attest"><input v-model="attested" type="checkbox" :disabled="saving" required />{{ attestation }}</label>
@@ -19,10 +24,15 @@
   </section>
 </template>
 <script setup>
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { CONFIDENTIAL_ATTESTATION as attestation } from '../../utils/confidentialAttestation.js';
 const props=defineProps({agencyId:[Number,String],clientId:[Number,String],sessionId:[Number,String],draftId:[Number,String],noteId:[Number,String],attached:Boolean,ensureDraft:Function,transport:Object,basePath:{type:String,default:'/clinical-notes'}});
 const opened=ref(false),loading=ref(false),saving=ref(false),entries=ref([]),body=ref(''),attested=ref(false),detail=ref(''),selected=ref(null),notice=ref(''),error=ref('');
+const entryGroups = computed(() => [
+  { kind: 'note', heading: 'Standalone notes', label: 'Note' },
+  { kind: 'addendum', heading: 'Note addendums', label: 'Addendum' }
+].map(group => ({ ...group, entries: entries.value.filter(entry => entry.kind === group.kind) }))
+  .filter(group => group.entries.length));
 let generation=0,requestKey=null;
 const path=()=>`${props.basePath}/clients/${props.clientId}/confidential-entries`;
 function params(draftId=props.draftId){return {agencyId:props.agencyId,...(props.attached ? props.noteId?{noteId:props.noteId}:{draftId}: {})};}
@@ -37,7 +47,7 @@ async function load(){
  const version=generation;
  if(props.attached && !props.noteId && !props.draftId)return;
  loading.value=true;
- try{const {data}=await (await transport()).get(path(),{params:params()});if(version===generation)entries.value=data.entries;}
+ try{const {data}=await (await transport()).get(path(),{params:params()});if(version===generation)entries.value=Array.isArray(data?.entries) ? data.entries : [];}
  catch(e){if(version===generation)error.value=message(e,'Could not load entries.');}
  finally{if(version===generation)loading.value=false;}
 }
@@ -56,9 +66,12 @@ async function save(){
   if(version!==generation)return;
   if(props.attached && !props.noteId && !draftId)throw Error('Save this session draft before adding a confidential addendum.');
   requestKey ||= crypto.randomUUID();
-  await (await transport()).post(path(),{body:body.value,requestKey,attested:true},{params:params(draftId)});
+  const {data}=await (await transport()).post(path(),{body:body.value,requestKey,attested:true},{params:params(draftId)});
   if(version!==generation)return;
-  body.value='';attested.value=false;notice.value='Confidential entry saved.';await load();
+  body.value='';attested.value=false;
+  const label = props.attached ? 'Confidential addendum' : 'Confidential note';
+  notice.value = data?.id ? `${label} #${data.id} saved.` : `${label} saved.`;
+  await load();
  }catch(e){if(version===generation)error.value=message(e,'Could not save the entry.');}
  finally{if(version===generation)saving.value=false;}
 }

@@ -8,6 +8,7 @@ import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
  * Provider reports facts; system classifies late/miss, consequence, and writes the note.
  */
 import pool from '../config/database.js';
+import { logAuditEvent } from './auditEvent.service.js';
 import { readClientInsurance } from './clientInsurance.service.js';
 import { hasMedicaidCoverage } from '../utils/insurancePaymentPolicy.js';
 import {isProBonoFunding} from '../utils/clinicalFundingPolicy.js';
@@ -889,6 +890,11 @@ async function applyAppointmentChange(
     canceledAt: new Date().toISOString().slice(0, 19).replace('T', ' '), canceledByUserId: actorUserId,
     cancellationRecommendationJson: { workflow: 'appointment_change', preview, facts }
   }, { actorUserId, settleOutcome: false, allowPendingNoShow:facts.noShowReviewFinalized===true });
+  if (eventType === 'canceled' && actorUserId) {
+    await logAuditEvent(null, { actionType: 'appointment_canceled', userId: actorUserId,
+      agencyId: appointment.agencyId, targetType: 'appointment', targetId: appointmentId,
+      metadata: { providerUserId: appointment.providerUserId, source: facts.cancelForward === true ? 'cancel_forward' : facts.absenceSource || 'individual_session' } });
+  }
   if (appointment.packageEntitlementId) {
     settlement = await BookingPackage.applyAppointmentUsage({ entitlementId: appointment.packageEntitlementId,
       agencyId: appointment.agencyId, appointmentId, mode: noConsequence || preview.consequence.packageAction === 'release' ? 'release' : 'forfeit', actorUserId });

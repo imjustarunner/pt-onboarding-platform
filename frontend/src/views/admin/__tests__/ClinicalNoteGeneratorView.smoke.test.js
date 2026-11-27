@@ -1085,6 +1085,24 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     } finally { wrapper.unmount(); }
   });
 
+  it('lists and opens saved intake drafts without an appointment queue row', async () => {
+    const draft = { id: 481, agency_id: 7, service_code: '90791', date_of_service: '2026-11-24',
+      input_text: 'Fictional intake narrative saved from the appointment.' };
+    vi.mocked(api.get).mockImplementation(async path => ({ data: path === '/clinical-notes/recent'
+      ? { drafts: [draft], signedSessions: [] } : {} }));
+    const { wrapper, state } = await workspace('', { demoPresentation: { keepSidebarsOpen: true } });
+    try {
+      const queue = wrapper.getComponent({ name: 'NoteAidWorkQueuePanel' });
+      const item = queue.props('items').find(row => row.draftId === draft.id);
+      expect(item).toMatchObject({ draftOnly: true, docStatus: 'started' });
+      expect(wrapper.getComponent({ name: 'ClinicalNoteLibrarySidebar' }).props('drafts')).toContainEqual(draft);
+      queue.vm.$emit('select', item);
+      await flushPromises();
+      expect(Number(state.draftId)).toBe(draft.id);
+      expect(state.inputText).toBe(draft.input_text);
+    } finally { wrapper.unmount(); }
+  });
+
   it('does not turn cleared psychotherapy timing into a zero-minute code warning', async () => {
     const { wrapper, state } = await workspace();
     try {
