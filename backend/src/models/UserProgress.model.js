@@ -1,14 +1,14 @@
 import pool from '../config/database.js';
 
 class UserProgress {
-  static async findByUserId(userId) {
+  static async findByUserId(userId, agencyId = null) {
     const [rows] = await pool.execute(
       `SELECT up.*, m.title, m.description 
        FROM user_progress up 
        JOIN modules m ON up.module_id = m.id 
-       WHERE up.user_id = ? 
+       WHERE up.user_id = ? ${agencyId ? 'AND m.agency_id = ?' : ''}
        ORDER BY m.order_index ASC`,
-      [userId]
+      agencyId ? [userId, agencyId] : [userId]
     );
     return rows;
   }

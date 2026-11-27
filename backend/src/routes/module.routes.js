@@ -1,4 +1,5 @@
 import express from 'express';
+import { readStudioLesson, saveStudioLesson } from '../controllers/plotlineTrainingStudio.controller.js';
 import { requireTrainingModuleAccess } from '../middleware/trainingModuleAccess.middleware.js';
 import { body } from 'express-validator';
 import { getAllModules, getModuleById, createModule, updateModule, archiveModule, restoreModule, deleteModule, getArchivedModules, createSharedModule, getSharedModules, copyModule, getCopyPreview, assignModuleToUsers } from '../controllers/module.controller.js';
@@ -47,6 +48,8 @@ router.post('/:id/content/from-library', requireBackofficeAdmin, [
 ], insertLibraryItemIntoModule);
 router.get('/:moduleId/form-definition', getModuleFormDefinition);
 router.post('/:moduleId/form-upload', uploadModuleFormFile);
+router.get('/:id/studio', requireBackofficeAdmin, readStudioLesson);
+router.put('/:id/studio', requireBackofficeAdmin, saveStudioLesson);
 router.get('/:id', getModuleById);
 router.get('/:id/fingerprinting-screenshots/:screenshotId', trainingFingerprintingScreenshot);
 router.get('/:id/copy-preview', requireBackofficeAdmin, getCopyPreview);

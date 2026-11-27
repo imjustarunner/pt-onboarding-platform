@@ -22,7 +22,7 @@
         <label>Video URL</label>
         <div class="url-row">
           <input v-model="local.videoUrl" type="url" placeholder="YouTube, Vimeo, or library upload URL" @input="emitData" />
-          <button type="button" class="btn btn-secondary btn-sm" @click.stop="$emit('open-media', 'video')">Media library</button>
+          <button type="button" v-if="!linkMediaOnly" class="btn btn-secondary btn-sm" @click.stop="$emit('open-media', 'video')">Media library</button>
         </div>
         <p v-if="local.placeholderHint" class="hint">{{ local.placeholderHint }}</p>
         <div v-if="embedUrl" class="video-preview">
@@ -50,7 +50,7 @@
         <label>Image URL</label>
         <div class="url-row">
           <input v-model="local.imageUrl" type="url" placeholder="https://..." @input="emitData" />
-          <button type="button" class="btn btn-secondary btn-sm" @click.stop="$emit('open-media', 'image')">Media library</button>
+          <button type="button" v-if="!linkMediaOnly" class="btn btn-secondary btn-sm" @click.stop="$emit('open-media', 'image')">Media library</button>
         </div>
         <label>Alt text</label>
         <input v-model="local.alt" type="text" @input="emitData" />
@@ -64,7 +64,7 @@
         <label>Document URL</label>
         <div class="url-row">
           <input v-model="local.googleUrl" type="url" placeholder="Google Docs / PDF link" @input="onDocUrl" />
-          <button type="button" class="btn btn-secondary btn-sm" @click.stop="$emit('open-media', 'pdf')">Media library</button>
+          <button type="button" v-if="!linkMediaOnly" class="btn btn-secondary btn-sm" @click.stop="$emit('open-media', 'pdf')">Media library</button>
         </div>
         <p v-if="local.fileUrl" class="hint">Embed: {{ local.fileUrl }}</p>
       </div>
@@ -136,7 +136,7 @@
         <input v-model="local.title" type="text" @input="emitData" />
         <label>Acknowledgment text</label>
         <textarea v-model="local.text" rows="4" @input="emitData" />
-        <label class="checkbox">
+        <label v-if="!linkMediaOnly" class="checkbox">
           <input v-model="local.requireSignature" type="checkbox" @change="emitData" />
           Require signature
         </label>
@@ -190,6 +190,7 @@ import QuizBuilder from '../QuizBuilder.vue';
 import { blockTypeLabel } from '../../../utils/trainingBlockTypes.js';
 
 const props = defineProps({
+  linkMediaOnly: Boolean,
   block: { type: Object, required: true },
   isSelected: { type: Boolean, default: false }
 });
@@ -269,7 +270,7 @@ const embedUrl = computed(() => {
   if (yt) return `https://www.youtube.com/embed/${yt[1]}`;
   const vim = url.match(/vimeo\.com\/(\d+)/);
   if (vim) return `https://player.vimeo.com/video/${vim[1]}`;
-  return url;
+  return /^(https?:\/\/|\/(?![\/\\]))/i.test(url) ? url : '';
 });
 </script>
 

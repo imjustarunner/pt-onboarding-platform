@@ -13,8 +13,7 @@
     </div>
 
     <div v-else-if="type === 'pdf'" class="embed-block">
-      <iframe v-if="data.fileUrl || data.googleUrl" :src="data.fileUrl || data.googleUrl" title="Document" />
-      <a v-else-if="data.googleUrl" :href="data.googleUrl" target="_blank" rel="noopener">Open document</a>
+      <iframe v-if="safeResourceUrl(data.fileUrl || data.googleUrl)" :src="safeResourceUrl(data.fileUrl || data.googleUrl)" :sandbox="readOnly ? 'allow-scripts allow-forms' : undefined" title="Document" />
     </div>
 
     <div v-else-if="type === 'text'" class="text-block">
@@ -37,7 +36,7 @@
     <div v-else-if="type === 'button'" class="button-block">
       <a
         class="btn btn-primary"
-        :href="data.url || '#'"
+        :href="safeResourceUrl(data.url) || undefined"
         :target="data.openInNewTab === false ? '_self' : '_blank'"
         rel="noopener"
       >{{ data.label || 'Continue' }}</a>
@@ -127,7 +126,8 @@
 
     <div v-else-if="type === 'google_form'" class="embed-block">
       <h4 v-if="data.title">{{ data.title }}</h4>
-      <iframe v-if="data.formUrl" :src="data.formUrl" title="Google Form" />
+      <iframe v-if="!readOnly && safeResourceUrl(data.formUrl)" :src="safeResourceUrl(data.formUrl)" title="Google Form" />
+      <p v-else-if="readOnly" class="muted">Learners can fill out the linked form in the published lesson.</p>
     </div>
 
     <div v-else-if="type === 'form'" class="form-slot">
@@ -141,6 +141,7 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue';
+import DOMPurify from 'dompurify';
 import VideoPlayer from '../VideoPlayer.vue';
 import SlideViewer from '../SlideViewer.vue';
 import QuizForm from '../QuizForm.vue';
@@ -170,7 +171,7 @@ const data = computed(() => parseContentData(props.block.content_data));
 const settings = computed(() => parseContentData(props.block.settings) || {});
 const type = computed(() => normalizeContentType(props.block.content_type, data.value));
 const isIntro = computed(() => type.value === 'text' && isIntroTextContent(data.value));
-const bodyHtml = computed(() => getTextBodyHtml(data.value));
+const bodyHtml = computed(() => DOMPurify.sanitize(getTextBodyHtml(data.value)));
 const quizContent = computed(() => normalizeQuizDataForLearner(data.value));
 const displayTitle = computed(() =>
   props.block.title || data.value.title || blockTypeLabel(type.value)
@@ -194,6 +195,7 @@ const responseText = ref('');
 watch(
   storageKey,
   (key) => {
+    if (props.readOnly) return;
     try {
       const raw = localStorage.getItem(key);
       if (!raw) return;
@@ -233,10 +235,17 @@ function persistResponse() {
   } catch { /* ignore */ }
 }
 
+function safeResourceUrl(value) {
+  if (!value) return '';
+  const url = String(value).trim();
+  if (/^\/(?![\/\\])/.test(url)) return url;
+  try { return ['http:', 'https:'].includes(new URL(url).protocol) ? url : ''; }
+  catch { return ''; }
+}
+
 function formatHtml(text) {
-  if (!text) return '';
-  if (String(text).includes('<')) return text;
-  return String(text).replace(/\n/g, '<br>');
+  const source = String(text || '');
+  return DOMPurify.sanitize(source.includes('<') ? source : source.replace(/\n/g, '<br>'));
 }
 </script>
 

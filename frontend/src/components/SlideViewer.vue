@@ -1,9 +1,9 @@
 <template>
   <div class="slide-viewer-container">
     <!-- Google Slides Embed -->
-    <div v-if="content.googleSlidesUrl || content.slidesUrl" class="google-slides-wrapper">
+    <div v-if="embedUrl" class="google-slides-wrapper">
       <iframe
-        :src="content.slidesUrl || convertGoogleSlidesUrl(content.googleSlidesUrl)"
+        :src="embedUrl"
         frameborder="0"
         style="width: 100%; height: 600px; border: 1px solid #ddd; border-radius: 8px;"
         allow="fullscreen"
@@ -13,7 +13,7 @@
     <!-- HTML Slides -->
     <div v-else-if="content.slides && content.slides.length > 0" class="slide-wrapper">
       <div class="slide-display">
-        <div class="slide-content" v-html="currentSlide.content"></div>
+        <div class="slide-content" v-html="safeSlideHtml"></div>
       </div>
       
       <div class="slide-navigation">
@@ -44,6 +44,7 @@
 
 <script setup>
 import { ref, computed } from 'vue';
+import DOMPurify from 'dompurify';
 
 const props = defineProps({
   content: {
@@ -60,6 +61,8 @@ const currentSlide = computed(() => {
   }
   return props.content.slides[currentSlideIndex.value] || props.content.slides[0];
 });
+
+const safeSlideHtml = computed(() => DOMPurify.sanitize(currentSlide.value.content || ''));
 
 const nextSlide = () => {
   if (currentSlideIndex.value < props.content.slides.length - 1) {
@@ -81,6 +84,10 @@ const convertGoogleSlidesUrl = (url) => {
   }
   return url;
 };
+const embedUrl = computed(() => {
+  const url = props.content.slidesUrl || convertGoogleSlidesUrl(props.content.googleSlidesUrl);
+  return /^(https?:\/\/|\/(?![\/\\]))/i.test(url || '') ? url : null;
+});
 </script>
 
 <style scoped>

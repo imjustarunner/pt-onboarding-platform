@@ -23,15 +23,15 @@ class ModuleContent {
     return rows;
   }
 
-  static async findById(id) {
-    const [rows] = await pool.execute(
+  static async findById(id, db = pool) {
+    const [rows] = await db.execute(
       'SELECT * FROM module_content WHERE id = ?',
       [id]
     );
     return rows[0] || null;
   }
 
-  static async create(contentData) {
+  static async create(contentData, db = pool) {
     const {
       moduleId,
       contentType,
@@ -41,7 +41,7 @@ class ModuleContent {
       settings
     } = contentData;
     const normalizedType = normalizeContentType(contentType, data);
-    const [result] = await pool.execute(
+    const [result] = await db.execute(
       `INSERT INTO module_content
         (module_id, content_type, title, content_data, settings, order_index)
        VALUES (?, ?, ?, ?, ?, ?)`,
@@ -54,10 +54,10 @@ class ModuleContent {
         orderIndex || 0
       ]
     );
-    return this.findById(result.insertId);
+    return this.findById(result.insertId, db);
   }
 
-  static async update(id, contentData) {
+  static async update(id, contentData, db = pool) {
     const {
       contentType,
       contentData: data,
@@ -69,7 +69,7 @@ class ModuleContent {
     const values = [];
 
     if (contentType !== undefined || data !== undefined) {
-      const existing = await this.findById(id);
+      const existing = await this.findById(id, db);
       const nextData = data !== undefined ? data : parseJsonField(existing?.content_data) || {};
       const nextType = contentType !== undefined
         ? normalizeContentType(contentType, nextData)
@@ -98,18 +98,18 @@ class ModuleContent {
       values.push(orderIndex);
     }
 
-    if (updates.length === 0) return this.findById(id);
+    if (updates.length === 0) return this.findById(id, db);
 
     values.push(id);
-    await pool.execute(
+    await db.execute(
       `UPDATE module_content SET ${updates.join(', ')} WHERE id = ?`,
       values
     );
-    return this.findById(id);
+    return this.findById(id, db);
   }
 
-  static async delete(id) {
-    const [result] = await pool.execute(
+  static async delete(id, db = pool) {
+    const [result] = await db.execute(
       'DELETE FROM module_content WHERE id = ?',
       [id]
     );

@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { PLOTLINE_HANDBOOK_STARTER } from '../content/plotlineHandbookStarter.js';
 import { createHash } from 'node:crypto';
 import { cleanHandbookHtml, handbookBodyHash, parseHandbookMetadata, validateHandbookSections, mergeSuppliedSections } from './workplaceHandbookContent.js';
 
@@ -15,7 +16,7 @@ const brandImage = value => {
 };
 
 export function documentTemplate(key, version) {
-  return releases.find(r => r.key === key && r.version === version) || null;
+  return [...releases, PLOTLINE_HANDBOOK_STARTER].find(r => r.key === key && r.version === version) || null;
 }
 export function documentTemplateCatalog() {
   return releases.filter((r, i) => releases.findLastIndex(item => item.key === r.key) === i).map(r => ({

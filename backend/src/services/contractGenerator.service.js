@@ -1,3 +1,4 @@
+import { PLOTLINE_EMPLOYMENT_SLUG } from './plotlineEmploymentAgreement.service.js';
 import { loadHireFingerprintingGuide } from './hireFingerprintingGuide.service.js';
 import { availableContractRoles } from '../content/contractServiceRoles.js';
 import {assertContractProbationChoice} from '../content/contractProbationPolicy.js';
@@ -415,6 +416,9 @@ export async function generateAndAssignCandidateContract({
   if (preview.unresolvedTokens?.length) {
     throw Object.assign(new Error(`Complete these contract fields before assigning: ${preview.unresolvedTokens.join(', ')}`), { status: 400 });
   }
+  if (preview.config?.slug === PLOTLINE_EMPLOYMENT_SLUG && !expectedPreviewHash) {
+    throw Object.assign(new Error('Review the contract preview before assigning it for signature.'), { status: 409 });
+  }
   if (expectedPreviewHash && preview.previewHash !== expectedPreviewHash) {
     throw Object.assign(new Error('The agreement changed since it was reviewed. Update and review the contract preview before sending.'), { status: 409 });
   }
@@ -455,7 +459,7 @@ export async function generateAndAssignCandidateContract({
         VALUES (?, ?, TRUE, TRUE, ?) ON DUPLICATE KEY UPDATE is_primary = TRUE, is_active = TRUE, linked_by_user_id = VALUES(linked_by_user_id)`, [candidateUserId, officeId, createdByUserId || null]);
       await db.execute('UPDATE users SET work_location = ? WHERE id = ?', [preview.tokens.ASSIGNED_OFFICE_NAME, candidateUserId]);
     }
-    const name = title || `Employment Agreement — ${preview.tokens.EMPLOYEE_FULL_NAME || 'Candidate'}`;
+    const name = title || `Employment Agreement — ${preview.tokens.EMPLOYEE_FULL_NAME || preview.tokens.CANDIDATE_NAME || 'Candidate'}`;
     const [document] = await db.execute(
       `INSERT INTO user_specific_documents (user_id, name, description, template_type, html_content,
        document_action_type, field_definitions, created_by_user_id) VALUES (?, ?, ?, 'html', ?, 'signature', ?, ?)`,

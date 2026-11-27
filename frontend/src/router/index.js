@@ -2368,6 +2368,24 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'support'], organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/modules/studio',
+    name: 'PlotlineTrainingStudio',
+    component: () => import('../views/admin/PlotlineTrainingStudioView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support'], requiresCapability: 'canViewTraining', organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/training',
+    name: 'PlotlineTeamTraining',
+    component: () => import('../views/admin/PlotlineTrainingStudioView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canViewTraining', organizationSlug: true, plotlineTeamTraining: true }
+  },
+  {
+    path: '/:organizationSlug/admin/workplace-handbook',
+    name: 'PlotlineHandbookEditor',
+    component: () => import('../views/admin/PlotlineHandbookView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support'], organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/modules/:id/builder',
     name: 'OrganizationCourseBuilder',
     component: () => import('../views/admin/CourseBuilderView.vue'),

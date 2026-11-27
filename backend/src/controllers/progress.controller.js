@@ -7,7 +7,7 @@ import { validationResult } from 'express-validator';
 export const getUserProgress = async (req, res, next) => {
   try {
     const userId = req.user.id;
-    const progress = await UserProgress.findByUserId(userId);
+    const progress = await UserProgress.findByUserId(userId, req.plotlineCompanyId);
     res.json(progress);
   } catch (error) {
     next(error);

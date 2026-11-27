@@ -27,7 +27,12 @@ const steps=computed(()=>{const c=company.value,p=`/${c.slug}`;return [
  {label:'Make it yours',title:'Bring your brand along',description:'Choose colors and a style. Add your logo and mission whenever you’re ready.',action:'Edit branding',to:`/plotline/brand/${c.agencyId}`},
  {label:'Find your people',title:'Create your first job',description:'Start with one role. Review its description and application before publishing.',action:'Create a job',to:`${p}/admin/careers/jobs`},
  {label:'See the journey',title:'Your hiring workspace',description:'Welcome applicants, plan interviews and keep the next step clear.',action:'Open hiring',to:`${p}/admin/hiring`},
- {label:'Prepare a welcome',title:'Set up onboarding',description:'Build a small, useful first set of documents and training for your new hires.',action:'Open onboarding',to:`${p}/admin/onboarding`}
+ {label:'Prepare a welcome',title:'Set up onboarding',description:'Build a small, useful first set of documents and training for your new hires.',action:'Open onboarding',to:`${p}/admin/onboarding`},
+ ...(c.isOwner ? [
+  {label:'Training', title:'Build a lesson', description:'Start with a first-day welcome, a procedure, or a blank lesson.', action:'Open Training Studio', to:`${p}/admin/modules/studio`},
+  {label:'Agreements', title:'Create company contracts', description:'Enter your terms, review the agreement, and assign it for signature.', action:'Open contracts', to:`${p}/admin/contracts`},
+  {label:'Policies', title:'Create your workplace handbook', description:'Fill in guided sections or write your own, then publish it for your team.', action:'Open handbook editor', to:`${p}/admin/workplace-handbook`}
+ ] : [])
  ];});
 async function load(){loading.value=true;error.value='';company.value=null;events.value=[];try{company.value=(await api.get(base.value,config)).data;const {data}=await api.get('/users/me/agencies',config);agencies.applyLoginAgencies(data);const selected=data.find(a=>Number(a.id)===Number(company.value.agencyId));if(selected)agencies.setCurrentAgency({...selected,theme_settings:{plotlineBrand:company.value.brand}});}catch(e){error.value=e.response?.data?.error?.message||'We couldn’t open that company. Please refresh to retry.';}finally{loading.value=false;}}
 async function run(fn){if(busy.value)return;busy.value=true;error.value='';try{await fn();}catch(e){error.value=e.response?.data?.error?.message||'We couldn’t save that change. Please retry.';}finally{busy.value=false;}}

@@ -1,37 +1,72 @@
 <template>
-  <div class="course-builder" :class="`viewport-${viewport}`">
+  <div class="course-builder" :class="[`viewport-${viewport}`, { 'plotline-studio': isStudio }]">
     <header class="builder-topbar">
       <div class="top-left">
-        <button type="button" class="btn btn-secondary btn-sm" @click="goBack">← Back to Courses</button>
+        <button type="button" class="btn btn-secondary btn-sm" @click="goBack">{{ isStudio ? '← Training Studio' : '← Back to Courses' }}</button>
         <div class="title-wrap">
-          <h1>{{ module?.title || 'Lesson' }}</h1>
+          <div><p v-if="isStudio" class="pl-eyebrow">Lesson builder</p><h1>{{ isStudio ? lessonTitle || 'Untitled lesson' : module?.title || 'Lesson' }}</h1></div>
           <span class="status-badge" :class="publishStatus">{{ publishStatus === 'published' ? 'Published' : 'Draft' }}</span>
           <span v-if="moduleVersion" class="version-badge">v{{ moduleVersion }}</span>
         </div>
       </div>
       <div class="top-right">
-        <span class="save-status" :class="{ dirty, saving, error: saveError }">
+        <span role="status" class="save-status" :class="{ dirty, saving, error: saveError }">
           {{ saveStatusLabel }}
         </span>
-        <button type="button" class="btn btn-secondary btn-sm" @click="openPreview">Preview</button>
-        <button type="button" class="btn btn-secondary btn-sm" :disabled="saving" @click="saveBlocks(false)">Save</button>
+        <button type="button" class="btn btn-secondary btn-sm" :disabled="loading || !!error" @click="openPreview">{{ isStudio ? 'Learner preview' : 'Preview' }}</button>
+        <button type="button" class="btn btn-secondary btn-sm" v-if="!isStudio || publishStatus === 'draft'" :disabled="saving || (isStudio && (loading || !!error || !dirty))" @click="saveBlocks(false)">{{ isStudio ? 'Save draft' : 'Save' }}</button>
         <button
           type="button"
           class="btn btn-primary btn-sm"
-          :disabled="saving"
+          :disabled="saving || (isStudio && (loading || !!error || !canPublish))"
           @click="publishLesson"
         >
-          Publish
+          {{ isStudio && publishStatus === 'published' ? 'Publish changes' : 'Publish' }}
         </button>
       </div>
     </header>
 
+    <p v-if="studioMessage" role="alert" class="studio-message">{{ studioMessage }}</p>
+    <div v-if="isStudio && reviewing" class="studio-review">
+      <h2>{{ publishStatus === 'published' ? 'Publish these changes?' : 'Publish this lesson?' }}</h2>
+      <p>Team members with access to this lesson will see the version you publish.</p>
+      <button type="button" class="btn btn-primary" :disabled="saving" @click="saveStudio(true)">Confirm publication</button>
+      <button type="button" class="btn btn-secondary" :disabled="saving" @click="reviewing = false">Keep editing</button>
+    </div>
     <div v-if="loading" class="builder-loading">Loading course builder…</div>
     <div v-else-if="error" class="builder-error">{{ error }}</div>
 
-    <div v-else class="builder-body">
+    <div v-else-if="isStudio && showingPreview" class="studio-preview">
+      <div class="preview-controls">
+        <div><h2>Learner preview</h2><p>Previewing your current edits. Responses and progress are disabled.</p></div>
+        <label>Width <select v-model="viewport"><option value="desktop">Desktop</option><option value="tablet">Tablet</option><option value="mobile">Phone</option></select></label>
+        <button type="button" class="btn btn-secondary" @click="showingPreview = false">Back to editing</button>
+      </div>
+      <article class="canvas preview-lesson">
+        <h2>{{ lessonTitle }}</h2><p v-if="lessonDescription">{{ lessonDescription }}</p>
+        <p v-if="!blocks.length">Add content to see it here.</p>
+        <TrainingBlockRenderer v-for="(block, index) in blocks" :key="block.clientKey" :block="block" :module-id="moduleId" :index="index" read-only />
+      </article>
+    </div>
+    <div v-else class="builder-body" :inert="isStudio && (saving || reviewing) ? true : undefined">
       <!-- Left: course / lesson outline -->
-      <aside class="pane left-pane">
+      <aside v-if="isStudio" class="pane left-pane studio-outline">
+        <div class="pane-header"><h2>Lesson outline</h2><p class="muted">{{ blocks.length }} {{ blocks.length === 1 ? 'block' : 'blocks' }}</p></div>
+        <ol class="outline-blocks">
+          <li v-for="(block, index) in blocks" :key="block.clientKey">
+            <button type="button" :aria-current="selectedKey === block.clientKey ? 'true' : undefined" @click="goToBlock(block.clientKey)">
+              <small>{{ blockTypeLabel(block.content_type) }}</small>
+              {{ block.title || block.content_data.title || 'Untitled block' }}
+            </button>
+            <div>
+              <button type="button" :disabled="index === 0" :aria-label="`Move block ${index + 1} up`" @click="moveOutlineBlock(index, -1)">↑</button>
+              <button type="button" :disabled="index === blocks.length - 1" :aria-label="`Move block ${index + 1} down`" @click="moveOutlineBlock(index, 1)">↓</button>
+            </div>
+          </li>
+        </ol>
+        <button type="button" class="btn btn-secondary" @click="showBlocks">Add block</button>
+      </aside>
+      <aside v-else class="pane left-pane">
         <div class="pane-header">
           <h2>{{ focusMeta?.name || 'Lesson Outline' }}</h2>
           <p v-if="focusMeta" class="muted">Course lessons</p>
@@ -80,7 +115,7 @@
         <div class="center-tabs">
           <button type="button" :class="{ active: centerTab === 'build' }" @click="centerTab = 'build'">Build</button>
           <button type="button" :class="{ active: centerTab === 'settings' }" @click="centerTab = 'settings'">Settings</button>
-          <div class="viewport-toggles">
+          <div v-if="!isStudio" class="viewport-toggles">
             <button type="button" :class="{ active: viewport === 'desktop' }" title="Desktop" @click="viewport = 'desktop'">🖥</button>
             <button type="button" :class="{ active: viewport === 'tablet' }" title="Tablet" @click="viewport = 'tablet'">▤</button>
             <button type="button" :class="{ active: viewport === 'mobile' }" title="Mobile" @click="viewport = 'mobile'">▭</button>
@@ -88,13 +123,14 @@
         </div>
 
         <div v-if="centerTab === 'settings'" class="lesson-settings">
-          <label>Lesson title</label>
-          <input v-model="lessonTitle" type="text" @input="markDirty" />
-          <label>Description</label>
-          <textarea v-model="lessonDescription" rows="3" @input="markDirty" />
-          <label>Estimated minutes</label>
-          <input v-model.number="estimatedMinutes" type="number" min="0" @input="markDirty" />
-          <button type="button" class="btn btn-primary btn-sm" :disabled="saving" @click="saveLessonMeta">Save lesson settings</button>
+          <label for="lesson-title">Lesson title</label>
+          <input id="lesson-title" maxlength="255" v-model="lessonTitle" type="text" @input="markDirty" />
+          <label for="lesson-description">Description</label>
+          <textarea id="lesson-description" maxlength="10000" v-model="lessonDescription" rows="3" @input="markDirty" />
+          <label for="lesson-minutes">Estimated minutes</label>
+          <input id="lesson-minutes" v-model.number="estimatedMinutes" type="number" min="0" @input="markDirty" />
+          <p v-if="isStudio" class="muted">Lesson settings are saved with the content.</p>
+          <button v-else type="button" class="btn btn-primary btn-sm" :disabled="saving" @click="saveLessonMeta">Save lesson settings</button>
         </div>
 
         <div v-else class="canvas-wrap">
@@ -110,11 +146,13 @@
               <div
                 v-for="block in blocks"
                 :key="block.clientKey"
+                :id="`edit-${block.clientKey}`" tabindex="-1"
                 class="draggable-block"
               >
                 <LessonBlockCanvasItem
                   :block="block"
                   :is-selected="selectedKey === block.clientKey"
+                  :link-media-only="isStudio"
                   @select="selectBlock"
                   @update="updateBlockData"
                   @delete="deleteBlock"
@@ -126,28 +164,28 @@
 
             <div v-if="!blocks.length" class="empty-canvas">
               <h3>Start building this lesson</h3>
-              <p>Add content blocks from the library, or generate a draft with AI.</p>
+              <p>{{ isStudio ? 'Add an explanation, a resource, or a question to get started.' : 'Add content blocks from the library.' }}</p>
             </div>
 
-            <button type="button" class="add-block-btn" @click="rightTab = 'library'">
-              + Add Content Block
+            <button type="button" class="add-block-btn" @click="showBlocks">
+              Add content block
             </button>
           </div>
         </div>
       </main>
 
       <!-- Right: library / settings -->
-      <aside class="pane right-pane">
+      <aside ref="blockPanel" class="pane right-pane">
         <div class="right-tabs">
           <button type="button" :class="{ active: rightTab === 'library' }" @click="rightTab = 'library'">Add Blocks</button>
-          <button type="button" :class="{ active: rightTab === 'media' }" @click="rightTab = 'media'">Media</button>
-          <button type="button" :class="{ active: rightTab === 'saved' }" @click="openSavedLibrary">Saved Blocks</button>
+          <button v-if="!isStudio" type="button" :class="{ active: rightTab === 'media' }" @click="rightTab = 'media'">Media</button>
+          <button v-if="!isStudio" type="button" :class="{ active: rightTab === 'saved' }" @click="openSavedLibrary">Saved Blocks</button>
           <button type="button" :class="{ active: rightTab === 'settings' }" @click="rightTab = 'settings'">Block Settings</button>
         </div>
 
         <div v-if="rightTab === 'library'" class="block-library">
           <button
-            v-for="item in PHASE1_BLOCK_LIBRARY"
+            v-for="item in blockLibrary"
             :key="item.type"
             type="button"
             class="library-card"
@@ -157,7 +195,7 @@
             <span>{{ item.description }}</span>
           </button>
           <button
-            v-if="selectedBlock"
+            v-if="selectedBlock && !isStudio"
             type="button"
             class="btn btn-secondary btn-sm save-lib-btn"
             @click="saveSelectedToLibrary"
@@ -199,7 +237,7 @@
 
             <div v-if="settingsTab === 'content'" class="settings-body">
               <label>Block title</label>
-              <input v-model="selectedBlock.title" type="text" @input="markDirty" />
+              <input v-model="selectedBlock.title" type="text" maxlength="255" @input="updateTitle" />
               <p class="muted">Edit the main content in the canvas. Use this panel for metadata.</p>
               <template v-if="selectedBlock.content_type === 'knowledge_check'">
                 <label class="checkbox">
@@ -239,15 +277,20 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router';
 import { VueDraggableNext as draggable } from 'vue-draggable-next';
 import api from '../../services/api';
+import { useAgencyStore } from '../../store/agency';
+import { usePlotlineCompanyScope } from '../../composables/usePlotlineCompanyScope';
+import { plotlineLessonStarters } from '../../utils/plotlineLessonStarters';
+import TrainingBlockRenderer from '../../components/training/TrainingBlockRenderer.vue';
 import LessonBlockCanvasItem from '../../components/admin/courseBuilder/LessonBlockCanvasItem.vue';
 import MediaLibraryPanel from '../../components/admin/courseBuilder/MediaLibraryPanel.vue';
 import {
   PHASE1_BLOCK_LIBRARY,
   apiRowToBlock,
+  blockTypeLabel,
   blockToApiPayload,
   defaultBlockData,
   defaultBlockSettings
@@ -255,6 +298,21 @@ import {
 
 const route = useRoute();
 const router = useRouter();
+
+const scope = usePlotlineCompanyScope(route, useAgencyStore());
+const isStudio = computed(() => scope.locked.value);
+const studioConfig = computed(() => ({ headers: { 'X-Agency-Id': String(scope.companyId.value) } }));
+const revision = ref('');
+const studioMessage = ref('');
+const reviewing = ref(false);
+const showingPreview = ref(false);
+const blockPanel = ref(null);
+const blockLibrary = computed(() => isStudio.value
+  ? PHASE1_BLOCK_LIBRARY.filter(block => block.type !== 'form')
+  : PHASE1_BLOCK_LIBRARY);
+const canPublish = computed(() => !!lessonTitle.value.trim() &&
+  blocks.value.some(block => !['divider', 'spacer'].includes(block.content_type)) &&
+  (publishStatus.value === 'draft' || dirty.value));
 
 const moduleId = computed(() => route.params.id);
 const loading = ref(true);
@@ -308,7 +366,8 @@ const saveStatusLabel = computed(() => {
 function markDirty() {
   dirty.value = true;
   saveError.value = false;
-  scheduleAutosave();
+  studioMessage.value = '';
+  if (!isStudio.value) scheduleAutosave();
 }
 
 function scheduleAutosave() {
@@ -332,6 +391,23 @@ function updateBlockData(clientKey, data) {
 }
 
 function onReorder() {
+  markDirty();
+}
+
+function showBlocks() {
+  rightTab.value = 'library';
+  nextTick(() => blockPanel.value?.querySelector('.library-card')?.focus());
+}
+
+function goToBlock(key) {
+  centerTab.value = 'build';
+  selectBlock(key);
+  nextTick(() => document.getElementById(`edit-${key}`)?.focus());
+}
+
+function moveOutlineBlock(index, delta) {
+  const [block] = blocks.value.splice(index, 1);
+  blocks.value.splice(index + delta, 0, block);
   markDirty();
 }
 
@@ -380,6 +456,11 @@ function duplicateBlock(clientKey) {
   markDirty();
 }
 
+function updateTitle() {
+  selectedBlock.value.content_data = { ...selectedBlock.value.content_data, title: selectedBlock.value.title };
+  markDirty();
+}
+
 function syncFeedback() {
   if (selectedBlock.value?.content_type === 'knowledge_check') {
     selectedBlock.value.content_data.explanation =
@@ -393,10 +474,14 @@ async function loadModule() {
   error.value = '';
   try {
     const id = moduleId.value;
-    const [modRes, contentRes] = await Promise.all([
-      api.get(`/modules/${id}`),
-      api.get(`/modules/${id}/content`)
-    ]);
+    const company = scope.companyId.value;
+    if (isStudio.value && !company) return;
+    const result = isStudio.value ? (await api.get(`/modules/${id}/studio`, studioConfig.value)).data : null;
+    const [modRes, contentRes] = result
+      ? [{ data: result.module }, { data: result.blocks }]
+      : await Promise.all([api.get(`/modules/${id}`), api.get(`/modules/${id}/content`)]);
+    if (id !== moduleId.value || company !== scope.companyId.value) return;
+    revision.value = result?.revision || '';
     module.value = modRes.data;
     lessonTitle.value = modRes.data.title || '';
     lessonDescription.value = modRes.data.description || '';
@@ -410,7 +495,22 @@ async function loadModule() {
     dirty.value = false;
     selectedKey.value = blocks.value[0]?.clientKey || null;
 
-    if (focusId.value) {
+    if (result) {
+      showingPreview.value = false;
+      reviewing.value = false;
+      studioMessage.value = '';
+      lastSavedAt.value = null;
+      if (!blocks.value.length && publishStatus.value === 'draft') {
+        const starter = plotlineLessonStarters.find(item => item.id === route.query.starter);
+        for (const item of starter?.blocks || []) {
+          addBlock(item.type);
+          const block = blocks.value.at(-1);
+          block.title = item.title;
+          block.content_data.title = item.title;
+        }
+        if (blocks.value.length) goToBlock(blocks.value[0].clientKey);
+      }
+    } else if (focusId.value) {
       await loadFocusOutline(focusId.value);
     } else {
       focusMeta.value = null;
@@ -448,6 +548,7 @@ async function loadFocusOutline(id) {
 }
 
 async function saveBlocks(isAutosave = false) {
+  if (isStudio.value) return saveStudio(false);
   if (saving.value) return;
   saving.value = true;
   saveError.value = false;
@@ -506,7 +607,45 @@ async function saveLessonMeta() {
   }
 }
 
+async function saveStudio(publish) {
+  if (saving.value || !revision.value) return;
+  saving.value = true;
+  studioMessage.value = '';
+  saveError.value = false;
+  try {
+    const { data } = await api.put(`/modules/${moduleId.value}/studio`, {
+      revision: revision.value, title: lessonTitle.value, description: lessonDescription.value,
+      estimatedMinutes: estimatedMinutes.value, publish,
+      blocks: blocks.value.map((block, index) => ({ id: block.id, ...blockToApiPayload(block, index) }))
+    }, studioConfig.value);
+    module.value = data.module;
+    revision.value = data.revision;
+    publishStatus.value = data.module.publish_status;
+    moduleVersion.value = data.module.version;
+    const index = blocks.value.findIndex(block => block.clientKey === selectedKey.value);
+    blocks.value = data.blocks.map(apiRowToBlock);
+    selectedKey.value = blocks.value[index]?.clientKey || null;
+    dirty.value = false;
+    reviewing.value = false;
+    lastSavedAt.value = new Date();
+    if (route.query.starter) {
+      const { starter, ...query } = route.query;
+      await router.replace({ query });
+    }
+  } catch (error) {
+    saveError.value = true;
+    studioMessage.value = error.response?.data?.error?.message || 'Could not save this lesson. Your edits are still here.';
+    reviewing.value = false;
+  } finally {
+    saving.value = false;
+  }
+}
+
 async function publishLesson() {
+  if (isStudio.value) {
+    if (canPublish.value) { showingPreview.value = false; reviewing.value = true; }
+    return;
+  }
   await saveBlocks(false);
   if (saveError.value) return;
   try {
@@ -634,6 +773,7 @@ function useMediaItem(item) {
 }
 
 function openPreview() {
+  if (isStudio.value) { reviewing.value = false; showingPreview.value = true; return; }
   const org = route.params.organizationSlug;
   const path = org
     ? `/${org}/module/${moduleId.value}`
@@ -643,7 +783,7 @@ function openPreview() {
 
 function goBack() {
   const org = route.params.organizationSlug;
-  router.push(org ? `/${org}/admin/modules` : '/admin/modules');
+  router.push(org ? `/${org}/admin/modules${isStudio.value ? '/studio' : ''}` : '/admin/modules');
 }
 
 async function switchLesson(id) {
@@ -698,10 +838,24 @@ function formatUpdated(iso) {
   }
 }
 
-watch(moduleId, () => loadModule());
+function canLeaveLesson() {
+  if (!isStudio.value) return true;
+  if (saving.value) return false;
+  return !dirty.value || window.confirm('Leave this lesson without saving its changes?');
+}
+onBeforeRouteLeave(canLeaveLesson);
+onBeforeRouteUpdate((to, from) => {
+  if (to.params.id !== from.params.id || to.params.organizationSlug !== from.params.organizationSlug) return canLeaveLesson();
+});
+function beforeUnload(event) {
+  if (isStudio.value && (dirty.value || saving.value)) { event.preventDefault(); event.returnValue = ''; }
+}
 
-onMounted(loadModule);
+watch([moduleId, scope.companyId, () => route.params.organizationSlug], loadModule);
+
+onMounted(() => { window.addEventListener('beforeunload', beforeUnload); loadModule(); });
 onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', beforeUnload);
   if (autosaveTimer) clearTimeout(autosaveTimer);
 });
 </script>
@@ -918,5 +1072,49 @@ onBeforeUnmount(() => {
 @media (max-width: 800px) {
   .builder-body { grid-template-columns: 1fr; }
   .left-pane { display: none; }
+}
+
+.plotline-studio {
+  --bg: #fff; --bg-alt: #f5f7f1; --border: #dce6dc;
+  --primary: var(--pl-company-primary, #205846); --secondary: #184333; --accent: #205846;
+  --text-primary: #203c32; --text-secondary: #52685b; --error: #9a3427; --warning: #785316;
+  color: var(--text-primary); max-width: 1530px; margin: 0 auto; padding: clamp(8px, 2vw, 24px); gap: 16px;
+}
+.plotline-studio .builder-topbar { border: 1px solid var(--border); border-radius: 16px; flex-wrap: wrap; position: static; }
+.plotline-studio .title-wrap h1 { font-size: clamp(1.3rem, 3vw, 1.9rem); overflow-wrap: anywhere; }
+.plotline-studio .title-wrap p { margin: 0; }
+.plotline-studio :is(.btn-primary, .studio-review .btn-primary) { background: var(--primary); color: var(--pl-company-on-primary, #fff); }
+.plotline-studio .builder-body { grid-template-columns: minmax(170px, 220px) minmax(0, 1fr) minmax(240px, 310px); gap: 14px; align-items: start; }
+.plotline-studio .pane { border: 1px solid var(--border); border-radius: 14px; background: white; min-width: 0; }
+.plotline-studio .center-tabs, .plotline-studio .right-tabs, .plotline-studio .settings-tabs { flex-wrap: wrap; position: static; padding: 10px; }
+.plotline-studio .canvas-wrap { padding: 12px; }
+.plotline-studio .block-library { grid-template-columns: 1fr; }
+.plotline-studio .library-card { padding: 12px; border-color: var(--border); }
+.plotline-studio .library-card strong { font-size: .94rem; }
+.plotline-studio .library-card span { font-size: .8rem; }
+.plotline-studio .outline-blocks { list-style: none; padding: 0; }
+.plotline-studio .outline-blocks li { padding: 7px 0; border-bottom: 1px solid var(--border); }
+.plotline-studio .outline-blocks button { padding: 6px 8px; font-size: .8rem; }
+.plotline-studio .outline-blocks li>button { width: 100%; text-align: left; overflow-wrap: anywhere; }
+.plotline-studio .outline-blocks li>button[aria-current] { background: #eaf1e9; border-color: var(--primary); }
+.plotline-studio .outline-blocks small { display: block; }
+.plotline-studio .outline-blocks li div { display: flex; gap: 4px; margin-top: 5px; }
+.studio-preview, .studio-review { border: 1px solid var(--border); border-radius: 14px; padding: clamp(12px, 3vw, 28px); background: #fff; }
+.studio-review button { margin-right: 8px; }
+.studio-message { padding: 12px; border: 1px solid #dba797; border-radius: 8px; background: #fff5ef; color: var(--error); }
+.preview-controls { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px; }
+.preview-controls h2, .preview-controls p, .preview-controls label { margin: 0; }
+.preview-lesson { margin: 24px auto 0; padding: clamp(12px, 3vw, 32px); border: 1px solid var(--border); border-radius: 14px; overflow-wrap: anywhere; }
+@media (max-width: 1100px) {
+  .plotline-studio .builder-body { grid-template-columns: minmax(0, 1fr) minmax(215px, 290px); }
+  .plotline-studio .studio-outline { display: block; grid-column: 1 / -1; }
+  .plotline-studio .outline-blocks { display: flex; flex-wrap: wrap; gap: 10px; }
+  .plotline-studio .right-pane { display: block; }
+}
+@media (max-width: 720px) {
+  .plotline-studio .builder-body { grid-template-columns: minmax(0, 1fr); }
+  .plotline-studio .studio-outline { display: block; }
+  .plotline-studio .center-pane { padding-bottom: 12px; }
+  .plotline-studio .block-library { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 </style>
