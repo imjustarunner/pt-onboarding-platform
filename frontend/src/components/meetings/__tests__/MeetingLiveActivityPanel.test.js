@@ -38,3 +38,15 @@ it('preserves unsent text after a failed send and permits retry without rejoinin
   expect(m.post.mock.calls[0][2].timeout).toBe(10000);
   expect(input.element.value).toBe(''); expect(wrapper.text()).toContain('Can you hear me?');
 });
+
+it('lets a reader stay scrolled up during a background chat refresh', async () => {
+  m.get.mockResolvedValue({data:{activity:[]}});
+  wrapper = mount(Panel, {props:{eventId:7, joinIdentity:'user-4'}});
+  await flushPromises();
+  const history = wrapper.get('.mlap__messages').element;
+  Object.defineProperty(history, 'scrollHeight', {value:1200});
+  Object.defineProperty(history, 'clientHeight', {value:200});
+  history.scrollTop = 150;
+  await vi.advanceTimersByTimeAsync(4000);
+  expect(history.scrollTop).toBe(150);
+});

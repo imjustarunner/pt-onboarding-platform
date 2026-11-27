@@ -15,15 +15,16 @@ import JoinTeamMeetingView from '../JoinTeamMeetingView.vue';
 let wrapper;
 beforeEach(() => {
   vi.useFakeTimers(); vi.clearAllMocks(); m.host = true; m.failContent = false; m.capabilities=undefined;
+  m.subtype = 'general';
   m.workspace = { goals: [], actionItems: [] }; m.agenda = [];
   m.get.mockImplementation(async url => {
     if (url.endsWith('/workspace')) {
       if (m.failContent) throw new Error('Offline');
-      return { data: { workspace: m.workspace, meetingSettings: { agenda: false, goals: false, actionItems: false }, participants: [], meetingSubtype: 'general' } };
+      return { data: { workspace: m.workspace, meetingSettings: { agenda: false, goals: false, actionItems: false }, participants: [], meetingSubtype: m.subtype } };
     }
     if (url === '/meeting-agendas') return { data: { items: m.agenda } };
-    if (url.includes('join-info')) return { data: { orgSlug: 'tenant', eventId: 101, meetingSubtype: 'general' } };
-    if (url.includes('video-token')) return { data: { token: 'video', sessionId: 'room', applicationId: 'app', eventId: 101, capabilities:m.capabilities, isHost: m.host, identity: 'user-9', meetingSubtype: 'general' } };
+    if (url.includes('join-info')) return { data: { orgSlug: 'tenant', eventId: 101, meetingSubtype: m.subtype } };
+    if (url.includes('video-token')) return { data: { token: 'video', sessionId: 'room', applicationId: 'app', eventId: 101, capabilities:m.capabilities, isHost: m.host, identity: 'user-9', meetingSubtype: m.subtype } };
     if (url.includes('meeting-candidates')) return { data: { users: [{ id: 12, firstName: 'Test', lastName: 'Attendee' }] } };
     return { data: {} };
   });
@@ -39,6 +40,17 @@ const video = () => wrapper.findComponent({ name: 'SupervisionVideoRoom' });
 const button = label => wrapper.findAll('button').find(b => b.text() === label);
 
 describe('meeting layout follows content', () => {
+  it('keeps training attendance available on demand and checks completion without rejoining', async () => {
+    m.subtype = 'training';
+    await render();
+    expect(m.get.mock.calls.some(([url]) => url.endsWith('/attendance'))).toBe(false);
+    expect(wrapper.findComponent({ name:'MeetingAttendancePanel' }).exists()).toBe(false);
+    await button('Show attendance').trigger('click');
+    expect(wrapper.findComponent({ name:'MeetingAttendancePanel' }).exists()).toBe(true);
+    await button('Hide attendance').trigger('click');
+    expect(wrapper.findComponent({ name:'MeetingAttendancePanel' }).exists()).toBe(false);
+    expect(m.get.mock.calls.filter(([url]) => url.endsWith('/admission-status')).at(-1)[1].params).toEqual({statusOnly:'1'});
+  });
   it('uses equal/full video for empty content even when options exist, and lets either participant reveal editors', async () => {
     m.host = false;
     await render();

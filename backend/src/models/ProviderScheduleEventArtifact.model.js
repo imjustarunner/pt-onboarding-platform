@@ -56,6 +56,14 @@ class ProviderScheduleEventArtifact {
     return { ...mapped, recording_url: mapped.recordingUrl, recording_path: mapped.recordingPath };
   }
 
+  static async transcriptControls(eventId) {
+    const [rows] = await pool.execute(
+      `SELECT transcript_started_at, transcript_paused, transcript_stopped_at, transcript_stopped_by_name
+       FROM provider_schedule_event_artifacts WHERE event_id = ? LIMIT 1`, [eventId]
+    );
+    return rows[0] || null;
+  }
+
   static toWorkspaceDto(row) {
     if (!row) {
       return { focusTitle: '', goals: [], actionItems: [] };

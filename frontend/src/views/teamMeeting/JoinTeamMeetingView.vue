@@ -295,7 +295,7 @@
               @meeting-ended="onMeetingEnded"
               @interview-guest-ended="onInterviewGuestEndedSignal"
               @hands-map-change="onHandsMapChange"
-              @training-state-changed="trainingPanelRef?.load()"
+              @training-state-changed="trainingPanelRef?.reloadAfterChange()"
               @hand-raised-change="isTraining && trainingPanelRef?.hand($event ? 'raise' : 'lower')"
               @audio-map-change="onAudioMapChange"
               @transcript-control="onRemoteTranscriptControl"
@@ -312,7 +312,6 @@
               </template>
             </SupervisionVideoRoom>
           </div>
-          <ScheduledTrainingPanel v-if="isTraining && resolvedEventId" ref="trainingPanelRef" :event-id="resolvedEventId" :live="!isInLobby" @state="trainingState=$event" @private-chat="trainingPrivateChat" />
           <InterviewSharedChat v-if="isInterviewMeeting && canSeeFullWorkspace && !isInLobby && resolvedEventId && !videoFullscreen"
             :endpoint="`/team-meetings/${resolvedEventId}/interview-chat`" />
           <section
@@ -333,13 +332,14 @@
               :event-id="resolvedEventId"
               :is-host="isHost"
               :can-create-polls="canCreatePolls"
-              :start-open="true"
+              :start-open="chatPanelOpen"
               :below-video="true"
               theme="dark"
               @update:open="chatPanelOpen = $event"
               @activity-notice="onLiveActivityNotice"
             />
           </section>
+          <ScheduledTrainingPanel v-if="isTraining && resolvedEventId" ref="trainingPanelRef" :event-id="resolvedEventId" :live="!isInLobby" @state="trainingState=$event" @private-chat="trainingPrivateChat" />
           <section v-if="transcriptEnabled && !canSeeFullWorkspace && !videoFullscreen && !isInterviewMeeting && !isEvaluationMeeting" class="join-stack-section">
             <MeetingNotesPanel
               :event-id="resolvedEventId"
@@ -466,6 +466,7 @@
                 :can-add-item="canEditAgenda"
                 :embedded="true"
                 :live="true"
+                :poll-ms="isTraining ? 30000 : 8000"
                 :live-sidebar="true"
                 theme="dark"
                 @updated="refreshWorkspaceLayout"
@@ -478,6 +479,7 @@
                 :compact="false"
                 :meeting-subtype="meetingSubtype"
                 :live="true"
+                :poll-ms="isTraining ? 30000 : 8000"
                 @saved="refreshWorkspaceLayout"
                 embedded
               />
@@ -489,12 +491,17 @@
                 :compact="false"
                 :meeting-subtype="meetingSubtype"
                 :live="true"
+                :poll-ms="isTraining ? 30000 : 8000"
                 @saved="refreshWorkspaceLayout"
                 embedded
               />
             </section>
             <section v-if="showAttendanceTab" class="join-stack-section">
+              <button v-if="isTraining" type="button" class="btn btn-secondary btn-sm" :aria-expanded="trainingAttendanceOpen" @click="trainingAttendanceOpen = !trainingAttendanceOpen">
+                {{ trainingAttendanceOpen ? 'Hide' : 'Show' }} attendance
+              </button>
               <MeetingAttendancePanel
+                v-if="!isTraining || trainingAttendanceOpen"
                 ref="attendancePanelRef"
                 :event-id="resolvedEventId"
                 :live-poll="true"
@@ -507,7 +514,11 @@
               />
             </section>
             <section v-if="showNotesTab" class="join-stack-section">
+              <button v-if="isTraining" type="button" class="btn btn-secondary btn-sm" :aria-expanded="trainingNotesOpen" @click="trainingNotesOpen = !trainingNotesOpen">
+                {{ trainingNotesOpen ? 'Hide' : 'Show' }} meeting notes
+              </button>
               <MeetingNotesPanel
+                v-if="!isTraining || trainingNotesOpen"
                 :event-id="resolvedEventId"
                 :live-capturing="transcriptCapturing"
                 :live-hint="transcriptHint"
@@ -800,7 +811,9 @@ const workspaceBannerVisible = ref(true);
 const transcriptionNoticeDismissed = ref(false);
 const videoConnected = ref(false);
 let admissionPollInterval = null;
+let pendingAdmission = null;
 let presencePollInterval = null;
+let pendingHeartbeat = null;
 let completionPollInterval = null;
 
 /** Roles that see full meeting workspace (agenda/goals/actions/attendance/transcript). */
@@ -910,7 +923,6 @@ let workspaceLayoutGeneration = 0;
 function showMeetingDetails() {
   detailsRequested.value = true;
   videoFullscreen.value = false;
-  chatPanelOpen.value = false;
 }
 async function refreshWorkspaceLayout() {
   const eid = Number(resolvedEventId.value || 0);
@@ -1148,6 +1160,8 @@ const trainingState = ref(null);
 const meetingChatParticipants = ref([]);
 const trainingViewerId = computed(()=>Number(trainingState.value?.viewerUserId || /^user-(\d+)$/.exec(joinIdentity.value)?.[1] || authStore.user?.id));
 const trainingPanelRef = ref(null);
+const trainingAttendanceOpen = ref(false);
+const trainingNotesOpen = ref(false);
 const liveChatRef = ref(null);
 const isTraining = computed(()=>meetingSubtype.value==='training');
 const trainingPolicy = computed(()=>!isTraining.value ? null : {
@@ -1162,7 +1176,12 @@ const trainingPolicy = computed(()=>!isTraining.value ? null : {
 watch(() => trainingState.value?.event?.videoAllowed, (allowed, previous) => {
   if (isTraining.value && allowed !== undefined && allowed !== previous) tileFocus.value = allowed ? 'equal' : 'speaker';
 });
-async function trainingPrivateChat(id){chatPanelOpen.value=true;await nextTick();liveChatRef.value?.openPrivateChat(id);}
+async function trainingPrivateChat(id) {
+  videoFullscreen.value = false;
+  chatPanelOpen.value = true;
+  await nextTick();
+  liveChatRef.value?.openPrivateChat(id);
+}
 const actorRole = computed(() => String(authStore.user?.role || '').toLowerCase().trim());
 
 /** Roles that may force-mute other participants (in addition to host). */
@@ -1368,6 +1387,7 @@ function applyClosurePayload(data = {}) {
 }
 
 function stopAdmissionPolling() {
+  pendingAdmission = null;
   if (admissionPollInterval) {
     clearInterval(admissionPollInterval);
     admissionPollInterval = null;
@@ -1375,6 +1395,7 @@ function stopAdmissionPolling() {
 }
 
 function stopPresenceHeartbeat() {
+  pendingHeartbeat = null;
   if (presencePollInterval) {
     clearInterval(presencePollInterval);
     presencePollInterval = null;
@@ -1398,6 +1419,7 @@ async function readMeetingCompletion() {
   if (!eid || intentionalLeave.value || meetingCompletedAt.value) return;
   try {
     const resp = await api.get(`/team-meetings/${encodeURIComponent(eid)}/admission-status`, {
+      params: isTraining.value ? { statusOnly: '1' } : undefined,
       skipAuthRedirect: true,
       skipGlobalLoading: true,
       timeout: 10000
@@ -1431,6 +1453,10 @@ async function sendPresence(action = 'heartbeat') {
   const eid = isInterviewMeeting.value ? eventId.value : (resolvedEventId.value || eventId.value);
   const identity = joinIdentity.value;
   if (!eid || !identity) return;
+  const heartbeat = action === 'heartbeat';
+  if (heartbeat && pendingHeartbeat) return;
+  const request = Symbol();
+  if (heartbeat) pendingHeartbeat = request;
   try {
     const { data } = await api.post(`/team-meetings/${encodeURIComponent(eid)}/join-presence`, {
       identity,
@@ -1438,9 +1464,13 @@ async function sendPresence(action = 'heartbeat') {
       action,
       displayName: localDisplayName.value || undefined
     }, { skipAuthRedirect: true, skipGlobalLoading: true });
-    canEndForEveryone.value = action === 'heartbeat' && !intentionalLeave.value && data?.canEndForEveryone === true;
+    if (heartbeat && pendingHeartbeat === request) {
+      canEndForEveryone.value = !intentionalLeave.value && data?.canEndForEveryone === true;
+    }
   } catch {
-    canEndForEveryone.value = false;
+    if (pendingHeartbeat === request) canEndForEveryone.value = false;
+  } finally {
+    if (pendingHeartbeat === request) pendingHeartbeat = null;
   }
 }
 
@@ -1452,13 +1482,16 @@ function startPresenceHeartbeat() {
 
 async function pollAdmission() {
   const eid = meetingJoinRef.value || eventId.value;
-  if (!eid || !isInLobby.value) return;
+  if (!eid || !isInLobby.value || intentionalLeave.value || pendingAdmission) return;
+  const request = Symbol();
+  pendingAdmission = request;
   try {
     const resp = await api.get(`/team-meetings/${encodeURIComponent(eid)}/admission-status`, {
       skipAuthRedirect: true,
       skipGlobalLoading: true,
       timeout: 10000
     });
+    if (pendingAdmission !== request || !isInLobby.value || intentionalLeave.value) return;
     const data = resp?.data || {};
     applyGuestLinkStatus(data);
     if (data.interviewGuestEnded) { onInterviewGuestEndedSignal(data); return; }
@@ -1485,7 +1518,9 @@ async function pollAdmission() {
       startCompletionPolling();
     }
   } catch (e) {
-    if (e?.response?.data?.interviewGuestEnded) onInterviewGuestEndedSignal(e.response.data);
+    if (pendingAdmission === request && e?.response?.data?.interviewGuestEnded) onInterviewGuestEndedSignal(e.response.data);
+  } finally {
+    if (pendingAdmission === request) pendingAdmission = null;
   }
 }
 
@@ -2235,6 +2270,8 @@ watch(
 watch(
   () => Number(resolvedEventId.value || 0),
   async (eid) => {
+    trainingAttendanceOpen.value = false;
+    trainingNotesOpen.value = false;
     if (!eid) return;
     try {
       const { data } = await api.get(`/team-meetings/${eid}/workspace`, {
@@ -2263,6 +2300,7 @@ watch(
         meetingSubtype.value = 'general';
       }
     }
+    if (isTraining.value) return;
     try {
       const { data: att } = await api.get(`/team-meetings/${eid}/attendance`, {
         skipGlobalLoading: true,
@@ -2284,14 +2322,14 @@ watch(
   }
 );
 
-watch([resolvedEventId, isInLobby, canSeeMeetingWorkspace], () => {
+watch([resolvedEventId, isInLobby, canSeeMeetingWorkspace, isTraining], () => {
   clearInterval(workspaceLayoutTimer);
   workspaceLayoutGeneration += 1;
   workspaceLayoutInitialized = false;
   workspaceContentKeys = new Set();
   if (!resolvedEventId.value || isInLobby.value || !canSeeMeetingWorkspace.value) return;
   void refreshWorkspaceLayout();
-  workspaceLayoutTimer = setInterval(refreshWorkspaceLayout, 8000);
+  workspaceLayoutTimer = setInterval(refreshWorkspaceLayout, isTraining.value ? 30000 : 8000);
 });
 
 onMounted(async () => {
@@ -2460,6 +2498,7 @@ onUnmounted(() => {
   flex: 1;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(320px, 400px);
+  grid-template-rows: minmax(0, 1fr);
   gap: 14px;
   min-height: 0;
   align-items: stretch;
@@ -2654,6 +2693,10 @@ onUnmounted(() => {
   top: 0;
   z-index: 6;
 }
+.join-session-layout:not(.join-session-layout--video-fs) .join-video:not(.join-video--lobby) .join-host-lobby {
+  max-height: 35dvh;
+  overflow-y: auto;
+}
 .join-video {
   min-width: 0;
   min-height: 0;
@@ -2712,7 +2755,7 @@ onUnmounted(() => {
   min-height: 0 !important;
   height: 100%;
 }
-.join-session-layout--video-focus .join-video {
+.join-session-layout--video-fs .join-video {
   overflow: hidden;
 }
 .join-session-layout--video-focus .join-video :deep(.supervision-video-room) {
@@ -3007,12 +3050,22 @@ onUnmounted(() => {
   .join-video--lobby { min-height: 0; overflow: auto; }
   .join-video--lobby :deep(.swr) { position: relative; inset: auto; flex: 0 0 auto; }
   .join-video--lobby :deep(.swr__overlay) { position: relative; inset: auto; padding: 18px; max-width: none; }
-  .join-session-layout,
-  .join-session-layout--chat-only {
-    grid-template-columns: 1fr;
+  .join-session-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .join-session-layout:not(.join-session-layout--video-fs):not(.join-session-layout--lobby) {
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .join-session-layout:not(.join-session-layout--video-fs):not(.join-session-layout--interview) .join-video:not(.join-video--lobby) {
+    flex: 0 0 auto;
+    height: auto;
+    overflow: visible;
   }
   .join-workspace {
-    max-height: 48vh;
+    flex: 0 0 auto;
+    max-height: none;
   }
   .join-video__stage--pip {
     position: relative;

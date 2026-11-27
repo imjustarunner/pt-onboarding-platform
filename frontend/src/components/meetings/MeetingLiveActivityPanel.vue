@@ -91,6 +91,7 @@
             <input type="file" accept="image/*" class="mlap__file" :disabled="sending" @change="onChatPhoto" />
           </label>
           <input
+            ref="composer"
             v-model="chatInput"
             type="text"
             class="mlap__input"
@@ -307,7 +308,15 @@ const error = ref('');
 const chatInput = ref('');
 const privateRecipient = ref('');
 const privateChoices = computed(()=>props.participants.filter(p=>Number(p.id || p.userId)!==Number(/^user-(\d+)$/.exec(props.joinIdentity)?.[1] || authStore.user?.id)));
-function openPrivateChat(id){privateRecipient.value=String(id);tab.value='chat';panelOpen.value=true;emit('update:open',true);}
+const composer = ref(null);
+async function openPrivateChat(id) {
+  privateRecipient.value = String(id);
+  tab.value = 'chat';
+  panelOpen.value = true;
+  emit('update:open', true);
+  await nextTick();
+  composer.value?.focus();
+}
 const chatMessages = ref([]);
 const pollQuestion = ref('');
 const pollOptionsText = ref('');
@@ -592,6 +601,9 @@ async function readActivity({ quiet = false } = {}) {
     });
     if (base !== (isGuestActivity.value ? guestActivityPath() : activityApiBase())) return;
     const list = Array.isArray(resp?.data?.activity) ? resp.data.activity : [];
+    const messages = chatMessagesEl.value;
+    const followChat = !initialLoadDone || !messages
+      || messages.scrollHeight - messages.clientHeight - messages.scrollTop <= 24;
     const prevIds = new Set(seenIds);
     const newCounts = { chat: 0, polls: 0, qa: 0 };
 
@@ -653,7 +665,7 @@ async function readActivity({ quiet = false } = {}) {
 
     initialLoadDone = true;
     await nextTick();
-    if (chatMessagesEl.value && tab.value === 'chat') {
+    if (followChat && chatMessagesEl.value && tab.value === 'chat') {
       chatMessagesEl.value.scrollTop = chatMessagesEl.value.scrollHeight;
     }
   } catch (e) {
@@ -1138,7 +1150,7 @@ defineExpose({ openPrivateChat, loadActivity, open: () => { panelOpen.value = tr
   display: flex;
   flex-direction: column;
   min-height: 0;
-  overflow: hidden;
+  overflow: auto;
 }
 .mlap__messages {
   flex: 1;

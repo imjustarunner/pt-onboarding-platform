@@ -84,3 +84,19 @@ it('ignores an old poll that finishes after the trainer enables cameras',async()
  expect(w.emitted('state').slice(savedCount).every(([state])=>state.event.videoAllowed)).toBe(true);
  expect(w.get('input[type=checkbox]').element.checked).toBe(true);w.unmount();
 });
+
+it('refreshes a quiet training at 30 seconds and a moderation signal immediately', async () => {
+ vi.useFakeTimers();
+ const value = data(false);
+ m.get.mockResolvedValue({data:value});
+ const panel = mount(Panel, {props:{eventId:7, live:true}});
+ try {
+   await flushPromises(); expect(m.get).toHaveBeenCalledTimes(1);
+   await vi.advanceTimersByTimeAsync(20000); expect(m.get).toHaveBeenCalledTimes(1);
+   await vi.advanceTimersByTimeAsync(10000); expect(m.get).toHaveBeenCalledTimes(2);
+   const approved = {...value, approvedIds:[4]};
+   m.get.mockResolvedValueOnce({data:approved});
+   await panel.vm.reloadAfterChange();
+   expect(panel.emitted('state').at(-1)[0].approvedIds).toEqual([4]);
+ } finally { panel.unmount(); vi.useRealTimers(); }
+});
