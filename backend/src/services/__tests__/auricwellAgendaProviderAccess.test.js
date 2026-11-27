@@ -2,7 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const state = vi.hoisted(() => ({ person: null, rollout: true }));
 vi.mock('../../config/database.js', () => ({ onTableWrite: vi.fn(), default: { execute: vi.fn(async sql => {
   if (sql.includes('SELECT u.id,u.first_name')) return [[state.person]];
-  if (sql === 'SELECT feature_flags FROM agencies WHERE id = ?') return [[{ feature_flags: { clientSessionBookingRollout: { revision: 1, entries: [{ providerUserId: 19, enabled: state.rollout }] } } }]];
+  if (sql === 'SELECT feature_flags, slug FROM agencies WHERE id = ?') return [[{ feature_flags: { clientSessionBookingRollout: { revision: 1, entries: [{ providerUserId: 19, enabled: state.rollout }] } } }]];
+  if (sql.startsWith('SELECT id,work_email,personal_email')) return [[{ login_is_group_email: 1, sso_password_override: 1,
+    work_email: 'provider@work.example.test', personal_email: 'provider@personal.example.test', password_hash: 'synthetic-hash' }]];
+  if (sql.startsWith('SELECT id,state FROM provider_account_conversions')) return [[]];
+  if (sql.startsWith('SELECT u.role,u.is_active')) return [[]];
   if (sql.includes('u.sees_clients,u.has_provider_access')) return [[state.person]];
   if (sql.includes('SELECT DISTINCT c.id')) return [[]];
   throw new Error(`Unexpected synthetic provider eligibility query: ${sql.slice(0, 70)}`);

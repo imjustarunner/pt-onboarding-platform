@@ -40,7 +40,7 @@ describe('AuricWell agenda review', () => {
     await button(wrapper, 'Read pasted agenda').trigger('click'); await flushPromises();
     await wrapper.findAll('input[type=checkbox]').at(-1).setValue(true);
     await button(wrapper, 'Create reviewed').trigger('click'); await flushPromises();
-    expect(api.post).toHaveBeenLastCalledWith('/auricwell-agenda-import/commit', expect.objectContaining({ agencyId: 2, providerId: 19, confirm: true, previewToken: 'reviewed-token', rows: [expect.objectContaining({ clientId: 41 })] }));
+    expect(api.post).toHaveBeenLastCalledWith('/auricwell-agenda-import/commit', expect.objectContaining({ agencyId: 2, providerId: 19, confirm: true, previewToken: 'reviewed-token', rows: [expect.objectContaining({ clientId: 41 })] }), expect.objectContaining({ headers: { 'X-Agency-Id': '2' } }));
     expect(wrapper.emitted('saved')[0][0]).toMatchObject({ agencyId: 2, providerId: 19, appointments: [{ id: 100 }] });
     expect(wrapper.text()).toContain('Scheduled 1 new appointments');
     expect(button(wrapper, 'Create reviewed').element.disabled).toBe(true);
@@ -53,7 +53,30 @@ describe('AuricWell agenda review', () => {
     await wrapper.setProps({ providerId: 20 }); await flushPromises();
     expect(wrapper.get('textarea').element.value).toBe('');
     expect(button(wrapper, 'Create reviewed')).toBeUndefined();
-    expect(api.get).toHaveBeenLastCalledWith('/auricwell-agenda-import/options', { params: { agencyId: 2, providerId: 20 } });
+    expect(api.get).toHaveBeenLastCalledWith('/auricwell-agenda-import/options', { params: { agencyId: 2, providerId: 20 }, headers: { 'X-Agency-Id': '2' } });
     wrapper.unmount();
   });
+});
+
+it('switches between exact dates and recurrence, and retains explicit resolution for ambiguous initials', async () => {
+  const wrapper = await setup();
+  await wrapper.get('select').setValue('recurring');
+  expect(button(wrapper, 'Read pasted agenda').element.disabled).toBe(true);
+  await wrapper.findAll('input[type=date]')[1].setValue('2026-12-17');
+  api.get.mockResolvedValue({ data: { ...options, clients: [...options.clients, { id: 42, label: 'Ava Harris' }] } });
+  await button(wrapper, 'Refresh provider').trigger('click');
+  await flushPromises();
+  api.post.mockResolvedValueOnce({ data: { ...preview, previewToken: null, rows: [{ ...preview.rows[0], clientId: null,
+    clientInput: 'AvHa', clientCandidateIds: [41, 42], status: 'blocked', errors: ['Multiple clients match.'] }] } });
+  await button(wrapper, 'Read pasted agenda').trigger('click');
+  await flushPromises();
+  expect(api.post).toHaveBeenLastCalledWith('/auricwell-agenda-import/preview', expect.objectContaining({ scheduleMode: 'recurring', untilDate: '2026-12-17' }), expect.objectContaining({ headers: { 'X-Agency-Id': '2' } }));
+  const select = wrapper.get('[aria-label="Client for row 1"]');
+  expect(select.element.selectedIndex).toBe(0);
+  expect(wrapper.text()).toContain('Multiple clients match.');
+  await select.setValue(42);
+  await button(wrapper, 'Check reviewed appointments').trigger('click');
+  await flushPromises();
+  expect(api.post).toHaveBeenLastCalledWith('/auricwell-agenda-import/preview', expect.objectContaining({ rows: [expect.objectContaining({ clientId: 42 })] }), expect.objectContaining({ headers: { 'X-Agency-Id': '2' } }));
+  wrapper.unmount();
 });

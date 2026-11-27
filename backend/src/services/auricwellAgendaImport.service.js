@@ -10,13 +10,13 @@ import { assertAppointmentWindowAvailable } from './appointmentConflict.service.
 import { sameDayServiceWarnings } from './sameDayServiceWarning.service.js';
 import { requireClientSessionBooking } from './clientSessionBookingRollout.service.js';
 import { withClientSchedulingLock } from './clientSchedulingGuard.service.js';
+import { agendaOfficeReservation, bookAgendaOfficeReservation } from './auricwellAgendaOffice.service.js';
 import { expandAppointmentRecurrence } from '../utils/appointmentRecurrence.js';
-import { agendaClock, agendaDate, addAgendaDays, parseAuricwellAgendaPaste, validateAgendaWeek } from '../utils/auricwellAgendaPaste.js';
+import { agendaClock, agendaDate, addAgendaDays, agendaLocationKind, inferAgendaRecurrence, matchAgendaClients, parseAuricwellAgendaPaste, suggestAgendaLocation, validateAgendaWeek } from '../utils/auricwellAgendaPaste.js';
 import { isValidTimeZone, wallMysqlToUtcMysql, utcMysqlToZonedWallMysql } from '../utils/zonedWallTime.util.js';
 
 const fail = (status, message, code = 'AGENDA_IMPORT_REVIEW') => Object.assign(new Error(message), { status, code });
 const digest = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
-const normName = value => String(value || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
 const sqlTime = value => value instanceof Date ? value.toISOString().slice(0, 19).replace('T', ' ') : String(value || '').replace('T', ' ').replace(/Z$/, '').slice(0, 19);
 const validId = value => Number.isSafeInteger(Number(value)) && Number(value) > 0 ? Number(value) : null;
 const recurrences = new Set(['ONCE', 'WEEKLY', 'BIWEEKLY']);
@@ -42,24 +42,36 @@ async function loadContext({ actor, agencyId, providerId }) {
   // The shared rollout gate also checks active tenant membership, the assigned
   // care role/provider access, and Sees clients. It supports staff with dual roles.
   await requireClientSessionBooking(agencyId, providerId, undefined, {actorUserId:actor.id});
-  const [clients] = await pool.execute(`SELECT DISTINCT c.id,c.full_name,c.initials,c.client_type,c.status,c.client_status_id,c.provider_id,c.updated_at
-    FROM clients c WHERE c.agency_id=? AND c.compliance_archived_at IS NULL AND UPPER(COALESCE(c.status,''))<>'ARCHIVED'
-      AND (c.provider_id=? OR EXISTS (SELECT 1 FROM client_provider_assignments ca WHERE ca.client_id=c.id AND ca.provider_user_id=? AND ca.is_active=1))
-    ORDER BY c.full_name,c.id LIMIT 501`, [agencyId, providerId, providerId]);
+  const [clients] = await pool.execute(`SELECT DISTINCT c.id,c.full_name,c.initials,c.client_type,c.status,c.client_status_id,c.organization_id,c.provider_id,c.updated_at
+    FROM clients c WHERE (c.agency_id=? OR EXISTS (SELECT 1 FROM client_agency_assignments ca WHERE ca.client_id=c.id AND ca.agency_id=? AND ca.is_active=1))
+      AND c.compliance_archived_at IS NULL AND UPPER(COALESCE(c.status,''))<>'ARCHIVED'
+      AND (c.provider_id=? OR EXISTS (SELECT 1 FROM client_provider_assignments ca WHERE ca.client_id=c.id AND ca.provider_user_id=? AND ca.is_active=1)
+        OR EXISTS (SELECT 1 FROM client_service_enrollments cs WHERE cs.client_id=c.id AND cs.agency_id=? AND cs.provider_user_id=? AND cs.is_active=1))
+    ORDER BY c.full_name,c.id LIMIT 501`, [agencyId, agencyId, providerId, providerId, agencyId, providerId]);
   if (clients.length > 500) throw fail(409, 'This provider has more than 500 clients. Review and narrow the active caseload before importing the agenda.');
   const { resolveBookingOptions } = await import('./appointment.service.js');
   const booking = await resolveBookingOptions({ agencyId, providerId });
   const services = booking.services.filter(service => service.isActive && service.isStaffBookable && service.allowsIndividual && service.serviceCode
     && !['90785', '90833', '90836', '90838', '90840', '99051'].includes(String(service.serviceCode).toUpperCase()));
   const locations = await AgencyServiceLocation.listByAgency(agencyId);
-  let schoolSlots = [];
-  if (locations.some(location => Number(location.school_organization_id))) {
-    [schoolSlots] = await pool.execute(`SELECT s.id,s.school_organization_id,s.client_id,s.weekday,s.start_time,s.end_time
-      FROM soft_schedule_slots s JOIN clients c ON c.id=s.client_id AND c.agency_id=?
-      WHERE s.provider_user_id=? ORDER BY s.school_organization_id,s.weekday,s.slot_index LIMIT 1000`, [agencyId, providerId]);
+  const clientIds = clients.map(client => Number(client.id));
+  const schoolIds = [...new Set(locations.map(location => Number(location.school_organization_id)).filter(Boolean))];
+  let schoolSlots = [], schoolAssignments = [];
+  if (schoolIds.length && clientIds.length) {
+    const clientParams = clientIds.map(() => '?').join(',');
+    const schoolParams = schoolIds.map(() => '?').join(',');
+    [[schoolSlots], [schoolAssignments]] = await Promise.all([
+      pool.execute(`SELECT id,school_organization_id,client_id,weekday,start_time,end_time
+        FROM soft_schedule_slots WHERE provider_user_id=? AND client_id IN (${clientParams})
+          AND school_organization_id IN (${schoolParams}) ORDER BY school_organization_id,weekday,slot_index,id`,
+      [providerId, ...clientIds, ...schoolIds]),
+      pool.execute(`SELECT client_id,organization_id FROM client_organization_assignments WHERE is_active=1
+        AND client_id IN (${clientParams}) AND organization_id IN (${schoolParams}) ORDER BY client_id,organization_id`,
+      [...clientIds, ...schoolIds])
+    ]);
   }
   const agency = await Agency.findById(agencyId);
-  return { agencyId, providerId, provider, clients, services, locations, schoolSlots, timeZone: agency?.timezone || 'America/Denver' };
+  return { agencyId, providerId, provider, clients, services, locations, schoolSlots, schoolAssignments, timeZone: agency?.timezone || 'America/Denver' };
 }
 
 async function findExisting(row) {
@@ -113,6 +125,7 @@ async function canonicalBook({ actor, row, acknowledgeSameDayServices }) {
     agencyId: row.agencyId, providerUserId: row.providerId, tenantServiceId: row.tenantServiceId,
     serviceCode: row.serviceCode, startAt: `${row.startAt.replace(' ', 'T')}Z`, endAt: `${row.endAt.replace(' ', 'T')}Z`,
     timeZone: row.timeZone, modality: row.modality, serviceLocationId: row.serviceLocationId,
+    ...(row.officeLocationId ? { officeLocationId: row.officeLocationId } : {}),
     participants: [{ clientId: row.clientId, role: 'client' }], recurrence: 'ONCE', occurrenceCount: 1,
     source: row.source, title: 'Session', createProviderScheduleEvent: true, acknowledgeSameDayServices
   } }, response, error => { throw error; });
@@ -169,6 +182,7 @@ function strictInstant(date, time, timeZone) {
 export function createAuricwellAgendaImporter(overrides = {}) {
   const deps = {
     loadContext, findExisting, checkConflict, book: canonicalBook, completeFacets, lock: importLock,
+    findOffice: agendaOfficeReservation, bookOffice: bookAgendaOfficeReservation,
     clientLock: (row, work) => withClientSchedulingLock([row.clientId], work),
     sameDay: async ({ actor, row, existing }) => sameDayServiceWarnings({ agencyId: row.agencyId, user: actor, participants: [{ clientId: row.clientId, role: 'client' }], occurrences: [{ startAt: `${row.startAt.replace(' ', 'T')}Z` }], timeZone: row.timeZone, excludeAppointmentId: existing?.id || 0 }),
     checkSchool: async input => (await import('./schoolAppointmentTransition.service.js')).schoolAgendaLinkContext(input),
@@ -193,13 +207,28 @@ export function createAuricwellAgendaImporter(overrides = {}) {
     const context = await deps.loadContext({ actor, agencyId, providerId });
     const weekStart = validateAgendaWeek(input.weekStart), timeZone = String(input.timeZone || '');
     if (!isValidTimeZone(timeZone)) throw fail(400, 'Choose the agenda’s IANA time zone explicitly.');
-    const supplied = input.rows || parseAuricwellAgendaPaste(input.text, weekStart);
-    if (!Array.isArray(supplied) || !supplied.length || supplied.length > 100) throw fail(400, 'Review between 1 and 100 appointment rows at a time.');
+    const mode = input.scheduleMode || 'legacy';
+    if (!['legacy', 'as_sent', 'recurring'].includes(mode)) throw fail(400, 'Choose how to schedule the pasted agenda.');
+    const untilDate = mode === 'recurring' ? agendaDate(input.untilDate) : null;
+    if (mode === 'recurring' && (!untilDate || untilDate < weekStart || untilDate > addAgendaDays(weekStart, 364))) {
+      throw fail(400, 'Choose a last appointment date within one year of the first week.');
+    }
+    const resolveClient = row => {
+      const candidates = matchAgendaClients(context.clients, row.clientInput);
+      return { clientId: validId(row.clientId) || (candidates.length === 1 ? Number(candidates[0].id) : null), candidates };
+    };
+    let supplied = input.rows || parseAuricwellAgendaPaste(input.text, weekStart, { multipleWeeks: mode !== 'legacy' });
+    if (!Array.isArray(supplied) || !supplied.length || supplied.length > 200) throw fail(400, 'Review between 1 and 200 appointment rows at a time.');
+    if (!input.rows && mode === 'recurring') {
+      supplied = inferAgendaRecurrence(supplied.map(row => ({ ...row, clientId: resolveClient(row).clientId })));
+    }
     const defaults = input.defaults || {}, rows = [], occurrences = [], seen = new Map();
     for (const [index, suppliedRow] of supplied.entries()) {
       if (suppliedRow.include === false) continue;
       const row = {
         rowId: String(suppliedRow.rowId || `row-${index + 1}`).slice(0, 50), sourceLine: String(suppliedRow.sourceLine || '').slice(0, 500), clientInput: String(suppliedRow.clientInput || '').slice(0, 150),
+        serviceCodeInput: String(suppliedRow.serviceCodeInput || '').slice(0, 12), locationInput: String(suppliedRow.locationInput || '').slice(0, 200),
+        pastedDates: Array.isArray(suppliedRow.pastedDates) ? suppliedRow.pastedDates.filter(agendaDate).slice(0, 52) : [],
         clientId: validId(suppliedRow.clientId), date: suppliedRow.date || '', startTime: agendaClock(suppliedRow.startTime) || '', endTime: agendaClock(suppliedRow.endTime) || '',
         durationMinutes: Number(suppliedRow.durationMinutes || defaults.durationMinutes) || null,
         tenantServiceId: validId(suppliedRow.tenantServiceId || defaults.tenantServiceId), serviceLocationId: validId(suppliedRow.serviceLocationId || defaults.serviceLocationId),
@@ -209,20 +238,20 @@ export function createAuricwellAgendaImporter(overrides = {}) {
       rows.push(row);
       try {
         if (Array.isArray(suppliedRow.parseErrors) && suppliedRow.parseErrors.length) throw fail(400, suppliedRow.parseErrors.join(' '));
-        let clientId = validId(suppliedRow.clientId);
-        if (!clientId && row.clientInput) {
-          const matches = context.clients.filter(client => normName(client.full_name) === normName(row.clientInput));
-          if (matches.length === 1) clientId = Number(matches[0].id);
-        }
+        const { clientId, candidates } = resolveClient(suppliedRow);
         row.clientId = clientId;
+        row.clientCandidateIds = candidates.map(client => Number(client.id));
         const client = context.clients.find(client => Number(client.id) === clientId);
-        if (!client) throw fail(400, 'Choose a client from this provider’s current caseload. Names with multiple matches require an explicit selection.');
+        if (!client) throw fail(400, candidates.length > 1
+          ? 'Multiple clients match. Choose the correct chart.'
+          : 'Choose the client from this provider’s caseload.');
         row.clientLabel = client.full_name || client.initials || `Client #${clientId}`;
         if (/archived|terminated|inactive/i.test(String(client.status || ''))) throw fail(409, 'Review this client’s active status before scheduling.');
         row.date = agendaDate(suppliedRow.date);
         row.startTime = agendaClock(suppliedRow.startTime);
         row.endTime = agendaClock(suppliedRow.endTime);
-        if (!row.date || row.date < weekStart || row.date > addAgendaDays(weekStart, 6)) throw fail(400, 'Choose an appointment date within the selected week.');
+        const lastDate = mode === 'legacy' ? addAgendaDays(weekStart, 6) : untilDate || addAgendaDays(weekStart, 364);
+        if (!row.date || row.date < weekStart || row.date > lastDate) throw fail(400, 'Choose an appointment date within the selected date range.');
         if (!row.startTime) throw fail(400, 'Enter a start time using 24-hour time or explicit AM/PM.');
         let minutes = Number(suppliedRow.durationMinutes || defaults.durationMinutes);
         if (row.endTime) minutes = (Number(row.endTime.slice(0, 2)) * 60 + Number(row.endTime.slice(3))) - (Number(row.startTime.slice(0, 2)) * 60 + Number(row.startTime.slice(3)));
@@ -233,26 +262,53 @@ export function createAuricwellAgendaImporter(overrides = {}) {
           if (endMinutes >= 1440) throw fail(400, 'Book appointments crossing midnight individually.');
           row.endTime = `${String(Math.floor(endMinutes / 60)).padStart(2, '0')}:${String(endMinutes % 60).padStart(2, '0')}`;
         }
-        row.tenantServiceId = validId(suppliedRow.tenantServiceId || defaults.tenantServiceId);
-        const service = context.services.find(service => Number(service.id) === row.tenantServiceId);
-        if (!service) throw fail(400, 'Choose an active individual service assigned to this provider.');
-        row.serviceCode = service.serviceCode;
-        row.modality = String(suppliedRow.modality || defaults.modality || '').toUpperCase();
-        if (!['IN_PERSON', 'TELEHEALTH'].includes(row.modality) || !['EITHER', row.modality].includes(service.modality)) throw fail(400, 'Choose an in-person or telehealth setting allowed for this service.');
-        row.serviceLocationId = validId(suppliedRow.serviceLocationId || defaults.serviceLocationId);
+        const schoolIds = (context.schoolAssignments || []).filter(link => Number(link.client_id) === clientId).map(link => Number(link.organization_id));
+        const locationKind = agendaLocationKind(row.locationInput);
+        const schoolWeekday = new Date(`${row.date}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
+        const matchingSchoolIds = [...new Set((context.schoolSlots || []).filter(slot => Number(slot.client_id) === clientId
+          && slot.weekday === schoolWeekday && schoolIds.includes(Number(slot.school_organization_id))).map(slot => Number(slot.school_organization_id)))];
+        const suggestedLocation = row.locationInput ? suggestAgendaLocation(row, context.locations, matchingSchoolIds.length ? matchingSchoolIds : schoolIds) : null;
+        row.serviceLocationId = validId(suppliedRow.serviceLocationId)
+          || (row.locationInput ? validId(suggestedLocation?.id) : validId(defaults.serviceLocationId));
         const location = context.locations.find(location => Number(location.id) === row.serviceLocationId);
-        if (!location) throw fail(400, 'Choose an active service location in this practice.');
-        const remoteLocation = ['02', '10'].includes(String(location.place_of_service));
-        if ((row.modality === 'TELEHEALTH') !== remoteLocation) throw fail(400, 'Choose a location whose place of service matches in-person or telehealth care.');
+        const pos = String(location?.place_of_service || '');
+        const remoteLocation = ['02', '10'].includes(pos);
+        row.modality = String(suppliedRow.modality || (!row.locationInput ? defaults.modality : '') || (location ? (remoteLocation ? 'TELEHEALTH' : 'IN_PERSON') : '') || '').toUpperCase();
+        const services = context.services.filter(service => String(service.serviceCode).toUpperCase() === row.serviceCodeInput.toUpperCase()
+          && (!row.modality || ['EITHER', row.modality].includes(service.modality)));
+        row.tenantServiceId = validId(suppliedRow.tenantServiceId)
+          || (row.serviceCodeInput ? (services.length === 1 ? validId(services[0].id) : null) : validId(defaults.tenantServiceId));
+        const service = context.services.find(service => Number(service.id) === row.tenantServiceId);
+        if (!service) throw fail(400, row.serviceCodeInput ? `Choose a service for code ${row.serviceCodeInput}.` : 'Choose an active individual service assigned to this provider.');
+        row.serviceCode = service.serviceCode;
+        if (!location) throw fail(400, locationKind === 'school' ? 'Choose the client’s assigned school.' : 'Choose an active service location in this practice.');
         row.locationLabel = location.name;
-        row.schoolId = Number(location.school_organization_id) || null;
-        row.recurrence = String(suppliedRow.recurrence || defaults.recurrence || '').toUpperCase();
-        row.occurrenceCount = row.recurrence === 'ONCE' ? 1 : Number(suppliedRow.occurrenceCount || defaults.occurrenceCount);
-        if (!recurrences.has(row.recurrence) || !Number.isInteger(row.occurrenceCount) || row.occurrenceCount < 1 || row.occurrenceCount > 52) throw fail(400, 'Choose once, weekly, or every two weeks and an explicit count from 1 to 52.');
-        const expanded = expandAppointmentRecurrence({ startAt: `${row.date} ${row.startTime}:00`, endAt: `${row.date} ${row.endTime}:00`, timeZone, recurrence: row.recurrence, occurrenceCount: row.occurrenceCount });
+        row.schoolId = validId(location.school_organization_id);
+        row.officeVisit = mode !== 'legacy' && pos === '11';
+        row.officeLocationId = row.officeVisit ? validId(location.physical_office_location_id) : null;
+        if (!['IN_PERSON', 'TELEHEALTH'].includes(row.modality) || !['EITHER', row.modality].includes(service.modality)) throw fail(400, 'Choose an in-person or telehealth setting allowed for this service.');
+        if ((row.modality === 'TELEHEALTH') !== remoteLocation) throw fail(400, 'Choose a location whose place of service matches in-person or telehealth care.');
+        if ((row.schoolId || row.officeLocationId) && mode !== 'legacy' && timeZone !== context.timeZone) throw fail(400, 'Use the practice time zone for in-person agenda appointments.');
+        if (pos === '03' && !row.schoolId) throw fail(400, 'Choose the specific school location.');
+        if (mode !== 'legacy' && row.schoolId && !schoolIds.includes(row.schoolId)) throw fail(400, 'Choose a school assigned to this client.');
+        if (locationKind === 'school' && !row.schoolId) throw fail(400, 'This visit needs the client’s assigned school location.');
+        if (locationKind === 'office' && pos !== '11') throw fail(400, 'This visit needs an office location.');
+        if (locationKind === 'remote' && !remoteLocation) throw fail(400, 'This visit needs a telehealth location.');
+        row.recurrence = mode === 'as_sent' ? 'ONCE' : String(suppliedRow.recurrence || (mode === 'recurring' ? 'ONCE' : defaults.recurrence) || '').toUpperCase();
+        row.occurrenceCount = row.recurrence === 'ONCE' ? 1 : mode === 'recurring' ? 53 : Number(suppliedRow.occurrenceCount || defaults.occurrenceCount);
+        if (!recurrences.has(row.recurrence) || !Number.isInteger(row.occurrenceCount) || row.occurrenceCount < 1 || row.occurrenceCount > (mode === 'recurring' ? 53 : 52)) throw fail(400, 'Choose once, weekly, or every two weeks and an explicit count from 1 to 52.');
+        strictInstant(row.date, row.startTime, timeZone);
+        strictInstant(row.date, row.endTime, timeZone);
+        const expanded = expandAppointmentRecurrence({ startAt: `${row.date} ${row.startTime}:00`, endAt: `${row.date} ${row.endTime}:00`, timeZone,
+          recurrence: row.recurrence, occurrenceCount: row.occurrenceCount, untilDate });
+        row.occurrenceDates = expanded.map(occurrence => occurrence.startAt.slice(0, 10));
+        if (row.pastedDates.some(date => !row.occurrenceDates.includes(date))) throw fail(400, 'This series leaves out a pasted visit. Review the frequency and last date, or switch to Schedule as pasted.');
         row.schoolSlotId = validId(suppliedRow.schoolSlotId);
+        if (occurrences.length + expanded.length > 200) throw fail(400, 'Import at most 200 appointment occurrences at a time.');
         row.newCount = 0; row.existingCount = 0;
+        row.officeRooms = [];
         const seriesKey = expanded.length > 1 ? seriesFor({ ...row, agencyId, providerId }) : null;
+        const rowOccurrences = [];
         for (const [recurrenceIndex, occurrence] of expanded.entries()) {
           const candidate = { ...row, agencyId, providerId, timeZone, seriesKey, recurrenceIndex, date: occurrence.startAt.slice(0, 10),
             startAt: strictInstant(occurrence.startAt.slice(0, 10), row.startTime, timeZone), endAt: strictInstant(occurrence.endAt.slice(0, 10), row.endTime, timeZone) };
@@ -260,33 +316,44 @@ export function createAuricwellAgendaImporter(overrides = {}) {
           candidate.source = sourceFor(candidate);
           if (seen.has(candidate.source)) throw fail(409, `This appointment is repeated in row ${seen.get(candidate.source)}. Remove the duplicate row.`);
           for (const prior of occurrences) if (prior.startAt < candidate.endAt && prior.endAt > candidate.startAt) throw fail(409, `This time overlaps another imported appointment in row ${prior.rowNumber}.`);
-          if (candidate.schoolId) {
+          const hasMatchingHold = (context.schoolSlots || []).some(slot => Number(slot.client_id) === clientId
+            && Number(slot.school_organization_id) === candidate.schoolId && slot.weekday === schoolWeekday);
+          if (candidate.schoolId && (mode === 'legacy' || row.schoolSlotId || hasMatchingHold)) {
             if (timeZone !== context.timeZone) throw fail(400, 'Use the practice time zone for school agenda appointments.');
             const school = await deps.checkSchool({ agencyId, providerId, clientId, schoolId: candidate.schoolId, slotId: row.schoolSlotId, date: candidate.date });
             candidate.schoolSlotId = Number(school.slotId); row.schoolSlotId = Number(school.slotId);
             candidate.schoolTransitionState = digest(school);
+            row.replacesSchoolHold = true;
           }
           const existing = await deps.findExisting(candidate);
+          if (candidate.officeLocationId && !existing) {
+            const room = await deps.findOffice({ actor, row: candidate });
+            if (room) row.officeRooms.push({ date: candidate.date, label: room.label });
+          }
           await deps.checkConflict(candidate, existing);
           const warnings = await deps.sameDay({ actor, row: candidate, existing });
           if (warnings.length) row.warnings.push('This client already has another service on this date. Review the same-day service warning.');
           if (occurrences.some(prior => prior.clientId === clientId && prior.date === candidate.date)) row.warnings.push('Another imported row schedules this client on the same date.');
-          seen.set(candidate.source, index + 1);
           candidate.existingAppointmentId = existing?.id || null;
-          candidate.existingState = existing ? digest([existing.id, existing.status, existing.providerUserId, sqlTime(existing.startAt), sqlTime(existing.endAt), existing.tenantServiceId, existing.serviceLocationId, existing.modality, existing.providerScheduleEventId, existing.officeEventId, existing.agendaRecoverableEventId]) : null;
+          candidate.existingState = existing ? digest([existing.id, existing.status, existing.providerUserId, sqlTime(existing.startAt), sqlTime(existing.endAt), existing.tenantServiceId, existing.serviceLocationId, existing.modality, existing.providerScheduleEventId, existing.officeEventId, existing.officeLocationId, existing.roomId, existing.agendaRecoverableEventId]) : null;
           candidate.rowNumber = index + 1;
-          occurrences.push(candidate);
+          rowOccurrences.push(candidate);
           if (existing) row.existingCount += 1; else row.newCount += 1;
-          if (occurrences.length > 200) throw fail(400, 'Import at most 200 appointment occurrences at a time.');
         }
-      } catch (error) { row.errors.push(error.message); }
+        for (const candidate of rowOccurrences) seen.set(candidate.source, index + 1);
+        occurrences.push(...rowOccurrences);
+      } catch (error) {
+        row.errors.push(error.message);
+        row.newCount = 0;
+        row.existingCount = 0;
+      }
       row.warnings = [...new Set(row.warnings)];
       row.status = row.errors.length ? 'blocked' : row.newCount ? 'ready' : 'existing';
     }
     if (!rows.length) throw fail(400, 'Select at least one appointment row to import.');
     const plan = occurrences.map(({ agencyId, providerId, clientId, startAt, endAt, tenantServiceId, serviceLocationId, modality, source, seriesKey, recurrence, recurrenceIndex, schoolSlotId, schoolTransitionState }) => ({ agencyId, providerId, clientId, startAt, endAt, tenantServiceId, serviceLocationId, modality, source, seriesKey, recurrence, recurrenceIndex, schoolSlotId, schoolTransitionState }));
-    const claims = { kind: 'auricwell-agenda-preview', actorId: Number(actor.id), agencyId, providerId, weekStart, timeZone,
-      planHash: digest(plan), snapshotHash: digest([context.provider, context.clients, context.services, context.locations, context.schoolSlots]),
+    const claims = { kind: 'auricwell-agenda-preview', actorId: Number(actor.id), agencyId, providerId, weekStart, timeZone, mode, untilDate,
+      planHash: digest(plan), snapshotHash: digest([context.provider, context.clients, context.services, context.locations, context.schoolSlots, context.schoolAssignments]),
       existingStates: Object.fromEntries(occurrences.filter(row => row.existingState).map(row => [row.source, row.existingState])) };
     const summary = { rows: rows.length, appointments: occurrences.length, newAppointments: rows.reduce((sum, row) => sum + (row.newCount || 0), 0), existingAppointments: rows.reduce((sum, row) => sum + (row.existingCount || 0), 0), blockedRows: rows.filter(row => row.errors.length).length, sameDayWarning: rows.some(row => row.warnings.length) };
     return { rows, summary, occurrences, claims, previewToken: issueToken && !summary.blockedRows ? deps.sign(claims) : null, expiresInSeconds: 900 };
@@ -306,7 +373,7 @@ export function createAuricwellAgendaImporter(overrides = {}) {
     return deps.lock({ agencyId: claims.agencyId, providerId: claims.providerId }, async () => {
       const prepared = await prepare({ actor, input, issueToken: false });
       if (prepared.summary.blockedRows) throw Object.assign(fail(409, 'Some appointments now need review. Preview again before scheduling.'), { preview: { rows: prepared.rows, summary: prepared.summary } });
-      if (claims.planHash !== prepared.claims.planHash || claims.snapshotHash !== prepared.claims.snapshotHash || claims.weekStart !== prepared.claims.weekStart || claims.timeZone !== prepared.claims.timeZone) throw fail(409, 'The agenda or practice records changed. Preview the appointments again.', 'AGENDA_PREVIEW_STALE');
+      if (claims.planHash !== prepared.claims.planHash || claims.snapshotHash !== prepared.claims.snapshotHash || claims.weekStart !== prepared.claims.weekStart || claims.timeZone !== prepared.claims.timeZone || claims.mode !== prepared.claims.mode || claims.untilDate !== prepared.claims.untilDate) throw fail(409, 'The agenda or practice records changed. Preview the appointments again.', 'AGENDA_PREVIEW_STALE');
       for (const [source, state] of Object.entries(claims.existingStates || {})) {
         if (prepared.claims.existingStates[source] !== state) throw fail(409, 'An existing appointment changed after this preview. Preview the appointments again.', 'AGENDA_PREVIEW_STALE');
       }
@@ -318,10 +385,16 @@ export function createAuricwellAgendaImporter(overrides = {}) {
           await deps.clientLock(row, async () => {
             const existing = await deps.findExisting(row);
             await deps.checkConflict(row, existing);
-            appointment = existing || await deps.book({ actor, row, acknowledgeSameDayServices: input.acknowledgeSameDayServices === true });
+            appointment = existing && row.officeLocationId ? await deps.bookOffice({ actor, row, existing }) : existing;
+            if (!appointment) {
+              const reservation = row.officeLocationId ? await deps.findOffice({ actor, row, materialize: true }) : null;
+              appointment = reservation
+                ? await deps.bookOffice({ actor, row, reservation })
+                : await deps.book({ actor, row, acknowledgeSameDayServices: input.acknowledgeSameDayServices === true });
+            }
             appointment = await deps.completeFacets({ actor, row, appointment });
-            if (row.schoolId) await deps.linkSchool({ agencyId: row.agencyId, schoolId: row.schoolId, slotId: row.schoolSlotId, appointmentId: appointment.id, actorUserId: actor.id, seriesKey: row.seriesKey });
-            appointments.push({ id: Number(appointment.id), clientId: row.clientId, rowId: row.rowId, startAt: row.startAt, existing: !!existing });
+            if (row.schoolSlotId) await deps.linkSchool({ agencyId: row.agencyId, schoolId: row.schoolId, slotId: row.schoolSlotId, appointmentId: appointment.id, actorUserId: actor.id, seriesKey: row.seriesKey });
+            appointments.push({ id: Number(appointment.id), clientId: row.clientId, rowId: row.rowId, startAt: row.startAt, existing: !!existing, officeVisit: row.officeVisit, roomReserved: !!(appointment.officeEventId || appointment.roomId) });
           });
         } catch (error) {
           return { ok: false, complete: false, appointments, failedRowId: row.rowId, error: error.message,
@@ -329,7 +402,9 @@ export function createAuricwellAgendaImporter(overrides = {}) {
             message: 'Some appointments may already be saved. Preview and retry this same agenda; matching appointments will be reused.' };
         }
       }
-      return { ok: true, complete: true, appointments, createdCount: appointments.filter(item => !item.existing).length, existingCount: appointments.filter(item => item.existing).length };
+      return { ok: true, complete: true, appointments, createdCount: appointments.filter(item => !item.existing).length, existingCount: appointments.filter(item => item.existing).length,
+        officeRoomsBooked: appointments.filter(item => item.officeVisit && item.roomReserved).length,
+        officeVisitsWithoutRoom: appointments.filter(item => item.officeVisit && !item.roomReserved).length };
     });
   }
   return { options, preview, commit };

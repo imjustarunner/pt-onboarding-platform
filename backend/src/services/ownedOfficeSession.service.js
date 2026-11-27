@@ -114,6 +114,7 @@ export async function bookSessionInOwnedOffice(input) {
         const context = parse(event.session_context_json);
         const appointment = await Appointment.findByOfficeEventId(event.id);
         const resume = context.reservedSessionBookingKey === key || appointment?.source === bookingSource;
+        await input.checkReservation?.({ db, event, resume });
         if ((event.client_id || event.clinical_session_id || appointment) && !resume) throw fail(`Your room already contains a client session on ${occurrence.date}. Open that appointment to edit it.`, { blockedDate: occurrence.date });
         if (appointment && (Number(appointment.agencyId) !== Number(input.agencyId)
             || Number(appointment.providerUserId) !== Number(input.providerId)
