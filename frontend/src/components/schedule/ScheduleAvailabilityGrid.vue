@@ -10440,7 +10440,7 @@ const load = async ({ forceRefresh = false } = {}) => {
     ? `team:${Number(props.agencyId || 0)}:${props.teamAvailabilityOnly ? 'availability' : 'default'}`
     : useAllAgencies ? 'all' : [...ids].sort((a, b) => a - b).join(',');
   const deletedFilter = showDeletedCalendarItems.value && canShowDeletedCalendarItems.value ? '1' : undefined;
-  const cacheKey = `${props.userId}|${calendarScope}|${weekStart.value}|${effectiveWeekStartsOn.value}|${googleBusyPreference.value}|${googleEventsPreference.value}|${showExternalBusy.value}|${(selectedExternalCalendarIds.value || []).slice().sort((a, b) => a - b).join(',')}|tz:${requestedTimeZone}|${deletedFilter || 0}`;
+  const cacheKey = `${props.userId}|${calendarScope}|${weekStart.value}|${effectiveWeekStartsOn.value}|${googleBusyPreference.value}|${googleEventsPreference.value}|${showExternalBusy.value}|${(selectedExternalCalendarIds.value || []).slice().sort((a, b) => a - b).join(',')}|tz:${requestedTimeZone}${deletedFilter ? '|deleted:1' : ''}`;
   // Coalesce concurrent identical fetches (save/close + watchers used to stack dozens).
   const revision = scheduleSummaryRevision(uid);
   const flightKey = `${cacheKey}|${revision}`;

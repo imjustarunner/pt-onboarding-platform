@@ -3,10 +3,10 @@ import { DOMWrapper, flushPromises, shallowMount, mount as mountComponent } from
 import { createPinia, setActivePinia } from 'pinia';
 import { reactive } from 'vue';
 
-const m = vi.hoisted(() => ({ get: vi.fn(), put: vi.fn(), post: vi.fn(), patch:vi.fn(), hydrate: vi.fn(), route: null, failSchedule: false }));
+const m = vi.hoisted(() => ({ get: vi.fn(), put: vi.fn(), post: vi.fn(), patch:vi.fn(), hydrate: vi.fn(), route: null, failSchedule: false, role: 'provider' }));
 vi.mock('../../../services/api', () => ({ default: { get: m.get, put: m.put, post: m.post, patch:m.patch }, isApiRateLimited: () => false, apiRateLimitRetryAt: () => 0 }));
 vi.mock('vue-router', () => ({ useRoute: () => m.route, useRouter: () => ({ push: vi.fn(), replace: vi.fn(), resolve: () => ({ href: '/dashboard' }) }) }));
-vi.mock('../../../store/auth', () => ({ useAuthStore: () => ({ user: { id: 7, role: 'provider', has_supervisor_privileges: true }, isAuthenticated: true }) }));
+vi.mock('../../../store/auth', () => ({ useAuthStore: () => ({ user: { id: 7, role: m.role, has_supervisor_privileges: true }, isAuthenticated: true }) }));
 vi.mock('../../../store/agency', () => ({ useAgencyStore: () => ({ currentAgency: null, agencies: [], userAgencies: [], hydrateAgencyById: m.hydrate }) }));
 import Grid from '../ScheduleAvailabilityGrid.vue';
 import RecurrenceControls from '../RecurrenceControls.vue';
@@ -25,6 +25,7 @@ beforeEach(() => {
   m.patch.mockReset().mockResolvedValue({data:{}});
   m.post.mockReset().mockResolvedValue({data:{}});
   m.failSchedule = false;
+  m.role = 'provider';
   m.route = reactive({ path: '/dashboard', params: {}, query: {} });
   m.get.mockImplementation(async (url) => {
     if (url.includes('/schedule-summary')) {
@@ -82,6 +83,24 @@ it('keeps a cached calendar visible after a transient refresh failure', async ()
   await flushPromises();
   expect(state.summary).toMatchObject(summary);
   expect(state.error).toContain('previously loaded schedule');
+});
+
+it('keeps an admin deleted-items response out of the ordinary calendar cache', async () => {
+  m.role = 'admin';
+  m.get.mockImplementation(async (url, config) => ({ data: url.includes('/schedule-summary')
+    ? { ...summary, deletedView: config?.params?.showDeleted === '1' }
+    : {} }));
+  const state = await mount();
+  await vi.advanceTimersByTimeAsync(500);
+  state.setShowDeletedCalendarItems(true);
+  await flushPromises();
+  const key = '7|all|2026-10-12|monday|true|false|false||tz:America/Denver';
+  expect(state.summary.deletedView).toBe(true);
+  expect(getScheduleSummaryStale(key + '|deleted:1').data.deletedView).toBe(true);
+  state.setShowDeletedCalendarItems(false);
+  await flushPromises();
+  expect(state.summary.deletedView).toBe(false);
+  expect(getScheduleSummaryStale(key).data.deletedView).toBe(false);
 });
 
 it('keeps the loaded calendar visible when a forced background refresh fails', async () => {

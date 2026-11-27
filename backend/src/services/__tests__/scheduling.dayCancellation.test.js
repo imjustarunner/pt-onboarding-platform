@@ -21,7 +21,7 @@ beforeEach(() => {
   const execute = vi.fn(async (sql, args = []) => {
     if (sql.includes('FROM appointments a') && sql.includes('AS series_id')) return [appointments
       .filter(a => a.agencyId === args[0] && a.providerUserId === args[1] && a.startAt >= args[2] && a.status === 'scheduled')
-      .map(a => ({ id: a.id, series_id: a.seriesId, series_agency_id: a.agencyId, plan_id: a.officePlanId }))];
+      .map(a => ({ id: a.id, series_id: a.seriesId, series_agency_id: a.seriesAgencyId ?? a.agencyId, plan_id: a.officePlanId }))];
     if (sql.includes('SET recurrence_stopped=1') || sql.startsWith('UPDATE office_booking_plans')) return [{ affectedRows: 1 }];
     if (sql.includes('GET_LOCK')) return [[{ acquired: 1 }]];
     if (sql.includes('RELEASE_LOCK')) return [[{ released: 1 }]];
@@ -426,4 +426,13 @@ it('stops future client series and resumes the existing workflow without sending
   expect(blocks).toEqual([]);
   await apply(review);
   expect(dependencies.completeAppointment).toHaveBeenCalledTimes(2);
+});
+
+it('rejects a mislinked recurring series before changing another agency or canceling sessions', async () => {
+  appointments[0].seriesId = 'other-agency-series';
+  appointments[0].seriesAgencyId = 99;
+  const review = await service.preview({ ...input, absenceSource: 'cancel_day', scopeMode: 'forward' }, actor, authorize, appointmentAccess);
+  await expect(apply(review)).rejects.toMatchObject({ status: 409 });
+  expect(database.execute.mock.calls.some(([sql]) => sql.includes('SET recurrence_stopped=1'))).toBe(false);
+  expect(dependencies.completeAppointment).not.toHaveBeenCalled();
 });

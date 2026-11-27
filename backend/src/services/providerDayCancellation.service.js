@@ -144,6 +144,7 @@ export function createDayCancellationService(overrides = {}) {
         o.booking_plan_id AS plan_id
         FROM appointments a
         LEFT JOIN provider_schedule_events p ON p.id=a.provider_schedule_event_id
+          AND p.agency_id=a.agency_id AND p.provider_id=a.provider_user_id
         LEFT JOIN office_events o ON o.id=a.office_event_id
         WHERE a.agency_id=? AND a.provider_user_id=? AND a.start_at>=?
           AND a.start_at>? AND a.status IN ('scheduled','confirmed','client_confirmed','reschedule_requested','cancellation_requested')
@@ -173,6 +174,9 @@ export function createDayCancellationService(overrides = {}) {
     const officePlans = new Map();
     for (const item of plan.items) {
       const { seriesId, seriesAgencyId } = item.source;
+      if (seriesId && seriesAgencyId && Number(seriesAgencyId) !== Number(item.agencyId)) {
+        throw fail('A recurring session links to a different agency. Review that session individually.', 409);
+      }
       if (seriesId && seriesAgencyId) series.set(`${seriesAgencyId}:${seriesId}`, [seriesAgencyId, seriesId]);
       if (item.source.officePlanId && !officePlans.has(item.source.officePlanId)) officePlans.set(item.source.officePlanId, item);
     }
