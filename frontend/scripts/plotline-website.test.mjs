@@ -24,11 +24,14 @@ test('all marketed solutions use captured screens rather than concept artwork',(
   assert.doesNotMatch(read('src/views/public/PlotlineWebsite.vue'),/ui-previews|home-dashboard-preview|interface concept|illustrative interface/i);
   assert.equal(existsSync(`${root}/public/assets/plotline/website/ui-previews`),false);
 });
-test('published plans preserve employee and bundle pricing',()=>{
-  assert.equal(estimatePlotlinePrice({employees:25}).monthlyCents,19900);
-  assert.equal(estimatePlotlinePrice({employees:25,otherPaidProducts:['auricwell']}).monthlyCents,14900);
-  assert.equal(estimatePlotlinePrice({employees:25,otherPaidProducts:['auricwell','conversa']}).monthlyCents,12900);
-  assert.equal(estimatePlotlinePrice({employees:50,otherPaidProducts:['auricwell','conversa']}).monthlyCents,22900);
+test('published pricing separates recurring employees, hiring activity and one-time onboarding',()=>{
+  assert.equal(estimatePlotlinePrice({employees:5}).monthlyCents,2900);
+  assert.equal(estimatePlotlinePrice({employees:10}).monthlyCents,3000);
+  assert.equal(estimatePlotlinePrice({employees:30}).monthlyCents,8750);
+  const quote=estimatePlotlinePrice({employees:5,screenings:10,interviewMinutes:60,onboardings:1});
+  assert.equal(quote.monthlyCents,8100);assert.equal(quote.recurringCents,2900);assert.equal(quote.onboardingCents,2000);
+  const content=read('src/content/plotlineWebsite.js');
+  assert.doesNotMatch(content,/starts at \$199|\$50 monthly Plotline credit|\$70 monthly credit/);
 });
 test('production packages every page with independent branding and HTTPS canonical URLs',()=>{
   for(const key of Object.keys(plotlinePages)){
