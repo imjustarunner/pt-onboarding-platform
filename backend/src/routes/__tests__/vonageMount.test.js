@@ -41,12 +41,33 @@ afterEach(async () => {
 
 describe('production Vonage callbacks mounted alongside staff APIs', () => {
   it.each(['inbound', 'status'])('requires a carrier signature for %s, not a staff token', async endpoint => {
-    const response = await fetch(`${origin}/api/vonage/${endpoint}`);
+    const response = await fetch(`${origin}/api/vonage/${endpoint}?to=17195550100&text=HELP`);
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({ error: 'Missing Vonage signature' });
     expect(inboundSmsWebhook).not.toHaveBeenCalled();
     expect(deliveryStatusWebhook).not.toHaveBeenCalled();
     expect(auditActions).toEqual(['vonage_signature_missing']);
+  });
+  it('accepts an empty inbound GET for number setup without processing a message', async () => {
+    const response = await fetch(`${origin}/api/vonage/inbound`);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ready: true });
+    expect(inboundSmsWebhook).not.toHaveBeenCalled();
+    expect(deliveryStatusWebhook).not.toHaveBeenCalled();
+    expect(VonageService.validateWebhook).not.toHaveBeenCalled();
+  });
+  it('still rejects empty POST callbacks and unsigned inbound message parameters', async () => {
+    for (const [path, options] of [
+      ['/inbound', { method: 'POST' }],
+      ['/inbound?msisdn=17195550101', {}],
+      ['/inbound?messageId=provider-message', {}],
+      ['/inbound?text=STOP', {}],
+      ['/status', {}]
+    ]) {
+      expect((await fetch(`${origin}/api/vonage${path}`, options)).status).toBe(403);
+    }
+    expect(inboundSmsWebhook).not.toHaveBeenCalled();
+    expect(deliveryStatusWebhook).not.toHaveBeenCalled();
   });
   it.each(['inbound', 'status'])('accepts signed GET and POST %s callbacks without a login', async endpoint => {
     const params = { to: '17195550100', text: 'HELP', sig: 'valid-carrier-signature' };

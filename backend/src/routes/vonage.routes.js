@@ -36,7 +36,14 @@ const withOptionalSignatureValidation = (handler) => (req, res, next) => {
 // Vonage inbound SMS webhook — set this URL in your Vonage dashboard under
 // "SMS Settings" > "Inbound messages webhook" or per-number moHttpUrl.
 router.post('/inbound', withOptionalSignatureValidation(inboundSmsWebhook));
-router.get('/inbound', withOptionalSignatureValidation(inboundSmsWebhook));
+router.get('/inbound', (req, res, next) => {
+  // Vonage verifies a number's callback URL with an empty GET before saving it.
+  // A readiness probe never invokes a message handler or records consent.
+  if (!Object.keys(req.query || {}).length && !Object.keys(req.body || {}).length) {
+    return res.status(200).json({ ready: true });
+  }
+  return withOptionalSignatureValidation(inboundSmsWebhook)(req, res, next);
+});
 
 // Vonage delivery status webhook — set this URL in your Vonage dashboard under
 // "SMS Settings" > "Delivery receipts webhook".

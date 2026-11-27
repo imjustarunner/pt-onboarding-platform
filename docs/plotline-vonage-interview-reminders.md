@@ -63,6 +63,18 @@ Use the final approved help contact when configuring keyword replies. Decide whe
 
 ## App activation after approval
 
+The verified Plotline brand is `BCGLCIL` and the interview reminder campaign is
+`VCZOP4JO`. A dedicated sender, `+17197165766` (719-716-5766), was purchased on
+November 26, 2026. Verify its current carrier state is `LINKED` before enabling
+delivery. The campaign uses application-managed STOP and HELP, with
+`support@plotlinepo.com` as its registered HELP contact.
+
+Use `https://plottwisthq.com/api/vonage/inbound` for the number's SMS callback.
+Its empty GET readiness check is public; message callbacks still require a valid
+Vonage signature. Number linking alone does not enable the app's sender mapping
+or establish consent for any recipient. Provision app records using an explicitly
+authorized, scoped automation identity with automation audit attribution.
+
 1. Apply the interview SMS consent migration.
 2. Link the approved Vonage number and record the exact verified brand, campaign, support contact, keyword ownership, terms, privacy, and evidence URLs on the agency’s sender registration. Mark the line `interviewOnly: true`.
 3. Set `PLOTLINE_INTERVIEW_SMS_CAMPAIGNS_JSON` with a mapping from each approved agency ID to its `from`, `brandId`, and `campaignId`. Keep candidate reminders on their approved sender arrangement.
