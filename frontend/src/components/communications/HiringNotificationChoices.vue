@@ -1,7 +1,8 @@
 <template>
  <section class="hiring-choices" aria-label="Hiring and onboarding notifications">
-  <h3>Hiring and onboarding notifications</h3>
-  <p>Get your private portal link, notices when documents or tasks are added, and updates when pre-hire or onboarding starts or finishes.</p>
+  <h3>{{context?.disclosure?.program==='plotline_hiring'?'Application, interview and onboarding notifications':'Hiring and onboarding notifications'}}</h3>
+  <p v-if="context?.disclosure?.program==='plotline_hiring'">Get optional texts from Plotline People Operations for {{context.disclosure.hiringAgencyName}} about interviews and reminders, reference progress, your pre-hire and onboarding portals, and documents or tasks assigned to you. Email continues.</p>
+  <p v-else>Get your private portal link, notices when documents or tasks are added, and updates when pre-hire or onboarding starts or finishes.</p>
   <fieldset :disabled="busy">
    <label><input type="radio" :name="id" value="email" v-model="choice.channel" /> Email only</label>
    <label><input type="radio" :name="id" value="email_sms" v-model="choice.channel" :disabled="!context?.available" /> Email and text</label>

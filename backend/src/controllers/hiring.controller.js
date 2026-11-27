@@ -5005,7 +5005,7 @@ export const postCandidateReferenceContact = async (req, res, next) => {
     const id = await saveReferenceContact({ profileId: profile.id, agencyId, userId, referenceIndex, method, outcome, note, responses, authorId: req.user.id });
     if (outcome === 'completed') {
       await runReferenceReceiptNotifications({ agencyId, sourceKind: 'phone', sourceId: id }).catch(e => console.warn('Reference receipt alert remains queued', e.code || 'worker_unavailable'));
-      await notifyApplicantReferenceCompleted({ agencyId, candidateUserId: userId, referenceName: refs[referenceIndex].name, method: 'phone' }).catch(e => console.warn('Reference completion notice failed', e.message));
+      await notifyApplicantReferenceCompleted({ agencyId, candidateUserId: userId, referenceName: refs[referenceIndex].name, referenceIndex, method: 'phone' }).catch(e => console.warn('Reference completion notice failed', e.message));
     }
     res.status(201).json({ id });
   } catch (e) { if (e.status) return res.status(e.status).json({ error: { message: e.message } }); next(e); }

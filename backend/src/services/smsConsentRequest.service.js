@@ -12,14 +12,30 @@ const hash = (text) => createHash('sha256').update(text).digest('hex');
 const parse = (value) => typeof value === 'string' ? JSON.parse(value) : value;
 const invalid = () => Object.assign(new Error('Consent request is unavailable or expired'), { status: 404 });
 
+async function consentSender({agencyId,numberId,enrollmentCategory,signerRole}) {
+  const [numbers] = await pool.execute('SELECT phone_number FROM twilio_numbers WHERE id = ? AND agency_id = ?', [numberId, agencyId]);
+  if (numbers[0]) return getSmsSender(numbers[0].phone_number);
+  if (enrollmentCategory === 'hiring' && signerRole === 'staff') {
+    const {consentSenderForHiring}=await import('./plotlineHiringSms.service.js');
+    return consentSenderForHiring(agencyId,numberId);
+  }
+  return null;
+}
+async function consentDisclosure(sender,agencyId,options) {
+  if(options.enrollmentCategory==='hiring'){
+    const {hiringDisclosure}=await import('./plotlineHiringSms.service.js');
+    return hiringDisclosure(sender,agencyId,{version:options.version});
+  }
+  return buildSmsConsentDisclosure(sender.registration,options);
+}
+
 export async function createSmsConsentRequest({ agencyId, numberId, phone, signerRole, actorUserId, enrollmentCategory = null }) {
   if (!['client', 'guardian', 'staff'].includes(signerRole) || !normalizeSmsPhone(phone)) throw smsPolicyError('sms_signer_required', 'A valid recipient phone and signer role are required');
   if (!isChatEncryptionConfigured()) throw new Error('Encryption must be configured before collecting SMS signatures');
-  const [numbers] = await pool.execute('SELECT phone_number FROM twilio_numbers WHERE id = ? AND agency_id = ?', [numberId, agencyId]);
-  if (!numbers[0]) throw invalid();
-  const sender = await getSmsSender(numbers[0].phone_number);
+  const sender = await consentSender({agencyId,numberId,enrollmentCategory,signerRole});
+  if (!sender) throw invalid();
   if (validateSmsRegistration(sender.registration).length) throw smsPolicyError('sms_campaign_not_ready', 'Configure the verified program before requesting recipient signatures');
-  const disclosure = buildSmsConsentDisclosure(sender.registration, { signerRole, enrollmentCategory });
+  const disclosure = await consentDisclosure(sender,agencyId,{ signerRole, enrollmentCategory });
   if (!disclosure.purposes.length) throw smsPolicyError('sms_signer_program_mismatch', 'This program has no message purposes for the selected signer');
   const token = randomBytes(32).toString('hex');
   const serialized = JSON.stringify(disclosure);
@@ -90,11 +106,10 @@ export async function reviewSmsConsentRequest({ agencyId, requestId, actorUserId
   if (parse(row.disclosure_json)?.enrollmentCategory === 'family_quick_start') throw smsPolicyError('sms_start_required', 'This opt-in is activated only by START from the recipient’s phone.');
   let signed = JSON.parse(decryptChatText(parse(row.signed_payload_json)));
   const savedStaff = parse(row.disclosure_json)?.enrollmentCategory === 'staff_communications';
-  const [numbers] = await pool.execute('SELECT phone_number FROM twilio_numbers WHERE id = ? AND agency_id = ?', [row.number_id, agencyId]);
-  if (!numbers[0]) throw invalid();
-  const sender = await getSmsSender(numbers[0].phone_number);
+  const sender = await consentSender({agencyId,numberId:row.number_id,enrollmentCategory:signed.disclosure.enrollmentCategory,signerRole:row.signer_role});
+  if (!sender) throw invalid();
   if (savedStaff) signed = await currentStaffEnrollmentEvidence(row, sender.registration);
-  const currentDisclosure = JSON.stringify(buildSmsConsentDisclosure(sender.registration, { signerRole: row.signer_role, enrollmentCategory: signed.disclosure.enrollmentCategory, version: signed.disclosure.version }));
+  const currentDisclosure = JSON.stringify(await consentDisclosure(sender,agencyId,{ signerRole: row.signer_role, enrollmentCategory: signed.disclosure.enrollmentCategory, version: signed.disclosure.version }));
   if (!savedStaff && hash(currentDisclosure) !== row.disclosure_hash) throw smsPolicyError('sms_disclosure_changed', 'The program disclosure changed; issue a fresh consent request');
   const [newer] = await pool.execute(
     `SELECT id FROM sms_consent_requests WHERE agency_id = ? AND number_id = ? AND phone = ?
@@ -121,21 +136,40 @@ export async function reviewSmsConsentRequest({ agencyId, requestId, actorUserId
     const results = parse(claimedRows[0]?.activation_json) || {};
     if (signed.disclosure.enrollmentCategory === 'hiring') {
       // An isolated grant: reviewing hiring consent cannot overwrite staff/poll permissions.
-      if (results.workforce?.activated) return {reviewed:true,results};
+      if (results.workforce?.activated) {
+        if(signed.disclosure.program==='plotline_hiring' && results.workforce.confirmed){
+          const {queueFutureHiringInterviews}=await import('./hiringJourneyEvents.service.js');
+          const [current]=await pool.execute('SELECT user_id FROM hire_communication_preferences WHERE agency_id=? AND consent_request_id=? AND channel=\'email_sms\'',[agencyId,row.id]);
+          for(const applicant of current)await queueFutureHiringInterviews(agencyId,applicant.user_id);
+        }
+        return {reviewed:true,results};
+      }
       const [preferences]=await pool.execute(`SELECT user_id FROM hire_communication_preferences
         WHERE agency_id=? AND consent_request_id=? AND phone=? AND channel='email_sms'`,[agencyId,row.id,row.phone]);
       if(!preferences.length)throw smsPolicyError('sms_consent_superseded','The applicant changed their hiring notification choices.');
       results.workforce={activated:true,choice:signed.choices.workforce,reviewedBy:actorUserId,reviewedAt:new Date().toISOString()};
       await pool.execute('UPDATE sms_consent_requests SET activation_json=? WHERE id=?',[JSON.stringify(results),row.id]);
       try {
-        if(signed.choices.workforce==='yes')await sendConfirmation({to:row.phone,from:sender.phone_number,purpose:'workforce',agencyId,
-          staffNotificationKind:'hiring',hiringUserId:preferences[0].user_id,body:'You subscribed to hiring and onboarding updates. Email will continue. Message frequency varies; message and data rates may apply. Reply HELP for help, STOP to opt out.'});
+        if(signed.choices.workforce==='yes'){
+          const confirmation=await sendConfirmation({to:row.phone,from:sender.phone_number,purpose:'workforce',agencyId:sender.agency_id,
+            hiringAgencyId:agencyId,hiringConfirmationRequestId:row.id,staffNotificationKind:'hiring',hiringUserId:preferences[0].user_id,
+            body:signed.disclosure.program==='plotline_hiring'?'You subscribed to application, interview, reference progress, pre-hire and onboarding updates. Email continues. Message frequency varies. Message and data rates may apply. Reply HELP for help, STOP to opt out.':'You subscribed to hiring and onboarding updates. Email will continue. Message frequency varies; message and data rates may apply. Reply HELP for help, STOP to opt out.'});
+          if(signed.disclosure.program==='plotline_hiring'){
+            if(!confirmation?.sid)throw smsPolicyError('sms_hiring_confirmation_failed','Text enrollment confirmation was not accepted.');
+            results.workforce.confirmed=true;results.workforce.confirmationMessageId=confirmation.sid;
+            await pool.execute('UPDATE sms_consent_requests SET activation_json=? WHERE id=?',[JSON.stringify(results),row.id]);
+          }
+        }
       } catch(error) {
         results.workforce.activated=false;
         await pool.execute('UPDATE sms_consent_requests SET activation_json=? WHERE id=?',[JSON.stringify(results),row.id]);
         throw error;
       }
       if(signed.choices.workforce==='yes'){
+        if(signed.disclosure.program==='plotline_hiring'){
+          const {queueFutureHiringInterviews}=await import('./hiringJourneyEvents.service.js');
+          for(const preference of preferences)await queueFutureHiringInterviews(agencyId,preference.user_id);
+        }
         const {queueHiringNotification}=await import('./hiringNotification.service.js');
         for(const preference of preferences){
           const [[person]]=await pool.execute('SELECT status FROM users WHERE id=?',[preference.user_id]);

@@ -6,11 +6,12 @@ import {
 } from '../content/plotlineLegal.js';
 
 const escapeHtml = value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
-const policyLinks = [['privacy', 'Privacy policy'], ['terms', 'Terms & conditions'], ['sms-consent', 'Interview text consent']];
+const policyLinks = [['privacy', 'Privacy policy'], ['terms', 'Terms & conditions'], ['sms-consent', 'Interview text consent'], ['hiring-sms-consent', 'Application text consent']];
 const link = (path, label) => '<a href="' + PLOTLINE_LEGAL_ORIGIN + '/' + path + '">' + escapeHtml(label) + '</a>';
 const paragraph = value => '<p>' + escapeHtml(value)
   .replaceAll(PLOTLINE_LEGAL_ORIGIN + '/privacy', link('privacy', PLOTLINE_LEGAL_ORIGIN + '/privacy'))
   .replaceAll(PLOTLINE_LEGAL_ORIGIN + '/terms', link('terms', PLOTLINE_LEGAL_ORIGIN + '/terms'))
+  .replaceAll('support@plotlinepo.com', '<a href="mailto:support@plotlinepo.com">support@plotlinepo.com</a>')
   .replaceAll('Support@plottwistco.com', '<a href="mailto:Support@plottwistco.com">Support@plottwistco.com</a>')
   .replaceAll('HQ@plottwistco.com', '<a href="mailto:HQ@plottwistco.com">HQ@plottwistco.com</a>') + '</p>';
 

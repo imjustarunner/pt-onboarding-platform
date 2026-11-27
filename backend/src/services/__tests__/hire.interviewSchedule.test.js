@@ -1,6 +1,6 @@
 vi.mock('../meetingRecipientIdentity.service.js',()=>({resolveMeetingRecipient:async({user})=>({email:user.email,displayName:[user.first_name,user.last_name].filter(Boolean).join(' '),calendarAccountEmail:user.email})}));
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-const m = vi.hoisted(() => ({ execute: vi.fn(), candidate: vi.fn(), agencies: vi.fn(), sender: vi.fn(), access: vi.fn(), template: vi.fn(), questions: vi.fn(), profile: vi.fn(), calendar: vi.fn(), append: vi.fn(), remove: vi.fn(), window: vi.fn(), event: vi.fn(), attendees: vi.fn(), interview: vi.fn(), update: vi.fn(), artifact: vi.fn(), invite: vi.fn() }));
+const m = vi.hoisted(() => ({ execute: vi.fn(), candidate: vi.fn(), agencies: vi.fn(), sender: vi.fn(), access: vi.fn(), template: vi.fn(), questions: vi.fn(), profile: vi.fn(), calendar: vi.fn(), append: vi.fn(), remove: vi.fn(), window: vi.fn(), event: vi.fn(), attendees: vi.fn(), interview: vi.fn(), update: vi.fn(), artifact: vi.fn(), invite: vi.fn(),smsProgram:vi.fn(),queueText:vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: { execute: m.execute } }));
 vi.mock('../../models/Agency.model.js', () => ({ default: { findById: vi.fn(async()=>({id:4,slug:'tenant',custom_domain:'app.tenant.example'})) } }));
 vi.mock('../../config/config.js', () => ({ default: { frontendUrl: 'https://tenant.example' } }));
@@ -18,11 +18,13 @@ vi.mock('../interviewHub.service.js', async original => ({ ...await original(), 
 vi.mock('../hiringInterviewSender.service.js', async importOriginal => ({ ...await importOriginal(), resolveInterviewSender: m.sender }));
 vi.mock('../hiringInterviewAccess.service.js', () => ({ canAccessHiringInterview: m.access }));
 vi.mock('../hiringInterviewInviteEmail.service.js', () => ({ sendHiringInterviewInviteEmail: m.invite }));
+vi.mock('../plotlineHiringSms.service.js',()=>({resolvePlotlineHiringSender:m.smsProgram}));
+vi.mock('../hiringJourneyEvents.service.js',()=>({queueInterviewHiringText:m.queueText}));
 import { scheduleHiringInterview } from '../hiringInterviewSchedule.service.js';
 import {questionFingerprint} from '../jobInterviewQuestions.service.js';
 const args = { agencyId: 4, candidateUserId: 30, hostUserId: 11, startsAt: '2026-10-02T13:00', timezone: 'America/Denver', interviewerUserIds: [11, 22] };
 beforeEach(() => {
-  vi.clearAllMocks();
+  vi.clearAllMocks();m.smsProgram.mockResolvedValue(null);m.queueText.mockResolvedValue(undefined);
   m.questions.mockResolvedValue(null);
   m.candidate.mockImplementation(async id => ({ id, email: `${id}@tenant.org`, first_name: 'Person' })); m.agencies.mockResolvedValue([{ id: 4 }]); m.sender.mockResolvedValue({ id: 1, from_email: 'po@tenant.org' }); m.access.mockResolvedValue(true); m.template.mockResolvedValue({ id: 1, agency_id: 4 }); m.profile.mockResolvedValue({ id: 8 }); m.window.mockImplementation(async (_window, work) => work()); m.calendar.mockResolvedValue({ ok: true, eventId: 'calendar-1' }); m.append.mockResolvedValue({ ok: true }); m.remove.mockResolvedValue({ ok: true }); m.event.mockResolvedValue({ id: 2, participant_join_token: 'guest-only-token', host_join_token: 'secret-host-token' }); m.interview.mockResolvedValue({ id: 5 }); m.update.mockResolvedValue({ id: 5, invite_sent_at: 'confirmed' }); m.artifact.mockResolvedValue({}); m.invite.mockResolvedValue({ id: 'email-1' }); m.execute.mockImplementation(async sql => sql.includes('FROM users') ? [[{ id: 11, email: '11@tenant.org' }, { id: 22, email: '22@tenant.org' }, { id: 30, email: '30@tenant.org' }]] : [[]]);
 });
@@ -89,4 +91,15 @@ describe('interview scheduling delivery', () => {
 it('save without sending never touches Google Calendar and reports an explicit not-requested result',async()=>{
  const result=await scheduleHiringInterview({...args,sendInvites:false});
  expect(m.calendar).not.toHaveBeenCalled();expect(m.append).not.toHaveBeenCalled();expect(m.invite).not.toHaveBeenCalled();expect(result.calendarWarning).toBeNull();expect(result.calendar).toEqual({requested:false,created:false});
+});
+
+it('queues a scheduling notice even if email fails, but a draft creates no candidate notification',async()=>{
+ m.invite.mockRejectedValueOnce(new Error('Email unavailable'));
+ const result=await scheduleHiringInterview(args);
+ expect(result.delivery.sent).toBe(false);expect(m.queueText).toHaveBeenCalledWith(expect.objectContaining({agencyId:4,userId:30,interviewId:5}));
+ m.queueText.mockClear();await scheduleHiringInterview({...args,sendInvites:false});expect(m.queueText).not.toHaveBeenCalled();
+});
+it('keeps a successfully scheduled interview usable if SMS defaults or the notification queue fail',async()=>{
+ m.smsProgram.mockRejectedValueOnce(new Error('Synthetic SMS setup failure'));m.queueText.mockRejectedValueOnce(new Error('Synthetic outbox failure'));
+ const result=await scheduleHiringInterview(args);expect(result.delivery.sent).toBe(true);expect(result.smsWarning).toContain('could not be queued');
 });

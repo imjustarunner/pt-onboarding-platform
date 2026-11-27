@@ -4,10 +4,13 @@ import {portalPacket} from './hirePortalWorkflow.service.js';
 import { hirePortalUrl } from '../utils/publicPortalUrl.js';
 import VonageService from './vonage.service.js';
 import {sendNotificationEmail} from './unifiedEmail/unifiedEmailSender.service.js';
-import {resolveRegisteredSmsSender} from './smsCompliance.service.js';
 import {queuePeopleOperationsSubmission,runPeopleOperationsSubmissionNotifications} from './peopleOperationsSubmissionNotifications.service.js';
+import {resolveHiringTextSender,isPlotlineHiringSender} from './plotlineHiringSms.service.js';
 const parse=v=>typeof v==='string'?JSON.parse(v):v;
 export const HIRING_EVENT_TEXT = Object.freeze({
+ interview_scheduled:'Your interview is scheduled.',
+ references_requested:'We contacted your references for your application.',
+ reference_completed:'A reference for your application has been completed. Confidential answers are kept private.',
  prehire_invite:'Your private pre-hire portal is ready.',
  prehire_complete:'Your pre-hire information is complete and submitted for review.',
  onboarding_started:'Your onboarding is ready. Continue using your personal portal.',
@@ -79,16 +82,25 @@ export async function runHiringNotifications(){
    }catch(e){await db.rollback();console.warn('[hiring-notifications] Unable to observe journey',person.user_id,e.code||e.name);}
   }
   const [events]=await db.execute(`SELECT e.*,p.channel,p.phone,u.status,u.personal_email,u.email,u.passwordless_token,
-    u.passwordless_token_expires_at,u.passwordless_token_purpose,a.slug,a.name,a.custom_domain
+    u.passwordless_token_expires_at,u.passwordless_token_purpose,a.slug,a.name,a.custom_domain,hr.activation_json AS hiring_activation
     FROM hire_notification_events e JOIN hire_communication_preferences p ON p.user_id=e.user_id AND p.agency_id=e.agency_id
+    LEFT JOIN sms_consent_requests hr ON hr.id=p.consent_request_id AND hr.agency_id=p.agency_id
     JOIN users u ON u.id=e.user_id JOIN agencies a ON a.id=e.agency_id
-    WHERE e.email_status='pending' OR e.sms_status='pending' ORDER BY e.id LIMIT 100`);
+    WHERE e.email_status='pending' OR (e.sms_status='pending' AND
+      (p.channel<>'email_sms' OR JSON_EXTRACT(hr.activation_json,'$.workforce.activated')=TRUE)) ORDER BY e.id LIMIT 100`);
   for(const event of events){
    const validToken=['PENDING_SETUP','PREHIRE_OPEN','PREHIRE_REVIEW','ONBOARDING'].includes(event.status)&&event.passwordless_token_purpose==='prehire_portal'&&event.passwordless_token&&new Date(event.passwordless_token_expires_at)>new Date();
    const url=validToken?hirePortalUrl(event.passwordless_token):null;
    const text=`${HIRING_EVENT_TEXT[event.event_type]}${url?`\n${url}\nKeep this personal link private.`:' Contact People Operations for a current portal link.'}`;
    for(const channel of ['email','sms']){
     if(event[`${channel}_status`]!=='pending')continue;
+    let smsSender=null,smsSenderError=null;
+    if(channel==='sms' && event.channel==='email_sms' && event.phone){
+      try{
+        smsSender=await resolveHiringTextSender(event.agency_id);
+        if(isPlotlineHiringSender(smsSender)&&parse(event.hiring_activation)?.workforce?.confirmed!==true)continue;
+      }catch(error){smsSenderError=error;}
+    }
     const [claim]=await db.execute(`UPDATE hire_notification_events SET ${channel}_status='sending' WHERE id=? AND ${channel}_status='pending'`,[event.id]);
     if(!claim.affectedRows)continue;
     let status='sent';
@@ -101,9 +113,22 @@ export async function runHiringNotifications(){
        else if(result?.skipped||result?.blocked||result?.failed||!result?.id)status='failed';}
      }else if(event.channel!=='email_sms'||!event.phone)status='skipped';
      else {
-      const from=await resolveRegisteredSmsSender({agencyId:event.agency_id,purpose:'workforce'});
-      if(!from)status='skipped';
-      else await VonageService.sendSms({purpose:'workforce',to:event.phone,from,body:text,agencyId:event.agency_id,staffNotificationKind:'hiring',hiringUserId:event.user_id});
+      if(smsSenderError)throw smsSenderError;
+      const sender=smsSender;
+      const journeyEvent=['interview_scheduled','references_requested','reference_completed'].includes(event.event_type);
+      if(!sender || (journeyEvent&&!isPlotlineHiringSender(sender)))status='skipped';
+      else {
+        let details=null;
+        if(event.event_type==='interview_scheduled'){
+          const {interviewNotificationDetails}=await import('./hiringJourneyEvents.service.js');
+          details=await interviewNotificationDetails(event,db);
+          if(!details)status='skipped';
+        }
+        if(status!=='skipped')await VonageService.sendSms({purpose:'workforce',to:event.phone,from:sender.phone_number,
+          body:details?.text||(journeyEvent?HIRING_EVENT_TEXT[event.event_type]:text),agencyId:sender.agency_id,
+          hiringAgencyId:event.agency_id,staffNotificationKind:'hiring',hiringUserId:event.user_id,
+          ...(details?{interviewId:details.interviewId,interviewSmsStartAt:details.startAt}:{})});
+      }
      }
     }catch(error){status='failed';console.warn('[hiring-notifications] Delivery did not complete',event.id,channel,error.code||error.name);}
     // Ambiguous transport failures are retained for review, never blindly resent.

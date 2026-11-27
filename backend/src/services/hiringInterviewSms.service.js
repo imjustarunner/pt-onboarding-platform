@@ -1,6 +1,6 @@
 import pool from '../config/database.js';
 import { normalizeSmsPhone } from '../utils/smsThreadIdentity.js';
-import { formatRegisteredSms, smsPolicyError, validateSmsRegistration } from '../utils/smsCompliancePolicy.js';
+import { smsPolicyError, validateSmsRegistration } from '../utils/smsCompliancePolicy.js';
 import { getSmsSender, isSmsSuppressed } from './smsCompliance.service.js';
 import { tenantInterviewJoinUrl } from '../utils/tenantMeetingUrl.js';
 import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
@@ -31,6 +31,8 @@ async function interviewSmsSender(agencyId) {
 }
 
 export async function interviewSmsProgram(agencyId) {
+  const {resolvePlotlineHiringSender}=await import('./plotlineHiringSms.service.js');
+  if(await resolvePlotlineHiringSender(agencyId))return {available:true,consentSource:'application'};
   const sender = await interviewSmsSender(agencyId);
   return sender ? { available: true, script: interviewConsentScript(sender.registration) } : { available: false };
 }
@@ -41,6 +43,8 @@ function interviewConsentScript({ brandName, termsUrl, privacyUrl }) {
 
 export async function prepareInterviewSmsConsent(agencyId, input, actorId) {
   if (input == null) return null;
+  const {resolvePlotlineHiringSender}=await import('./plotlineHiringSms.service.js');
+  if(await resolvePlotlineHiringSender(agencyId))throw smsPolicyError('sms_use_application_consent','Interview texts use the applicant’s signed application text preference.');
   const phone = normalizeSmsPhone(input.phone);
   if (!/^\+1\d{10}$/.test(phone || '') || input.verbalConsent !== true || !Number(actorId)) {
     throw Object.assign(new Error('Enter the confirmed US mobile number and attest that the candidate explicitly agreed.'), { status: 400 });
@@ -67,12 +71,25 @@ async function latestConsent(interviewId) {
 export async function interviewSmsCalendarSettings(interview) {
   const program = await interviewSmsProgram(interview.agency_id);
   if (!program.available) return { smsProgram: program, smsConsentStatus: null };
+  if(program.consentSource==='application')return {smsProgram:program,smsConsentStatus:'application_preferences'};
   const consent = await latestConsent(interview.id);
   return { smsProgram: program, smsConsentStatus: consent?.confirmation_status || null };
 }
 
 // Called by the shared SMS policy after the campaign and STOP checks.
-export async function authorizeInterviewSms({ sender, phone, interviewId, agencyId = sender.agency_id, confirmation, expectedStartAt }) {
+export async function authorizeInterviewSms({ sender, phone, interviewId, agencyId = sender.agency_id, confirmation, expectedStartAt, scheduledNotification = false }) {
+  if(sender.registration?.platformHiringSender===true){
+    const {authorizePlotlineHiringSms}=await import('./plotlineHiringSms.service.js');
+    const [[event]]=await pool.execute(`SELECT h.candidate_user_id FROM hiring_interviews h
+      JOIN provider_schedule_events e ON e.id=h.provider_schedule_event_id AND e.agency_id=h.agency_id
+      LEFT JOIN meeting_participant_preferences p ON p.event_id=e.id AND p.user_id=h.candidate_user_id
+      WHERE h.id=? AND h.agency_id=? AND h.status IN ('scheduled','in_progress') AND h.guest_access_ended_at IS NULL
+        AND e.status='ACTIVE' AND e.notify_participants=1 AND e.meeting_completed_at IS NULL AND e.start_at>UTC_TIMESTAMP()
+        AND COALESCE(p.rsvp,'pending')<>'declined' AND (?=TRUE OR JSON_EXTRACT(e.meeting_settings_json,'$.interviewSmsReminders')=TRUE)
+        AND (? IS NULL OR e.start_at=?)`,[interviewId,Number(agencyId),scheduledNotification,expectedStartAt||null,expectedStartAt||null]);
+    if(!event)throw smsPolicyError('sms_interview_reminders_disabled','Interview texts are turned off or this appointment changed.');
+    return authorizePlotlineHiringSms({sender,phone,agencyId,userId:event.candidate_user_id});
+  }
   const approved = await interviewSmsSender(agencyId);
   const consent = Number(interviewId) > 0 ? await latestConsent(interviewId) : null;
   if (!approved || Number(approved.id) !== Number(sender.id) || !consent || consent.phone !== phone
@@ -81,12 +98,12 @@ export async function authorizeInterviewSms({ sender, phone, interviewId, agency
     || consent.confirmation_status !== (confirmation ? 'sending' : 'sent')) {
     throw smsPolicyError('sms_interview_consent_required', 'A current Plotline interview text opt-in is required.');
   }
-  const [[event]] = await pool.execute(`SELECT h.agency_id, a.slug AS agency_slug,
+  const [[event]] = await pool.execute(`SELECT h.agency_id, a.name AS agency_name, a.slug AS agency_slug,
       a.feature_flags AS agency_feature_flags, e.meeting_settings_json FROM hiring_interviews h
     JOIN provider_schedule_events e ON e.id=h.provider_schedule_event_id AND e.agency_id=h.agency_id
     JOIN agencies a ON a.id=h.agency_id AND a.is_active=1 AND COALESCE(a.is_archived,0)=0
     LEFT JOIN meeting_participant_preferences p ON p.event_id=e.id AND p.user_id=h.candidate_user_id
-    WHERE h.id=? AND h.agency_id=? AND e.status='ACTIVE' AND e.meeting_completed_at IS NULL
+    WHERE h.id=? AND h.agency_id=? AND e.status='ACTIVE' AND e.notify_participants=1 AND e.meeting_completed_at IS NULL
       AND h.status IN ('scheduled','in_progress') AND h.guest_access_ended_at IS NULL AND e.start_at > UTC_TIMESTAMP()
       AND COALESCE(p.rsvp,'pending')<>'declined' AND (? IS NULL OR e.start_at=?)`,
     [interviewId, Number(agencyId), expectedStartAt || null, expectedStartAt || null]);
@@ -95,18 +112,19 @@ export async function authorizeInterviewSms({ sender, phone, interviewId, agency
   if (!allowQaSmsDelivery({ id: event.agency_id, slug: event.agency_slug, feature_flags: event.agency_feature_flags }, { to: phone, purpose: 'workforce' })) {
     throw smsPolicyError('sms_qa_recipient_blocked', 'QA texts are limited to the owner-approved testing phone.');
   }
-  return { agencyId: Number(agencyId) };
+  return { agencyId: Number(agencyId), ...(event.agency_name?{agencyName:event.agency_name}:{}) };
 }
 
 async function sendInterviewText(interview, consent, body, { confirmation = false, expectedStartAt = null } = {}) {
-  const sender = await interviewSmsSender(interview.agency_id);
+  const {resolvePlotlineHiringSender}=await import('./plotlineHiringSms.service.js');
+  const sender = await resolvePlotlineHiringSender(interview.agency_id)||await interviewSmsSender(interview.agency_id);
   if (!sender || !consent) return { skipped: true };
   const { default: Vonage } = await import('./vonage.service.js');
   return Vonage.sendSms({
     purpose: 'workforce', staffNotificationKind: 'plotlineInterview', agencyId: sender.agency_id,
     interviewAgencyId: interview.agency_id,
     interviewId: interview.id, interviewSmsConfirmation: confirmation, interviewSmsStartAt: expectedStartAt, to: consent.phone, from: sender.phone_number,
-    body: formatRegisteredSms(body, sender.registration.brandName)
+    body
   });
 }
 
@@ -143,8 +161,10 @@ export async function sendHiringInterviewSmsReminder(event, candidate) {
     WHERE provider_schedule_event_id=? AND candidate_user_id=? AND status IN ('scheduled','in_progress') AND guest_access_ended_at IS NULL
     ORDER BY id DESC LIMIT 1`, [event.id, candidate.id]);
   if (!interview?.guest_join_token) return { skipped: true };
-  const consent = await latestConsent(interview.id);
-  if (consent?.confirmation_status !== 'sent') return { skipped: true };
+  const {resolvePlotlineHiringSender,currentPlotlineHiringConsent}=await import('./plotlineHiringSms.service.js');
+  const shared=await resolvePlotlineHiringSender(interview.agency_id);
+  const consent=shared?await currentPlotlineHiringConsent({agencyId:interview.agency_id,userId:candidate.id,sender:shared}):await latestConsent(interview.id);
+  if(!consent || (!shared && consent.confirmation_status!=='sent'))return {skipped:true};
   const zone = event.event_timezone || 'America/Denver';
   const time = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: zone }).format(parseUtcDate(event.start_at));
   const link = await tenantInterviewJoinUrl(interview.agency_id, interview.guest_join_token);

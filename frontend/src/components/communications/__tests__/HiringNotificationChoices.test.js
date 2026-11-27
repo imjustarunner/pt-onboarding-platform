@@ -27,3 +27,10 @@ describe('hiring notification choice',()=>{
   await w.find('button').trigger('click');expect(w.emitted('save')[0][0].channel).toBe('email');
  });
 });
+
+it('identifies Plotline and the hiring agency while covering the whole journey in one optional choice',()=>{
+ const w=mount(HiringNotificationChoices,{props:{context:{...context,disclosure:{...context.disclosure,program:'plotline_hiring',hiringAgencyName:'ITSCO'}}}});
+ expect(w.text()).toMatch(/Plotline People Operations for ITSCO/);
+ for(const scope of ['interviews','reminders','reference progress','pre-hire','onboarding','documents or tasks'])expect(w.text()).toContain(scope);
+ expect(w.find('input[value=email]').element.checked).toBe(true);
+});

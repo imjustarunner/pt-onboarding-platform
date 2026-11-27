@@ -119,7 +119,7 @@ export async function isSmsSuppressed(sender, phone) {
   return staff.length > 0;
 }
 
-export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, complianceReply, agencyId, staffNotificationKind = 'notifications', senderFirstName, staffAssistantReply, hiringUserId, interviewId, interviewAgencyId, interviewSmsConfirmation = false, interviewSmsStartAt = null, companyEventId, companyEventReply = false, clientId, recipientUserId, notificationCategory, providerRelayEnrollmentId, requireConfirmedCare = false, reminderFooter = null }) {
+export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, complianceReply, agencyId, staffNotificationKind = 'notifications', senderFirstName, staffAssistantReply, hiringUserId, interviewId, interviewAgencyId, hiringAgencyId, hiringConfirmationRequestId, interviewSmsConfirmation = false, interviewSmsStartAt = null, companyEventId, companyEventReply = false, clientId, recipientUserId, notificationCategory, providerRelayEnrollmentId, requireConfirmedCare = false, reminderFooter = null }) {
   const recipient = normalizeSmsPhone(to);
   if (!recipient) throw smsPolicyError('sms_invalid_recipient', 'A valid recipient number is required');
   if (mediaUrl) throw smsPolicyError('sms_mms_unsupported', 'Attachments require a configured MMS transport; nothing was sent');
@@ -148,6 +148,9 @@ export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, co
     throw smsPolicyError('sms_campaign_purpose_mismatch', 'This sending number is not registered for the requested SMS purpose');
   }
   assertSmsCarrierPurpose({ registration, purpose });
+  if (registration.platformHiringSender === true && !['hiring','plotlineInterview'].includes(staffNotificationKind)) {
+    throw smsPolicyError('sms_hiring_sender_restricted','This number is reserved for Plotline hiring notifications.');
+  }
   if (registration.interviewOnly === true && staffNotificationKind !== 'plotlineInterview') {
     throw smsPolicyError('sms_interview_sender_restricted', 'This number is reserved for the registered Plotline interview campaign.');
   }
@@ -173,10 +176,21 @@ export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, co
   if (purpose === 'workforce' && staffNotificationKind === 'plotlineInterview') {
     const { authorizeInterviewSms } = await import('./hiringInterviewSms.service.js');
     const interview = await authorizeInterviewSms({ sender, phone: recipient, interviewId, agencyId: interviewAgencyId ?? sender.agency_id, confirmation: interviewSmsConfirmation, expectedStartAt: interviewSmsStartAt });
+    const {hiringSmsLabel}=await import('./plotlineHiringSms.service.js');
     return { to: recipient, from: sender.phone_number, agencyId: interview.agencyId,
-      body: formatRegisteredSms(body, registration.brandName), registration, purpose };
+      body: formatRegisteredSms(body, interview.agencyName ? hiringSmsLabel(registration.brandName,interview.agencyName) : registration.brandName), registration, purpose };
   }
   if (purpose === 'workforce' && staffNotificationKind === 'hiring') {
+    if(registration.platformHiringSender===true){
+      const {authorizePlotlineHiringSms,hiringSmsLabel}=await import('./plotlineHiringSms.service.js');
+      const consent=await authorizePlotlineHiringSms({sender,agencyId:hiringAgencyId,userId:hiringUserId,phone:recipient,confirmationRequestId:hiringConfirmationRequestId});
+      if(interviewId!=null){
+        const {authorizeInterviewSms}=await import('./hiringInterviewSms.service.js');
+        await authorizeInterviewSms({sender,phone:recipient,interviewId,agencyId:consent.agencyId,expectedStartAt:interviewSmsStartAt,scheduledNotification:true});
+      }
+      return {to:recipient,from:sender.phone_number,agencyId:consent.agencyId,
+        body:formatRegisteredSms(body,hiringSmsLabel(registration.brandName,consent.agencyName)),registration,purpose};
+    }
     if(!Number.isSafeInteger(Number(hiringUserId))||Number(hiringUserId)<1)throw smsPolicyError('sms_hiring_consent_required','The hiring recipient must be identified.');
     const [grants] = await pool.execute(`SELECT r.id FROM hire_communication_preferences p
       JOIN sms_consent_requests r ON r.id=p.consent_request_id AND r.agency_id=p.agency_id AND r.phone=p.phone

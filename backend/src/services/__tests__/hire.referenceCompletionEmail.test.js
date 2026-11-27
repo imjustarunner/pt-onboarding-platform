@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-const m = vi.hoisted(() => ({ send: vi.fn(), request: vi.fn(), complete: vi.fn(), decline: vi.fn(), receipt: vi.fn(), log: vi.fn() }));
+const m = vi.hoisted(() => ({ send: vi.fn(), request: vi.fn(), complete: vi.fn(), decline: vi.fn(), receipt: vi.fn(), log: vi.fn(), queue:vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: {} }));
 vi.mock('../../models/User.model.js', () => ({ default: { findById: async () => ({ first_name: 'Rory', last_name: 'QA', email: 'applicant@example.test' }) } }));
 vi.mock('../../models/Agency.model.js', () => ({ default: { findById: async () => ({ id: 463, name: 'Juniper QA', people_ops_email: 'po@agency.test' }) } }));
@@ -9,6 +9,7 @@ vi.mock('../unifiedEmail/unifiedEmailSender.service.js', () => ({ sendEmailFromI
 vi.mock('../hiringReferenceIdentity.service.js', () => ({ resolveHiringReferenceSenderIdentity: async () => ({ id: 51, agency_id: 463 }), resolveHiringReferenceReplyTo: async () => 'po@agency.test' }));
 vi.mock('../hiringReferenceReceipt.service.js', () => ({ runReferenceReceiptNotifications: m.receipt }));
 vi.mock('../hiringReferenceActivity.service.js', () => ({ appendEmailOpenPixel: html => html, buildReferenceOpenPixelUrl: () => '', logHiringReferenceEvent: m.log }));
+vi.mock('../hiringJourneyEvents.service.js',()=>({queueReferenceHiringText:m.queue}));
 import { submitPublicReferenceForm } from '../hiringReferenceRequests.service.js';
 import { referenceQuestionnaire } from '../../utils/hiringReferenceQuestionnaire.js';
 beforeEach(() => { vi.clearAllMocks();m.send.mockResolvedValue({ id: 'accepted' });m.decline.mockResolvedValue(true);m.receipt.mockResolvedValue(); });
@@ -28,12 +29,14 @@ it('confirms completion to the applicant and thanks the referee without sending 
   expect(emails[0].html).toContain('identifying you by name');
   expect(emails[1].html).toContain('Taylor Reference');expect(emails[1].html).toContain('completion notice only');
   expect(m.receipt).toHaveBeenCalledWith({ agencyId: 463, sourceKind: 'online', sourceId: 47 });
+  expect(m.queue).toHaveBeenCalledWith({agencyId:463,userId:1849,referenceIndex:1,method:'online',completed:true});
+  expect(JSON.stringify(m.queue.mock.calls)).not.toMatch(/CONFIDENTIAL|Taylor Reference/);
 });
 
 it('dispatches a decline to hiring staff without telling the applicant a reference was completed or sending thank-you mail', async () => {
   m.request.mockResolvedValue({id:47,agency_id:463,candidate_user_id:1849,reference_index:1,status:'sent',token_expires_at:new Date(Date.now()+86400000)});
   expect(await submitPublicReferenceForm('synthetic-token',{declined:true,strengths:'DISCARDED ANSWERS'})).toEqual({ok:true,declined:true});
-  expect(m.decline).toHaveBeenCalledWith(47);expect(m.complete).not.toHaveBeenCalled();expect(m.send).not.toHaveBeenCalled();
+  expect(m.queue).not.toHaveBeenCalled();expect(m.decline).toHaveBeenCalledWith(47);expect(m.complete).not.toHaveBeenCalled();expect(m.send).not.toHaveBeenCalled();
   expect(m.receipt).toHaveBeenCalledWith({agencyId:463,sourceKind:'online',sourceId:47});
   expect(JSON.stringify(m.log.mock.calls)).not.toContain('DISCARDED ANSWERS');
 });

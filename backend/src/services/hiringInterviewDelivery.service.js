@@ -29,7 +29,13 @@ export async function deliverExistingInterview(interview) {
   } catch (e) { delivery = { sent: false, reason: e.message || 'Invitation failed.' }; }
   if (delivery.sent) await HiringInterview.updateById(interview.id, { inviteSentAt: new Date() });
   await pool.execute('UPDATE hiring_interviews SET invite_error = ? WHERE id = ?', [delivery.sent ? null : delivery.reason, interview.id]);
-  return {...delivery,calendarWarning:calendar.ok?null:calendar.error};
+  let smsWarning=null;
+  try{
+    await pool.execute('UPDATE provider_schedule_events SET notify_participants=1 WHERE id=? AND agency_id=?',[interview.provider_schedule_event_id,interview.agency_id]);
+    const {queueInterviewHiringText}=await import('./hiringJourneyEvents.service.js');
+    await queueInterviewHiringText({agencyId:interview.agency_id,userId:interview.candidate_user_id,interviewId:interview.id,startsAt:interview.interview_starts_at});
+  }catch(error){smsWarning='The interview invitation was processed, but its text notification could not be queued.';console.warn('[Plotline interview notification]',interview.id,error.code||'queue_failed');}
+  return {...delivery,calendarWarning:calendar.ok?null:calendar.error,smsWarning};
 }
 
 export function interviewDate(value) {

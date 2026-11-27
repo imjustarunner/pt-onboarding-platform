@@ -51,7 +51,8 @@ export async function sendHiringReferenceOutboundEmail({ identity, to, subject, 
         communicationId: out.communicationId || null
       };
     }
-    return { ok: true, skipped: false, messageId: out?.id || null, redirected: !!out?.redirected };
+    if (out?.failed || !out?.id) return { ok: false, skipped: false, error: 'The reference email was not accepted.', messageId: null };
+    return { ok: true, skipped: false, messageId: out.id, redirected: !!out.redirected };
   } catch (e) {
     return { ok: false, skipped: false, error: String(e?.message || e), messageId: null };
   }
@@ -415,6 +416,10 @@ export async function createAndSendReferenceRequests({
   }
 
   if (sent.length) {
+    try{
+      const {queueReferenceHiringText}=await import('./hiringJourneyEvents.service.js');
+      await queueReferenceHiringText({agencyId:aid,userId:uid,requestIds:sent.map(item=>item.id)});
+    }catch(error){console.warn('[Plotline reference notification]',uid,error.code||'queue_failed');}
     const applicantTo = String(user?.email || user?.personal_email || '').trim();
     if (applicantTo) {
       const lines = sent.map((s) => `• ${s.email}`).join('\n');
@@ -459,10 +464,16 @@ export async function createAndSendReferenceRequests({
   return { sent, skipped, errors };
 }
 
-export async function notifyApplicantReferenceCompleted({ agencyId, candidateUserId, referenceName, method = 'online' }) {
+export async function notifyApplicantReferenceCompleted({ agencyId, candidateUserId, referenceName, referenceIndex = null, method = 'online' }) {
   const uid = Number(candidateUserId);
   const aid = Number(agencyId);
   if (!uid || !aid) return;
+  if(referenceIndex!==null){
+    try{
+      const {queueReferenceHiringText}=await import('./hiringJourneyEvents.service.js');
+      await queueReferenceHiringText({agencyId:aid,userId:uid,referenceIndex,method,completed:true});
+    }catch(error){console.warn('[Plotline reference completion]',uid,error.code||'queue_failed');}
+  }
   const user = await User.findById(uid);
   const to = String(user?.email || user?.personal_email || '').trim();
   if (!to) return;
@@ -628,7 +639,7 @@ export async function submitPublicReferenceForm(rawToken, body) {
   try {
     const identity = await resolveHiringReferenceSenderIdentity(row.agency_id);
     if (identity?.id) await sendReferenceThankYouToReferee({ row: updated, identity });
-    await notifyApplicantReferenceCompleted({ agencyId: row.agency_id, candidateUserId: row.candidate_user_id, referenceName: responses.referenceName });
+    await notifyApplicantReferenceCompleted({ agencyId: row.agency_id, candidateUserId: row.candidate_user_id, referenceName: responses.referenceName, referenceIndex: row.reference_index });
   } catch (error) { console.warn('Reference saved; completion email failed', error.message); }
 
   return { success: true };

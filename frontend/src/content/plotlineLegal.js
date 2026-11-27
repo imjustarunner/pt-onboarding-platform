@@ -1,5 +1,5 @@
 export const PLOTLINE_LEGAL_ORIGIN = 'https://plotlinepo.com';
-export const PLOTLINE_LEGAL_UPDATED = 'November 21, 2026';
+export const PLOTLINE_LEGAL_UPDATED = 'November 26, 2026';
 const section = (id, title, paragraphs) => ({ id, title, paragraphs });
 
 export const plotlineInterviewOptInScript = [
@@ -45,8 +45,8 @@ export const plotlineLegalPages = {
         'We may disclose information when required by law, to respond to lawful requests, or as reasonably necessary to protect people, investigate misuse, and secure the service. A business reorganization or transfer may involve records subject to confidentiality protections and required notice.',
         'We do not sell personal information or share it with third parties for their independent advertising or marketing.'
       ]),
-      section('sms-privacy', 'Mobile numbers and interview text consent', [
-        'Plotline People Operations offers optional interview text reminders. We collect the confirmed mobile number, consent response, script used, timestamp, and identity of the staff member recording verbal consent. We also process message content and available sending, delivery, and opt-out records to operate and document the program.',
+      section('sms-privacy', 'Mobile numbers and hiring text consent', [
+        'Plotline People Operations offers optional hiring texts for the organization identified in your application. We record your mobile number, organization, signed choice, disclosure version and timestamp, electronic signature, and staff review and confirmation outcome. Where the separate interview-only verbal program is offered, we record the confirmed number, affirmative response, script, timestamp, and staff member who recorded it. We also process message content and available sending, delivery, and opt-out records to operate and document the program.',
         'Mobile information will not be shared with third parties or affiliates for marketing or promotional purposes. Text messaging originator opt-in data and consent will not be shared with third parties or affiliates for their own use. Limited disclosures to messaging service providers and carriers are permitted solely to operate the texting program, process opt-outs, prevent misuse, and meet legal requirements.',
         'Reply STOP to opt out of this program. Reply HELP for help, or email Support@plottwistco.com. Opting out of texts leaves interview email and other available scheduling channels accessible. Consent is specific to this program and is optional. See the linked SMS terms for frequency, charges, and additional details.'
       ]),
@@ -71,8 +71,8 @@ export const plotlineLegalPages = {
   },
   terms: {
     title: 'Plotline Terms & Conditions',
-    description: 'Terms for the Plotline website and people operations platform, including optional interview SMS reminders.',
-    intro: 'These terms apply to the Plotline website and use of Plotline services provided by Plot Twist Co, including the Plotline People Operations interview text reminder program.',
+    description: 'Terms for the Plotline website and people operations platform, including optional hiring texts and interview reminders.',
+    intro: 'These terms apply to the Plotline website and use of Plotline services provided by Plot Twist Co, including the Plotline People Operations hiring text program.',
     sections: [
       section('scope', 'Using Plotline', [
         'Use Plotline lawfully and within the access granted to you. Provide accurate information, protect your credentials and personal invitation links, and report suspected unauthorized access to Support@plottwistco.com.',
@@ -89,15 +89,15 @@ export const plotlineLegalPages = {
         'The Plotline software, designs, branding, and licensed materials remain protected by applicable intellectual property rights. You may view, save, and print public policies and materials provided for your lawful use. Additional reuse is subject to permission or rights provided by law.',
         'The Plotline Privacy Policy explains data handling. Organizations may also provide their own privacy notices and recordkeeping rules. Optional recording, transcription, and other features require any separate permissions and notices applicable to their use.'
       ]),
-      section('sms', 'Plotline People Operations interview SMS terms', [
-        'Program description. Plotline People Operations sends optional texts about your scheduled job interview, including reminders and a personal join link. The hiring organization is identified during scheduling. This program covers interview reminders.',
-        'Consent. A recruiter confirms your US mobile number, reads the published verbal opt-in script, and asks for your explicit agreement. If you agree, the recruiter records your number, response, script, timestamp, and their account against the interview. A phone number alone does not establish consent. An opt-in confirmation text precedes reminders.',
+      section('sms', 'Plotline People Operations hiring SMS terms', [
+        'Program description. Plotline People Operations sends optional application and interview updates, interview reminders and join links, reference outreach and completion notices, pre-hire and onboarding portal invitations and progress updates, and notices about new documents or tasks assigned to you. Each message identifies Plotline People Operations and the hiring organization. Reference answers and ratings are not sent to applicants by text.',
+        'Consent. On the application or your available notification preference form, choose Email and text, enter your US mobile number and full name, and separately confirm control of the number and your electronic signature. Email only is the default. The form identifies the hiring organization, explains the covered notices, and links these terms and the privacy policy. Your signed choice is reviewed by staff and a confirmation text precedes other hiring texts. One confirmed application choice covers the listed hiring stages for that organization; it does not enroll you for other organizations. A phone number or application submission alone does not establish text consent. See https://plotlinepo.com/hiring-sms-consent for the full online process. The separately published verbal interview script covers interview texts only and does not authorize broader hiring messages.',
         'Optional participation. Consent to texts is not a condition of applying, interviewing, employment, purchase, or use of other available services. Interview information can be provided by email. Declining or opting out of texts does not cancel your interview.',
         'Frequency and charges. Message frequency varies. The default interview reminder schedule is seven days, 24 hours, one hour, and five minutes before the interview, where those times are still upcoming. Settings and the number of scheduled interviews affect the messages you receive. Message and data rates may apply under your mobile plan.',
-        'Opt out. Text STOP to opt-out of the program. You may receive a final confirmation of your opt-out. After that, further interview reminder texts are suppressed. To resume, complete a new valid opt-in through the available scheduling process. Contact support if your number changes or you receive texts intended for someone else.',
+        'Opt out. Text STOP to opt-out of the program. You may receive a final confirmation of your opt-out. STOP suppresses further texts from the Plotline campaign across participating organizations and its sending numbers. To resume, follow the available restart process and complete any required current opt-in. Restarting delivery does not add consent for another organization or a broader purpose. Contact support if your number changes or you receive texts intended for someone else.',
         'Help. Text HELP for help, email Support@plottwistco.com, or call 833-756-8894. Include “Plotline” and the hiring organization in support requests. Carrier processing of HELP and STOP depends on the registered messaging configuration.',
         'Delivery. Carriers are not liable for delayed or undelivered messages. Delivery also depends on network coverage, the device, carrier support, and service availability. Use your email invitation or contact the hiring organization if a text or join link is missing. This messaging program is not continuously monitored for urgent requests.',
-        'Privacy. Mobile information and text opt-in evidence are handled as described in the Plotline Privacy Policy, including its restrictions on marketing disclosures. Text consent does not authorize unrelated promotional messages or another organization’s texting program.'
+        'Privacy. Mobile information and text opt-in evidence are handled as described in the Plotline Privacy Policy, including its restrictions on marketing disclosures. Text consent does not authorize unrelated promotional messages or another organization’s hiring notices. Notices to references themselves use their own communication process; your opt-in does not enroll your references.'
       ]),
       section('links', 'Integrations and external services', [
         'Calendar, video, messaging, payment, and other integrations may have their own terms and privacy policies. Connecting a service authorizes the access described in its permissions and the configured workflow. Use personal invitation links only for their intended participant and purpose.'
@@ -112,6 +112,32 @@ export const plotlineLegalPages = {
       ]),
       section('changes', 'Changes and contact', [
         'We publish updates with an effective date and give further notice or obtain agreement where required. Changes do not retroactively broaden your text consent. Contact Support@plottwistco.com for questions about these terms or HQ@plottwistco.com for privacy requests. Plotline is operated by Plot Twist Co.'
+      ])
+    ]
+  },
+  'hiring-sms-consent': {
+    title: 'Application and Hiring Text Opt-In',
+    description: 'How applicants choose optional Plotline People Operations hiring texts for an identified organization.',
+    intro: 'This public page explains the online opt-in offered in participating organizations’ applications and available notification preference forms. This page is an example of the process; it does not collect a phone number or enroll anyone.',
+    sections: [
+      section('choice', 'Choose how to hear from us', [
+        'Email only is selected by default. You can apply and continue the hiring process without text messages. To request texts, select Email and text in your application’s notification section. The actual form identifies your hiring organization; for example, Plotline People Operations for ITSCO.',
+        'The optional texts cover application and interview updates, interview reminders and join links, reference outreach and completion, pre-hire and onboarding portal invitations and progress, and new documents or tasks assigned to you. Email continues. Your choice applies to your phone number and that hiring organization, across these stages. A separate organization needs a separate choice.'
+      ]),
+      section('disclosure', 'Read the disclosure before signing', [
+        'Plotline People Operations sends optional hiring texts for the organization named on the form. Consent is not a condition of applying, interviewing, employment, or purchase. Message frequency varies. Message and data rates may apply. Reply STOP to opt out of the Plotline texting program across participating organizations and its sending numbers. Reply HELP for help or contact support@plotlinepo.com.',
+        'Read the terms at https://plotlinepo.com/terms and privacy policy at https://plotlinepo.com/privacy. The default interview reminders are seven days, 24 hours, one hour, and five minutes before the interview where those times are still upcoming. Other notices depend on activity in your application. Carriers are not liable for delayed or undelivered messages.'
+      ]),
+      section('signature', 'Provide an affirmative electronic signature', [
+        'Enter your US mobile number and full name. Both confirmations begin unchecked: “I control this mobile number and want hiring and onboarding texts” and “I electronically sign this optional enrollment. Declining does not affect my application or employment.” Select both only if you agree, then submit the application or save your notification preference.',
+        'Providing a phone number alone, leaving boxes unchecked, or choosing Email only does not authorize texts. We retain the organization, disclosure and its version, mobile number, signed choices, signature and timestamp. Staff review the enrollment before a confirmation is sent. Other hiring texts require that confirmation to succeed.'
+      ]),
+      section('messages', 'Recognize your messages', [
+        'Messages identify both the service and the organization, for example: “Plotline People Operations · ITSCO: Your interview is scheduled…” or “Plotline People Operations · ITSCO: Your private pre-hire portal is ready.” Personal join and portal links are intended only for you. Reference answers, ratings and confidential reference contents are not included in applicant texts.',
+        'The separate live-operator script at https://plotlinepo.com/sms-consent is limited to interview messages. Existing interview-only consent is not silently expanded to the full hiring journey.'
+      ]),
+      section('control', 'Opt out or get help', [
+        'Reply STOP to stop Plotline campaign texts; email continues and your application or interview is not canceled. Reply HELP for help or email support@plotlinepo.com. Report an incorrect or reassigned phone number to People Operations. New or broader consent requires a current affirmative choice; changes to these public pages do not expand an earlier choice.'
       ])
     ]
   },

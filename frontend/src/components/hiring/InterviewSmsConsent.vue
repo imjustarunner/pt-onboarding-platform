@@ -2,6 +2,7 @@
   <fieldset class="interview-sms-consent">
     <legend>Candidate text reminders</legend>
     <p v-if="!program.available">Text reminders will be available when the Plotline SMS campaign is active.</p>
+    <p v-else-if="program.consentSource==='application'">Interview texts use the applicant’s reviewed application text preference for this hiring organization. No additional verbal opt-in is needed here. Applicants who choose email only continue receiving email.</p>
     <template v-else>
       <p v-if="status">Opt-in confirmation {{ { pending: 'queued', sending: 'processing', sent: 'sent', failed: 'failed' }[status] || status }}.</p>
       <label class="consent-choice"><input v-model="recording" type="checkbox" :disabled="disabled" /> Record verbal opt-in</label>
@@ -18,7 +19,7 @@
 
 <script setup>
 import { ref, watch } from 'vue';
-defineProps({
+const props=defineProps({
   program: { type: Object, default: () => ({ available: false }) },
   status: { type: String, default: '' },
   disabled: Boolean
@@ -27,6 +28,7 @@ const emit = defineEmits(['update:modelValue']);
 const recording = ref(false);
 const phone = ref('');
 const agreed = ref(false);
+watch(()=>props.program.consentSource,()=>{recording.value=false;agreed.value=false;phone.value='';emit('update:modelValue',null);});
 watch([recording, phone, agreed], () => {
   emit('update:modelValue', recording.value ? { phone: phone.value, verbalConsent: agreed.value } : null);
 });

@@ -1,4 +1,5 @@
 import { smsPolicyError } from '../utils/smsCompliancePolicy.js';
+import { hasPlotlineOnlineHiringFlow, plotlineHiringCampaignDigest } from '../utils/plotlineHiringCampaign.js';
 
 const API = 'https://api-eu.vonage.com/v1/10dlc';
 const part = value => encodeURIComponent(String(value || ''));
@@ -62,6 +63,10 @@ export function assertCarrierSmsPolicy({ campaign, number, registration, from, b
     throw smsPolicyError('sms_carrier_hipaa_required', 'The sending number requires HIPAA provisioning before use');
   }
   if (controlReply) return; // Only the one-use keyword capability can reach this branch.
+  if(registration.platformHiringSender===true && (!hasPlotlineOnlineHiringFlow(campaign)
+    || registration.hiringJourneyApprovalDigest!==plotlineHiringCampaignDigest(campaign))){
+    throw smsPolicyError('sms_hiring_campaign_review_required','The broader hiring program must match its reviewed carrier registration.');
+  }
   const registeredUses = [campaign.usecase, ...(campaign.sub_usecases || [])];
   if (!usecases[purpose]?.some(use => registeredUses.includes(use))) {
     throw smsPolicyError('sms_carrier_purpose_mismatch', 'The requested message purpose is outside the carrier-approved use cases');

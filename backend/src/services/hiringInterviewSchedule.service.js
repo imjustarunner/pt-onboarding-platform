@@ -421,6 +421,15 @@ export async function scheduleHiringInterview({
   });
 
   let smsWarning = null;
+  try {
+    const {resolvePlotlineHiringSender}=await import('./plotlineHiringSms.service.js');
+    if(sendInvites && await resolvePlotlineHiringSender(agency)){
+      await pool.execute("UPDATE provider_schedule_events SET meeting_settings_json=JSON_SET(COALESCE(meeting_settings_json,JSON_OBJECT()),'$.interviewSmsReminders',CAST('true' AS JSON)) WHERE id=? AND agency_id=?",[saved.id,agency]);
+    }
+  } catch(error) {
+    console.warn('[Plotline interview reminders]',interview.id,error.code||'settings_failed');
+    smsWarning='The interview was scheduled, but text reminder settings could not be saved.';
+  }
   if (preparedSmsConsent) {
     const connection = await pool.getConnection();
     try {
@@ -503,6 +512,12 @@ export async function scheduleHiringInterview({
 
   await pool.execute('UPDATE hiring_interviews SET invite_error = ? WHERE id = ?', [delivery.sent ? null : delivery.reason, interview.id]);
   interview.invite_error = delivery.sent ? null : delivery.reason;
+  if(sendInvites){
+    try{
+      const {queueInterviewHiringText}=await import('./hiringJourneyEvents.service.js');
+      await queueInterviewHiringText({agencyId:agency,userId:candidateId,interviewId:interview.id,startsAt:startDate});
+    }catch(error){console.warn('[Plotline interview notification]',interview.id,error.code||'queue_failed');smsWarning='The interview was scheduled, but its text notification could not be queued.';}
+  }
   return {
     interview,
     artifact,

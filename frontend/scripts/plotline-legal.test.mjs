@@ -25,7 +25,7 @@ test('all public policy content is present without JavaScript or authentication'
     }
     assert.doesNotMatch(html, /<script|sign in to|enable javascript/i);
     assert.ok(existsSync(root + '/public/assets/plotline/website/brand/logos/plotline-primary-transparent.webp'));
-    for (const policy of ['privacy', 'terms', 'sms-consent']) assert.ok(html.includes('href="https://plotlinepo.com/' + policy + '"'));
+    for (const policy of ['privacy', 'terms', 'sms-consent', 'hiring-sms-consent']) assert.ok(html.includes('href="https://plotlinepo.com/' + policy + '"'));
   }
 });
 
@@ -61,4 +61,12 @@ test('the marketing footer links directly to Plotline public policies', () => {
   const footer = read('src/views/public/PlotlineWebsite.vue').split('<footer')[1];
   for (const key of Object.keys(plotlineLegalPages)) assert.ok(footer.includes('href="https://plotlinepo.com/' + key + '"'));
   assert.doesNotMatch(footer, /plottwisthq\.com\/(?:terms|privacypolicy)/);
+});
+
+test('application proof and terms explain the full optional journey without expanding old verbal interview consent',()=>{
+ const html=renderPlotlineLegalHtml('hiring-sms-consent');
+ for(const detail of ['Email only is selected by default','Both confirmations begin unchecked','ITSCO','reference outreach and completion','pre-hire and onboarding','new documents or tasks','staff review','STOP','HELP']) assert.ok(html.toLowerCase().includes(detail.toLowerCase()),detail);
+ assert.match(html,/does not collect a phone number or enroll anyone/);
+ assert.match(html,/Existing interview-only consent is not silently expanded/);
+ const terms=renderPlotlineLegalHtml('terms');assert.match(terms,/application.*electronic signature/si);assert.match(terms,/Reference answers and ratings are not sent/);
 });
