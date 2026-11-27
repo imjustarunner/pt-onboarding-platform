@@ -92,12 +92,14 @@ it('keeps an admin deleted-items response out of the ordinary calendar cache', a
     : {} }));
   const state = await mount();
   await vi.advanceTimersByTimeAsync(500);
-  state.setShowDeletedCalendarItems(true);
+  await wrapper.setProps({ compactPageChrome: true });
+  await wrapper.find('[data-testid="schedule-command-settings"]').trigger('click');
+  await wrapper.find('[data-testid="schedule-show-deleted"]').setValue(true);
   await flushPromises();
   const key = '7|all|2026-10-12|monday|true|false|false||tz:America/Denver';
   expect(state.summary.deletedView).toBe(true);
   expect(getScheduleSummaryStale(key + '|deleted:1').data.deletedView).toBe(true);
-  state.setShowDeletedCalendarItems(false);
+  await wrapper.find('[data-testid="schedule-show-deleted"]').setValue(false);
   await flushPromises();
   expect(state.summary.deletedView).toBe(false);
   expect(getScheduleSummaryStale(key).data.deletedView).toBe(false);

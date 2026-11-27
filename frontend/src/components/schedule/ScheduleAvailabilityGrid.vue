@@ -291,10 +291,6 @@
               <path d="M21 12a9 9 0 1 1-2.64-6.36" stroke-linecap="round"/><path d="M21 3v6h-6" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
           </button>
-          <label v-if="canShowDeletedCalendarItems" class="sched-nav-btn">
-            <input type="checkbox" :checked="showDeletedCalendarItems" @change="setShowDeletedCalendarItems($event.target.checked)" />
-            Show deleted
-          </label>
           <button
             v-if="Number(effectiveAgencyId || 0) > 0 && clientSessionBookingEnabled"
             class="sched-nav-btn"
@@ -489,6 +485,10 @@
             <strong>Schedule settings</strong>
             <button type="button" class="sched-pill" aria-label="Close schedule settings" @click="calendarSettingsOpen = false">Close</button>
           </div>
+          <label v-if="canShowDeletedCalendarItems" class="sched-pill">
+            <input data-testid="schedule-show-deleted" type="checkbox" :checked="showDeletedCalendarItems" @change="setShowDeletedCalendarItems($event.target.checked)" />
+            Show deleted
+          </label>
           <div class="sched-settings-tabs" role="tablist" aria-label="Schedule settings" @keydown="onSettingsTabKeydown">
             <button v-for="section in settingsSections" :key="section.id" :id="`sched-tab-${section.id}`" type="button"
               role="tab" :aria-selected="activeSettingsSection === section.id" :aria-controls="`sched-settings-${section.id}`"
