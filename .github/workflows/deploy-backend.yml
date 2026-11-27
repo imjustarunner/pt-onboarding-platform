@@ -616,6 +616,8 @@ jobs:
             echo "❌ App never reached loaded phase after ~5 minutes. Failing deploy."
             exit 1
           fi
+          node --test scripts/check-clinical-plan-schema.test.mjs
+          node scripts/check-clinical-plan-schema.mjs "$SERVICE_URL" "$GITHUB_SHA" "$CANDIDATE_REVISION"
           node --test scripts/check-plotline-support-release.test.mjs
           node scripts/check-plotline-support-release.mjs "$SERVICE_URL" "$GITHUB_SHA"
           node scripts/check-paired-release.mjs frontend-staged "$GITHUB_SHA"
