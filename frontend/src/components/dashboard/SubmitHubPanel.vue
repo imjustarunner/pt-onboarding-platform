@@ -105,7 +105,7 @@ const panelTitle = computed(() => {
 const panelSubtitle = computed(() => {
   const subs = {
     time: 'Choose the type of time claim to submit for payroll review.',
-    in_school: 'School mileage and eligible school benefit requests.',
+    in_school: 'School mileage. School Support Hours are available in eligible session cancellations.',
     availability: 'Request additional weekday school hours for staff to review and assign.',
     virtual_hours: 'Set weekly virtual hours not tied to a specific room.',
     company_car: 'Log and track business vehicle trips.',

@@ -478,7 +478,7 @@ it('persists the updated palette once and preserves a later custom choice that m
   expect(state.scheduleColors.availability).toBe('#06B6D4');
   expect(state.scheduleColors.interview).toBe('#123456');
   expect(preferences.schedule_display_prefs).toMatchObject({schedulePaletteVersion:2,customFuturePreference:'keep'});
-  expect(state.scheduleSpanMode).toBe('week');expect(state.focusedDays).toEqual([]);
+  expect(state.scheduleSpanMode).toBe('day');expect(state.focusedDays).toEqual(['Tuesday']);
   expect(state.scheduleSideBySide).toBe(true);expect(state.hideWeekend).toBe(false);
   // This is now an intentional personal choice, not the unmigrated default.
   state.scheduleColors.client_session='#059669';await state.saveScheduleColors();
@@ -499,11 +499,11 @@ it('does not mark palette migration complete when its atomic save fails', async 
   expect(JSON.parse(localStorage.getItem('schedule.displayPrefs.v1:7')).schedulePaletteVersion).toBe(0);
 });
 
-it('starts each visit with a whole week while preserving a deliberate current-version layout choice', async () => {
+it('restores the selected day view while preserving a deliberate current-version layout choice', async () => {
   const original=m.get.getMockImplementation();
   m.get.mockImplementation(async(url,options)=>url==='/users/7/preferences'?{data:{schedule_display_prefs:{layoutDefaultsVersion:2,schedulePaletteVersion:2,spanMode:'day',scheduleSideBySide:false,hideWeekend:false}}}:original(url,options));
   const state=await mount();
-  expect(state.scheduleSpanMode).toBe('week');expect(state.focusedDays).toEqual([]);
+  expect(state.scheduleSpanMode).toBe('day');expect(state.focusedDays).toEqual(['Tuesday']);
   expect(state.scheduleSideBySide).toBe(false);expect(state.hideWeekend).toBe(false);
   // Ordinary schedule refreshes do not revert choices made during this visit.
   state.scheduleSpanMode='day';await state.load({forceRefresh:true});await flushPromises();
@@ -913,4 +913,19 @@ it('keeps an explicit Google opt-out after reopening My Schedule through a diffe
   await vi.advanceTimersByTimeAsync(100);
   expect(reopened.googleBusyPreference).toBe(false);
   expect(reopened.googleEventsPreference).toBe(false);
+});
+
+it('opens the bulk scheduler on the shared calendar and blocks editing on a read-only team calendar',async()=>{
+ const state=await mount();state.openBulkScheduler();await flushPromises();
+ expect(state.showBulkScheduler).toBe(true);state.bulkSchedulerAgencyId=2;await flushPromises();
+ const planner=wrapper.findComponent({name:'ProviderDayPlanner'});expect(planner.exists()).toBe(true);expect(planner.props('providerId')).toBe(7);
+ await wrapper.setProps({teamAvailabilityOnly:true});expect(state.canUseBulkScheduler).toBe(false);
+});
+it('retains day view on reload and uses the calendar timezone when Today crosses a browser date boundary',async()=>{
+ vi.setSystemTime(new Date('2026-11-30T02:00:00Z'));
+ localStorage.setItem('schedule.displayPrefs.v1:7',JSON.stringify({layoutDefaultsVersion:2,spanMode:'day',hideWeekend:false}));
+ const state=await mount();state.goToTodayWeek();await flushPromises();
+ expect(state.scheduleSpanMode).toBe('day');expect(state.focusedDays).toEqual(['Sunday']);expect(state.weekStart).toBe('2026-11-23');
+ wrapper.unmount();wrapper=undefined;
+ const again=await mount();again.goToTodayWeek();await flushPromises();expect(again.focusedDays).toEqual(['Sunday']);
 });

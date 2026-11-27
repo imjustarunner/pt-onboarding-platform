@@ -41,12 +41,12 @@
 
         <nav class="acw-steps" aria-label="Workflow steps">
           <div
-            v-for="s in visibleSteps"
+            v-for="(s, index) in visibleSteps"
             :key="s.n"
             class="acw-step"
-            :class="{ on: change.step.value === s.n, done: change.step.value > s.n }"
+            :class="{ on: change.step.value === s.n, done: currentStepIndex > index }"
           >
-            <span class="acw-step-num">{{ change.step.value > s.n ? '✓' : s.n }}</span>
+            <span class="acw-step-num">{{ currentStepIndex > index ? '✓' : index + 1 }}</span>
             <span>{{ s.label }}</span>
           </div>
         </nav>
@@ -93,7 +93,7 @@
           <!-- Step 2 -->
           <section v-else-if="change.step.value === 2" class="acw-panel acw-panel--split">
             <div>
-              <h3 class="acw-h">Step 2 of 4: Appointment details</h3>
+              <h3 class="acw-h">{{ stepPosition(2) }}: Appointment details</h3>
               <fieldset v-if="change.facts.eventType === 'canceled' && change.cancellationOptions?.value && !change.retrospective?.value" class="acw-client-notice" data-cancellation-scope>
                 <legend>Visits and office time</legend>
                 <label class="acw-field"><span>Which visits?</span><select v-model="change.facts.cancellationScope" class="acw-input" @change="onCancellationScopeChange"><option value="occurrence">{{ change.cancellationOptions.value.singleClient===false ? 'This shared visit — all participants' : 'This visit only' }}</option><option v-if="change.cancellationOptions.value.seriesAvailable" value="future">This and future visits in this client’s series</option></select></label>
@@ -282,10 +282,18 @@
             </aside>
           </section>
 
+          <section v-else-if="change.step.value === 5" class="acw-panel">
+            <h3 class="acw-h">{{ stepPosition(5) }}: School Support Hours</h3>
+            <p>Choose whether to apply your earned hours to this canceled school session.</p>
+            <SchoolSupportCancellationBenefit v-model="change.facts.useSchoolSupportHour" v-model:hours="change.facts.schoolSupportHours"
+              :benefit="change.schoolSupport.value" :loading="change.schoolSupportLoading.value" :error="change.schoolSupportError.value"
+              :event-type="change.facts.eventType" @refresh="change.refreshSchoolSupport()" />
+          </section>
+
           <!-- Step 3 -->
           <section v-else-if="change.step.value === 3" class="acw-panel acw-panel--split">
             <div>
-              <h3 class="acw-h">Step 3 of 4: Calculated consequence</h3>
+              <h3 class="acw-h">{{ stepPosition(3) }}: Calculated consequence</h3>
               <p class="muted">The system automatically determines the financial or package consequence based on your organization’s rules.</p>
 
               <dl class="acw-summary-grid">
@@ -312,7 +320,7 @@
 
               </div>
 
-              <SchoolSupportCancellationBenefit v-if="!isLearning && change.facts.cancellationScope!=='future'"
+              <SchoolSupportCancellationBenefit v-if="!isLearning && !change.hasSchoolSupportStep?.value && change.facts.cancellationScope!=='future'"
                 v-model="change.facts.useSchoolSupportHour"
                 v-model:hours="change.facts.schoolSupportHours"
                 :benefit="change.schoolSupport.value" :loading="change.schoolSupportLoading.value" :error="change.schoolSupportError.value"
@@ -502,7 +510,7 @@
             <template v-else>
             <button v-if="change.step.value > 1 && (!change.workflow.value || change.workflow.value.status === 'draft')" type="button" class="acw-btn" :disabled="change.saving.value || rescheduleBusy" @click="change.goBack()">Back</button>
             <button
-              v-if="change.step.value < 4 && !(change.step.value === 2 && change.facts.eventType === 'rescheduled')"
+              v-if="change.step.value !== 4 && !(change.step.value === 2 && change.facts.eventType === 'rescheduled')"
               type="button"
               class="acw-btn primary"
               :disabled="change.loading.value || change.customOffer.busy || !change.canContinueFromStep(change.step.value)"
@@ -558,7 +566,13 @@ const steps = [
   { n: 3, label: 'Consequence' },
   { n: 4, label: 'Review & Sign' }
 ];
-const visibleSteps = computed(() => props.change.facts.eventType === 'rescheduled' ? steps.slice(0, 2) : steps);
+const visibleSteps = computed(() => props.change.facts.eventType === 'rescheduled' ? steps.slice(0, 2)
+  : props.change.hasSchoolSupportStep?.value ? [...steps.slice(0,2), { n:5, label:'School Support Hours' }, ...steps.slice(2)] : steps);
+const currentStepIndex = computed(() => visibleSteps.value.findIndex(item => item.n === props.change.step.value));
+const stepPosition = id => `Step ${visibleSteps.value.findIndex(item => item.n === id) + 1} of ${visibleSteps.value.length}`;
+watch(() => [props.change.facts.initiator, props.change.facts.cancellationScope], () => {
+  if (props.change.open.value) void props.change.refreshSchoolSupport();
+});
 
 const events = [
   { id: 'canceled', label: 'Canceled', hint: 'Client or provider canceled the appointment.', icon: '✕', tone: 'red' },

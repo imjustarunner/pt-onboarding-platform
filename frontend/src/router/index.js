@@ -1,4 +1,5 @@
 import { safeLoginDestination } from '../utils/loginHandoff';
+import { myScheduleDestination } from '../utils/myScheduleDestination.js';
 import { canAccessTicketDesk } from '../utils/ticketAccess.js';
 import { schoolCareBridgeRoutes, addSchoolCareBridgeWorkflowAliases } from './schoolCareBridgeRoutes.js';
 import { familyBillingRoutes } from './familyBillingRoutes.js';
@@ -2134,7 +2135,7 @@ const routes = [
   {
     path: '/:organizationSlug/my-schedule',
     name: 'OrganizationMySchedule',
-    component: () => import('../views/MyScheduleView.vue'),
+    redirect: myScheduleDestination,
     meta: { requiresAuth: true, organizationSlug: true }
   },
   {
@@ -3825,7 +3826,7 @@ const routes = [
   {
     path: '/my-schedule',
     name: 'MySchedule',
-    component: () => import('../views/MyScheduleView.vue'),
+    redirect: myScheduleDestination,
     meta: { requiresAuth: true }
   },
   {

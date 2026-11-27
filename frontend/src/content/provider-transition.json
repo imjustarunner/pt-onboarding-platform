@@ -25,7 +25,7 @@
       "pitfall": "The browser tab title or a previous selection may belong to another company. Recheck context after changing workspaces.",
       "sources": [
         "frontend/src/AppWorkspace.vue",
-        "frontend/src/views/MyScheduleView.vue",
+        "frontend/src/components/schedule/ScheduleAvailabilityGrid.vue",
         "frontend/src/components/clinical/NoteAidWorkQueuePanel.vue",
         "frontend/src/views/AccountInfoView.vue"
       ],
@@ -55,7 +55,7 @@
       "check": "The saved occurrence has the intended client, provider, time, duration, service and location, and appears only once.",
       "pitfall": "Do not copy an appointment’s service, room or recurrence from another client without reviewing every value.",
       "sources": [
-        "frontend/src/views/MyScheduleView.vue",
+        "frontend/src/components/schedule/ScheduleAvailabilityGrid.vue",
         "frontend/src/components/schedule/ClinicalSessionBody.vue",
         "backend/src/controllers/appointment.controller.js"
       ],

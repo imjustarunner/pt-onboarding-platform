@@ -5,12 +5,11 @@
     @back="$emit('update:view', 'root')"
   >
     <ManualMeetingLog v-if="view === 'root' || view === 'time'" :agency-id="agencyId" @saved="refreshHistory" />
-    <SchoolSupportSubmit v-if="view === 'root' || view === 'in_school'" :agency-id="agencyId" @submitted="refreshHistory" />
     <!-- Root: categorized submit actions -->
     <div v-if="view === 'root'" class="submit-hub__root">
       <p v-if="compensationError" role="alert">{{ compensationError }} <button type="button" @click="loadSubmissionOptions">Try again</button></p>
       <SupplementalTime :agency-id="agencyId" :context="compensation?.submission" :codes="compensation?.codeGuide" @submitted="refreshHistory" />
-      <p v-if="retiredMedcancel" class="submit-hub__sub-hint">School missed-session benefits now use earned School Support Hours. Use the temporary School Support Hours form above or your balances in My Payroll. Prior-period Medicaid no-show records remain in pay history.</p>
+      <p v-if="retiredMedcancel" class="submit-hub__sub-hint">Apply earned School Support Hours when canceling an eligible school session in My Schedule. Review balances and request history in My Payroll. Prior-period Medicaid no-show records remain in pay history.</p>
       <RecurringPayments :agency-id="agencyId" />
       <AccountabilityWorkspace v-if="canDiscoverAccountability(currentUserId)" :agency-id="agencyId" :target-user-id="submitContext?.employee.id" />
       <PayCalculatorCard :agency-id="agencyId" :start-expanded="false" />
@@ -118,7 +117,7 @@
     <div v-else-if="view === 'in_school'" class="submit-hub__sub">
       <div class="submit-hub__sub-split">
         <div>
-          <p class="submit-hub__sub-hint">School mileage and eligible school benefit requests.</p>
+          <p class="submit-hub__sub-hint">School mileage. Apply earned School Support Hours in the school session’s cancellation workflow.</p>
           <div class="submit-hub__grid submit-hub__grid--compact">
             <button
               v-for="action in visibleInSchoolActions"
@@ -171,7 +170,6 @@
 
 <script setup>
 import {canDiscoverAccountability} from '../../utils/accountabilityDiscovery';
-import SchoolSupportSubmit from '../payroll/SchoolSupportSubmit.vue';
 const api = useSubmitApi();
 const submitContext = useSubmitContext();
 import ManualMeetingLog from '../meetings/ManualMeetingLog.vue';

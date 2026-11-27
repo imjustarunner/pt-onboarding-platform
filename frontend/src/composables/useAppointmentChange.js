@@ -44,6 +44,11 @@ export function useAppointmentChange({identity,recoverOperations=true}={}) {
   const schoolSupport = ref(null);
   const schoolSupportLoading = ref(false);
   const schoolSupportError = ref('');
+  const hasSchoolSupportStep = computed(() => facts.eventType === 'canceled'
+    && facts.cancellationScope !== 'future' && ['client','parent_guardian','facility_school'].includes(facts.initiator)
+    && schoolSupport.value?.eligible === true);
+  // Existing step IDs stay stable for resumed drafts; school support comes before consequences.
+  const stepOrder = computed(() => [1, 2, ...(hasSchoolSupportStep.value ? [5] : []), 3, 4]);
   let supportLoadVersion = 0;
   const preview = ref(null);
   const workflow = ref(null);
@@ -251,7 +256,9 @@ export function useAppointmentChange({identity,recoverOperations=true}={}) {
     const version = ++supportLoadVersion;
     const id = appointmentId.value;
     schoolSupportError.value = '';
-    if (!id || !['canceled', 'no_show'].includes(facts.eventType)) {
+    if (!id || !['canceled', 'no_show'].includes(facts.eventType)
+        || (facts.eventType === 'canceled' && !['client','parent_guardian','facility_school'].includes(facts.initiator))
+        || facts.cancellationScope === 'future') {
       schoolSupport.value = null;
       schoolSupportLoading.value = false;
       facts.useSchoolSupportHour = false;
@@ -260,10 +267,11 @@ export function useAppointmentChange({identity,recoverOperations=true}={}) {
     schoolSupportLoading.value = true;
     try {
       const {data} = await api.get(`/appointments/${id}/change/school-support`, {
-        params: {eventType: facts.eventType, clientId: context.clientId || undefined}, skipGlobalLoading: true
+        params: {eventType: facts.eventType, initiator: facts.initiator || undefined, clientId: context.clientId || undefined}, skipGlobalLoading: true
       });
       if (version !== supportLoadVersion) return;
       schoolSupport.value = data;
+      if (!data?.eligible) facts.useSchoolSupportHour = false;
       if(!facts.useSchoolSupportHour&&data?.canRequest)facts.schoolSupportHours=Number(data.maximumHours??1);
     } catch {
       if (version !== supportLoadVersion) return;
@@ -344,6 +352,7 @@ export function useAppointmentChange({identity,recoverOperations=true}={}) {
       if (facts.reasons.includes('other') && !String(facts.reasonOther || '').trim()) return false;
       return true;
     }
+    if (n === 5) return supportSelectionValid();
     if (n === 3) {
       if (!supportSelectionValid()) return false;
       const w = facts.waiver?.action;
@@ -363,17 +372,19 @@ export function useAppointmentChange({identity,recoverOperations=true}={}) {
     error.value = '';
     if (step.value === 1 && facts.eventType === 'rescheduled') { step.value = 2; return; }
     if (!(await refreshPreview())) return;
-    if (step.value === 3 && !supportSelectionValid()) {
+    if ([3,5].includes(step.value) && !supportSelectionValid()) {
       error.value = 'Your available support hours changed. Review the selection before signing.';
       return;
     }
-    if (step.value < 4) step.value += 1;
+    const position = stepOrder.value.indexOf(step.value);
+    if (position >= 0 && position < stepOrder.value.length - 1) step.value = stepOrder.value[position + 1];
     if (step.value === 2) { await loadReplacements(); await loadReplacementOptions(false); }
   }
 
   function goBack() {
     error.value = '';
-    if (step.value > 1) step.value -= 1;
+    const position = stepOrder.value.indexOf(step.value);
+    if (position > 0) step.value = stepOrder.value[position - 1];
   }
 
   async function complete() {
@@ -500,7 +511,7 @@ export function useAppointmentChange({identity,recoverOperations=true}={}) {
   return {
     cancellationOptions,cancellationOptionsError,cancellationOptionsLoading,loadCancellationOptions,seriesOperation,seriesJobs,trackSeriesOperation,retrySeriesOperation,reviewRemainingSeries,
     open,
-    schoolSupport, schoolSupportLoading, schoolSupportError, refreshSchoolSupport,
+    schoolSupport, schoolSupportLoading, schoolSupportError, refreshSchoolSupport, hasSchoolSupportStep, stepOrder,
     workflow,
     replacements,
     replacementOptions, retrospective, customOffer, toggleOfferSlot, addCustomOffer, requestOfferOffice,

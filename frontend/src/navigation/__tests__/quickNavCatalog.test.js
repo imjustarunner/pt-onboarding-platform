@@ -227,3 +227,13 @@ it('exposes the tutoring library through normal search only in an enabled staff 
  expect(getAccessibleQuickNavEntries(buildQuickNavContext({user,agency:{feature_flags:{}}})).some(e=>e.id==='tutoring-library')).toBe(false);
  expect(getAccessibleQuickNavEntries(buildQuickNavContext({user:{id:1465,role:'school_staff'},agency:{feature_flags:{tutoringSessionHubV2:true}}})).some(e=>e.id==='tutoring-library')).toBe(false);
 });
+
+it('finds both EHR transition tools and rollout with partial queries for authorized administrators',()=>{
+ const ctx=buildQuickNavContext({user:{id:7,role:'super_admin'}});
+ const ehr=searchQuickNav('ehr tran',ctx).flat.find(entry=>entry.id==='ehr-transition');expect(ehr).toBeTruthy();
+ expect(resolveQuickNavLocation(ehr,{orgSlug:'itsco'})).toMatchObject({path:'/practice-transition',query:{tools:'ehr'}});
+ expect(searchQuickNav('transition rollout',ctx).flat.some(entry=>entry.id==='transition-rollout')).toBe(true);
+ expect(searchQuickNav('ehr tran',providerCtx()).flat.some(entry=>entry.id==='ehr-transition')).toBe(false);
+});
+
+it('finds office transition rollout in the same dashboard calendar',()=>{const ctx=buildQuickNavContext({user:{id:7,role:'super_admin'}});const entry=searchQuickNav('office transition',ctx).flat.find(e=>e.id==='office-scheduling-transition');expect(resolveQuickNavLocation(entry,{orgSlug:'itsco'})).toMatchObject({path:'/itsco/dashboard',query:{tab:'my_schedule',scheduleTool:'office-transition'}});});

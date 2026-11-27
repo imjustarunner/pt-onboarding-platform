@@ -1956,7 +1956,7 @@ const selectedSuperviseeId = ref(0); // 0 = all supervisees
 const superviseeSortKey = ref('name'); // 'name' | 'agency'
 const superviseeSortDir = ref('asc'); // 'asc' | 'desc'
 const superviseeQuery = ref('');
-const selfScheduleWeekStartYmd = ref('');
+const selfScheduleWeekStartYmd = ref(/^\d{4}-\d{2}-\d{2}$/.test(String(route.query.weekStart || '')) ? String(route.query.weekStart) : '');
 const superviseeScheduleWeekStartYmd = ref('');
 /** Org directory (admin/staff/etc.): full ScheduleAvailabilityGrid + Next/Prev employee. */
 const employeeSortKey = ref('name'); // 'name' | 'agency'
@@ -2954,9 +2954,9 @@ const loadScheduleViewPrefs = () => {
     if (Number.isFinite(empId) && empId > 0 && canPickEmployeeSchedule.value) {
       selectedEmployeeDirectoryId.value = empId;
     }
-    const selfWeek = String(parsed?.selfWeekStartYmd || '').slice(0, 10);
-    const superviseeWeek = String(parsed?.superviseeWeekStartYmd || '').slice(0, 10);
-    const employeeWeek = String(parsed?.employeeWeekStartYmd || '').slice(0, 10);
+    const selfWeek = String(route.query.weekStart || '').slice(0, 10);
+    const superviseeWeek = String(route.query.weekStart || '').slice(0, 10);
+    const employeeWeek = String(route.query.weekStart || '').slice(0, 10);
     selfScheduleWeekStartYmd.value = /^\d{4}-\d{2}-\d{2}$/.test(selfWeek) ? selfWeek : '';
     superviseeScheduleWeekStartYmd.value = /^\d{4}-\d{2}-\d{2}$/.test(superviseeWeek) ? superviseeWeek : '';
     employeeScheduleWeekStartYmd.value = /^\d{4}-\d{2}-\d{2}$/.test(employeeWeek) ? employeeWeek : '';

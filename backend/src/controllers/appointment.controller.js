@@ -550,6 +550,6 @@ export const getAppointmentSchoolSupportHandler = async (req,res,next) => {
     await assertAppointmentChangeAccess(req,appointment);
     const {appointmentSchoolSupportContext}=await import('../services/appointmentSchoolSupport.service.js');
     res.json(await appointmentSchoolSupportContext({appointmentId:appointment.id,actorUserId:req.user.id,
-      eventType:String(req.query.eventType||''),clientId:Number(req.query.clientId)||null}));
+      eventType:String(req.query.eventType||''),initiator:String(req.query.initiator||''),clientId:Number(req.query.clientId)||null}));
   }catch(error){next(error);}
 };

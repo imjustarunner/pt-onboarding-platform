@@ -73,3 +73,18 @@ it('shows separate future-visit and office-retention controls, then every date b
  change.facts.cancellationScope='future';change.step.value=4;change.preview.value={seriesChange:{count:2,totalFeeCents:0,appointments:[{id:4,when:'Sunday, Nov 29 at 11 AM',classification:'advance_cancel',feeCents:0,narrative:'First signed note preview.'},{id:5,when:'Sunday, Dec 27 at 11 AM',classification:'advance_cancel',feeCents:0,narrative:'Second signed note preview.'}]}};await flushPromises();
  expect(wrapper.find('[data-series-cancellation-review]').text()).toContain('2 visits');expect(wrapper.findAll('.acw-series-note')).toHaveLength(2);expect(wrapper.text()).toContain('Second signed note preview.');expect(wrapper.find('.acw-signature').text()).toContain('every cancellation note');wrapper.unmount();
 });
+
+it('shows school benefit hours as a separate cancellation step with the actual bank and an opt-in amount',async()=>{
+ const {wrapper,change}=await setup();
+ api.get.mockResolvedValue({data:{eligible:true,balanceHours:3,pendingHours:1,availableHours:2,maximumHours:1,canRequest:true}});
+ api.post.mockResolvedValue({data:{preview:{}}});
+ Object.assign(change.facts,{eventType:'canceled',initiator:'facility_school'});await flushPromises();
+ change.step.value=5;await flushPromises();
+ expect(wrapper.text()).toContain('Step 3 of 5: School Support Hours');expect(wrapper.text()).toContain('Earned balance');expect(wrapper.text()).toContain('2 hours');
+ expect(change.facts.useSchoolSupportHour).toBe(false);
+ const toggle=wrapper.findAll('input[type=checkbox]').find(input=>input.element.closest('.school-support'));await toggle.setValue(true);
+ await wrapper.get('.school-support input[type=number]').setValue('.5');
+ expect(change.facts.schoolSupportHours).toBe(.5);
+ await wrapper.findAll('button').find(button=>button.text().startsWith('Continue')).trigger('click');await flushPromises();
+ expect(change.step.value).toBe(3);expect(wrapper.text()).toContain('Step 4 of 5: Calculated consequence');expect(wrapper.find('.school-support').exists()).toBe(false);wrapper.unmount();
+});

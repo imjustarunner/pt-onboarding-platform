@@ -48,7 +48,7 @@ describe('appointment change workflow', () => {
   });
   it('does not advance through a failed consequence preview', async () => {
     const change = useAppointmentChange(); await change.openWizard({ appointmentId: 4 });
-    change.facts.eventType = 'canceled'; api.post.mockRejectedValue(new Error('offline'));
+    change.facts.eventType = 'canceled'; change.facts.initiator = 'client'; api.post.mockRejectedValue(new Error('offline'));
     await change.goNext(); expect(change.step.value).toBe(1);
   });
   it('requires signature confirmation and sends the no-show reason-known selection', async () => {
@@ -61,7 +61,7 @@ describe('appointment change workflow', () => {
   });
   it('offers existing replacement sessions for a cancellation by date and title for the same client', async () => {
     const change = useAppointmentChange(); await change.openWizard({ appointmentId: 4, context: { clientId: 8 } });
-    change.facts.eventType = 'canceled';
+    change.facts.eventType = 'canceled'; change.facts.initiator = 'client';
     api.post.mockResolvedValue({ data: { preview: { appointment: { agencyId: 2 } } } });
     api.get.mockResolvedValue({ data: { appointments: [
       { id: 4, status: 'confirmed' },
@@ -82,7 +82,7 @@ describe('appointment change workflow', () => {
 describe('school support hour selection', () => {
   async function setup() {
     const change = useAppointmentChange(); await change.openWizard({appointmentId:4});
-    change.facts.eventType = 'canceled';
+    change.facts.eventType = 'canceled'; change.facts.initiator = 'client';
     api.get.mockResolvedValue({data:{eligible:true,balanceHours:2,pendingHours:1,availableHours:1,canRequest:true}});
     await change.refreshSchoolSupport(); return change;
   }
@@ -118,7 +118,7 @@ describe('school support hour selection', () => {
   it('clears the selection when changing to a reschedule and ignores a stale balance response after closing', async () => {
     const change = await setup(); change.facts.useSchoolSupportHour = true; change.facts.eventType = 'rescheduled';
     await change.refreshSchoolSupport(); expect(change.facts.useSchoolSupportHour).toBe(false);
-    change.facts.eventType = 'canceled'; let resolve;
+    change.facts.eventType = 'canceled'; change.facts.initiator = 'client'; let resolve;
     api.get.mockImplementationOnce(() => new Promise(r => {resolve=r;}));
     const pending=change.refreshSchoolSupport(); change.closeWizard(); resolve({data:{eligible:true,availableHours:9}}); await pending;
     expect(change.schoolSupport.value).toBeNull();
@@ -130,7 +130,7 @@ it('keeps the delayed new no-show notice mandatory while preserving historical c
  const change=useAppointmentChange();await change.openWizard({appointmentId:4});change.facts.eventType='no_show';change.replacementOptions.value={retrospective:true};change.facts.reasonKnown=false;change.facts.outreach=['called'];
  expect(change.retrospective.value).toBe(false);change.facts.notificationMode='none';expect(change.canContinueFromStep(2)).toBe(true);
  api.put.mockResolvedValue({data:{ok:true}});await change.saveDraft();expect(api.put).toHaveBeenCalledWith('/appointments/4/change/draft',expect.objectContaining({notificationMode:'send',followUpAction:'none',offeredSlots:[]}),expect.anything());
- change.facts.eventType='canceled';expect(change.retrospective.value).toBe(true);
+ change.facts.eventType='canceled';change.facts.initiator='client';expect(change.retrospective.value).toBe(true);
 });
 
 it('submits reviewed forward cancellations with the office choice and tracks work after returning to the calendar',async()=>{
@@ -148,7 +148,7 @@ it('submits reviewed forward cancellations with the office choice and tracks wor
 });
 it('keeps cancellation disabled if office and recurrence options cannot be checked, then recovers on retry',async()=>{
  api.get.mockImplementation(async url=>{if(url.endsWith('/cancellation-options'))throw new Error('offline');return{data:{workflow:null}};});
- const change=useAppointmentChange();await change.openWizard({appointmentId:4});change.facts.eventType='canceled';expect(change.canContinueFromStep(1)).toBe(false);
+ const change=useAppointmentChange();await change.openWizard({appointmentId:4});change.facts.eventType='canceled';change.facts.initiator='client';expect(change.canContinueFromStep(1)).toBe(false);
  api.get.mockResolvedValue({data:{seriesAvailable:true,officeReservationAvailable:true}});await change.loadCancellationOptions();expect(change.canContinueFromStep(1)).toBe(true);expect(change.facts.officeReservationDisposition).toBe('keep');
 });
 it('reuses an unchanged series preview while advancing review steps, with the server token retained for signing',async()=>{
@@ -159,7 +159,7 @@ it('reuses an unchanged series preview while advancing review steps, with the se
 });
 
 it('lists nearest replacement sessions first across timezones and uses upcoming order before the server limit',async()=>{
- const change=useAppointmentChange();await change.openWizard({appointmentId:4,context:{clientId:8}});change.facts.eventType='canceled';
+ const change=useAppointmentChange();await change.openWizard({appointmentId:4,context:{clientId:8}});change.facts.eventType='canceled';change.facts.initiator='client';
  api.post.mockResolvedValue({data:{preview:{appointment:{agencyId:2}}}});
  api.get.mockResolvedValue({data:{appointments:[
   {id:15,status:'confirmed',startAt:'2027-11-09 23:00:00'},
@@ -171,4 +171,22 @@ it('lists nearest replacement sessions first across timezones and uses upcoming 
  ]}});await change.goNext();
  expect(change.replacements.value.map(a=>a.id)).toEqual([5,6,15]);
  expect(api.get).toHaveBeenCalledWith('/appointments',expect.objectContaining({params:expect.objectContaining({order:'upcoming',agencyId:2,clientId:8})}));
+});
+
+it.each(['client','parent_guardian','facility_school'])('visits school benefit review before consequences for %s',async initiator=>{
+ const change=useAppointmentChange();await change.openWizard({appointmentId:4});
+ Object.assign(change.facts,{eventType:'canceled',initiator,reasons:['illness'],clientFacingReason:'The school session is canceled.'});
+ change.cancellationOptions.value={singleClient:true};change.step.value=2;
+ api.post.mockResolvedValue({data:{preview:{appointment:{agencyId:2}}}});
+ api.get.mockResolvedValue({data:{eligible:true,balanceHours:2,pendingHours:0,availableHours:2,maximumHours:1,canRequest:true}});
+ await change.goNext();expect(change.step.value).toBe(5);expect(change.hasSchoolSupportStep.value).toBe(true);
+ change.facts.useSchoolSupportHour=true;change.facts.schoolSupportHours=.5;
+ await change.goNext();expect(change.step.value).toBe(3);
+ change.goBack();expect(change.step.value).toBe(5);change.goBack();expect(change.step.value).toBe(2);
+ expect(api.get).toHaveBeenCalledWith('/appointments/4/change/school-support',expect.objectContaining({params:expect.objectContaining({initiator})}));
+});
+it('clears a school benefit when the cause changes to the provider and never inserts its step',async()=>{
+ const change=useAppointmentChange();await change.openWizard({appointmentId:4});
+ Object.assign(change.facts,{eventType:'canceled',initiator:'provider',useSchoolSupportHour:true});
+ await change.refreshSchoolSupport();expect(change.facts.useSchoolSupportHour).toBe(false);expect(change.stepOrder.value).toEqual([1,2,3,4]);
 });

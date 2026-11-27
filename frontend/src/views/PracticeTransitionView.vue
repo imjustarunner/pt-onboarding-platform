@@ -10,7 +10,7 @@
   </main>
 </template>
 <script setup>
-import {computed,onBeforeUnmount,onMounted,ref} from 'vue';
+import {computed,onBeforeUnmount,onMounted,ref,watch} from 'vue';
 import {onBeforeRouteLeave,onBeforeRouteUpdate,useRoute,useRouter} from 'vue-router';
 import {useAuthStore} from '../store/auth';
 import api from '../services/api';
@@ -19,6 +19,7 @@ import AuricWellTransitionWorkbench from '../components/admin/AuricWellTransitio
 import '../styles/transitionWorkspace.css';
 const auth=useAuthStore(),route=useRoute(),router=useRouter(),practices=ref([]),loading=ref(true),error=ref(''),board=ref(null),tools=ref(null),workbench=ref(null);
 const selectedId=computed(()=>{const requested=practices.value.find(p=>p.slug===route.query.practice);return requested?.id||(practices.value.some(p=>p.id===2)?2:practices.value[0]?.id)||null;});
+watch([()=>route.query.tools,selectedId],([tool,id])=>{if(tool==='ehr'&&id&&!tools.value){const practice=practices.value.find(p=>p.id===id);if(practice)tools.value={practice,providerId:null,tab:'clients'};}});
 function canLeave(){return !tools.value&&board.value?.beforeNavigate?.()!==false;}
 function selectPractice(practice){if(practice.id===selectedId.value||!canLeave())return;void router.replace({path:'/practice-transition',query:{practice:practice.slug}});}
 function closeTools(){if(workbench.value?.beforeNavigate?.()!==false)tools.value=null;}

@@ -28,3 +28,8 @@ it('lets a delegated provider use authorized practices and shows access errors w
  m.get.mockRejectedValue({response:{status:403,data:{error:{message:'Transition manager access is required.'}}}});
  const denied=await open();expect(denied.w.find('[data-testid=board]').exists()).toBe(false);expect(denied.w.get('[role=alert]').text()).toContain('Transition manager access');denied.w.unmount();
 });
+
+it('opens EHR import tools from Quick Nav both directly and when already on the rollout page',async()=>{
+ const direct=await open('/practice-transition?tools=ehr');expect(direct.w.text()).toContain('Import tools');direct.w.unmount();
+ const current=await open();expect(current.w.text()).not.toContain('Import tools');await current.router.push('/practice-transition?tools=ehr');await flushPromises();expect(current.w.text()).toContain('Import tools');current.w.unmount();
+});

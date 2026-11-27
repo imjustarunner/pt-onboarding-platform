@@ -160,6 +160,7 @@
               :class="{ on: showPeerBusyOverlay }" :aria-expanded="showPeerBusyOverlay" aria-controls="schedule-peer-overlay" @click="togglePeerBusyOverlay">
               Peers busy
             </button>
+            <button v-if="canUseBulkScheduler" type="button" class="sched-command__outline" :disabled="bulkSchedulerBusy" @click="openBulkScheduler">Bulk scheduler</button>
             <ScheduleColorLegend :colors="scheduleColors" :dark="darkScheduleTheme" :learning-only="tutoringWorkspaceOnly || openingServiceFilter==='tutoring'" :tutoring="serviceWorkspace(authStore.user,agencyStore.currentAgency||{}).canTutor" /><ScheduleHelp :learning-only="tutoringWorkspaceOnly || openingServiceFilter==='tutoring'" :tutoring="serviceWorkspace(authStore.user,agencyStore.currentAgency||{}).canTutor" />
             <button
               v-if="canBookFromGrid && Number(effectiveAgencyId || 0) > 0 && clientSessionBookingEnabled"
@@ -176,10 +177,10 @@
               v-if="Number(effectiveAgencyId || 0) > 0 && !tutoringWorkspaceOnly"
               type="button"
               class="sched-command__outline sched-command--notes"
-              title="Open Note Workspace"
+              title="Open Note Workspace" aria-label="Note Workspace"
               @click="openScheduleNoteAid"
             >
-              Note Workspace
+              <NoteWorkspaceButtonLabel />
             </button>
             <button
               v-if="canOpenMyRoomLobby && !tutoringWorkspaceOnly"
@@ -304,10 +305,10 @@
             v-if="Number(effectiveAgencyId || 0) > 0 && !tutoringWorkspaceOnly"
             class="sched-nav-btn"
             type="button"
-            title="Open Note Workspace"
+            title="Open Note Workspace" aria-label="Note Workspace"
             @click="openScheduleNoteAid"
           >
-            Note Workspace
+            <NoteWorkspaceButtonLabel />
           </button>
           <div class="sched-span-switch" role="group" aria-label="Schedule view">
             <button type="button" class="sched-span-btn" :class="{ on: scheduleSpanMode === 'day' }" title="One-day timeline grid" @click="setScheduleSpanMode('day')">Day</button>
@@ -5963,6 +5964,23 @@
       @queued="showPushSessionUpdatePanel = false"
     />
 
+    <OfficeAssignmentUsageReviews v-if="mode === 'self' && Number(userId) === Number(authStore.user?.id)" />
+    <Teleport to="body">
+      <div v-if="canUseOfficeTransition && route.query.scheduleTool === 'office-transition'" class="bulk-scheduler-backdrop">
+        <section class="bulk-scheduler-dialog" role="dialog" aria-label="Office scheduling transition"><button type="button" class="btn btn-secondary" @click="closeOfficeTransition">Back to schedule</button><OfficeSchedulingTransition /></section>
+      </div>
+    </Teleport>
+    <Teleport to="body">
+      <div v-if="showBulkScheduler" class="bulk-scheduler-backdrop" @click.self="closeBulkScheduler" @keydown.esc.stop="closeBulkScheduler">
+        <section class="bulk-scheduler-dialog" role="dialog" aria-modal="true" aria-labelledby="bulk-scheduler-title">
+          <header><h2 id="bulk-scheduler-title">Bulk scheduler</h2><button type="button" class="btn btn-secondary" :disabled="bulkSchedulerBusy" @click="closeBulkScheduler">Back to schedule</button></header>
+          <label>Organization<select v-model.number="bulkSchedulerAgencyId" :disabled="bulkSchedulerBusy"><option :value="0">Choose an organization</option><option v-for="agency in bookingAgencyOptions" :key="agency.id" :value="agency.id">{{ agency.label }}</option></select></label>
+          <ProviderDayPlanner v-if="bulkSchedulerAgencyId" :key="`${bulkSchedulerAgencyId}:${userId}`" :agency-id="bulkSchedulerAgencyId" :provider-id="Number(userId)" :initial-date="bulkSchedulerDate" :provider-label="bookingTargetUserLabel" @busy="bulkSchedulerBusy = $event" @saved="onBulkScheduleSaved" />
+        </section>
+      </div>
+    </Teleport>
+    <p v-if="routedDayCancellation?.error" role="alert">{{ routedDayCancellation.error }}</p>
+    <DayCancellationDialog v-if="routedDayCancellation && !routedDayCancellation.error && !routedDayCancellationClosed" :date="routedDayCancellation.date" :provider-id="routedDayCancellation.providerId" :agency-id="routedDayCancellation.agencyId" @close="closeRoutedDayCancellation" @saved="onBulkScheduleSaved" />
     <AppointmentChangeWizard
       :change="appointmentChange"
       @completed="onAppointmentChangeCompleted"
@@ -6100,7 +6118,7 @@ import { supervisionProgress } from '../../utils/supervisionProgress.js';
 import { getScheduleSummaryStale, scheduleSummaryRevision, setScheduleSummary, invalidateScheduleSummaryCacheForUser } from '../../utils/scheduleSummaryCache';
 import { timezoneLabelFor, isoToZonedDatetimeLocal, zonedDatetimeLocalToIso, timezoneAbbrevAt } from '../../utils/timezones.js';
 import CalendarTimeZoneControl from './CalendarTimeZoneControl.vue';
-import { normalizeCalendarDisplayTimeZone, calendarDisplayTimeZone } from '../../utils/calendarDisplayTimeZone.js';
+import { normalizeCalendarDisplayTimeZone, calendarDisplayTimeZone, calendarDateYmd } from '../../utils/calendarDisplayTimeZone.js';
 import {calendarWallDate,calendarSessionState} from '../../utils/calendarWallClock.js';
 import {
   parseScheduleUtcInstant as parseScheduleInstant,
@@ -6206,6 +6224,11 @@ import ScheduleColorLegend from './ScheduleColorLegend.vue';
 import ScheduleHelp from './ScheduleHelp.vue';
 import ScheduleQuarterHourPicker from './ScheduleQuarterHourPicker.vue';
 import DayCancellationDialog from './DayCancellationDialog.vue';
+import ProviderDayPlanner from './ProviderDayPlanner.vue';
+import OfficeSchedulingTransition from './OfficeSchedulingTransition.vue';
+import OfficeAssignmentUsageReviews from './OfficeAssignmentUsageReviews.vue';
+import NoteWorkspaceButtonLabel from '../clinical/NoteWorkspaceButtonLabel.vue';
+import { dayCancellationLinkContext } from '../../utils/dayCancellationLink.js';
 import SchoolSoftScheduleDialog from './SchoolSoftScheduleDialog.vue';
 import { schoolSoftScheduleBlocks, schoolSoftBlocksInCell } from '../../utils/schoolSoftScheduleBlocks.js';
 import { assignmentSchoolId, assignmentStartsInCell, closureForSchoolDate, schoolRailSummary, schoolRailTone } from '../../utils/schoolAssignmentRail.js';
@@ -6968,10 +6991,10 @@ const isNarrowSchedule = ref(false);
 let narrowScheduleMql = null;
 let narrowScheduleHandler = null;
 let displayPrefsServerTimer = null;
-const todayDayName = () => {
-  const map = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-  return map[new Date().getDay()] || 'Monday';
-};
+const todayDayName = () => new Intl.DateTimeFormat('en-US', {
+  weekday: 'long', timeZone: bookingTimezoneIana.value || 'America/Denver'
+}).format(new Date());
+
 const ensureSingleDayFocus = () => {
   const today = todayDayName();
   const allowed = focusableDays.value || [];
@@ -7085,7 +7108,7 @@ const applyDisplayPrefs = (prefs = {}, { focusDay = true } = {}) => {
   if (prefs.rowHeightMode != null) rowHeightMode.value = normalizeRowHeightMode(prefs.rowHeightMode);
   // An explicit parent view survives async preference hydration and session return.
   // Callers without a view still start with the whole week.
-  scheduleSpanMode.value = normalizeSpanMode(props.spanMode);
+  scheduleSpanMode.value = normalizeSpanMode(props.spanMode || prefs.spanMode);
   if (!isDayOrAgendaSpan.value) focusedDays.value = [];
   if (prefs.weekStartsOn != null && props.mode === 'self') {
     weekStartsOnLocal.value = String(prefs.weekStartsOn).toLowerCase() === 'sunday' ? 'sunday' : 'monday';
@@ -8199,7 +8222,7 @@ try {
         : !!saved.showAllHours;
       viewMode.value = saved.viewMode === 'office_layout' ? 'office_layout' : 'open_finder';
       if (saved.rowHeightMode != null) rowHeightMode.value = normalizeRowHeightMode(saved.rowHeightMode);
-      scheduleSpanMode.value = 'week';
+      scheduleSpanMode.value = normalizeSpanMode(props.spanMode || saved.scheduleSpanMode);
       lastCalendarPrefs.value = saved.lastCalendarPrefs ? { ...saved.lastCalendarPrefs } : null;
       // If saved selection is empty, we do NOT auto-select all — user explicitly hid calendars.
       shouldDefaultSelectAllExternal.value = false;
@@ -8235,7 +8258,7 @@ onMounted(() => {
   }
   if (props.mode === 'self') {
     viewMode.value = 'open_finder';
-    scheduleSpanMode.value = ['day','agenda','week'].includes(props.spanMode)?props.spanMode:'week';
+    scheduleSpanMode.value = normalizeSpanMode(props.spanMode || loadDisplayPrefsLocal()?.spanMode || scheduleSpanMode.value);
     if(isDayOrAgendaSpan.value)ensureSingleDayFocus();else focusedDays.value = [];
     if (loadDisplayPrefsLocal()?.layoutDefaultsVersion !== 2) hideWeekend.value = false;
   }
@@ -8421,8 +8444,10 @@ const focusableDays = computed(() => {
   if (!hideWeekend.value) return orderedDays.value.slice();
   const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
   const weekendHits = weekendDaysWithScheduleItems.value;
-  if (!weekendHits.length) return weekdays;
-  return orderedDays.value.filter((d) => weekdays.includes(d) || weekendHits.includes(d));
+  const today = isDayOrAgendaSpan.value ? new Intl.DateTimeFormat('en-US', {
+    weekday:'long', timeZone:calendarDisplayTimeZone({preferred:calendarDisplayTimezone.value,office:agencyStore.currentAgency?.timezone})
+  }).format(new Date()) : '';
+  return orderedDays.value.filter((d) => weekdays.includes(d) || weekendHits.includes(d) || d === today);
 });
 const focusedDaySet = computed(() => new Set((focusedDays.value || []).map((d) => String(d))));
 const visibleDays = computed(() => {
@@ -8712,7 +8737,7 @@ const dayDateLabel = (dayName) => {
   return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
 };
 
-const weekStart = ref(startOfWeekForPreference(props.weekStartYmd || new Date()));
+const weekStart = ref(startOfWeekForPreference(props.weekStartYmd || calendarDateYmd(new Date(), calendarDisplayTimeZone({preferred:calendarDisplayTimezone.value,office:agencyStore.currentAgency?.timezone}))));
 
 const formatWeekRangePart = (ymd, { includeYear = false } = {}) => {
   const d = toLocalDateNoon(String(ymd || '').slice(0, 10));
@@ -8733,6 +8758,8 @@ const weekRangePrimaryLabel = computed(() => {
   const days = orderedDays.value?.length ? orderedDays.value : ALL_DAYS;
   const startYmd = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(days[0]));
   const endYmd = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(days[days.length - 1]));
+  const formatter = new Intl.DateTimeFormat(undefined, {month:'short',day:'numeric',year:'numeric'});
+  if (formatter.formatRange) return formatter.formatRange(toLocalDateNoon(startYmd), toLocalDateNoon(endYmd));
   const startYear = String(startYmd).slice(0, 4);
   const endYear = String(endYmd).slice(0, 4);
   const startLabel = formatWeekRangePart(startYmd, { includeYear: startYear !== endYear });
@@ -10181,6 +10208,23 @@ const isViewingOtherUserSchedule = computed(() => {
   const targetId = Number(props.userId || 0);
   return !!actorId && !!targetId && actorId !== targetId;
 });
+const canUseOfficeTransition = computed(() => ['super_admin','superadmin'].includes(String(authStore.user?.role).toLowerCase()));
+function closeOfficeTransition() { const query={...route.query}; delete query.scheduleTool; void router.replace({query}); }
+const showBulkScheduler = ref(false), bulkSchedulerBusy = ref(false), bulkSchedulerAgencyId = ref(0);
+const canUseBulkScheduler = computed(() => !props.teamAvailabilityOnly && Number(props.userId) > 0
+  && (Number(props.userId) === Number(authStore.user?.id) || ['admin', 'super_admin', 'superadmin'].includes(String(authStore.user?.role).toLowerCase())));
+const bulkSchedulerDate = computed(() => viewingCurrentWeek.value ? todayLocalYmd.value : weekJumpDateValue.value);
+function openBulkScheduler() { bulkSchedulerAgencyId.value = Number(effectiveAgencyId.value || 0); showBulkScheduler.value = true; }
+function closeBulkScheduler() { if (!bulkSchedulerBusy.value) showBulkScheduler.value = false; }
+function onBulkScheduleSaved() { invalidateScheduleSummaryCacheForUser(props.userId); void load({ forceRefresh: true }); }
+const routedDayCancellationClosed = ref(false);
+const routedDayCancellation = computed(() => authStore.user?.id ? dayCancellationLinkContext(route.query, authStore.user) : null);
+watch(() => route.query.cancelDay, () => { routedDayCancellationClosed.value = false; });
+function closeRoutedDayCancellation() {
+  routedDayCancellationClosed.value = true;
+  const query = { ...route.query }; delete query.cancelDay; delete query.providerId; delete query.agencyId;
+  void router.replace({ query });
+}
 const canBookFromGrid = computed(
   () => props.mode === 'self'
     || (!props.teamAvailabilityOnly && isAdminMode.value && (canManageOffices.value || canScheduleSupervisionFromGrid.value))
@@ -11100,7 +11144,7 @@ const nextWeek = () => {
   load();
 };
 const goToTodayWeek = () => {
-  const anchor = startOfWeekForPreference(new Date());
+  const anchor = startOfWeekForPreference(todayLocalYmd.value);
   if (!anchor) return;
   const weekChanged = anchor !== weekStart.value;
   weekStart.value = anchor;
@@ -11146,7 +11190,7 @@ const onWeekJumpDateChange = (event) => {
 
 /** Chooser CTA: jump to today in day view (not the full week grid). */
 const goToTodayDaySchedule = () => {
-  const monday = startOfWeekMondayYmd(new Date());
+  const monday = startOfWeekMondayYmd(todayLocalYmd.value);
   if (!monday) return;
   const weekChanged = monday !== weekStart.value;
   weekStart.value = monday;
@@ -29195,6 +29239,13 @@ watch(editorClientSchoolLocationOptions, (schools, previous) => {
 </script>
 
 <style scoped>
+.bulk-scheduler-backdrop { position:fixed; inset:0; z-index:10020; background:#0f172a80; display:flex; align-items:flex-start; justify-content:center; padding:20px; overflow:auto; }
+.bulk-scheduler-dialog { width:min(1400px,100%); background:var(--bg-card,#fff); color:var(--text-primary,#172b40); border-radius:16px; padding:18px; box-sizing:border-box; }
+.bulk-scheduler-dialog > header { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; }
+.bulk-scheduler-dialog > label { display:grid; gap:5px; max-width:420px; margin:14px 0; }
+.bulk-scheduler-dialog select { font:inherit; padding:8px; width:100%; }
+@media(max-width:600px) { .bulk-scheduler-backdrop { padding:8px; } .bulk-scheduler-dialog { padding:10px; } }
+
 .tutoring-booking-details{padding:8px 14px;margin:4px 0;background:var(--bg-card,#fff);display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px}
 .tutoring-booking-details>label{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:.82rem;font-weight:600}
 .tutoring-booking-details select{font:inherit;color:inherit;min-height:34px;max-width:100%;padding:4px 8px;border:1px solid var(--border,#ccd8e3);border-radius:8px}
@@ -29569,7 +29620,9 @@ watch(editorClientSchoolLocationOptions, (schools, previous) => {
 }
 .sched-date-trigger {
   box-sizing: border-box;
-  inline-size: min(29ch, 60vw);
+  inline-size: max-content;
+  max-inline-size: 100%;
+  flex: 0 0 auto;
   text-align: left;
   border: 1px solid var(--border, #d7e1ee);
   border-radius: 8px;

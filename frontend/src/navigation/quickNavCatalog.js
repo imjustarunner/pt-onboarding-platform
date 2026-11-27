@@ -95,6 +95,9 @@ function buildAccountEntries() {
  */
 function buildAppEntries() {
   return [
+    { id:'office-scheduling-transition', label:'Office scheduling transition', description:'Appointment-based office rollout policy and requests to keep reserved time.', group:'admin', keywords:['office transition','scheduling transition','office rollout','transition rollout','appointment based scheduling'], kind:'dashboard', tab:'my_schedule', query:{scheduleTool:'office-transition'}, rolesAny:['super_admin'] },
+    { id:'ehr-transition', label:'EHR Transition', description:'Import clients, records and provider schedules.', group:'admin', keywords:['ehr transition','ehr tran','therapynotes import','therapy notes transition','records import','bulk scheduler'], kind:'path', scope:'platform', path:'/practice-transition?tools=ehr', rolesAny:['admin','super_admin'] },
+    { id:'transition-rollout', label:'Transition rollout', description:'Practice transition groups, readiness and provider rollout.', group:'admin', keywords:['transition rollout','rollout','auricwell transition','practice transition','readiness checklist','groups of five'], kind:'path', scope:'platform', path:'/practice-transition', rolesAny:['admin','super_admin'] },
     {id:'family-welcome',label:FAMILY_WELCOME_NAME,description:FAMILY_WELCOME_TAGLINE,group:'account',keywords:[...FAMILY_WELCOME_SEARCH_TERMS,'welcome email','schoolcarebridge'],kind:'dashboard',tab:'my',my:'account',section:FAMILY_WELCOME_SECTION_ID,
       rolesAny:['provider','provider_plus','intern','intern_plus','supervisor','clinical_practice_assistant']},
     {id:'my-business-cards',label:'My business cards',description:'Review and print your agency business cards.',group:'account',keywords:['business cards','print cards','Avery','QR code'],kind:'dashboard',tab:'my',my:'account',section:'my-business-cards'},
@@ -1130,7 +1133,7 @@ export function resolveQuickNavLocation(entry, { currentPath, orgSlug, dashboard
   if (!entry) return null;
   const slug = String(orgSlug || '').trim();
   if (entry.kind === 'dashboard') {
-    const query = { tab: entry.tab };
+    const query = { ...entry.query, tab: entry.tab };
     if (entry.my) query.my = entry.my;
     if (entry.section) query.section = entry.section;
     const base = dashboardPath || (/\/dashboard$/.test(currentPath || '') ? currentPath : `${slug ? '/' + slug : ''}/dashboard`);

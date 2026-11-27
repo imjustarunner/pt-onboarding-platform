@@ -10,11 +10,12 @@ const fail=(message,status=409)=>{throw Object.assign(new Error(message),{status
 const unsupported={eligible:false};
 
 /** Provider-only benefit data: never embed balances in a client note or notice. */
-export async function appointmentSchoolSupportContext({appointmentId,actorUserId,eventType,clientId=null,db=pool}) {
+export async function appointmentSchoolSupportContext({appointmentId,actorUserId,eventType,initiator=null,clientId=null,db=pool}) {
   const appointment=await Appointment.findById(appointmentId,{executor:db});
   if(!appointment)fail('Appointment not found',404);
   if(Number(appointment.providerUserId)!==Number(actorUserId))return unsupported;
   if(!['canceled','no_show'].includes(eventType))return unsupported;
+  if(eventType==='canceled'&&!['client','parent_guardian','facility_school'].includes(initiator))return unsupported;
   const participants=await Appointment.listParticipants(appointmentId,{executor:db});
   const selected=clientId?participants.find(p=>Number(p.clientId)===Number(clientId))
     :participants.find(p=>p.clientId&&p.isBillingResponsible)||participants.find(p=>p.clientId);
@@ -51,7 +52,7 @@ export async function reserveCancellationSchoolSupport({appointmentId,facts,acto
   if(facts.useSchoolSupportHour!==true)return;
   const appointment=await Appointment.findById(appointmentId,{executor:db});
   if(Number(appointment?.providerUserId)!==Number(actorUserId))fail('Only the assigned provider may request their School Support Hour',403);
-  const context=await appointmentSchoolSupportContext({appointmentId,actorUserId,eventType:facts.eventType,clientId:facts.clientId,db});
+  const context=await appointmentSchoolSupportContext({appointmentId,actorUserId,eventType:facts.eventType,initiator:facts.initiator,clientId:facts.clientId,db});
   if(!context.eligible)fail(context.unavailableReason||'School Support Hours are not available for this appointment');
   const hours=Number(facts.schoolSupportHours??1);
   if(!Number.isFinite(hours)||hours<=0||hours>1||Math.abs(Math.round(hours*100)-hours*100)>1e-8)fail('Choose between 0.01 and 1.00 School Support Hour for this appointment',400);

@@ -64,3 +64,11 @@ it('uses the active agency staff directory for administrator employee calendar c
   expect(wrapper.vm.$.setupState.employeeSchedulePickerOptions.map(person=>person.id)).toEqual([8]);
   expect(wrapper.vm.$.setupState.employeesDirectoryRows[0].agencyName).toBe('Agency');
 });
+
+it.each([['',''],['&weekStart=2026-11-30','2026-11-30']])('opens today rather than a stale saved week while honoring explicit links %s',async(suffix,expected)=>{
+ localStorage.setItem('dashboard.scheduleViewPref.v1:7',JSON.stringify({mode:'self',selfWeekStartYmd:'2025-01-06'}));
+ const pinia=createPinia();setActivePinia(pinia);useAuthStore().user={id:7,role:'provider',status:'active',has_provider_access:true};
+ const agency={id:2,name:'Agency',organization_type:'agency'};useAgencyStore().currentAgency=agency;useAgencyStore().userAgencies=[agency];useAgencyStore().agencies=[agency];
+ const router=createRouter({history:createMemoryHistory(),routes:[{path:'/dashboard',component:DashboardView}]});await router.push('/dashboard?tab=my_schedule'+suffix);await router.isReady();
+ wrapper=shallowMount(DashboardView,{global:{plugins:[pinia,router],renderStubDefaultSlot:true}});await flushPromises();expect(wrapper.vm.$.setupState.selfScheduleWeekStartYmd).toBe(expected);
+});
