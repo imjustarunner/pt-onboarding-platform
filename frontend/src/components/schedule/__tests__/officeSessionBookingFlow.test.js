@@ -377,7 +377,7 @@ it.each([
 ])('books one NLU %s appointment with an optional external link (%s)',async(businessType,url)=>{
  mocks.agency={id:6,slug:'nlu',organization_type:'agency',feature_flags:{hasClinicalOrg:true,medicalBillingEnabled:true}};
  const base=mocks.get.getMockImplementation();
- mocks.get.mockImplementation((path,...args)=>path.includes('/virtual-session-clients')?Promise.resolve({data:{clients:[{id:81,full_name:'Synthetic Client'}]}}):base(path,...args));
+ mocks.get.mockImplementation((path,...args)=>path.includes('/virtual-session-clients')?Promise.resolve({data:{clients:[{id:81,full_name:'Synthetic Client'}]}}):path.includes('/booking-options')?Promise.resolve({data:{sessionOnly:true,clientSessionCategories:[businessType],services:[{id:320,businessType,serviceCode:businessType==='tutoring'?'TUTORING':'90837',name:'Configured service',defaultDurationMinutes:60}]}}):base(path,...args));
  mocks.post.mockImplementation(async(path,payload)=>({data:path==='/appointments'?{appointment:{id:821,agencyId:6,businessType,videoRoomMode:payload.videoRoomMode,externalMeetingUrl:payload.externalMeetingUrl||null,providerScheduleEventId:910}}:path.includes('counseling')?{meetUrl:'https://meet.google.com/abc-defg-hij'}:{}}));
  wrapper=shallowMount(Grid,{props:{userId:7,agencyId:6},global:{stubs:{Teleport:false,RouterLink:true}}});await flushPromises();
  const s=wrapper.vm.$.setupState;
@@ -389,6 +389,7 @@ it.each([
  s.editorTenantServiceId=320;await flushPromises();
  s.editorExternalMeetingUrl=url;s.virtualSessionSelectedClientIds=[81];await flushPromises();s.bookingServiceCode=businessType==='tutoring'?'TUTORING':'90837';
  expect(s.editorExternalMeetingUrl).toBe(url);s.clientSessionBookingEnabled=true;await nextTick();
+ expect(mocks.get).toHaveBeenCalledWith('/tenant-booking/agencies/6/booking-options',expect.objectContaining({params:expect.objectContaining({providerId:7,clientId:81,sessionOnly:'1'})}));
  expect({enabled:s.editorExternalMeetingsEnabled,agency:s.editorAgencyId,modality:s.editorModality,editing:s.isAppointmentEditMode,mode:s.editorVideoRoomMode}).toEqual({enabled:true,agency:6,modality:'TELEHEALTH',editing:false,mode:businessType==='tutoring'?'external':'google_meet'});expect(s.isQuarterHourRequestType).toBe(true);expect(s.submitActionLabel).toBe(businessType==='tutoring'?'Schedule':'Schedule & create Meet link');
  if (businessType === 'mental_health') await s.onEditorServiceLocationId(s.editorServiceLocationOptions[0].id);
  await s.submitRequest();await flushPromises();
