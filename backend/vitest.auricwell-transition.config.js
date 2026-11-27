@@ -6,6 +6,7 @@ export default defineConfig({
     environment: 'node',
     include: [
       'src/services/__tests__/auricwellAgendaImport.test.js',
+      'src/services/__tests__/providerDayPlanner.test.js',
       'src/services/__tests__/auricwellAgendaProviderAccess.test.js',
       'src/services/__tests__/auricwellAgendaRecovery.test.js',
       'src/services/__tests__/auricwellAgendaImport.mysql.test.js',

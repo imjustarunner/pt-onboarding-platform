@@ -11,6 +11,7 @@ export default defineConfig({
       'src/utils/__tests__/auricwellClientImport.test.js',
       'src/utils/__tests__/schoolSoftScheduleBlocks.test.js',
       'src/components/admin/__tests__/AuricWell*.test.js',
+      'src/components/schedule/__tests__/ProviderDayPlanner.test.js',
       'src/components/admin/clientChart/__tests__/ClientEhrBringUpToDatePanel.test.js',
       'src/components/school/redesign/__tests__/SchoolBookedSessions.test.js',
       'src/components/admin/__tests__/EhrPatientListImportModal.test.js',

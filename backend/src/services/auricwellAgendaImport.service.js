@@ -30,10 +30,12 @@ const seriesFor = row => {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 };
 
-async function loadContext({ actor, agencyId, providerId }) {
-  if (!['admin', 'super_admin'].includes(String(actor?.role || '').toLowerCase())) throw fail(403, 'Practice administrator access is required for an agenda import.');
+export async function authorizeAgendaProvider({ actor, agencyId, providerId, planner = false }) {
+  const administrator = ['admin', 'super_admin'].includes(String(actor?.role || '').toLowerCase());
+  if (!administrator && !planner) throw fail(403, 'Practice administrator access is required for an agenda import.');
+  if (!administrator && Number(actor?.id) !== providerId) throw fail(403, 'You can only plan your own schedule.');
   if (!validId(agencyId) || !validId(providerId)) throw fail(400, 'Select a practice and provider.');
-  if (actor.role !== 'super_admin' && !(await User.getAgencies(actor.id)).some(agency => Number(agency.id) === agencyId && ![false, 0, '0'].includes(agency.is_active))) throw fail(403, 'You do not administer this practice.');
+  if (String(actor.role).toLowerCase() !== 'super_admin' && !(await User.getAgencies(actor.id)).some(agency => Number(agency.id) === agencyId && ![false, 0, '0'].includes(agency.is_active))) throw fail(403, planner ? 'You do not have access to this practice.' : 'You do not administer this practice.');
   const [providers] = await pool.execute(`SELECT u.id,u.first_name,u.last_name,u.role,u.status,u.is_active,u.is_archived
     FROM users u JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=? AND COALESCE(ua.is_active,1)=1
     WHERE u.id=? LIMIT 1`, [agencyId, providerId]);
@@ -41,37 +43,49 @@ async function loadContext({ actor, agencyId, providerId }) {
   if (!provider || !Number(provider.is_active) || Number(provider.is_archived) || ['terminated', 'inactive'].includes(provider.status)) throw fail(403, 'Select an active provider assigned to this practice.');
   // The shared rollout gate also checks active tenant membership, the assigned
   // care role/provider access, and Sees clients. It supports staff with dual roles.
-  await requireClientSessionBooking(agencyId, providerId, undefined, {actorUserId:actor.id});
-  const [clients] = await pool.execute(`SELECT DISTINCT c.id,c.full_name,c.initials,c.client_type,c.status,c.client_status_id,c.organization_id,c.provider_id,c.updated_at
-    FROM clients c WHERE (c.agency_id=? OR EXISTS (SELECT 1 FROM client_agency_assignments ca WHERE ca.client_id=c.id AND ca.agency_id=? AND ca.is_active=1))
+  await requireClientSessionBooking(agencyId, providerId, undefined, { actorUserId: actor.id, ...(planner ? { businessType: 'any' } : {}) });
+  return provider;
+}
+
+async function loadContext({ actor, agencyId, providerId, planner }) {
+  const provider = await authorizeAgendaProvider({ actor, agencyId, providerId, planner });
+  const [clients] = await pool.execute(`SELECT DISTINCT c.id,c.full_name,c.initials,c.client_type,c.status,c.client_status_id,c.organization_id,c.provider_id,c.updated_at${planner ? `,
+    c.service_day,CASE WHEN c.agency_id=? THEN c.default_service_location_id ELSE caa.default_service_location_id END AS default_service_location_id,
+    CASE WHEN c.agency_id=? THEN c.default_office_location_id ELSE caa.default_office_location_id END AS default_office_location_id` : ''}
+    FROM clients c ${planner ? 'LEFT JOIN client_agency_assignments caa ON caa.client_id=c.id AND caa.agency_id=? AND caa.is_active=1' : ''}
+    WHERE (c.agency_id=? OR EXISTS (SELECT 1 FROM client_agency_assignments ca WHERE ca.client_id=c.id AND ca.agency_id=? AND ca.is_active=1))
       AND c.compliance_archived_at IS NULL AND UPPER(COALESCE(c.status,''))<>'ARCHIVED'
       AND (c.provider_id=? OR EXISTS (SELECT 1 FROM client_provider_assignments ca WHERE ca.client_id=c.id AND ca.provider_user_id=? AND ca.is_active=1)
         OR EXISTS (SELECT 1 FROM client_service_enrollments cs WHERE cs.client_id=c.id AND cs.agency_id=? AND cs.provider_user_id=? AND cs.is_active=1))
-    ORDER BY c.full_name,c.id LIMIT 501`, [agencyId, agencyId, providerId, providerId, agencyId, providerId]);
+    ORDER BY c.full_name,c.id LIMIT 501`, [...(planner ? [agencyId, agencyId, agencyId] : []), agencyId, agencyId, providerId, providerId, agencyId, providerId]);
   if (clients.length > 500) throw fail(409, 'This provider has more than 500 clients. Review and narrow the active caseload before importing the agenda.');
   const { resolveBookingOptions } = await import('./appointment.service.js');
-  const booking = await resolveBookingOptions({ agencyId, providerId });
+  const booking = await resolveBookingOptions({ agencyId, providerId, sessionOnly: !!planner });
   const services = booking.services.filter(service => service.isActive && service.isStaffBookable && service.allowsIndividual && service.serviceCode
     && !['90785', '90833', '90836', '90838', '90840', '99051'].includes(String(service.serviceCode).toUpperCase()));
-  const locations = await AgencyServiceLocation.listByAgency(agencyId);
+  const locations = (await AgencyServiceLocation.listByAgency(agencyId))
+    .filter(location => !planner || Number(actor.id) !== providerId || ![false, 0, '0'].includes(location.is_provider_visible));
   const clientIds = clients.map(client => Number(client.id));
   const schoolIds = [...new Set(locations.map(location => Number(location.school_organization_id)).filter(Boolean))];
-  let schoolSlots = [], schoolAssignments = [];
+  let schoolSlots = [], schoolAssignments = [], schoolDays = [];
   if (schoolIds.length && clientIds.length) {
     const clientParams = clientIds.map(() => '?').join(',');
     const schoolParams = schoolIds.map(() => '?').join(',');
-    [[schoolSlots], [schoolAssignments]] = await Promise.all([
+    [[schoolSlots], [schoolAssignments], [schoolDays]] = await Promise.all([
       pool.execute(`SELECT id,school_organization_id,client_id,weekday,start_time,end_time
         FROM soft_schedule_slots WHERE provider_user_id=? AND client_id IN (${clientParams})
           AND school_organization_id IN (${schoolParams}) ORDER BY school_organization_id,weekday,slot_index,id`,
       [providerId, ...clientIds, ...schoolIds]),
       pool.execute(`SELECT client_id,organization_id FROM client_organization_assignments WHERE is_active=1
         AND client_id IN (${clientParams}) AND organization_id IN (${schoolParams}) ORDER BY client_id,organization_id`,
-      [...clientIds, ...schoolIds])
+      [...clientIds, ...schoolIds]),
+      planner ? pool.execute(`SELECT client_id,organization_id,service_day FROM client_provider_assignments
+        WHERE provider_user_id=? AND is_active=1 AND service_day IS NOT NULL
+          AND client_id IN (${clientParams}) AND organization_id IN (${schoolParams})`, [providerId, ...clientIds, ...schoolIds]) : [[]]
     ]);
   }
   const agency = await Agency.findById(agencyId);
-  return { agencyId, providerId, provider, clients, services, locations, schoolSlots, schoolAssignments, timeZone: agency?.timezone || 'America/Denver' };
+  return { agencyId, providerId, provider, clients, services, locations, schoolSlots, schoolAssignments, schoolDays, timeZone: agency?.timezone || 'America/Denver' };
 }
 
 async function findExisting(row) {
@@ -192,22 +206,36 @@ export function createAuricwellAgendaImporter(overrides = {}) {
     now: () => Date.now(), ...overrides
   };
 
-  async function options({ actor, agencyId, providerId }) {
-    const context = await deps.loadContext({ actor, agencyId: Number(agencyId), providerId: Number(providerId) });
+  async function options({ actor, agencyId, providerId, planner = false }) {
+    const context = await deps.loadContext({ actor, agencyId: Number(agencyId), providerId: Number(providerId), planner });
     return { agencyId: context.agencyId, providerId: context.providerId, timeZone: context.timeZone,
-      clients: context.clients.map(client => ({ id: Number(client.id), label: client.full_name || client.initials || `Client #${client.id}` })),
-      services: context.services.map(service => ({ id: service.id, name: service.name, serviceCode: service.serviceCode, modality: service.modality })),
-      locations: context.locations.map(location => ({ id: Number(location.id), name: location.name, placeOfService: location.place_of_service, schoolId: Number(location.school_organization_id) || null })),
+      clients: context.clients.filter(client => !planner || !/archived|terminated|inactive/i.test(String(client.status || ''))).map(client => ({
+        id: Number(client.id), label: client.full_name || client.initials || `Client #${client.id}`,
+        ...(planner ? {
+          defaultLocationId: validId(client.default_service_location_id),
+          defaultOfficeId: validId(client.default_office_location_id),
+          schools: (context.schoolAssignments || []).filter(link => Number(link.client_id) === Number(client.id)).map(link => {
+            const schoolId = Number(link.organization_id);
+            const days = (context.schoolDays || []).filter(day => Number(day.client_id) === Number(client.id) && Number(day.organization_id) === schoolId).map(day => day.service_day);
+            if (Number(client.provider_id) === context.providerId && Number(client.organization_id) === schoolId && client.service_day) days.push(client.service_day);
+            return { id: schoolId, days: [...new Set(days)] };
+          })
+        } : {})
+      })),
+      services: context.services.map(service => ({ id: service.id, name: service.name, serviceCode: service.serviceCode, modality: service.modality, ...(planner ? { defaultDurationMinutes: service.defaultDurationMinutes } : {}) })),
+      locations: context.locations.map(location => ({ id: Number(location.id), name: location.name, placeOfService: location.place_of_service, schoolId: Number(location.school_organization_id) || null, ...(planner ? { officeId: validId(location.physical_office_location_id), billing_office_name: location.billing_office_name, street_address: location.street_address, city: location.city } : {}) })),
       schoolSlots: (context.schoolSlots || []).map(slot => ({ id: Number(slot.id), schoolId: Number(slot.school_organization_id), clientId: Number(slot.client_id), weekday: slot.weekday,
         label: `${slot.weekday} ${String(slot.start_time || '').slice(0, 5)}–${String(slot.end_time || '').slice(0, 5)} · slot #${slot.id}` })) };
   }
 
-  async function prepare({ actor, input, issueToken = true }) {
+  async function prepare({ actor, input, issueToken = true, planner = false }) {
     const agencyId = Number(input.agencyId), providerId = Number(input.providerId);
-    const context = await deps.loadContext({ actor, agencyId, providerId });
+    const context = await deps.loadContext({ actor, agencyId, providerId, planner });
     const weekStart = validateAgendaWeek(input.weekStart), timeZone = String(input.timeZone || '');
     if (!isValidTimeZone(timeZone)) throw fail(400, 'Choose the agenda’s IANA time zone explicitly.');
-    const mode = input.scheduleMode || 'legacy';
+    const mode = planner ? 'as_sent' : input.scheduleMode || 'legacy';
+    const plannedDate = planner ? agendaDate(input.date) : null;
+    if (planner && (!plannedDate || !Array.isArray(input.rows))) throw fail(400, 'Choose a date and add appointments to the day planner.');
     if (!['legacy', 'as_sent', 'recurring'].includes(mode)) throw fail(400, 'Choose how to schedule the pasted agenda.');
     const untilDate = mode === 'recurring' ? agendaDate(input.untilDate) : null;
     if (mode === 'recurring' && (!untilDate || untilDate < weekStart || untilDate > addAgendaDays(weekStart, 364))) {
@@ -237,6 +265,7 @@ export function createAuricwellAgendaImporter(overrides = {}) {
       };
       rows.push(row);
       try {
+        if (planner && (suppliedRow.date !== plannedDate || !row.clientId)) throw fail(400, 'Choose an assigned client for the selected day.');
         if (Array.isArray(suppliedRow.parseErrors) && suppliedRow.parseErrors.length) throw fail(400, suppliedRow.parseErrors.join(' '));
         const { clientId, candidates } = resolveClient(suppliedRow);
         row.clientId = clientId;
@@ -304,6 +333,10 @@ export function createAuricwellAgendaImporter(overrides = {}) {
         row.occurrenceDates = expanded.map(occurrence => occurrence.startAt.slice(0, 10));
         if (row.pastedDates.some(date => !row.occurrenceDates.includes(date))) throw fail(400, 'This series leaves out a pasted visit. Review the frequency and last date, or switch to Schedule as pasted.');
         row.schoolSlotId = validId(suppliedRow.schoolSlotId);
+        if (planner && row.schoolSlotId && !(context.schoolSlots || []).some(slot => Number(slot.id) === row.schoolSlotId
+          && Number(slot.school_organization_id) === row.schoolId && Number(slot.client_id) === clientId && slot.weekday === schoolWeekday)) {
+          throw fail(400, 'Choose this client’s school slot for the selected weekday.');
+        }
         if (occurrences.length + expanded.length > 200) throw fail(400, 'Import at most 200 appointment occurrences at a time.');
         row.newCount = 0; row.existingCount = 0;
         row.officeRooms = [];
@@ -352,26 +385,26 @@ export function createAuricwellAgendaImporter(overrides = {}) {
     }
     if (!rows.length) throw fail(400, 'Select at least one appointment row to import.');
     const plan = occurrences.map(({ agencyId, providerId, clientId, startAt, endAt, tenantServiceId, serviceLocationId, modality, source, seriesKey, recurrence, recurrenceIndex, schoolSlotId, schoolTransitionState }) => ({ agencyId, providerId, clientId, startAt, endAt, tenantServiceId, serviceLocationId, modality, source, seriesKey, recurrence, recurrenceIndex, schoolSlotId, schoolTransitionState }));
-    const claims = { kind: 'auricwell-agenda-preview', actorId: Number(actor.id), agencyId, providerId, weekStart, timeZone, mode, untilDate,
+    const claims = { kind: 'auricwell-agenda-preview', actorId: Number(actor.id), agencyId, providerId, weekStart, timeZone, mode, untilDate, ...(planner ? { planner } : {}),
       planHash: digest(plan), snapshotHash: digest([context.provider, context.clients, context.services, context.locations, context.schoolSlots, context.schoolAssignments]),
       existingStates: Object.fromEntries(occurrences.filter(row => row.existingState).map(row => [row.source, row.existingState])) };
     const summary = { rows: rows.length, appointments: occurrences.length, newAppointments: rows.reduce((sum, row) => sum + (row.newCount || 0), 0), existingAppointments: rows.reduce((sum, row) => sum + (row.existingCount || 0), 0), blockedRows: rows.filter(row => row.errors.length).length, sameDayWarning: rows.some(row => row.warnings.length) };
     return { rows, summary, occurrences, claims, previewToken: issueToken && !summary.blockedRows ? deps.sign(claims) : null, expiresInSeconds: 900 };
   }
 
-  async function preview({ actor, input }) {
-    const result = await prepare({ actor, input });
+  async function preview({ actor, input, planner = false }) {
+    const result = await prepare({ actor, input, planner });
     const { occurrences, claims, ...response } = result;
     return response;
   }
 
-  async function commit({ actor, input }) {
+  async function commit({ actor, input, planner = false }) {
     if (input.confirm !== true) throw fail(400, 'Confirm the reviewed appointments before scheduling.');
     let claims;
     try { claims = deps.verify(String(input.previewToken || '')); } catch { throw fail(409, 'This agenda preview expired or is invalid. Preview the appointments again.', 'AGENDA_PREVIEW_EXPIRED'); }
-    if (claims.kind !== 'auricwell-agenda-preview' || Number(claims.actorId) !== Number(actor.id) || claims.agencyId !== Number(input.agencyId) || claims.providerId !== Number(input.providerId)) throw fail(403, 'This preview belongs to another user, practice, or provider.');
+    if (Boolean(claims.planner) !== planner || claims.kind !== 'auricwell-agenda-preview' || Number(claims.actorId) !== Number(actor.id) || claims.agencyId !== Number(input.agencyId) || claims.providerId !== Number(input.providerId)) throw fail(403, 'This preview belongs to another user, practice, or provider.');
     return deps.lock({ agencyId: claims.agencyId, providerId: claims.providerId }, async () => {
-      const prepared = await prepare({ actor, input, issueToken: false });
+      const prepared = await prepare({ actor, input, issueToken: false, planner });
       if (prepared.summary.blockedRows) throw Object.assign(fail(409, 'Some appointments now need review. Preview again before scheduling.'), { preview: { rows: prepared.rows, summary: prepared.summary } });
       if (claims.planHash !== prepared.claims.planHash || claims.snapshotHash !== prepared.claims.snapshotHash || claims.weekStart !== prepared.claims.weekStart || claims.timeZone !== prepared.claims.timeZone || claims.mode !== prepared.claims.mode || claims.untilDate !== prepared.claims.untilDate) throw fail(409, 'The agenda or practice records changed. Preview the appointments again.', 'AGENDA_PREVIEW_STALE');
       for (const [source, state] of Object.entries(claims.existingStates || {})) {
