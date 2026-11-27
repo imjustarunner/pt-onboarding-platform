@@ -21,9 +21,20 @@ describe('Plotline activity and employee pricing',()=>{
   await wrapper.findAll('.pl-estimate-scenarios button')[0].trigger('click');
   expect(wrapper.get('.pl-quote>strong').text()).toBe('$81');
   expect(wrapper.get('.pl-quote').text()).toContain('next month’s recurring platform estimate is $29');
-  expect(wrapper.get('.pl-quote .pl-button').attributes('href')).toBe('/start?plan=usage&employees=5&screenings=10&interviewMinutes=60&onboardings=1');
+  expect(wrapper.get('.pl-quote .pl-button').attributes('href')).toBe('/start?plan=usage&employees=5&screenings=10&participantMinutes=120&onboardings=1');
   await wrapper.findAll('.pl-estimate-scenarios button')[2].trigger('click');
-  expect(wrapper.get('.pl-quote>strong').text()).toBe('$1,102.50');
+  expect(wrapper.get('.pl-quote>strong').text()).toBe('$1,462.50');
+ });
+ it('prices a five-person panel using 300 participant minutes and carries that total into the quote',async()=>{
+  wrapper=mount(Pricing,{global:{stubs}});
+  await wrapper.findAll('.pl-estimate-scenarios button')[0].trigger('click');
+  const people=wrapper.findAll('label').find(label=>label.text().startsWith('Typical people'));
+  await people.get('input').setValue('5');
+  expect(wrapper.get('.pl-quote>strong').text()).toBe('$99');
+  expect(wrapper.get('.pl-quote').text()).toContain('60 room minutes × 5 people = 300 participant-minutes');
+  expect(wrapper.get('.pl-quote .pl-button').attributes('href')).toContain('participantMinutes=300');
+  await people.get('input').setValue('0');
+  expect(wrapper.find('.pl-quote .pl-button').exists()).toBe(false);
  });
  it('prevents invalid counts from producing a requestable estimate',async()=>{
   wrapper=mount(Pricing,{global:{stubs}});
@@ -41,7 +52,7 @@ async function lead(query){
 describe('Pilot and estimate inquiries',()=>{
  it('preserves the complete quote and longest allowed message within the existing inquiry limit',async()=>{
   const fetch=vi.fn(async()=>({ok:true,json:async()=>({id:'fictional-long-quote'})}));vi.stubGlobal('fetch',fetch);
-  await lead({plan:'usage',employees:'100000',screenings:'1000000',interviewMinutes:'1000000',onboardings:'1000000'});
+  await lead({plan:'usage',employees:'100000',screenings:'1000000',participantMinutes:'25000000',onboardings:'1000000'});
   const textarea=wrapper.get('textarea');
   const limit=Number(textarea.attributes('maxlength'));
   expect(limit).toBeGreaterThan(0);expect(limit).toBeLessThan(750);
@@ -55,7 +66,7 @@ describe('Pilot and estimate inquiries',()=>{
  });
  it('keeps an oversized written message visible and sends no invalid inquiry',async()=>{
   const fetch=vi.fn();vi.stubGlobal('fetch',fetch);
-  await lead({plan:'usage',employees:'5',screenings:'10',interviewMinutes:'60',onboardings:'1'});
+  await lead({plan:'usage',employees:'5',screenings:'10',participantMinutes:'120',onboardings:'1'});
   const textarea=wrapper.get('textarea');
   const message='x'.repeat(Number(textarea.attributes('maxlength'))+1);
   await textarea.setValue(message);
@@ -72,7 +83,7 @@ describe('Pilot and estimate inquiries',()=>{
  });
  it('recomputes and sends a valid quote summary through the existing mocked inquiry endpoint',async()=>{
   const fetch=vi.fn(async()=>({ok:true,json:async()=>({id:'fictional-quote'})}));vi.stubGlobal('fetch',fetch);
-  await lead({plan:'usage',employees:'5',screenings:'10',interviewMinutes:'60',onboardings:'1',price:'0'});
+  await lead({plan:'usage',employees:'5',screenings:'10',participantMinutes:'120',onboardings:'1',price:'0'});
   expect(wrapper.get('[aria-label="Your planning estimate"]').text()).toContain('$81 USD');
   for(const [selector,value] of [['input[autocomplete=organization]','Example Team'],['input[autocomplete=given-name]','Fake'],['input[autocomplete=family-name]','Visitor'],['input[type=email]','visitor@example.invalid'],['input[type=tel]','5550100000'],['textarea','Please help us get started.']])await wrapper.get(selector).setValue(value);
   await wrapper.findAll('select')[0].setValue('other');await wrapper.get('input[type=checkbox]').setValue(true);
@@ -80,9 +91,17 @@ describe('Pilot and estimate inquiries',()=>{
   const [url,request]=fetch.mock.calls[0];expect(url).toBe('/api/public/marketing-pages/ptco/business/requests');
   const body=JSON.parse(request.body);expect(body.services).toEqual(['people']);expect(body.goals).toContain('one-time onboarding fees');expect(body.goals).toContain('$81 USD');expect(body.goals).toContain('Please help us get started.');
  });
+ it('asks visitors with old room-minute links to recalculate without fabricating participant counts',async()=>{
+  vi.stubGlobal('fetch',vi.fn());
+  await lead({plan:'usage',employees:'5',screenings:'10',interviewMinutes:'60',onboardings:'1'});
+  expect(wrapper.find('[aria-label="Your planning estimate"]').exists()).toBe(false);
+  expect(wrapper.get('[role=status]').text()).toContain('each participant’s connected minutes');
+  expect(wrapper.get('a[href="/plottline/pricing#estimate"]').exists()).toBe(true);
+  expect(fetch).not.toHaveBeenCalled();
+ });
  it('discards malformed quote inputs and unknown plan properties without displaying a price',async()=>{
   vi.stubGlobal('fetch',vi.fn());
-  await lead({plan:'usage',employees:'-1',screenings:'2',interviewMinutes:'60',onboardings:'1'});
+  await lead({plan:'usage',employees:'-1',screenings:'2',participantMinutes:'120',onboardings:'1'});
   expect(wrapper.find('[aria-label="Your planning estimate"]').exists()).toBe(false);
   wrapper.unmount();await lead({plan:'toString'});
   expect(wrapper.get('select[aria-label="What would you like to explore?"]').element.value).toBe('Plotline walkthrough');

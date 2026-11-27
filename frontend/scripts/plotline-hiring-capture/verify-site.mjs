@@ -60,9 +60,15 @@ try{
  await page.getByRole('button',{name:'Small team hiring',exact:true}).click();
  assert.equal(await page.locator('.pl-quote>strong').innerText(),'$81');
  assert.match(await page.locator('.pl-quote').innerText(),/recurring platform estimate is \$29/);
+ await page.getByLabel('Typical people in each interview',{exact:false}).fill('5');
+ assert.equal(await page.locator('.pl-quote>strong').innerText(),'$99');
+ assert.match(await page.locator('.pl-quote').innerText(),/300 participant-minutes/);
  await page.getByRole('link',{name:'Discuss this estimate',exact:true}).click();
  assert.equal(await page.getByLabel('What would you like to explore?',{exact:true}).inputValue(),'Pay-as-you-grow pricing');
- assert.match(await page.locator('[aria-label="Your planning estimate"]').innerText(),/\$81 USD/);
+ assert.match(await page.locator('[aria-label="Your planning estimate"]').innerText(),/\$99 USD/);
+ await page.goto(origin+'/plottline/start?plan=usage&employees=5&screenings=10&interviewMinutes=60&onboardings=1');
+ assert.equal(await page.locator('[aria-label="Your planning estimate"]').count(),0);
+ assert.match(await page.getByRole('status').innerText(),/Update your saved estimate/);
  await page.goto(origin+'/plottline/pricing');
  await page.getByRole('link',{name:'Request my five-interview pilot',exact:true}).click();
  assert.equal(await page.getByLabel('What would you like to explore?',{exact:true}).inputValue(),'Five-interview pilot');
