@@ -12,7 +12,7 @@
       </label>
       <button type="button" @click="acceptRecommendations" :disabled="!selectedRecommendations.length">Select recommended interventions</button>
     </div>
-    <p v-if="recommendationMessage" role="status">{{ recommendationMessage }}</p>
+    <p v-if="recommending || recommendationMessage" role="status">{{ recommending ? 'Finding interventions for this objective…' : recommendationMessage }}</p>
     <details>
       <summary>Select interventions</summary>
       <label class="search">Find an intervention
@@ -75,7 +75,13 @@ async function recommend() {
       agencyId: Number(props.agencyId), goalText: props.goalText, objectiveText: props.objectiveText
     }, { skipGlobalLoading: true, timeout: 90000 });
     if (request !== recommendationSequence) return;
-    recommendations.value = Array.isArray(result?.data?.interventions) ? result.data.interventions : [];
+    const suggested = Array.isArray(result?.data?.interventions) ? result.data.interventions : [];
+    const selected = new Set(props.modelValue.map(name => name.toLowerCase()));
+    recommendations.value = suggested.filter(name => !selected.has(name.toLowerCase()));
+    if (suggested.length && !recommendations.value.length) {
+      recommendationMessage.value = 'The recommended interventions are already selected.';
+      return;
+    }
     recommendationMessage.value = result?.data?.message || (recommendations.value.length ? '' : 'No recommendations were available. You can select interventions manually.');
   } catch {
     if (request === recommendationSequence) recommendationMessage.value = 'Could not recommend interventions. Please try again or select them manually.';

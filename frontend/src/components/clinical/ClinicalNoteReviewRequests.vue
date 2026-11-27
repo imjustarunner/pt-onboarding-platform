@@ -26,7 +26,8 @@
         <small v-if="request.status === 'review_acknowledge'">Review this request and any amendment below, then acknowledge. A new signature on the original note is not required.</small>
         <small v-else>Feedback only. No acknowledgement or new signature is required.</small>
         <span v-if="request.acknowledgedAt">Acknowledged</span><button v-else type="button" :disabled="busy" @click="acknowledge(request)">{{ request.status === 'feedback' ? 'Dismiss feedback' : 'Acknowledge reviewed' }}</button>
-        <button v-if="request.status==='review_acknowledge' && request.source==='supervisor'" type="button" :disabled="busy || scheduled[request.id]" @click="scheduleDiscussion(request)">{{scheduled[request.id]?'Added to supervision agenda':'Add to next supervision agenda'}}</button>
+        <p v-if="scheduled[request.requestId || request.id]" role="status">{{ scheduled[request.requestId || request.id] }}</p>
+        <button v-else-if="request.status==='review_acknowledge' && request.source==='supervisor'" type="button" :disabled="busy" @click="scheduleDiscussion(request)">Add to next supervision agenda</button>
       </template>
     </article>
     <p v-if="error" role="alert">{{ error }}</p>
@@ -61,7 +62,12 @@ async function signAddendum(request) {
   },()=>{ editing.value='';addition.value='';approved.value=false;emit('acknowledged',request); });
 }
 async function scheduleDiscussion(request) {
-  await perform(request, `/review-requests/${request.requestId || request.id}/supervision-agenda`,{},()=>{scheduled.value[request.id]=true;});
+  const requestId = request.requestId || request.id;
+  await perform(request, `/review-requests/${requestId}/supervision-agenda`, {}, ({ data }) => {
+    scheduled.value[requestId] = data?.meetingStartsAt
+      ? `Added to your supervision agenda for ${formatDate(data.meetingStartsAt)}.`
+      : 'Added to your supervision agenda.';
+  });
 }
 async function perform(request,suffix,payload,complete) {
   if(busy.value)return;
@@ -69,8 +75,8 @@ async function perform(request,suffix,payload,complete) {
   busy.value=true;
   error.value='';
   try {
-    await post(`/notes/${request.clinicalNoteId}${suffix}`,{agencyId:Number(request.agencyId),...payload});
-    if(seq===generation)complete();
+    const result = await post(`/notes/${request.clinicalNoteId}${suffix}`, {agencyId:Number(request.agencyId),...payload});
+    if(seq===generation)complete(result || {});
   } catch(e) {
     if(seq===generation)error.value=e.response?.data?.error?.message || 'Could not save this request. Please retry.';
   } finally {if(seq===generation)busy.value=false;}

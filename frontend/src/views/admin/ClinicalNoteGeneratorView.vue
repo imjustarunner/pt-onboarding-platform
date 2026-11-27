@@ -243,6 +243,8 @@
           <span v-if="approvalMessage" role="status">{{ approvalMessage }}</span>
         </section>
 
+        <div v-else-if="showStartPage && !workspaceReady && (route.query.noteId || route.query.clinicalNoteId || route.query.clinical_note_id || route.query.draftId || route.query.draft_id)"
+          class="na-session-loading" role="status">Opening the saved note…</div>
         <template v-else-if="showStartPage">
         <p v-if="approvalError" class="na-delete-err" role="alert">{{ approvalError }}</p>
         <NoteAidStartPage
@@ -1514,11 +1516,11 @@
         :data-analytics-area="demoPresentation ? 'my-work' : undefined"
         :allow-add="authStore.user?.role === 'super_admin'"
         v-if="canUseTool && !isEmbedded && !(libraryExpanded && !libraryCollapsed)"
-        :items="workQueueItems"
+        :items="myWorkItems"
         :filter-user-id="authStore.user?.id"
         :highlighted-note="highlightedWorkNote"
-        :loading="workQueueLoading && !workQueueItems.length"
-        :error="workQueueLoadError && !workQueueItems.length ? workQueueLoadError : ''"
+        :loading="(workQueueLoading || recentLoading) && !myWorkItems.length"
+        :error="!myWorkItems.length ? (workQueueLoadError || recentError) : ''"
         @highlight-note="highlightedWorkNote = $event"
         :active-id="activeWorkQueueItemId"
         :collapsed="workQueueCollapsed"
@@ -8484,12 +8486,14 @@ async function onWorkQueueDeleteDraft(item) {
   }
 
   if (item.draftId) {
-    if (!window.confirm('Archive this draft? Its content is retained and the ToDo stays in the queue as not started.')) return;
+    const prompt = item.draftOnly ? 'Delete this draft? This cannot be undone.'
+      : 'Delete this draft? The appointment stays in My Work as not started.';
+    if (!window.confirm(prompt)) return;
     try {
       await api.post(
         '/clinical-notes/drafts/delete',
         {
-          agencyId: agencyIdForDraftDelete(),
+          agencyId: agencyIdForDraftDelete(item),
           draftIds: [Number(item.draftId)]
         },
         { skipGlobalLoading: true }
@@ -8517,7 +8521,8 @@ async function onWorkQueueDeleteDraft(item) {
   });
   if (String(activeWorkQueueItemId.value) === String(item.id)) activeWorkQueueItemId.value = null;
   persistWorkQueue();
-  approvalMessage.value = item.draftId ? 'Draft deleted. ToDo is waiting to be started.' : 'Reset to not started.';
+  approvalMessage.value = item.draftOnly ? 'Draft deleted.'
+    : item.draftId ? 'Draft deleted. The appointment is ready to start again.' : 'Reset to not started.';
 }
 
 function normalizeWorkQueueItemStatus(item) {
@@ -10578,6 +10583,9 @@ async function openWorkspaceRouteSelection() {
       }
     }
     if (hit) {
+      if (!recentDrafts.value.some(row => String(row.id) === qDraft)) {
+        recentDrafts.value = [hit, ...recentDrafts.value];
+      }
       if (String(draftId.value || '') !== qDraft || signedNoteViewerId.value) {
         await loadDraftIntoWorkspace(hit, { expectedClientId: Number(route.query.clientId || route.query.client_id || 0) });
       }

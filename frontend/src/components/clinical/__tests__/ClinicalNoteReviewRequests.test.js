@@ -38,6 +38,17 @@ describe('author review requests', () => {
     expect(wrapper.text()).not.toContain('Acknowledge reviewed');await wrapper.find('button').trigger('click');
     expect(wrapper.emitted('open-version')[0][0]).toMatchObject({revisionId:901,revisionContentHash:'DEMO QA exact revision hash'});expect(api.post).not.toHaveBeenCalled();wrapper.unmount();
   });
+  it('confirms the meeting date after adding a comment to the supervision agenda', async () => {
+    const meetingStartsAt = '2026-12-03T22:00:00Z';
+    api.post.mockResolvedValue({ data: { meetingId: 44, meetingStartsAt } });
+    const wrapper = mount(ClinicalNoteReviewRequests, { props: { requests: [request('review_acknowledge', { source: 'supervisor' })] } });
+    await wrapper.findAll('button').find(button => button.text() === 'Add to next supervision agenda').trigger('click');
+    await flushPromises();
+    expect(api.post).toHaveBeenCalledWith('/medical-billing/notes/71/review-requests/request-1/supervision-agenda', { agencyId: 7 }, { skipGlobalLoading: true });
+    expect(wrapper.get('[role=status]').text()).toContain(new Date(meetingStartsAt).toLocaleString());
+    wrapper.unmount();
+  });
+
   it('allows feedback to be dismissed without claiming acknowledgement is required', () => {
     const wrapper = mount(ClinicalNoteReviewRequests, { props: { requests: [request('feedback')] } });
     expect(wrapper.text()).toContain('No acknowledgement or new signature is required');

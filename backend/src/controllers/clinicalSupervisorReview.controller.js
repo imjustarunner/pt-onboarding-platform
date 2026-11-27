@@ -117,7 +117,8 @@ export async function addNoteReviewToSupervisionAgenda(req,res,next) {
     }
     db=await pool.getConnection();
     await db.beginTransaction();
-    const [[meeting]]=await db.execute(`SELECT id FROM supervision_sessions WHERE agency_id=? AND supervisor_user_id=?
+    const [[meeting]]=await db.execute(`SELECT id,DATE_FORMAT(start_at,'%Y-%m-%dT%H:%i:%sZ') AS start_utc
+      FROM supervision_sessions WHERE agency_id=? AND supervisor_user_id=?
       AND supervisee_user_id=? AND LOWER(COALESCE(session_type,'individual'))='individual'
       AND COALESCE(UPPER(status),'')<>'CANCELLED' AND start_at>UTC_TIMESTAMP()
       ORDER BY start_at,id LIMIT 1 FOR UPDATE`,[note.agency_id,request.createdByUserId,req.user.id]);
@@ -130,7 +131,7 @@ export async function addNoteReviewToSupervisionAgenda(req,res,next) {
       VALUES(?,?,?,?,?) ON DUPLICATE KEY UPDATE id=id`,
     [agenda.id,maybeEncryptNotePayload('Clinical note discussion'),maybeEncryptNotePayload(link),req.user.id,`note_review:${request.id}`]);
     await db.commit();
-    res.status(201).json({meetingId:meeting.id});
+    res.status(201).json({meetingId:meeting.id,meetingStartsAt:meeting.start_utc});
   } catch(e) { if(db)await db.rollback(); next(e); }
   finally { db?.release(); }
 }
