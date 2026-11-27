@@ -28,7 +28,7 @@ test('published pricing separates recurring employees, hiring activity and one-t
   assert.equal(estimatePlotlinePrice({employees:5}).monthlyCents,2900);
   assert.equal(estimatePlotlinePrice({employees:10}).monthlyCents,3000);
   assert.equal(estimatePlotlinePrice({employees:30}).monthlyCents,8750);
-  const quote=estimatePlotlinePrice({employees:5,screenings:10,interviewMinutes:60,onboardings:1});
+  const quote=estimatePlotlinePrice({employees:5,screenings:10,participantMinutes:120,onboardings:1});
   assert.equal(quote.monthlyCents,8100);assert.equal(quote.recurringCents,2900);assert.equal(quote.onboardingCents,2000);
   const content=read('src/content/plotlineWebsite.js');
   assert.doesNotMatch(content,/starts at \$199|\$50 monthly Plotline credit|\$70 monthly credit/);

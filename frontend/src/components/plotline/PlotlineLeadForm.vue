@@ -5,7 +5,7 @@
     </div>
     <form v-else @submit.prevent="submit">
       <h2>Tell us a little about your team.</h2><p>We’ll help you find the right starting point.</p><aside v-if="quoteSummary" class="pl-inquiry-estimate" aria-label="Your planning estimate"><strong>Your planning estimate</strong><p>{{ quoteSummary }}</p><small>We confirm the scope and price with you. This request does not authorize charges.</small></aside>
-      <div class="pl-form-grid">
+      <p v-if="legacyInterviewQuote" class="pl-inquiry-estimate" role="status">Interview pricing now follows each participant’s connected minutes. <router-link to="/plottline/pricing#estimate">Update your saved estimate</router-link> before requesting a price.</p><div class="pl-form-grid">
         <label class="pl-full">Organization name<input v-model.trim="form.businessName" autocomplete="organization" required maxlength="200"></label>
         <label>First name<input v-model.trim="form.firstName" autocomplete="given-name" required maxlength="100"></label>
         <label>Last name<input v-model.trim="form.lastName" autocomplete="family-name" required maxlength="100"></label>
@@ -34,7 +34,8 @@ const featureInterests={interviews:'Browser interviews',references:'Professional
 const featureInterest=Object.hasOwn(featureInterests,route.query.interest)?featureInterests[route.query.interest]:'';
 const interest = ref(route.query.topic === 'people-operations' ? 'People Operations' : (Object.hasOwn(plans,route.query.plan)?plans[route.query.plan]:'') || featureInterest || 'Plotline walkthrough');
 const requestedQuote=plotlineQuoteFromQuery(route.query);
-const quoteSummary=computed(()=>interest.value==='Pay-as-you-grow pricing' && requestedQuote ? `${requestedQuote.employees} active employees; ${requestedQuote.screenings} completed screenings; ${requestedQuote.interviewMinutes} interview minutes; ${requestedQuote.onboardings} new completed onboardings. Estimated activity-month total: ${money(requestedQuote.monthlyCents)} USD, including ${money(requestedQuote.onboardingCents)} in one-time onboarding fees. Recurring platform: ${money(requestedQuote.recurringCents)} USD/month before new activity.` : '');
+const legacyInterviewQuote=route.query.plan==='usage' && Object.hasOwn(route.query,'interviewMinutes');
+const quoteSummary=computed(()=>interest.value==='Pay-as-you-grow pricing' && requestedQuote ? `${requestedQuote.employees} active employees; ${requestedQuote.screenings} completed screenings; ${requestedQuote.participantMinutes} participant-minutes; ${requestedQuote.onboardings} new completed onboardings. Estimated activity-month total: ${money(requestedQuote.monthlyCents)} USD, including ${money(requestedQuote.onboardingCents)} in one-time onboarding fees. Recurring platform: ${money(requestedQuote.recurringCents)} USD/month before new activity.` : '');
 const inquiryPrefix=computed(()=>`Plotline website · ${interest.value}\n${quoteSummary.value?quoteSummary.value+'\n':''}`);
 const goalsLimit=computed(()=>Math.min(750,Math.max(0,1000-inquiryPrefix.value.length)));
 const form = reactive({businessName:'',firstName:'',lastName:'',email:'',phone:'',businessType:'',stage:'established',goals:'',consent:false,websiteTrap:''});
