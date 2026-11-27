@@ -34,6 +34,7 @@
       </button>
     </div>
 
+    <p v-if="note.billingStage === 'revisions_needed'" class="ccn-block" role="status">Claim on hold · signed correction and supervisor approval required.</p>
     <section v-if="linkedReview" class="ccn-block" data-internal-review-only>
       <h4 class="ccn-block-title">Supervision comment</h4>
       <p>{{ linkedReview.message }}</p>
@@ -43,7 +44,7 @@
       <ClinicalNoteReviewRequests :requests="archivedSupervisorComments" />
     </details>
     <InternalDiagnosticCriteriaReview :agency-id="note.agencyId" :client-id="note.clientId" :note-id="note.id" />
-    <ClinicalNoteVersionHistory ref="versionHistory" v-if="note.providerSignedAt && note.id && note.agencyId" :note-id="note.id" :agency-id="note.agencyId" :legacy-pending-service-details="note.pendingServiceDetails" :legacy-amendment="legacyPendingAmendment" prefer-pending @changed="onVersionChanged" />
+    <ClinicalNoteVersionHistory ref="versionHistory" v-if="note.providerSignedAt && note.id && note.agencyId" :note-id="note.id" :agency-id="note.agencyId" :legacy-pending-service-details="note.pendingServiceDetails" :legacy-amendment="legacyPendingAmendment" prefer-pending :client-id="note.clientId" @changed="onVersionChanged" />
 
     <section v-if="hasSessionFacts" class="ccn-block ccn-facts" aria-label="Session details" data-note-section="Encounter details">
       <h4 class="ccn-block-title">Session details</h4>
@@ -59,12 +60,12 @@
           <dd>{{ note.clientPayer.name }}</dd>
         </div>
         <div v-if="clinicianDisplay">
-          <dt>Provider</dt>
+          <dt>Treating provider</dt>
           <dd>{{ clinicianDisplay }}</dd>
         </div>
-        <div v-if="structuredChart.participants">
+        <div v-if="participantsDisplay">
           <dt>Participants</dt>
-          <dd>{{ structuredChart.participants }}</dd>
+          <dd>{{ participantsDisplay }}</dd>
         </div>
         <div v-if="durationDisplay">
           <dt>Duration</dt>
@@ -87,6 +88,15 @@
           <dd><code>{{ serviceCodeDisplay }}</code></dd>
         </div>
       </dl>
+    </section>
+
+    <section v-if="!compact && note.submissionReview" class="ccn-block" aria-label="Recorded Narriva review">
+      <h4 class="ccn-block-title">Narriva review at submission</h4>
+      <p v-if="note.submissionReview.score != null"><strong>{{ note.submissionReview.score }}%</strong> documentation quality</p>
+      <p v-else>{{ note.submissionReview.status === 'running' ? 'The submission review is still running.' : 'No score is available for this signed version.' }}</p>
+      <ul v-if="note.submissionReview.findings?.length">
+        <li v-for="finding in note.submissionReview.findings" :key="finding">{{ finding }}</li>
+      </ul>
     </section>
 
     <section v-if="diagnosisRows.length || diagnosticJustification" class="ccn-block" aria-label="Diagnosis" data-note-section="Diagnoses">
@@ -313,11 +323,11 @@
         </div>
         <div>
           <dt>Billing NPI</dt>
-          <dd>{{ note.linkedClaim?.billingNpi || providerNpi || '—' }}</dd>
+          <dd>{{ note.linkedClaim?.billingNpi || 'Not on claim' }}</dd>
         </div>
         <div>
-          <dt>Rendering NPI</dt>
-          <dd>{{ note.linkedClaim?.renderingNpi || providerNpi || '—' }}</dd>
+          <dt>Rendering NPI on claim</dt>
+          <dd>{{ note.linkedClaim?.renderingNpi || 'Not on claim' }}</dd>
         </div>
         <div>
           <dt>Claim status</dt>
@@ -412,7 +422,7 @@ const props = defineProps({
 
 const emit = defineEmits(['open-claim', 'amended']);
 const versionHistory = ref(null);
-defineExpose({ openRevision: revisionId => versionHistory.value?.openRevision(revisionId) });
+defineExpose({ openRevision: revisionId => versionHistory.value?.openRevision(revisionId), openCorrection: () => versionHistory.value?.openCorrection() });
 
 const authStore = useAuthStore();
 const copiedKey = ref('');
@@ -506,7 +516,7 @@ const unitsDisplay = computed(() => {
 });
 
 const clinicianDisplay = computed(() => {
-  const s = props.note?.providerSigner;
+  const s = props.note?.treatingClinician || props.note?.providerSigner;
   if (s?.name && s?.credentials) return `${s.name}, ${s.credentials}`;
   if (s?.name) return s.name;
   return '';
@@ -516,20 +526,25 @@ const providerAttestationStatement = computed(() => {
   const stmt = String(props.note?.attestation?.statement || '').trim();
   if (stmt) return stmt;
   if (!props.note?.providerSignedAt) return '';
-  const who = clinicianDisplay.value || 'Provider';
+  const who = [props.note?.providerSigner?.name, props.note?.providerSigner?.credentials].filter(Boolean).join(', ') || 'Provider';
   return `${who}, signed this note and declared this information to be accurate and complete and marked the note as medically necessary on ${formatTimestamp(props.note.providerSignedAt)}.`;
 });
 
 const supervisorCosignStatement = computed(() => {
-  if (amendmentPending.value) return '';
+  const signature = props.note?.signatures?.find(row => row.role === 'supervisor');
+  if (Number(props.note?.clinicalVersion?.revisionNumber) > 1) {
+    return signature ? `${signature.signerLabel} electronically signed this version on ${formatTimestamp(signature.signedAt)}.` : '';
+  }
   const stmt = String(props.note?.supervisorCosign?.statement || '').trim();
   if (stmt) return stmt;
   if (!props.note?.supervisorCosignedAt) return '';
-  const who = props.note?.supervisorCosign?.signerLabel || 'Supervisor';
+  const who = signature?.signerLabel || props.note?.supervisorCosign?.signerLabel || 'Supervisor';
   return `${who}, reviewed and signed this note and approved it for clinical documentation under their license on ${formatTimestamp(props.note.supervisorCosignedAt)}.`;
 });
 
 const providerNpi = computed(() => props.note?.providerSigner?.npi || null);
+
+const participantsDisplay = computed(() => props.note?.effectiveServiceDetails?.participants || structuredChart.value?.participants || '');
 
 const durationDisplay = computed(() => {
   const d = props.note?.durationMinutes ?? structuredChart.value?.durationMinutes ?? props.note?.sessionTiming?.durationMinutes;
@@ -594,7 +609,7 @@ const primaryDxLabel = computed(() => {
 });
 
 const hasSessionFacts = computed(() =>
-  !!(props.note?.clinicalSessionId || props.note?.sessionTiming?.appointmentId || structuredChart.value?.participants
+  !!(props.note?.clinicalSessionId || props.note?.sessionTiming?.appointmentId || participantsDisplay.value || clinicianDisplay.value
     || durationDisplay.value
     || startEndDisplay.value
     || locationDisplay.value
@@ -701,6 +716,12 @@ const ratingsCopyText = computed(() =>
 );
 
 const signStatusLabel = computed(() => {
+  const sentCorrection = (props.note?.reviewRequests || []).find(request => request.action === 'changes_needed'
+    && !request.resolvedAt && request.resolutionMode !== 'signed_addendum');
+  const awaitingReview = sentCorrection?.correctionSubmittedRevisionId
+    && Number(sentCorrection.correctionSubmittedRevisionId) === Number(props.note?.versions?.pendingRevisionId);
+  if (awaitingReview) return 'Awaiting supervisor amendment sign-off';
+  if (sentCorrection) return 'Changes needed';
   if (amendmentPending.value) return 'Awaiting supervisor amendment sign-off';
   if (props.note?.supervisorCosignedAt) return 'Supervisor signed';
   if (Number(props.note?.clinicalVersion?.revisionNumber)>1 && !props.note?.versions?.pendingRevisionId) return 'Amended version approved';

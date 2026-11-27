@@ -5,7 +5,7 @@
       <button v-if="createOrigins.length && !pending && !editing" type="button" data-testid="create-amendment" :disabled="busy || !effective" @click="startAmendment">{{ hasLegacyPending ? 'Review saved service correction' : 'Create amendment' }}</button>
     </header>
     <p v-if="loading" role="status">Loading note versions…</p>
-    <p v-if="error" class="version-error" role="alert">{{ error }}</p>
+    <p v-if="error" class="version-error" role="alert">{{ error }} <a v-if="diagnosisBlocked && chartHref" :href="chartHref" target="_blank" rel="noopener">Open the client chart to update diagnoses</a></p>
     <p v-if="notice" class="version-notice" role="status">{{ notice }}</p>
     <div v-show="historyExpanded" :id="`note-version-history-${noteId}`" data-testid="version-history-body">
       <div class="history-intro"><p>Signed versions remain on record. An amendment creates a linked revision; an addendum is a separate addition.</p><button type="button" :disabled="loading || busy || editing" @click="load">Refresh versions</button></div>
@@ -43,6 +43,9 @@
         </section>
         <form v-if="selectedAction" class="revision-attestation" @submit.prevent="signRevision">
           <p>{{ workflowHelp(selected) }}</p><label class="check-line"><input v-model="attested" type="checkbox" data-testid="version-attestation" :disabled="busy || conflicted" /> {{ attestationText }}</label>
+          <label v-if="selectedAction === 'cosign'">Optional comment for note author
+            <textarea v-model="supervisorComment" rows="2" maxlength="4000" :disabled="busy" placeholder="Add a comment the author can acknowledge or bring to supervision" />
+          </label>
           <button type="submit" data-testid="sign-version" :disabled="busy || conflicted || !attested">{{ busy ? 'Saving…' : actionLabel }}</button>
         </form>
       </article>
@@ -70,15 +73,23 @@
 
 <script setup>
 import {serviceLocationDisplay,cleanServiceLocationLabel} from '../../utils/serviceLocationDisplay.js';
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import api from '../../services/api.js';
 import ClinicalNoteVersionAddenda from './ClinicalNoteVersionAddenda.vue';
 import { synchronizeServiceTimes, serviceTimeFeedback } from '../../utils/clinicalServiceTimes.js';
 import { cloneRevisionValue, revisionNarrativeFields, revisedNarrativePayload, revisionSignatureLabel, revisionStatusLabel } from '../../utils/clinicalNoteVersions.js';
 
-const props = defineProps({ noteId: { type: [Number, String], required: true }, agencyId: { type: [Number, String], required: true }, preferPending: { type: Boolean, default: false }, legacyPendingServiceDetails: { type: Object, default: null }, legacyAmendment: { type: Object, default: null } });
+const props = defineProps({ noteId: { type: [Number, String], required: true }, agencyId: { type: [Number, String], required: true }, clientId: [Number, String], preferPending: { type: Boolean, default: false }, legacyPendingServiceDetails: { type: Object, default: null }, legacyAmendment: { type: Object, default: null } });
 const emit = defineEmits(['changed', 'loaded', 'editing']);
-defineExpose({ openRevision });
+defineExpose({ openRevision, openCorrection });
+const route = useRoute();
+const supervisorComment = ref(''), diagnosisBlocked = ref(false);
+const chartHref = computed(() => {
+  const clientId = Number(props.clientId);
+  const slug = String(route?.params?.organizationSlug || '');
+  return clientId ? `${slug ? `/${encodeURIComponent(slug)}` : ''}/admin/clients/${clientId}?agencyId=${Number(props.agencyId)}` : '';
+});
 const summary = ref(null), selectedId = ref(null), loading = ref(false), busy = ref(false), error = ref(''), notice = ref(''), attested = ref(false), conflicted = ref(false), viewOpen = ref(false);
 const draftAttested = ref(false), expandedChoice = ref(null);
 let durationAwaitingTime = false, timeHasBeenEdited = false;
@@ -126,7 +137,7 @@ function errorMessage(e) { return e.response?.data?.error?.message || e.message 
 watch(editing, value => emit('editing', value));
 watch([draftFields, draftContext, draftReason, draftTitle, draftOrigin], () => { draftAttested.value = false; }, { deep: true });
 watch(draftLocationId, value => { const location = serviceLocations.value.find(item => String(item.id) === value); const original = draftSavedLocation.value; if (location) Object.assign(draftContext.value, { serviceLocationId: Number(location.id), locationLabel: location.name, placeOfService: location.place_of_service }); else for (const key of ['serviceLocationId', 'locationLabel', 'placeOfService']) { if (Object.prototype.hasOwnProperty.call(original, key)) draftContext.value[key] = original[key]; else delete draftContext.value[key]; } });
-watch(selectedId, () => { attested.value = false; viewOpen.value = !!selected.value && (String(selected.value.id) !== String(effective.value?.id) || !!selectedAction.value); });
+watch(selectedId, () => { attested.value = false; supervisorComment.value = ''; diagnosisBlocked.value = false; viewOpen.value = !!selected.value && (String(selected.value.id) !== String(effective.value?.id) || !!selectedAction.value); });
 watch(() => `${props.agencyId}:${props.noteId}`, () => { notice.value = ''; summary.value = null; selectedId.value = null; editing.value = false; expandedChoice.value = null; load(); }, { immediate: true });
 onBeforeUnmount(() => { generation++; });
 async function openRevision(revisionId) {
@@ -134,6 +145,16 @@ async function openRevision(revisionId) {
   if (!summary.value || loading.value) await load(revisionId);
   if (!revisions.value.some(item => String(item.id) === String(revisionId))) { error.value = 'The requested revision is unavailable. Refresh versions before reviewing this request.'; return; }
   selectedId.value = revisionId; viewOpen.value = true; attested.value = false;
+}
+async function openCorrection() {
+  expandedChoice.value = true;
+  if (!summary.value || loading.value) await load();
+  if (pending.value) {
+    await openRevision(pending.value.id);
+    if (selected.value?.capabilities?.canEdit && !editing.value) startEditing();
+  } else if (!editing.value) startAmendment();
+  await nextTick();
+  document.getElementById(`immutable-note-versions-${props.noteId}`)?.querySelector('[data-testid="version-reason"], [data-testid="sign-version"]')?.focus();
 }
 async function load(preferredId = null) {
   const g = ++generation; loading.value = true; error.value = ''; attested.value = false;
@@ -197,17 +218,19 @@ async function saveDraft() {
 }
 async function signRevision() {
   if (busy.value || conflicted.value || !attested.value || !selectedAction.value || !selected.value?.contentHash) return;
-  const g = generation, revision = selected.value, action = selectedAction.value; busy.value = true; error.value = ''; notice.value = '';
+  const g = generation, revision = selected.value, action = selectedAction.value; busy.value = true; error.value = ''; notice.value = ''; diagnosisBlocked.value = false;
   try {
-    const { data } = await api.post(`/medical-billing/notes/${props.noteId}/versions/${revision.id}/${action}`, { agencyId: Number(props.agencyId), expectedContentHash: revision.contentHash, ...(revision.entryManifestHash ? { expectedEntryManifestHash: revision.entryManifestHash } : {}), attested: true }, { skipGlobalLoading: true });
+    const { data } = await api.post(`/medical-billing/notes/${props.noteId}/versions/${revision.id}/${action}`, { agencyId: Number(props.agencyId), expectedContentHash: revision.contentHash, ...(revision.entryManifestHash ? { expectedEntryManifestHash: revision.entryManifestHash } : {}), attested: true, ...(action === 'cosign' && supervisorComment.value.trim() ? { supervisorComment: supervisorComment.value.trim() } : {}) }, { skipGlobalLoading: true });
     if (g !== generation) return;
     if (String(data?.revision?.id) !== String(revision.id) || data.revision.contentHash !== revision.contentHash || (revision.origin === 'supervisor' && action === 'cosign' && data.revision.status !== 'approved')) throw new Error('The server did not confirm this signature. Refresh versions before continuing.');
-    attested.value = false;
+    attested.value = false; supervisorComment.value = '';
     notice.value = action === 'acknowledge' ? 'Your review acknowledgement was recorded for this revision.' : `Signature recorded for version ${revision.revisionNumber}. ${statusLabel(data.revision.status)}.`;
     emit('changed', { noteId: Number(props.noteId), agencyId: Number(props.agencyId), revision: data.revision, action });
     if (g === generation) await load(revision.id);
   }
-  catch (e) { if (g === generation) { attested.value = false; error.value = errorMessage(e); if (e.response?.status === 409) conflicted.value = true; } }
+  catch (e) { if (g === generation) { attested.value = false; error.value = errorMessage(e);
+    diagnosisBlocked.value = /primary diagnosis|diagnostic justification/i.test(error.value);
+    if (e.response?.status === 409 && !diagnosisBlocked.value) conflicted.value = true; } }
   finally { busy.value = false; }
 }
 </script>

@@ -75,7 +75,7 @@ describe('scoped mobile clinical writer',()=>{
       agencyId:7,contentHash:'current-version',reviewSnapshotToken:'current-snapshot',
       action:'changes_needed',message:'Please document the response to the intervention.'
     },expect.objectContaining({headers:{'X-Quick-View-Session':'scoped'}}));
-    expect(w.text()).toContain('Returned to the author for correction.');
+    expect(w.text()).toContain('Returned to the author. Claim on hold.');
     expect(w.findComponent(MobileClinicalWorkspace).emitted('signed')).toBeUndefined();
     w.unmount();
   });

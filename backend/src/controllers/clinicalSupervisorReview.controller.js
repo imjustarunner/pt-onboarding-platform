@@ -7,7 +7,7 @@ import ClinicalNote from '../models/clinical/ClinicalNote.model.js';
 import User from '../models/User.model.js';
 import ClinicalEligibilityService from '../services/clinicalEligibility.service.js';
 import { resolveNoteDocumentationPolicy, parseObject, policyError } from '../services/supervisedBillingPolicy.service.js';
-import { appendReviewRequest, acknowledgeReviewRequest, reviewRequestsForDisplay, lockedNoteMutation, noteAuthorId } from '../services/clinicalSupervisorReview.service.js';
+import { appendReviewRequest, acknowledgeReviewRequest, reviewRequestsForDisplay, lockedNoteMutation, noteAuthorId, reviewSnapshotToken } from '../services/clinicalSupervisorReview.service.js';
 import { ensureOriginalRevision, getRevisionSummary, listPendingRevisionWork } from '../services/clinicalNoteVersion.service.js';
 
 async function ensureLockedHistory(db, note) {
@@ -35,14 +35,18 @@ async function noteScope(req, supervisor = false) {
 export async function postSupervisorReview(req,res,next) {
   try {
     const note = await noteScope(req,true);
-    const request = await lockedNoteMutation({noteId:note.id,agencyId:note.agency_id,contentHash:req.body.contentHash || '',snapshotToken:req.body.reviewSnapshotToken,mutate:async({db,note:locked,meta,current})=>{
+    const documentationOnly = req.body.documentationOnly === true;
+    const result = await lockedNoteMutation({noteId:note.id,agencyId:note.agency_id,contentHash:req.body.contentHash || '',snapshotToken:req.body.reviewSnapshotToken,mutate:async({db,note:locked,meta,current})=>{
       const revision = await ensureLockedHistory(db,locked);
-      const r = appendReviewRequest(meta,{action:req.body.action,message:req.body.message,correction:req.body.correction,allowDocumentationAddendum:Boolean(locked.supervisor_cosigned_at && req.body.documentationOnly === true),actorUserId:req.user.id,contentHash:current.hash});
+      const r = appendReviewRequest(meta,{action:req.body.action,message:req.body.message,correction:req.body.correction,allowDocumentationAddendum:documentationOnly,actorUserId:req.user.id,contentHash:current.hash});
       r.revisionId=revision.id; r.revisionContentHash=revision.contentHash;
       await reviewAudit(db,locked,revision,r,req.user.id,'review_requested');
-      return r;
+      const effective = current.row || locked;
+      const reviewSnapshot = { ...effective, metadata_json: { ...parseObject(effective.metadata_json), reviewRequests: meta.reviewRequests } };
+      return { request: r, reviewSnapshotToken: reviewSnapshotToken(reviewSnapshot, current.session || {}) };
     }});
-    res.status(201).json({ok:true,reviewRequest:reviewRequestsForDisplay({reviewRequests:[request]})[0]});
+    res.status(201).json({ok:true,claimOnHold:result.request.action === 'changes_needed' && !documentationOnly,
+      reviewRequest:reviewRequestsForDisplay({reviewRequests:[result.request]})[0], reviewSnapshotToken:result.reviewSnapshotToken});
   } catch(e) { next(e); }
 }
 export async function acknowledgeNoteReview(req,res,next) {
@@ -63,7 +67,11 @@ export async function listMyNoteReviewWork(req,res,next) {
     requireStaffPlanActor(req.user);
     const requestedAgencyId = req.query.agencyId == null ? null : Number(req.query.agencyId);
     if (requestedAgencyId !== null && (!Number.isSafeInteger(requestedAgencyId) || requestedAgencyId < 1)) throw policyError(400,'Provide a valid agencyId.');
-    const [candidates] = await clinicalPool.execute(`SELECT id,agency_id,client_id,title,metadata_json FROM clinical_notes WHERE COALESCE(provider_signed_by_user_id,created_by_user_id)=? AND is_deleted=0 AND JSON_LENGTH(JSON_EXTRACT(metadata_json,'$.reviewRequests'))>0 ${requestedAgencyId ? 'AND agency_id=?' : ''} ORDER BY updated_at DESC LIMIT 1000`,[req.user.id,...(requestedAgencyId ? [requestedAgencyId] : [])]);
+    const [candidates] = await clinicalPool.execute(`SELECT n.id,n.agency_id,n.client_id,n.title,n.metadata_json,h.pending_revision_id FROM clinical_notes n
+      LEFT JOIN clinical_note_revision_heads h ON h.clinical_note_id=n.id AND h.agency_id=n.agency_id
+      WHERE COALESCE(n.provider_signed_by_user_id,n.created_by_user_id)=? AND n.is_deleted=0
+        AND JSON_LENGTH(JSON_EXTRACT(n.metadata_json,'$.reviewRequests'))>0 ${requestedAgencyId ? 'AND n.agency_id=?' : ''}
+      ORDER BY n.updated_at DESC LIMIT 1000`,[req.user.id,...(requestedAgencyId ? [requestedAgencyId] : [])]);
     const permitted = new Set();
     const memberships=await User.getAgencies(req.user.id);
     const activeAgencyIds=(memberships || []).filter(a=>a.is_active!==0 && !a.is_archived && (!requestedAgencyId || Number(a.id)===requestedAgencyId) && (!req.auricwellPreview || Number(a.id)===Number(req.auricwellPreview.agencyId))).map(a=>Number(a.id));
@@ -80,7 +88,9 @@ export async function listMyNoteReviewWork(req,res,next) {
     const [clients] = ids.length ? await pool.execute(`SELECT id,agency_id,full_name,initials FROM clients WHERE id IN (${ids.map(()=>'?').join(',')})`,ids) : [[]];
     const items = notes.flatMap(note=>{
       const agencyId=Number(note.agency_id), meta=parseObject(note.metadata_json), client=clients.find(c=>Number(c.id)===Number(note.client_id));
-      return reviewRequestsForDisplay(meta).filter(r=>!r.resolvedAt&&!r.acknowledgedAt&&!r.dismissedAt).map(r=>({id:`review_${note.id}_${r.id}`,requestId:r.id,clinicalNoteId:note.id,agencyId,clientId:note.client_id,clientName:client?.full_name || client?.initials || meta.clientName || '',title:note.title,date:meta.dateOfService || null,serviceCode:meta.serviceCode || null,status:r.action,action:r.action,resolutionMode:r.resolutionMode,message:r.message,createdByUserId:r.createdByUserId,createdAt:r.createdAt,acknowledgedAt:r.acknowledgedAt,source:r.source,revisionId:r.revisionId || null,revisionContentHash:r.revisionContentHash || r.contentHash || null}));
+      return reviewRequestsForDisplay(meta).filter(r=>!r.resolvedAt&&!r.acknowledgedAt&&!r.dismissedAt
+        && !(r.correctionSubmittedRevisionId && meta.supervisorQueue?.status === 'awaiting_supervisor'
+          && Number(r.correctionSubmittedRevisionId) === Number(note.pending_revision_id))).map(r=>({id:`review_${note.id}_${r.id}`,requestId:r.id,clinicalNoteId:note.id,agencyId,clientId:note.client_id,clientName:client?.full_name || client?.initials || meta.clientName || '',title:note.title,date:meta.dateOfService || null,serviceCode:meta.serviceCode || null,status:r.action,action:r.action,resolutionMode:r.resolutionMode,message:r.message,createdByUserId:r.createdByUserId,createdAt:r.createdAt,acknowledgedAt:r.acknowledgedAt,source:r.source,revisionId:r.revisionId || null,revisionContentHash:r.revisionContentHash || r.contentHash || null}));
     });
     for (const item of authorWork) {
       const client=clients.find(c=>Number(c.id)===item.clientId && Number(c.agency_id)===item.agencyId);

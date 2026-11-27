@@ -121,12 +121,13 @@
         class="na-main"
         :class="{ 'na-main--start': showStartPage, 'na-main--library': showAidPicker }"
       >
+        <p v-if="supervisorReviewNotice" class="na-sign-attest" role="status">{{ supervisorReviewNotice }}</p>
         <div v-if="postSignatureNotice && !hasOpenNote && !showTreatmentPlanWorkspace" class="na-sign-attest na-post-signature" role="status">
           <strong>{{ postSignatureNotice.message }}</strong>
           <button v-if="postSignatureNotice.nextPlan" type="button" class="na-btn-outline" @click="activateWorkQueueItem(postSignatureNotice.nextPlan)">Write treatment plan</button>
           <button v-if="postSignatureNotice.noteId" type="button" class="na-btn-outline" @click="openSignedClinicalNote(postSignatureNotice.noteId, { agencyId: postSignatureNotice.agencyId })">View chart note</button>
         </div>
-        <ClinicalAppointmentAlertGate v-if="effectiveClientId && (noteAidAgencyId || currentAgencyId) && !supervisorReviewItem && !showTreatmentPlanWorkspace && !intakePlanWork"
+        <ClinicalAppointmentAlertGate v-if="effectiveClientId && (noteAidAgencyId || currentAgencyId) && !supervisorReviewItem && !showTreatmentPlanWorkspace && !intakePlanWork && !signedNoteViewerId"
           :agency-id="Number(noteAidAgencyId || currentAgencyId)" :client-id="Number(effectiveClientId)"
           :clinical-session-id="sessionClinicalSessionId || bookingContext.clinicalSessionId || null"
           :office-event-id="sessionOfficeEventId || bookingContext.officeEventId || null"
@@ -328,7 +329,7 @@
         </div>
         <NoteAidQuickSessionBar
           data-note-section="Encounter details"
-          v-if="!showAidPicker && !workspaceHydrateDepth"
+          v-if="!showAidPicker && !workspaceHydrateDepth && !signedNoteViewerId"
           :client-label="noteSubjectLabel"
           :client-linked="!!effectiveClientId"
           :profile-href="clientProfileHref"
@@ -922,7 +923,7 @@
           @all-rated="scrollToTypeSpeakPanel"
         />
 
-        <TreatmentPlanApprovalPanel v-if="planAwaitingReview?.id && effectiveClientId && !signedNoteViewerId" :agency-id="Number(planAwaitingReview.agency_id || chartAgencyIdForSave || noteAidAgencyId || currentAgencyId)" :client-id="Number(planAwaitingReview.client_id || effectiveClientId)" :plan-id="Number(planAwaitingReview.id)" @updated="loadClientTreatmentPlan(effectiveClientId)" />
+        <TreatmentPlanApprovalPanel v-if="planAwaitingReview?.id && effectiveClientId && !signedNoteViewerId" :agency-id="Number(planAwaitingReview.agency_id || chartAgencyIdForSave || noteAidAgencyId || currentAgencyId)" :client-id="Number(planAwaitingReview.client_id || effectiveClientId)" :plan-id="Number(planAwaitingReview.id)" read-only @updated="loadClientTreatmentPlan(effectiveClientId)" />
         <div v-if="isTerminationAid && !chartNoteReadOnly" class="na-plan-fields">
           <label for="na-termination-reason">Reason for termination</label>
           <select id="na-termination-reason" v-model="terminationReason" class="na-input" @change="onTerminationReasonChange">
@@ -2097,8 +2098,18 @@ const planAwaitingReview = computed(() => {
   if (encounterPlanEligibility.value.eligible && eligibleId) {
     return chartTreatmentPlans.value.find(plan => Number(plan.id) === eligibleId) || latestTreatmentPlan.value;
   }
-  const pending = chartTreatmentPlans.value.filter(plan => plan.status === 'draft' && String(plan.source_tool_id || '') !== 'intake_packet_bootstrap');
-  return pending.find(plan => Number(plan.id) === Number(planDraftEditorId.value)) || pending[0] || latestTreatmentPlan.value || null;
+  const agencyId = Number(chartAgencyIdForSave.value || noteAidAgencyId.value || currentAgencyId.value);
+  const cutoff = new Date(`${dateOfService.value || todayIsoDate()}T12:00:00Z`);
+  cutoff.setUTCDate(cutoff.getUTCDate() + 7);
+  const latestEffectiveDate = Number.isFinite(cutoff.getTime()) ? cutoff.toISOString().slice(0, 10) : '';
+  const pending = chartTreatmentPlans.value.filter(plan => plan.status === 'draft'
+    && Number(plan.agency_id) === agencyId
+    && Number(plan.client_id) === Number(effectiveClientId.value)
+    && String(plan.effective_date || plan.created_at || '').slice(0, 10) <= latestEffectiveDate
+    && String(plan.source_tool_id || '') !== 'intake_packet_bootstrap');
+  return pending.find(plan => plan.providerApproved)
+    || pending.find(plan => Number(plan.id) === Number(planDraftEditorId.value))
+    || pending[0] || latestTreatmentPlan.value || null;
 });
 const planRenewalStatus = computed(() => {
   const selected = chartTreatmentPlans.value.find(plan => Number(plan.id) === Number(encounterPlanEligibility.value.planId)) || latestTreatmentPlan.value;
@@ -2106,6 +2117,9 @@ const planRenewalStatus = computed(() => {
   return { ...normal, required: !encounterPlanEligibility.value.eligible && encounterPlanEligibility.value.code === 'treatment_plan_expired', expired: encounterPlanEligibility.value.code === 'treatment_plan_expired' };
 });
 const progressPlanIsCurrent = computed(() => !!encounterPlanEligibility.value.eligible);
+const encounterPlanBlockMessage = computed(() => planAwaitingReview.value?.providerApproved && !progressPlanIsCurrent.value
+  ? 'The provider signed the treatment plan. It needs supervisor approval before this progress note can be signed.'
+  : encounterPlanEligibility.value.message);
 
 let draftLoadSeq = 0;
 let chartPlanLoadSeq = 0;
@@ -2325,6 +2339,7 @@ const cosignQueueItems = ref([]);
 const cosignQueueLoading = ref(false);
 const cosignQueueError = ref('');
 const supervisorReviewItem = ref(null);
+const supervisorReviewNotice = ref('');
 const supervisorReviewFullPage = ref(false);
 let supervisorReviewSelectionSeq = 0;
 const cosignVisibleOrder = ref([]);
@@ -4637,13 +4652,16 @@ const libraryUserId = computed(() => authStore.user?.id || null);
 async function openRequestedNoteVersion(request) {
   if (Number(request?.clinicalNoteId) !== Number(signedNoteViewerId.value)) return;
   await signedNoteDetail.value?.openRevision(request.revisionId);
-  await beginAmendmentFromSignedNote();
+  scrollToSignedNoteVersions();
 }
 async function beginAmendmentFromSignedNote() {
+  await signedNoteDetail.value?.openCorrection();
+  scrollToSignedNoteVersions();
+}
+function scrollToSignedNoteVersions() {
   if (!signedNoteViewerId.value) return;
   const section = document.getElementById(`immutable-note-versions-${signedNoteViewerId.value}`);
-  section?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  section?.querySelector('select')?.focus({ preventScroll: true });
+  section?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
 }
 const showInteractiveComplexityOption = computed(() => {
   if (!aidAllowsInteractiveComplexity(selectedAid.value)) return false;
@@ -5098,7 +5116,7 @@ const generateBlockedReason = computed(() => {
   if (recording.value) return 'Stop recording before generating.';
   if (recordingBusy.value) return 'Finishing recording…';
   if (progressPlanBlocksWriting.value) {
-    return encounterPlanEligibility.value.message || 'Complete a treatment plan for this session before writing its progress note.';
+    return encounterPlanBlockMessage.value || 'Complete a treatment plan for this session before writing its progress note.';
   }
   if (noteAidAgencyNeedsChoice.value && !noteAidAgencyId.value) {
     return 'Choose which agency this note belongs to (above).';
@@ -6590,7 +6608,7 @@ const generateNote = async () => {
   if (appointmentAlertBlocked.value) { generateError.value = 'Review the appointment alert above before continuing.'; return; }
   if (pendingDurationChange.value || durationCodeMismatch.value) return;
   if (progressPlanBlocksWriting.value) {
-    generateError.value = encounterPlanEligibility.value.message || 'A treatment plan must be on file for this session before writing a progress note.';
+    generateError.value = encounterPlanBlockMessage.value || 'A treatment plan must be on file for this session before writing a progress note.';
     return;
   }
   const isRevisionPass = !!outputObj.value && (
@@ -8646,9 +8664,10 @@ async function onSupervisorReviewCompleted(result) {
 
 async function onSupervisorReviewReturned(result) {
   if (!matchesSupervisorSelection(result)) return;
+  supervisorReviewNotice.value = result?.message || '';
   // Author inbox refresh is independent of selection and must not delay advancement.
   void loadNoteReviewWork();
-  if (result?.action === 'changes_needed' || result?.status === 'changes_needed') await onSupervisorReviewCompleted(result);
+  if (result?.claimOnHold || result?.action === 'changes_needed' || result?.status === 'changes_needed') await onSupervisorReviewCompleted(result);
   else await loadCosignQueue();
 }
 

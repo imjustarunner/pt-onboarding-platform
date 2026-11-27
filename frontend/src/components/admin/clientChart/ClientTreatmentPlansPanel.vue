@@ -258,7 +258,7 @@
                   <div v-if="o.interventions?.length" class="ctp-interventions"><strong>Linked interventions</strong>
                     <ul><li v-for="intervention in o.interventions" :key="intervention">{{ intervention }}</li></ul>
                   </div>
-                  <div v-if="!isDiscardableDraft(detailPlan)" class="ctp-kiosk-q">
+                  <div v-if="detailPlan.status !== 'draft'" class="ctp-kiosk-q">
                     <label>
                       Client question
                       <span v-if="o.kiosk_prompt_verified_at">Verified</span>
@@ -575,6 +575,7 @@ function planTitle(plan) {
     if (/draft/i.test(raw)) return 'Discarded treatment plan draft';
     return raw || `${fallback} (archived)`;
   }
+  if (status === 'draft' && plan?.providerApproved) return raw.replace(/\s+draft$/i, '') || fallback;
   if (status === 'draft') {
     return raw && !/^treatment plan$/i.test(raw) ? raw : 'Treatment plan draft';
   }
@@ -585,6 +586,7 @@ function statusLabel(plan) {
   const s = String(plan?.status || plan?.plan_status || '').trim().toLowerCase();
   if (s === 'discarded' || s === 'inactive') return 'Discarded draft';
   if (s === 'superseded') return 'Superseded';
+  if (s === 'draft' && plan.providerApproved) return 'Provider signed · Supervisor review pending';
   if (s === 'draft') return 'Draft — updating';
   if (s === 'active') return 'Active';
   return s ? s.replace(/_/g, ' ') : 'On file';
@@ -686,14 +688,14 @@ function openNoteAidUpdater() {
 }
 
 function isDiscardableDraft(plan) {
-  return String(plan?.status || '').toLowerCase() === 'draft' && !!Number(plan?.id || 0);
+  return String(plan?.status || '').toLowerCase() === 'draft' && !!Number(plan?.id || 0) && !plan?.providerApproved;
 }
 
 async function discardDraftPlan() {
   const planId = Number(detailPlan.value?.id || 0);
   const clientId = Number(props.clientId || 0);
   const agencyId = Number(props.agencyId || 0);
-  if (!planId || !clientId || !agencyId || discardBusy.value) return;
+  if (!planId || !clientId || !agencyId || discardBusy.value || !isDiscardableDraft(detailPlan.value)) return;
   if (!window.confirm('Discard this treatment plan draft? It will move to Previous and no longer count as an in-progress update.')) {
     return;
   }

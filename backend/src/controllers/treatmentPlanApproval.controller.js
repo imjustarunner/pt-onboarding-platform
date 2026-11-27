@@ -2,6 +2,7 @@ import ClinicalTreatmentPlan from '../models/clinical/ClinicalTreatmentPlan.mode
 import { requireNarrivaClient } from '../services/narrivaAccess.service.js';
 import { getTreatmentPlanApproval, attestTreatmentPlanProvider } from '../services/treatmentPlanApproval.service.js';
 import { loadTreatmentPlanReview, recordTreatmentPlanReview } from '../services/narrivaTreatmentPlanReview.service.js';
+import { withHistoricalImportLock } from '../services/ehrHistoricalImportLock.service.js';
 import { logNoteAidChartEvent } from '../services/noteAidChartAudit.service.js';
 
 async function scopedPlan(req) {
@@ -23,8 +24,13 @@ export async function getPlanApproval(req, res, next) {
 }
 export async function signPlanProviderReview(req, res, next) {
   try {
-    const plan = await scopedPlan(req);
-    await attestTreatmentPlanProvider({ user: req.user, plan, contentHash: req.body.contentHash, reviewedAndAccurate: req.body.reviewedAndAccurate });
+    const scope = await scopedPlan(req);
+    const plan = await withHistoricalImportLock(scope.agency_id, scope.client_id, 'plan', async () => {
+      const current = await ClinicalTreatmentPlan.findById(scope.id);
+      if (!current) throw Object.assign(new Error('Treatment plan not found.'), { status: 404 });
+      await attestTreatmentPlanProvider({ user: req.user, plan: current, contentHash: req.body.contentHash, reviewedAndAccurate: req.body.reviewedAndAccurate });
+      return current;
+    });
     await logNoteAidChartEvent(req, { agencyId: plan.agency_id, clientId: plan.client_id, action: 'clinical_treatment_plan_provider_signed', metadata: { planId: plan.id, contentHash: req.body.contentHash } });
     try { await (await import('../services/intakeTreatmentPlanWork.service.js')).completeIntakePlanWork(plan); }
     catch { console.warn('[treatment-plan] Provider signature recorded. My Work could not be updated.'); }

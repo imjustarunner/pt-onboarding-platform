@@ -14,6 +14,7 @@
         <dl class="service-facts">
           <div><dt>Date of service</dt><dd>{{ date(note.dateOfService) }}</dd></div>
           <div><dt>Code</dt><dd>{{ note.serviceCode || 'Not recorded' }}</dd></div>
+          <div><dt>Clinician</dt><dd>{{ providerLabel }}</dd></div>
           <div><dt>Duration</dt><dd :class="{ missing: !details.durationMinutes }">{{ details.durationMinutes != null && details.durationMinutes !== '' ? `${details.durationMinutes} min` : 'Not recorded' }}</dd></div>
           <div><dt>Participants</dt><dd>{{ details.participants || chart.participants || 'Not recorded' }}<small v-if="typeof details.patientPresent === 'boolean'" class="participant-presence">Patient {{ details.patientPresent ? 'present' : 'not present' }}</small></dd></div>
           <div><dt>Location</dt><dd :class="{ missing: !details.locationLabel }">{{ details.locationLabel || 'Not recorded' }}</dd></div>
@@ -22,6 +23,7 @@
         <p class="current-version" role="status">Current note version: {{ currentVersionLabel }}</p>
         <NoteReviewActions :item="{noteId,agencyId,contentHash:review.contentHash,narriva:narrivaReview}" :show-open-note="false" />
         <div class="signature-state"><span>{{ note.providerSignedAt ? 'Author signed' : 'Author signature missing' }}</span><span>{{ review.cosignedAt ? 'Supervisor approved' : 'Awaiting supervisor approval' }}</span></div>
+        <p v-if="claimOnHold" class="pending-label" role="status">Claim on hold · signed correction and supervisor approval required.</p>
         <p v-if="note.pendingServiceDetails" class="pending-label">A historical service amendment is awaiting approval. Review the preserved draft in Note versions before signing.</p>
         <CosignReviewTimer v-if="review.canTrackCosignTime && reviewProviderId" :key="`${noteId}-${review.contentHash}`" compact :agency-id="agencyId" :provider-id="reviewProviderId" :note-id="noteId" :content-hash="review.contentHash" />
       </div>
@@ -30,9 +32,9 @@
         <p v-if="notice" class="review-notice" role="status">{{ notice }}</p>
         <NarrivaCompliancePanel v-if="narrivaReview || narrivaBusy || narrivaError" supervisor-view :review="narrivaReview" :busy="narrivaBusy" :error="narrivaError" read-only />
         <p class="muted">{{ narrivaReview ? "Saved submission review · supervisor approval does not rerun Narriva." : "No Narriva submission review is on file. Use ordinary supervisor review; Quick Sign is unavailable." }}</p>
-        <ClinicalNoteVersionHistory :note-id="noteId" :agency-id="agencyId" :legacy-pending-service-details="note.pendingServiceDetails" :legacy-amendment="legacyPendingAmendment" prefer-pending @loaded="onVersionsLoaded" @changed="onVersionChanged" @editing="amendmentEditing = $event" />
+        <ClinicalNoteVersionHistory :note-id="noteId" :agency-id="agencyId" :legacy-pending-service-details="note.pendingServiceDetails" :legacy-amendment="legacyPendingAmendment" prefer-pending :client-id="note.clientId" @loaded="onVersionsLoaded" @changed="onVersionChanged" @editing="amendmentEditing = $event" />
         <section v-if="openRequests.length" class="request-history" aria-label="Supervisor requests">
-          <article v-for="request in openRequests" :key="request.id"><strong>{{ actionLabel(request.action || request.requestType || request.request_type) }}</strong><p>{{ readableReviewMessage(request.message) }}</p><small>{{ timestamp(request.createdAt || request.created_at) }}</small></article>
+          <article v-for="request in openRequests" :key="request.id"><strong>{{ request.correctionSubmittedAt ? 'Correction signed · awaiting review' : actionLabel(request.action || request.requestType || request.request_type) }}</strong><p>{{ readableReviewMessage(request.message) }}</p><small>{{ timestamp(request.createdAt || request.created_at) }}</small></article>
         </section>
         <div v-if="missingDetails.length && !review.cosignedAt" class="missing-details" role="status">
           <strong>Complete service documentation:</strong> {{ missingDetails.join(', ') }}.
@@ -67,11 +69,14 @@
         </nav>
         <section v-if="activeInfo === 'signature'" class="info-panel" aria-label="Electronic signature details">
           <h3>Electronic signatures</h3><p>{{ note.attestation?.statement || `${note.providerSigner?.name || 'Author'} signed ${timestamp(note.providerSignedAt)}.` }}</p>
-          <dl><div><dt>Provider</dt><dd>{{ providerLabel }}</dd></div><div><dt>Signed at</dt><dd>{{ timestamp(note.providerSignedAt) }}</dd></div></dl>
-          <p v-if="note.supervisorCosign?.statement">{{ note.supervisorCosign.statement }}</p>
+          <dl>
+            <div><dt>Author</dt><dd>{{ note.providerSigner?.name || 'Not recorded' }}</dd></div>
+            <div><dt>Author signed at</dt><dd>{{ timestamp(note.providerSignedAt) }}</dd></div>
+            <div v-if="supervisorSignature"><dt>Supervisor signature</dt><dd>{{ supervisorSignature.signerLabel }} · {{ timestamp(supervisorSignature.signedAt) }}</dd></div>
+          </dl>
         </section>
         <section v-if="activeInfo === 'claim'" class="info-panel" aria-label="Claim data">
-          <h3>Claim data</h3><dl><div><dt>Payer</dt><dd>{{ note.clientPayer?.name || 'Not available' }}</dd></div><div><dt>Rendering provider</dt><dd>{{ providerLabel }}</dd></div><div v-if="note.primaryDiagnosis"><dt>Diagnosis</dt><dd>{{ [note.primaryDiagnosis.icd10Code, note.primaryDiagnosis.description].filter(Boolean).join(' · ') }}</dd></div><div v-if="note.clientPayer?.memberId"><dt>Member ID</dt><dd>{{ note.clientPayer.memberId }}</dd></div><div v-if="note.linkedClaim?.renderingNpi || note.providerSigner?.npi"><dt>Rendering NPI</dt><dd>{{ note.linkedClaim?.renderingNpi || note.providerSigner.npi }}</dd></div><div v-if="note.linkedClaim?.billingNpi"><dt>Billing NPI</dt><dd>{{ note.linkedClaim.billingNpi }}</dd></div><div><dt>Service</dt><dd>{{ note.serviceCode || 'Not recorded' }} · {{ note.billingPrimaryUnits || 1 }} unit(s)</dd></div><div><dt>Place of service</dt><dd>{{ details.placeOfService || 'Not recorded' }}</dd></div><div><dt>Status</dt><dd>{{ note.linkedClaim?.statusLabel || 'No claim linked' }}</dd></div></dl>
+          <h3>Claim data</h3><dl><div><dt>Payer</dt><dd>{{ note.clientPayer?.name || 'Not available' }}</dd></div><div><dt>Clinician who provided the service</dt><dd>{{ providerLabel }}</dd></div><div v-if="note.primaryDiagnosis"><dt>Diagnosis</dt><dd>{{ [note.primaryDiagnosis.icd10Code, note.primaryDiagnosis.description].filter(Boolean).join(' · ') }}</dd></div><div v-if="note.clientPayer?.memberId"><dt>Member ID</dt><dd>{{ note.clientPayer.memberId }}</dd></div><div v-if="note.linkedClaim?.renderingNpi"><dt>Rendering NPI on claim</dt><dd>{{ note.linkedClaim.renderingNpi }}</dd></div><div v-if="note.linkedClaim?.billingNpi"><dt>Billing NPI</dt><dd>{{ note.linkedClaim.billingNpi }}</dd></div><div><dt>Service</dt><dd>{{ note.serviceCode || 'Not recorded' }} · {{ note.billingPrimaryUnits || 1 }} unit(s)</dd></div><div><dt>Place of service</dt><dd>{{ details.placeOfService || 'Not recorded' }}</dd></div><div><dt>Status</dt><dd>{{ claimOnHold ? 'Claim on hold' : note.linkedClaim?.statusLabel || 'No claim linked' }}</dd></div></dl>
           <p class="muted">Supervisory approval releases documentation for billing review. It does not transmit a claim.</p>
         </section>
         <section v-if="activeInfo === 'addenda'" class="info-panel" aria-label="Signed addenda and amendments">
@@ -86,22 +91,27 @@
         </section>
         <form v-if="showFeedback && canReview" class="info-panel feedback-form" @submit.prevent="sendFeedback">
           <h3>Send to note author</h3>
-          <label>Action<select v-model="feedbackAction" data-testid="feedback-action" :disabled="busy"><option value="changes_needed">Changes needed · return for correction</option><option value="review_acknowledge">Review / acknowledge needed · no new signature</option><option value="feedback">Feedback · no response required</option></select></label>
+          <label>Action<select v-model="feedbackAction" data-testid="feedback-action" :disabled="busy"><option value="changes_needed">Changes needed · return for correction</option><option value="request_addendum">Request a signed addendum</option><option value="review_acknowledge">Review / acknowledge needed · no new signature</option><option value="feedback">Feedback · no response required</option></select></label>
           <p v-if="!feedbackSentence" class="muted">{{ feedbackHelp }}</p>
-          <SupervisorCorrectionFields v-if="feedbackAction==='changes_needed'" v-model="correction" :disabled="busy" />
+          <SupervisorCorrectionFields v-if="structuredFeedback" v-model="correction" :disabled="busy" />
           <label>Your request or feedback<textarea v-model="feedbackMessage" data-testid="feedback-message" rows="3" maxlength="4000" :required="!feedbackSentence" :disabled="busy" /></label>
-          <button v-if="!documentationAddendum || !canSign" type="submit" :disabled="busy || !feedbackReady">{{ feedbackSentence && !documentationAddendum ? 'Return and hold claim' : feedbackAction === 'feedback' ? 'Send feedback' : 'Send request' }}</button>
-          <button v-if="canSign && canSignWithRequest" type="button" :disabled="busy || !attested || missingDetails.length>0 || hasChangesNeeded" @click="sign(false,true)">{{ documentationAddendum?'Co-sign & request addendum':'Co-sign & send comment' }}</button><button type="button" :disabled="busy" @click="cancelFeedback">Cancel</button>
+          <p v-if="feedbackAction === 'request_addendum' && correction.section && !documentationAddendum" class="muted">Choose a documentation section that can be updated by addendum.</p>
+          <button type="submit" :disabled="busy || !feedbackReady">{{ feedbackAction === 'changes_needed' ? 'Return and hold claim' : feedbackAction === 'request_addendum' ? 'Send addendum request' : feedbackAction === 'feedback' ? 'Send feedback' : 'Send request' }}</button>
+          <button v-if="canSign && canSignWithRequest" type="button" :disabled="busy || !attested || missingDetails.length>0 || hasChangesNeeded" @click="sign(false,true)">{{ feedbackAction === 'request_addendum'?'Co-sign & request addendum':'Co-sign & send comment' }}</button><button type="button" :disabled="busy" @click="cancelFeedback">Cancel</button>
         </form>
+        <button v-if="canReview && hasPendingVersion && !amendmentEditing && !showFeedback" type="button" :disabled="busy" @click="openFeedback('request_addendum')">Request addendum</button>
       </div>
       <footer v-if="!amendmentEditing && !hasPendingVersion" class="review-footer">
         <template v-if="canSign">
           <label class="check-line"><input v-model="attested" data-testid="supervisor-attestation" type="checkbox" :disabled="busy || missingDetails.length > 0 || hasChangesNeeded || (hasUnfinishedAction && !canSignWithRequest)" /> {{ isBillable ? 'I reviewed this note, its service details and all amendments, and approve this documentation for billing review under my supervisory responsibility.' : 'I reviewed this note and all amendments, and approve this clinical documentation under my supervisory responsibility.' }}</label>
           <p v-if="hasChangesNeeded" class="missing">Changes have been requested. Review the author's correction before approving.</p>
           <p v-if="hasUnfinishedAction" class="missing" role="status">{{ amendmentEditing ? 'Submit or cancel the amendment before approving this note.' : 'Send or cancel your request or feedback before approving this note.' }}</p>
-          <div class="footer-actions"><button type="button" :disabled="busy || amendmentEditing" @click="showFeedback = true">Return / provide feedback</button><button v-if="narrivaReview?.quickSignEligible === true && narrivaReview.status === 'passed'" type="button" class="approve narriva-quick-sign" data-testid="quick-sign" :disabled="busy || narrivaBusy || !attested || missingDetails.length > 0 || hasChangesNeeded || hasUnfinishedAction" @click="sign(true)"><img :src="NARRIVA_BRAND.verified" alt="" /> Quick Sign</button><button type="button" class="approve" data-testid="cosign" :disabled="busy || !attested || missingDetails.length > 0 || hasChangesNeeded || hasUnfinishedAction" @click="sign">{{ busy ? 'Saving…' : isBillable ? 'Cosign & approve for billing review' : 'Cosign & approve documentation' }}</button></div>
+          <label v-if="!showFeedback" class="cosign-comment">Optional comment for note author
+            <textarea v-model="approvalComment" rows="2" maxlength="4000" :disabled="busy" placeholder="Add a comment the author can acknowledge or bring to supervision" />
+          </label>
+          <div class="footer-actions"><button type="button" :disabled="busy || amendmentEditing" @click="openFeedback('changes_needed')">Return / provide feedback</button><button type="button" :disabled="busy" @click="openFeedback('request_addendum')">Request addendum</button><button v-if="narrivaReview?.quickSignEligible === true && narrivaReview.status === 'passed'" type="button" class="approve narriva-quick-sign" data-testid="quick-sign" :disabled="busy || narrivaBusy || !attested || missingDetails.length > 0 || hasChangesNeeded || hasUnfinishedAction" @click="sign(true)"><img :src="NARRIVA_BRAND.verified" alt="" /> Quick Sign</button><button type="button" class="approve" data-testid="cosign" :disabled="busy || !attested || missingDetails.length > 0 || hasChangesNeeded || hasUnfinishedAction" @click="sign">{{ busy ? 'Saving…' : isBillable ? 'Cosign & approve for billing review' : 'Cosign & approve documentation' }}</button></div>
         </template>
-        <template v-else><p class="muted">{{ !versionHistoryReady ? 'Confirm the current note version in Note versions before approving.' : hasPendingVersion ? 'Use Note versions above to review and sign the pending revision at its current stage.' : review.cosignedAt ? 'This version has been approved by the supervisor.' : 'Only the assigned responsible supervisor can approve this note.' }}</p><button v-if="canReview" type="button" :disabled="busy || amendmentEditing" @click="showFeedback = true">Provide feedback</button></template>
+        <template v-else><p class="muted">{{ !versionHistoryReady ? 'Confirm the current note version in Note versions before approving.' : hasPendingVersion ? 'Use Note versions above to review and sign the pending revision at its current stage.' : review.cosignedAt ? 'This version has been approved by the supervisor.' : 'Only the assigned responsible supervisor can approve this note.' }}</p><button v-if="canReview" type="button" :disabled="busy || amendmentEditing" @click="openFeedback('feedback')">Provide feedback</button><button v-if="canReview" type="button" :disabled="busy" @click="openFeedback('request_addendum')">Request addendum</button></template>
       </footer>
     </template>
   </section>
@@ -127,11 +137,15 @@ const props = defineProps({ noteId: { type: [Number, String], required: true }, 
 const emit = defineEmits(['signed', 'returned', 'open-full', 'close']);
 const note = ref(null), review = ref(null), reviewProviderId = ref(null), loading = ref(false), busy = ref(false), error = ref(''), notice = ref(''), attested = ref(false);
 const correction = ref({});
-const feedbackSentence = computed(() => feedbackAction.value==='changes_needed'?supervisorFeedbackSentence(correction.value):'');
-const documentationAddendum = computed(() => feedbackAction.value==='changes_needed' && eligibleForDocumentationAddendum(correction.value));
-const feedbackReady = computed(() => feedbackAction.value==='changes_needed' && correction.value.section ? !!feedbackSentence.value : !!feedbackMessage.value.trim());
-const canSignWithRequest = computed(() => feedbackReady.value && (documentationAddendum.value || feedbackAction.value==='review_acknowledge'));
-const activeInfo = ref(''), showFeedback = ref(false), feedbackAction = ref('changes_needed'), feedbackMessage = ref('');
+const activeInfo = ref(''), showFeedback = ref(false), feedbackAction = ref('changes_needed'), feedbackMessage = ref(''), approvalComment = ref('');
+const structuredFeedback = computed(() => ['changes_needed', 'request_addendum'].includes(feedbackAction.value));
+const feedbackSentence = computed(() => structuredFeedback.value ? supervisorFeedbackSentence(correction.value) : '');
+const documentationAddendum = computed(() => structuredFeedback.value && eligibleForDocumentationAddendum(correction.value));
+const feedbackReady = computed(() => {
+  if (feedbackAction.value === 'request_addendum') return documentationAddendum.value;
+  return correction.value.section && structuredFeedback.value ? !!feedbackSentence.value : !!feedbackMessage.value.trim();
+});
+const canSignWithRequest = computed(() => feedbackReady.value && ((feedbackAction.value === 'request_addendum' && documentationAddendum.value) || feedbackAction.value === 'review_acknowledge'));
 const materials = ref([]), materialsLoading = ref(false), materialsError = ref(''), materialsLoaded = ref(false);
 const body = ref(null);
 const { review:narrivaReview,busy:narrivaBusy,error:narrivaError,observeReview:observeNarrivaReview,invalidate:invalidateNarriva } = useNarrivaReview({agencyId:computed(() => props.agencyId),apiClient:api});
@@ -173,11 +187,16 @@ const ratings = computed(() => supervisorObjectiveRatings(note.value?.objectiveR
 const addenda = computed(() => Array.isArray(canonical.value?.addenda) ? canonical.value.addenda : note.value?.addenda || []);
 const openRequests = computed(() => (note.value?.reviewRequests || []).filter(request => !request.resolvedAt && !request.resolved_at && !request.acknowledgedAt && !request.acknowledged_at && !request.dismissedAt && !request.dismissed_at && request.status !== 'resolved' && request.status !== 'acknowledged' && request.status !== 'dismissed'));
 const hasChangesNeeded = computed(() => openRequests.value.some(request => (request.action || request.requestType || request.request_type) === 'changes_needed' && request.resolutionMode!=='signed_addendum'));
+const claimOnHold = computed(() => note.value?.billingStage === 'revisions_needed' || hasChangesNeeded.value);
 const hasUnfinishedAction = computed(() => amendmentEditing.value || showFeedback.value && (feedbackReady.value || !!correction.value.section));
 const canReview = computed(() => review.value?.canCosign === true || note.value?.canSuperviseReview === true);
 const canSign = computed(() => versionHistoryReady.value && !hasPendingVersion.value && review.value?.canCosign === true && !!note.value?.providerSignedAt && !review.value?.cosignedAt);
-const providerLabel = computed(() => [note.value?.providerSigner?.name, note.value?.providerSigner?.credentials].filter(Boolean).join(', ') || 'Not recorded');
-const feedbackHelp = computed(() => ({ changes_needed: 'The note returns to the author with your request at the top. Approval waits for their signed correction.', review_acknowledge: 'The author must review and acknowledge your message. Their existing signature remains valid.', feedback: 'The author receives your feedback; no acknowledgement or new signature is required.' }[feedbackAction.value]));
+const providerLabel = computed(() => {
+  const clinician = note.value?.treatingClinician || note.value?.providerSigner;
+  return [clinician?.name, clinician?.credentials].filter(Boolean).join(', ') || 'Not recorded';
+});
+const supervisorSignature = computed(() => note.value?.signatures?.find(signature => signature.role === 'supervisor'));
+const feedbackHelp = computed(() => ({ changes_needed: 'The note returns to the author with your request at the top. Approval waits for their signed correction.', request_addendum: 'Request a separately signed addition. The existing billing review status is preserved.', review_acknowledge: 'The author must review and acknowledge your message. Their existing signature remains valid.', feedback: 'The author receives your feedback; no acknowledgement or new signature is required.' }[feedbackAction.value]));
 const infoTabs = computed(() => [{ id: 'signature', label: 'Signature details', hint: `${providerLabel.value} · ${timestamp(note.value?.providerSignedAt)}` }, { id: 'claim', label: 'Claim data', hint: `${note.value?.clientPayer?.name || 'Payer not available'} · ${note.value?.linkedClaim?.statusLabel || 'No claim linked'}` }, { id: 'addenda', label: `Addenda (${addenda.value.length})`, hint: 'Read separately signed additions and amendments' }, { id: 'materials', label: 'Supporting materials', hint: 'List documents attached to this encounter' }]);
 const score = value => value == null || value === '' ? '—' : value;
 const date = value => value ? String(value).slice(0, 10) : 'Not recorded';
@@ -198,13 +217,14 @@ async function focusForm(selector) {
   form?.querySelector('textarea, input, select')?.focus();
 }
 
+function openFeedback(action) { feedbackAction.value = action; showFeedback.value = true; }
 function cancelFeedback() { feedbackMessage.value = ''; correction.value={}; showFeedback.value = false; }
 
 async function load(attempt = 0) {
   const retry = Number.isInteger(attempt) ? attempt : 0;
   const g = ++generation;
   invalidateNarriva();
-  loading.value = true; error.value = ''; versionSummary.value = null; versionHistoryReady.value = false; note.value = null; review.value = null; attested.value = false; busy.value = false; amendmentEditing.value = false; showFeedback.value = false; activeInfo.value = ''; feedbackMessage.value = ''; correction.value={}; materials.value = []; materialsLoaded.value = false; materialsLoading.value = false; materialsError.value = '';
+  loading.value = true; error.value = ''; versionSummary.value = null; versionHistoryReady.value = false; note.value = null; review.value = null; attested.value = false; busy.value = false; amendmentEditing.value = false; showFeedback.value = false; activeInfo.value = ''; feedbackMessage.value = ''; approvalComment.value = ''; correction.value={}; materials.value = []; materialsLoaded.value = false; materialsLoading.value = false; materialsError.value = '';
   try {
     const { data } = await api.get(`/medical-billing/notes/${props.noteId}`, { params: { agencyId: Number(props.agencyId) }, skipGlobalLoading:true });
     if (g !== generation) return;
@@ -234,25 +254,26 @@ async function sign(quick = false, withRequest = false) {
   if (busy.value || !canSign.value || !attested.value || missingDetails.value.length || hasChangesNeeded.value || (withRequest ? !canSignWithRequest.value || amendmentEditing.value : hasUnfinishedAction.value)) return;
   const g = generation; busy.value = true; error.value = '';
   try {
-    const { data } = await api.post(`/medical-billing/notes/${props.noteId}/cosign`, { agencyId: Number(props.agencyId), contentHash: review.value.contentHash, reviewSnapshotToken: review.value.reviewSnapshotToken, ...(review.value.revisionSummary?.effectiveRevision?.entryManifestHash || review.value.revisionSummary?.entryManifestHash ? { expectedEntryManifestHash: review.value.revisionSummary.effectiveRevision?.entryManifestHash || review.value.revisionSummary.entryManifestHash } : {}), reviewedAndApproved: true, ...(withRequest?{supervisorRequest:{message:feedbackMessage.value.trim(),...(documentationAddendum.value?{correction:correction.value}:{})}}:{}), ...(quickSign ? {quickSign:true,narrivaReviewId:narrivaReview.value.id} : {}) }, {skipGlobalLoading:true});
+    const { data } = await api.post(`/medical-billing/notes/${props.noteId}/cosign`, { agencyId: Number(props.agencyId), contentHash: review.value.contentHash, reviewSnapshotToken: review.value.reviewSnapshotToken, ...(review.value.revisionSummary?.effectiveRevision?.entryManifestHash || review.value.revisionSummary?.entryManifestHash ? { expectedEntryManifestHash: review.value.revisionSummary.effectiveRevision?.entryManifestHash || review.value.revisionSummary.entryManifestHash } : {}), reviewedAndApproved: true, ...(withRequest || approvalComment.value.trim() ? { supervisorRequest: { message: (withRequest ? feedbackMessage.value : approvalComment.value).trim(), ...(withRequest && feedbackAction.value === 'request_addendum' ? { correction: correction.value } : {}) } } : {}), ...(quickSign ? {quickSign:true,narrivaReviewId:narrivaReview.value.id} : {}) }, {skipGlobalLoading:true});
     if (g === generation) { if (!data?.cosignedAt) throw new Error('The server did not confirm supervisor approval. Reload before continuing.'); attested.value = false; review.value = { ...review.value, cosignedAt: data.cosignedAt }; emit('signed', { ...context.value, ...data }); }
   } catch (e) { if (g === generation) { attested.value = false; error.value = errorMessage(e, 'Unable to approve this note.'); } }
   finally { if (g === generation) busy.value = false; }
 }
 
 async function sendFeedback() {
-  invalidateNarriva();
-  if (busy.value || !canReview.value || !feedbackReady.value || documentationAddendum.value && canSign.value) return;
+  if (busy.value || !canReview.value || !feedbackReady.value) return;
   const g = generation; busy.value = true; error.value = '';
   try {
-    const action = feedbackAction.value;
-    const { data } = await api.post(`/medical-billing/notes/${props.noteId}/supervisor-review`, { agencyId: Number(props.agencyId), contentHash: review.value.contentHash, reviewSnapshotToken: review.value.reviewSnapshotToken, action, message: feedbackMessage.value.trim(), ...(feedbackSentence.value?{correction:correction.value,documentationOnly:documentationAddendum.value && !!review.value.cosignedAt}:{}) }, {skipGlobalLoading:true});
+    const requestAction = feedbackAction.value;
+    const action = requestAction === 'request_addendum' ? 'changes_needed' : requestAction;
+    const { data } = await api.post(`/medical-billing/notes/${props.noteId}/supervisor-review`, { agencyId: Number(props.agencyId), contentHash: review.value.contentHash, reviewSnapshotToken: review.value.reviewSnapshotToken, action, message: feedbackMessage.value.trim(), ...(feedbackSentence.value?{correction:correction.value,documentationOnly:requestAction === 'request_addendum'}:{}) }, {skipGlobalLoading:true});
     if (g !== generation) return;
     cancelFeedback(); attested.value = false;
     if (data.reviewRequest) note.value = { ...note.value, reviewRequests: [...(note.value.reviewRequests || []), data.reviewRequest] };
-    notice.value = action === 'feedback' ? 'Feedback sent to the author.' : 'Your request is now in the author’s My work queue.';
-    emit('returned', { ...context.value, action, ...data });
-    if (action !== 'changes_needed') await load();
+    notice.value = data.claimOnHold ? 'Returned to the note author. Claim on hold.' : requestAction === 'request_addendum'
+      ? 'Addendum request sent to the note author.' : 'Feedback sent to the note author.';
+    emit('returned', { ...context.value, action: requestAction, message: notice.value, ...data });
+    if (!data.claimOnHold) await load();
   } catch (e) { if (g === generation) error.value = errorMessage(e, 'Unable to send your request.'); }
   finally { if (g === generation) busy.value = false; }
 }
@@ -276,4 +297,5 @@ async function toggleInfo(id) {
 <style scoped>
 .supervisor-review{display:flex;flex-direction:column;max-height:calc(100dvh - 100px);min-height:300px;background:var(--bg-card,#fff);color:var(--text-primary,#203246);border:1px solid #a9c7d3;border-radius:14px;box-shadow:0 12px 38px #193c5120;overflow:hidden}.supervisor-review--full{max-height:none;min-height:65vh;box-shadow:none}.review-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 18px;background:#f1f7fa;border-bottom:1px solid #dce7ed}.eyebrow{font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:#4d657c;margin:0 0 3px}.participant-presence{display:block;font-weight:400;margin-top:3px}.review-header h2{font-size:1.12rem;margin:0}.header-actions{display:flex;gap:6px;flex-shrink:0}button{border:1px solid #b9cbd6;border-radius:7px;background:white;color:#254e6a;padding:7px 10px;font:inherit;font-size:.8rem;cursor:pointer}button:hover:not(:disabled){background:#eaf4f8}button:disabled{opacity:.55;cursor:not-allowed}button:focus-visible,summary:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:3px solid #339ac9;outline-offset:2px}.review-summary{padding:10px 18px;border-bottom:1px solid #dce7ed}.service-facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px 12px;margin:0}dt{font-size:.67rem;color:#5b7187;text-transform:uppercase;letter-spacing:.035em}dd{margin:2px 0 0;font-size:.83rem;font-weight:600;overflow-wrap:anywhere}.signature-state{display:flex;gap:8px;margin-top:10px;font-size:.71rem;color:#16665b}.signature-state span{padding:3px 7px;background:#e8f5f1;border-radius:10px}.pending-label{font-size:.76rem;color:#835a16;margin:8px 0 0}.review-body{min-height:0;overflow-y:auto;padding:12px 18px;scrollbar-gutter:stable}.supervisor-review--full .review-body{overflow:visible}.prose{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.5;font-size:.85rem;margin:8px 0}.content-section{padding:8px 0;border-bottom:1px solid #e5edf1}summary{font-size:.83rem;font-weight:650;cursor:pointer;color:#244e6c}.content-section p{margin-left:14px}.clinical-section{padding:8px 0}.clinical-section h3,.ratings h3,.info-panel h3{font-size:.83rem;margin:0 0 6px}.clinical-section ul,.content-section ul{padding-left:18px;font-size:.82rem;line-height:1.5;margin:6px 0}.rating-heading,.rating-row summary{display:grid;grid-template-columns:minmax(150px,2fr) repeat(4,minmax(38px,.7fr));gap:6px;align-items:center}.rating-heading{font-size:.66rem;color:#5b7187;margin:8px 0;text-transform:uppercase}.rating-row{padding:7px 0;border-top:1px solid #e5edf1}.rating-row summary{font-size:.75rem}.rating-row summary span:not(:first-child),.rating-heading span:not(:first-child),.rating-row summary strong{text-align:center}.ratings{margin:12px 0}.detail-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0}.detail-tabs button[aria-expanded=true]{background:#e5f2f6;border-color:#4596b5}.info-panel{background:#f7fafc;border:1px solid #dce7ed;border-radius:8px;padding:12px;margin:10px 0;font-size:.82rem}.info-panel dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.info-panel label{display:block;font-size:.8rem;margin:8px 0}.info-panel input:not([type=checkbox]),.info-panel textarea,.info-panel select{display:block;box-sizing:border-box;width:100%;font:inherit;border:1px solid #b6c9d6;border-radius:6px;padding:8px;margin-top:4px;background:white;color:#203246}.info-panel button+button{margin-left:6px}.correction-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 12px}.entry{padding:10px 0;border-bottom:1px solid #dce7ed}.entry small,.muted{color:#61778a}.review-footer{padding:12px 18px;border-top:1px solid #cbdde5;background:#f8fbfc;flex-shrink:0}.supervisor-review--full .review-footer{position:sticky;bottom:0;z-index:1}.check-line{display:flex!important;gap:8px;align-items:flex-start;font-size:.77rem;line-height:1.4}.check-line input{margin-top:3px;flex-shrink:0}.footer-actions{display:flex;justify-content:space-between;gap:10px;margin-top:10px}.approve{background:#126e67;color:white;border-color:#126e67;font-weight:650}.approve:hover:not(:disabled){background:#0c5954}.missing,.review-error{color:#9b3c16}.missing-details{background:#fff6e7;border:1px solid #ecd2a4;border-radius:7px;padding:9px;font-size:.78rem;margin-bottom:10px}.missing-details button{margin:6px 0 0}.review-error,.review-message,.review-notice{padding:12px;font-size:.82rem;margin:0}.review-error{background:#fff3ee}.review-notice{background:#e9f6f0;border-radius:7px;margin-bottom:10px;color:#216451}.request-history{background:#fff5e8;border-left:3px solid #b7791f;padding:9px 12px;font-size:.8rem;margin-bottom:10px}.request-history p{white-space:pre-wrap;margin:5px 0}.review-footer p{font-size:.78rem;margin:5px 0}.review-body>.muted{font-size:.8rem}@media(max-width:700px){.supervisor-review{max-height:calc(100dvh - 24px)}.review-header{padding:10px 12px;align-items:flex-start}.header-actions{flex-direction:column}.review-summary,.review-body,.review-footer{padding:10px 12px}.service-facts{grid-template-columns:repeat(2,minmax(0,1fr))}.footer-actions{flex-direction:column}.footer-actions button{width:100%;padding:10px}.correction-fields{grid-template-columns:1fr}.rating-heading,.rating-row summary{grid-template-columns:minmax(115px,2fr) repeat(4,minmax(30px,.7fr));gap:3px}.review-header h2{font-size:1rem}.check-line{font-size:.74rem}}
 .narriva-run{border:1px solid #cad9e5;background:#f6faff;color:#1c567e;border-radius:7px;padding:8px 11px;margin:10px 0;font:inherit;font-size:12px;cursor:pointer}.narriva-quick-sign{display:inline-flex;align-items:center;gap:7px}.narriva-quick-sign img{width:22px;height:22px;object-fit:contain}
+.cosign-comment{display:grid;gap:4px;font-size:.8rem;margin-top:8px}.cosign-comment textarea{font:inherit;padding:7px;border:1px solid #b6c9d6;border-radius:6px}
 </style>

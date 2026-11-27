@@ -488,20 +488,27 @@ const mobileSubmissionQuickLook=computed(()=>{
  return {aiSummary:completed?review.value?.quickSummary:null,
   submissionReview:{status,score:completed?review.value?.scoring?.score ?? null:null,findings:[]}};
 });
-async function returnNoteForCorrection(){
-  if(!canCosign.value || signing.value || returningNote.value || !canReturn.value || mobileDocumentationAddendum.value)return;
+async function sendSupervisorRequest(documentationOnly = false) {
+  if (!canCosign.value || signing.value || returningNote.value || !canReturn.value || (documentationOnly && !mobileDocumentationAddendum.value)) return;
   const current=generation,source=context.value.review;
   returningNote.value=true;
   error.value='';
   try{
-    await api.value.post(`/notes/${context.value.note.id}/supervisor-review`,{
-      agencyId:agencyId.value,contentHash:source.contentHash,reviewSnapshotToken:source.reviewSnapshotToken,
-      action:mobileReviewAction.value,message:returnReason.value.trim(),...(mobileFeedbackSentence.value?{correction:mobileCorrection.value}:{})
+    const { data } = await api.value.post(`/notes/${context.value.note.id}/supervisor-review`, {
+      agencyId: agencyId.value, contentHash: source.contentHash, reviewSnapshotToken: source.reviewSnapshotToken,
+      action: mobileReviewAction.value, message: returnReason.value.trim(),
+      ...(mobileFeedbackSentence.value ? {correction: mobileCorrection.value} : {}),
+      ...(documentationOnly ? {documentationOnly: true} : {})
     });
+    const action = mobileReviewAction.value;
     if(current!==generation)return;
     showReturnRequest.value=false;returnReason.value='';mobileCorrection.value={};mobileReviewAction.value='changes_needed';cosignAttested.value=false;
-    context.value={...context.value,review:{...source,canCosign:false}};
-    notice.value='Returned to the author for correction.';
+    context.value = {...context.value, review: {
+      ...source, reviewSnapshotToken: data.reviewSnapshotToken || source.reviewSnapshotToken,
+      canCosign: action !== 'changes_needed' || documentationOnly
+    }};
+    notice.value = documentationOnly ? 'Signed addendum requested.'
+      : action === 'changes_needed' ? 'Returned to the author. Claim on hold.' : 'Comment sent to the author.';
   }catch(e){if(current===generation)error.value=e.response?.data?.error?.message || 'Your request could not be sent.';}
   finally{returningNote.value=false;}
 }
@@ -619,11 +626,12 @@ onBeforeUnmount(()=>{stashRecovery();disposed=true;generation++;clearTimeout(sav
       <section v-if="savedSignature" class="mn-card mn-signature" role="status"><h2>{{savedSignature.kind==='cosign'?'Supervisor signature saved':'Provider signature saved'}}</h2><p>{{signatureDate(savedSignature.cosignedAt || savedSignature.signedAt)}}</p><p>{{savedSignature.openNext?'Opening the next note awaiting co-sign…':'Returning to My Work…'}}</p></section>
       <section v-if="canCosign" class="mn-card mn-sign" data-note-section="Signature"><h2>Supervisor review</h2>
         <button v-if="!showReturnRequest" type="button" :disabled="signing" @click="showReturnRequest=true">Return for correction</button>
-        <form v-else @submit.prevent="returnNoteForCorrection">
+        <form v-else @submit.prevent="sendSupervisorRequest()">
           <label>Action<select v-model="mobileReviewAction"><option value="changes_needed">Return for correction</option><option value="review_acknowledge">Comment for acknowledgement</option></select></label>
           <SupervisorCorrectionFields v-if="mobileReviewAction==='changes_needed'" v-model="mobileCorrection" :disabled="signing || returningNote" />
           <label>Correction requested or comment<textarea v-model="returnReason" rows="3" maxlength="4000" :required="!mobileFeedbackSentence" /></label>
-          <button v-if="!mobileDocumentationAddendum" type="submit" :disabled="returningNote || signing || !canReturn">{{ mobileFeedbackSentence ? 'Return and hold claim' : 'Send request' }}</button>
+          <button type="submit" :disabled="returningNote || signing || !canReturn">{{ mobileReviewAction === 'changes_needed' ? 'Return and hold claim' : 'Send comment' }}</button>
+          <button v-if="mobileDocumentationAddendum" type="button" :disabled="returningNote || signing || !canReturn" @click="sendSupervisorRequest(true)">Request signed addendum</button>
           <button v-if="mobileDocumentationAddendum || mobileReviewAction==='review_acknowledge'" type="button" :disabled="signing || !cosignAttested || !canReturn" @click="cosign(false,false,true)">{{ mobileDocumentationAddendum?'Co-sign & request addendum':'Co-sign & send comment' }}</button>
           <button type="button" :disabled="returningNote || signing" @click="showReturnRequest=false">Cancel</button>
         </form><label class="mn-check"><input v-model="cosignAttested" type="checkbox" :disabled="signing" />I reviewed the current note, encounter details and attached entries and approve this documentation under my supervisory responsibility.</label><button v-if="review?.status==='passed' && review?.quickSignEligible===true" type="button" class="mn-quick-sign" :disabled="signing || reviewBusy || !cosignAttested" @click="cosign(true)">✓ Quick Sign</button><button type="button" :disabled="signing || showReturnRequest || !cosignAttested" @click="cosign(false)">{{ signing?'Saving signature…':'Review &amp; co-sign' }}</button><button type="button" :disabled="signing || showReturnRequest || !cosignAttested" @click="cosign(false,true)">Co-sign &amp; open next</button></section>

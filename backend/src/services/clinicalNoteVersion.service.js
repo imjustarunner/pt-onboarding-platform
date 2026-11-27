@@ -443,10 +443,30 @@ export async function signRevision(input, source = clinicalPool) {
         if (!amendment.approvedAt && !amendment.supersededByAmendmentId && !amendment.supersededByRevisionId) { amendment.supersededByRevisionId=Number(revision.id); amendment.supersededAt=now; }
       }
       for (const request of metadata.reviewRequests || []) {
-        if (!request.resolvedAt && (request.source === 'service_correction' || request.action === 'changes_needed')) {
+        if (!request.resolvedAt && (request.source === 'service_correction' || (request.action === 'changes_needed' && request.resolutionMode !== 'signed_addendum'))) {
           request.resolvedAt=now; request.resolvedByRevisionId=Number(revision.id); request.resolvedBySignatureId=signatureId;
         }
       }
+    }
+    if (input.action === 'author_sign' && !approved) {
+      for (const request of metadata.reviewRequests || []) {
+        if (request.action === 'changes_needed' && request.resolutionMode !== 'signed_addendum' && !request.resolvedAt) {
+          request.correctionSubmittedAt = now;
+          request.correctionSubmittedRevisionId = Number(revision.id);
+        }
+      }
+    }
+    if (input.action === 'supervisor_sign' && input.supervisorComment) {
+      const { appendReviewRequest } = await import('./clinicalSupervisorReview.service.js');
+      const request = appendReviewRequest(metadata, {
+        action: 'review_acknowledge', message: input.supervisorComment, actorUserId: input.actorUserId, contentHash: revision.content_hash
+      }, now);
+      request.revisionId = Number(revision.id);
+      request.revisionContentHash = revision.content_hash;
+      await db.execute(`INSERT INTO clinical_note_revision_audit
+        (clinical_note_id,agency_id,revision_id,event_type,actor_user_id,content_hash,event_json) VALUES(?,?,?,?,?,?,?)`,
+        [note.id, note.agency_id, revision.id, 'review_requested', input.actorUserId, revision.content_hash,
+          JSON.stringify({ requestId: request.id, action: request.action, signatureId })]);
     }
     if (approved && revision.responsible_supervisor_user_id) {
       metadata.supervisorQueue = { revision: crypto.randomUUID(), supervisorUserId: Number(revision.responsible_supervisor_user_id), providerUserId: Number(revision.original_author_user_id), status: 'signed', updatedAt: now, synchronizedAt: null, clinicalRevisionId: Number(revision.id), clinicalRevisionContentHash: revision.content_hash, signatureId };
@@ -482,7 +502,7 @@ export async function appendRevisionAddendum(input, source = clinicalPool) {
     const metadata = object(note.metadata_json);
     const request = input.requestId ? (metadata.reviewRequests || []).find(item => item.id === input.requestId && item.resolutionMode === 'signed_addendum') : null;
     if (input.requestId && (!request || Number(note.provider_signed_by_user_id || note.created_by_user_id) !== id(input.actorUserId)
-      || Number(request.revisionId) !== Number(revision.id) || input.entryKind !== 'addendum')) {
+      || input.entryKind !== 'addendum')) {
       throw fail(409, 'Open the current documentation request and sign its addendum as the original author.');
     }
     if (request?.resolvedAt) {
@@ -497,7 +517,7 @@ export async function appendRevisionAddendum(input, source = clinicalPool) {
       { addendumId: Number(result.insertId), entryKind: input.entryKind, signedByUserId: id(input.actorUserId), signedAt: iso(addition.author_signed_at), boundRevisionContentHash: revision.content_hash });
     if (request) {
       Object.assign(request,{resolvedAt:iso(addition.author_signed_at),resolvedByUserId:id(input.actorUserId),
-        addendumId:Number(result.insertId),resolutionSignatureId:signatureId,resolutionContentHash:contentHash});
+        addendumId:Number(result.insertId),resolutionRevisionId:Number(revision.id),resolutionSignatureId:signatureId,resolutionContentHash:contentHash});
       await db.execute('UPDATE clinical_notes SET metadata_json=? WHERE id=? AND agency_id=?',[JSON.stringify(metadata),note.id,note.agency_id]);
     }
     committedReference = { agencyId: note.agency_id, clientId: note.client_id, sourceKind: 'note_entry', sourceId: result.insertId };

@@ -7,7 +7,7 @@ vi.mock('../../models/User.model.js',()=>({default:{getAgencies:m.agencies}}));
 vi.mock('../../services/clinicalEligibility.service.js',()=>({default:{ensureAgencyAccess:m.access}}));
 vi.mock('../../services/supervisedBillingPolicy.service.js',()=>({resolveNoteDocumentationPolicy:m.policy,parseObject:v=>typeof v==='string'?JSON.parse(v):v||{},policyError:(status,message)=>Object.assign(new Error(message),{status}),isNonBillableDocument:()=>false}));
 vi.mock('../../services/clinicalNoteCrypto.service.js',()=>({maybeEncryptNotePayload:v=>v}));
-vi.mock('../../services/clinicalSupervisorReview.service.js',()=>({lockedNoteMutation:m.mutation,noteAuthorId:n=>n.provider_signed_by_user_id||n.created_by_user_id,reviewRequestsForDisplay:meta=>meta.reviewRequests||[],appendReviewRequest:m.appendReview,acknowledgeReviewRequest:vi.fn()}));
+vi.mock('../../services/clinicalSupervisorReview.service.js',()=>({lockedNoteMutation:m.mutation,reviewSnapshotToken:()=> 'current-review-token',noteAuthorId:n=>n.provider_signed_by_user_id||n.created_by_user_id,reviewRequestsForDisplay:meta=>meta.reviewRequests||[],appendReviewRequest:m.appendReview,acknowledgeReviewRequest:vi.fn()}));
 vi.mock('../../services/clinicalNoteVersion.service.js',()=>({ensureOriginalRevision:m.ensureHistory,getRevisionSummary:m.summary,listPendingRevisionWork:m.revisionWork}));
 vi.mock('../../utils/planStaffAccess.js',()=>({requireStaffPlanActor:m.staff}));
 vi.mock('../../services/medicalBillingFlags.service.js',()=>({getMedicalBillingFlags:m.flags}));
