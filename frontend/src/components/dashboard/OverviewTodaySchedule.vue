@@ -44,11 +44,12 @@
           `is-${item.status}`,
           item.featured ? 'is-featured-visit' : '',
           item.preslot ? 'is-preslot' : '',
-          isFocusTimeItem(item) ? 'is-focus-time' : ''
+          isFocusTimeItem(item) ? 'is-focus-time' : '',
+          item.appointmentId ? 'is-openable' : ''
         ]"
-        :role="isFocusTimeItem(item) ? 'button' : undefined"
-        :tabindex="isFocusTimeItem(item) ? 0 : undefined"
-        :title="isFocusTimeItem(item) ? 'Open Focus Session' : undefined"
+        :role="isFocusTimeItem(item) || item.appointmentId ? 'button' : undefined"
+        :tabindex="isFocusTimeItem(item) || item.appointmentId ? 0 : undefined"
+        :title="isFocusTimeItem(item) ? 'Open Focus Session' : item.appointmentId ? 'Open appointment' : undefined"
         @click="onRowClick(item)"
         @keydown.enter.prevent="onRowClick(item)"
         @keydown.space.prevent="onRowClick(item)"
@@ -137,7 +138,7 @@ defineProps({
   /** When true, show Book virtual (calendar telehealth booking) CTA. */
   showVirtualBook: { type: Boolean, default: false }
 });
-const emit = defineEmits(['retry', 'navigate', 'book', 'book-virtual', 'join', 'open-focus']);
+const emit = defineEmits(['retry', 'navigate', 'book', 'book-virtual', 'join', 'open-focus', 'open-appointment']);
 
 const brandingStore = useBrandingStore();
 
@@ -170,6 +171,7 @@ const isFocusTimeItem = (item) => {
 
 const onRowClick = (item) => {
   if (isFocusTimeItem(item)) emit('open-focus', item);
+  else if (item.appointmentId) emit('open-appointment', item.appointmentId);
 };
 
 const statusLabel = (s) => {
@@ -184,6 +186,7 @@ const statusLabel = (s) => {
 </script>
 
 <style scoped>
+.is-openable { cursor: pointer; }
 .ov-card {
   background: #fff;
   border: 1px solid #e5e7eb;

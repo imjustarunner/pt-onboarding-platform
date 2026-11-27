@@ -486,10 +486,28 @@ const loadUsers = async () => {
     error.value = '';
     if (canLoadDirectoryUsers.value) {
       const ids = (availableAgencies.value || []).map(a => Number(a.id)).filter(Boolean);
-      const results = await Promise.all(ids.map(agencyId => api.get('/staff/directory', {params:{agencyId,activeOnly:true},skipGlobalLoading:true}).then(r=>(r.data.staff || []).map(u=>({id:Number(u.id),first_name:u.displayName,last_name:'',email:u.workEmail || '',role:u.role,agency_ids:String(agencyId),has_provider_access:['provider','provider_plus','supervisor','intern','intern_plus','clinician','tutor','facilitator'].includes(u.role)})))));
+      const results = await Promise.allSettled(ids.map(async agencyId => {
+        const { data } = await api.get('/staff/directory', { params: { agencyId, activeOnly: true }, skipGlobalLoading: true });
+        return (data.staff || []).map(person => ({
+          id: Number(person.id),
+          first_name: person.displayName,
+          last_name: '',
+          email: person.workEmail || '',
+          role: person.role,
+          agency_ids: String(agencyId),
+          has_provider_access: ['provider', 'provider_plus', 'supervisor', 'intern', 'intern_plus', 'clinician', 'tutor', 'facilitator'].includes(person.role)
+        }));
+      }));
+      const failures = results.filter(result => result.status === 'rejected');
+      if (failures.length && failures.length === results.length) throw failures[0].reason;
       const people = new Map();
-      for (const u of results.flat()) { const saved=people.get(u.id); people.set(u.id,saved ? {...saved,agency_ids:[...new Set([...saved.agency_ids.split(','),...u.agency_ids.split(',')])].join(',')} : u); }
-      users.value=[...people.values()];
+      for (const person of results.flatMap(result => result.status === 'fulfilled' ? result.value : [])) {
+        const saved = people.get(person.id);
+        if (saved) saved.agency_ids += `,${person.agency_ids}`;
+        else people.set(person.id, person);
+      }
+      users.value = [...people.values()];
+      if (failures.length) error.value = 'Some staff schedules could not be loaded for your workspaces.';
       return;
     }
     const me = Number(authStore.user?.id || 0);

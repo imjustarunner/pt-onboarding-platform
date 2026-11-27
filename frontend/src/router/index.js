@@ -1580,6 +1580,8 @@ const routes = [
   {path:'/:organizationSlug/childcare',name:'OrganizationChildcareShifts',component:()=>import('../views/ChildcareShiftsView.vue'),meta:{requiresAuth:true,organizationSlug:true}},
   {path:'/students',name:'TutoringStudents',component:()=>import('../views/tutoring/TutoringStudentsView.vue'),meta:{requiresAuth:true}},
   {path:'/clients',redirect:to=>({path:'/students',query:to.query}),meta:{requiresAuth:true}},
+  {path:'/clients/:clientId(\\d+)',redirect:to=>({name:'ClientProfile',params:{clientId:to.params.clientId},query:to.query,hash:to.hash})},
+  {path:'/:organizationSlug/clients/:clientId(\\d+)',redirect:to=>({name:'OrganizationClientProfile',params:to.params,query:to.query,hash:to.hash})},
   {path:'/tutoring-profile',name:'TutoringProfile',component:()=>import('../views/tutoring/TutoringProfileView.vue'),meta:{requiresAuth:true}},
   {path:'/childcare',name:'ChildcareShifts',component:()=>import('../views/ChildcareShiftsView.vue'),meta:{requiresAuth:true}},
   // Root org path redirects directly to the branded login page — splash was removed.

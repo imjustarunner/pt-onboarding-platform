@@ -6,6 +6,7 @@
     <button v-else-if="clientId" type="button" :disabled="busy || !agencyId" @click="download('record')">{{ busy === 'record' ? 'Preparing medical record…' : 'Download full medical record' }}</button>
     <details v-if="clientId && !planId"><summary>Record export options</summary><label><input v-model="includeDrafts" type="checkbox" /> Include clearly marked unsigned drafts and proposed amendments</label><div class="dates"><label>From (optional)<input v-model="from" type="date" /></label><label>Through (optional)<input v-model="to" type="date" /></label></div><small>Signed amendments and linked supporting files are included. Unavailable or restricted files are identified in the attachment manifest.</small></details>
     <p v-if="error" role="alert">{{ error }}</p>
+    <p v-else-if="status" role="status">{{ status }}</p>
   </div>
 </template>
 <script setup>
@@ -13,20 +14,25 @@ import { confirmRecordDownload, RECORD_DOWNLOAD_NOTICE_VERSION } from '../../uti
 import { ref } from 'vue';
 import api from '../../services/api';
 const props = defineProps({ planId: { type:[Number,String], default:null }, agencyId: { type: [Number, String], required: true }, clientId: { type: [Number, String], default: null }, noteId: { type: [Number, String], default: null }, draftId: { type: [Number, String], default: null } });
-const busy = ref(''), error = ref(''), includeDrafts = ref(false), from = ref(''), to = ref('');
+const busy = ref(''), error = ref(''), status = ref(''), includeDrafts = ref(false), from = ref(''), to = ref('');
 async function download(kind) {
   if (!confirmRecordDownload()) return;
-  busy.value = kind; error.value = '';
+  busy.value = kind; error.value = ''; status.value = '';
   try {
     const endpoint = kind === 'plan' ? `/medical-billing/clients/${props.clientId}/plans/${props.planId}/pdf` : kind === 'draft' ? `/clinical-notes/drafts/${props.draftId}/pdf` : kind === 'note' ? `/medical-billing/notes/${props.noteId}/pdf` : `/medical-billing/clients/${props.clientId}/record-pdf`;
     const { data, headers } = await api.get(endpoint, { params: { agencyId: Number(props.agencyId), includeDrafts: includeDrafts.value || undefined, from: from.value || undefined, to: to.value || undefined }, responseType: 'blob', headers: { 'X-Record-Download-Notice': RECORD_DOWNLOAD_NOTICE_VERSION } });
+    if (!(data instanceof Blob) || !data.size || await data.slice(0, 5).text() !== '%PDF-') {
+      error.value = 'The server did not return a PDF. Try again or contact support.';
+      return;
+    }
     const url = URL.createObjectURL(data), anchor = document.createElement('a');
     anchor.href = url; anchor.download = kind === 'plan' ? (/filename="([A-Za-z0-9-]+\.pdf)"/i.exec(headers?.['content-disposition'] || '')?.[1] || 'treatmentplan.pdf') : kind === 'draft' ? `workspace-draft-${props.draftId}.pdf` : kind === 'note' ? `clinical-note-${props.noteId}.pdf` : `medical-record-${props.clientId}.pdf`;
-    document.body.appendChild(anchor); anchor.click(); anchor.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+    document.body.appendChild(anchor); anchor.click(); anchor.remove(); setTimeout(() => URL.revokeObjectURL(url), 30_000);
+    status.value = 'PDF sent to your browser’s downloads.';
   } catch (err) {
     let message = err.response?.data?.error?.message;
     if (!message && err.response?.data instanceof Blob) { try { message = JSON.parse(await err.response.data.text()).error?.message; } catch { /* Do not expose private transport details. */ } }
-    error.value = message || 'The PDF could not be prepared. Your clinical record has not changed.';
+    error.value = message || 'The PDF could not be prepared. Please try again.';
   } finally { busy.value = ''; }
 }
 </script>

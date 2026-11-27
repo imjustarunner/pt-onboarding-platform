@@ -3858,7 +3858,10 @@ export const createSupervisionSession = async (req, res, next) => {
         const actorId = Number(req.user?.id || 0);
         const actorName = `${String(req.user?.first_name || req.user?.firstName || '').trim()} ${String(req.user?.last_name || req.user?.lastName || '').trim()}`.trim()
           || 'A teammate';
-        const whenLabel = String(startAt || '').replace(' ', ' · ').slice(0, 16);
+        const whenLabel = new Intl.DateTimeFormat('en-US', {
+          timeZone: supervisionTimeZone, month: 'short', day: 'numeric', year: 'numeric',
+          hour: 'numeric', minute: '2-digit', timeZoneName: 'short'
+        }).format(parseUtcDate(startAt));
         const recipientIds = Array.from(new Set([
           supervisorUserId,
           superviseeUserId,
@@ -3880,6 +3883,7 @@ export const createSupervisionSession = async (req, res, next) => {
             sessionId: Number(created.id),
             startAt,
             endAt,
+            timeZone: supervisionTimeZone,
             sessionType,
             refreshSchedule: true
           }
@@ -4542,25 +4546,29 @@ export const getMySupervisionSessions = async (req, res, next) => {
     let asSupervisee = await SupervisionSession.listSessionsForSuperviseeWithArtifacts({
       superviseeUserId: userId,
       agencyId: aId,
-      limit: 50
+      limit: 50,
+      includeUpcoming: true
     });
     if (await repairInflatedSessionAttendance(asSupervisee, { userId })) {
       asSupervisee = await SupervisionSession.listSessionsForSuperviseeWithArtifacts({
         superviseeUserId: userId,
         agencyId: aId,
-        limit: 50
+        limit: 50,
+        includeUpcoming: true
       });
     }
     let asSupervisor = await SupervisionSession.listSessionsForSupervisorWithArtifacts({
       supervisorUserId: userId,
       agencyId: aId,
-      limit: 50
+      limit: 50,
+      includeUpcoming: true
     });
     if (await repairInflatedSessionAttendance(asSupervisor, { userId })) {
       asSupervisor = await SupervisionSession.listSessionsForSupervisorWithArtifacts({
         supervisorUserId: userId,
         agencyId: aId,
-        limit: 50
+        limit: 50,
+        includeUpcoming: true
       });
     }
 
@@ -4573,10 +4581,14 @@ export const getMySupervisionSessions = async (req, res, next) => {
       if (!byId.has(id)) byId.set(id, { ...s, role: 'supervisor' });
       else byId.set(id, { ...byId.get(id), role: 'both', superviseeName: s.superviseeName || byId.get(id).superviseeName });
     }
+    const now = Date.now();
     const sessions = Array.from(byId.values()).sort((a, b) => {
-      const ta = new Date(a.startAt || 0).getTime();
-      const tb = new Date(b.startAt || 0).getTime();
-      return tb - ta;
+      const ta = +parseUtcDate(a.startAt);
+      const tb = +parseUtcDate(b.startAt);
+      const upcomingA = +parseUtcDate(a.endAt) > now;
+      const upcomingB = +parseUtcDate(b.endAt) > now;
+      if (upcomingA !== upcomingB) return upcomingA ? -1 : 1;
+      return upcomingA ? ta - tb : tb - ta;
     }).slice(0, 75);
 
     const role = String(req.user?.role || '').toLowerCase();

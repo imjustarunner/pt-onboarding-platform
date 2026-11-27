@@ -1340,7 +1340,7 @@ class SupervisionSession {
     return Object.fromEntries(['total','attended','missed','excused','cancelled','unknown'].map(key => [key, Number(row?.[key] || 0)]));
   }
 
-  static async listSessionsForSuperviseeWithArtifacts({ superviseeUserId, agencyId = null, limit = 50, offset = 0, includeCancelled = false }) {
+  static async listSessionsForSuperviseeWithArtifacts({ superviseeUserId, agencyId = null, limit = 50, offset = 0, includeCancelled = false, includeUpcoming = false }) {
     const uid = parseInt(superviseeUserId, 10);
     if (!uid) return [];
     const aId = Number(agencyId) > 0 ? Number(agencyId) : null;
@@ -1411,8 +1411,10 @@ class SupervisionSession {
          )
          ${whereAgency}
          ${includeCancelled ? '' : "AND (ss.status IS NULL OR ss.status <> 'CANCELLED')"}
-         AND ss.start_at <= UTC_TIMESTAMP()
-       ORDER BY ss.start_at DESC, ss.id DESC
+         ${includeUpcoming
+           ? 'AND ss.start_at < UTC_TIMESTAMP() + INTERVAL 30 DAY AND ss.calendar_deleted_at IS NULL AND COALESCE(ss.recurrence_horizon_held,0)=0'
+           : 'AND ss.start_at <= UTC_TIMESTAMP()'}
+       ORDER BY ${includeUpcoming ? 'CASE WHEN ss.end_at > UTC_TIMESTAMP() THEN 0 ELSE 1 END, CASE WHEN ss.end_at > UTC_TIMESTAMP() THEN ss.start_at END ASC, ' : ''}ss.start_at DESC, ss.id DESC
        LIMIT ${lim} OFFSET ${skip}`
     );
 
@@ -1478,7 +1480,7 @@ class SupervisionSession {
   /**
    * List sessions where the user is the supervisor (or co-facilitator), with decrypted artifacts.
    */
-  static async listSessionsForSupervisorWithArtifacts({ supervisorUserId, agencyId = null, limit = 50 }) {
+  static async listSessionsForSupervisorWithArtifacts({ supervisorUserId, agencyId = null, limit = 50, includeUpcoming = false }) {
     const uid = parseInt(supervisorUserId, 10);
     if (!uid) return [];
     const aId = Number(agencyId) > 0 ? Number(agencyId) : null;
@@ -1534,7 +1536,8 @@ class SupervisionSession {
          )
          ${whereAgency}
          AND (ss.status IS NULL OR ss.status <> 'CANCELLED')
-       ORDER BY ss.start_at DESC
+         ${includeUpcoming ? 'AND ss.start_at < UTC_TIMESTAMP() + INTERVAL 30 DAY AND ss.calendar_deleted_at IS NULL AND COALESCE(ss.recurrence_horizon_held,0)=0' : ''}
+       ORDER BY ${includeUpcoming ? 'CASE WHEN ss.end_at > UTC_TIMESTAMP() THEN 0 ELSE 1 END, CASE WHEN ss.end_at > UTC_TIMESTAMP() THEN ss.start_at END ASC, ' : ''}ss.start_at DESC
        LIMIT ${lim}`
     );
 

@@ -14,6 +14,13 @@ describe('one My Work source and stable session identities',()=>{
   expect(rows).toEqual([expect.objectContaining({draftOnly:true,draftId:17,clinicalSessionId:90,agencyId:7,rawDraft:draft})]);
   expect(myWorkCounts(rows)).toEqual({notStarted:0,inProgress:1});
  });
+ it('shows a diagnostic intake as intake and preserves an explicitly classified collateral assessment',()=>{
+  const rows = buildMyWorkItems({workQueueItems:[
+    {...queue,serviceCode:'90791',noteKind:'progress'},
+    {...queue,id:'collateral',clientId:4,clinicalSessionId:92,draftId:18,serviceCode:'H0031',noteKind:'progress'}
+  ]});
+  expect(rows.map(row => row.noteKind)).toEqual(['intake','progress']);
+ });
  it('keeps two same-day appointments distinct and does not hide another client in a group event',()=>{
   const second={...draft,id:18,clinical_session_id:91};
   const rows=buildLeftLibraryRows({drafts:[draft,second],workQueueItems:[queue,{...queue,id:'second',draftId:18,clinicalSessionId:91,officeEventId:461}]});

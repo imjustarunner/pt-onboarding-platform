@@ -3,7 +3,7 @@ import {ref,watch} from 'vue';
 import api from '../../services/api.js';
 const props=defineProps({agencyId:[Number,String],clientId:[Number,String]});
 const assessments=ref([]),loaded=ref(false),busy=ref(false),error=ref('');let generation=0;
-watch(()=>[props.agencyId,props.clientId],()=>{generation++;loaded.value=false;assessments.value=[];error.value='';});
+watch(()=>[props.agencyId,props.clientId],()=>{generation++;busy.value=false;loaded.value=false;assessments.value=[];error.value='';});
 async function load(){if(loaded.value || busy.value || !props.clientId || !props.agencyId)return;const current=++generation;busy.value=true;try{const {data}=await api.get(`/clinical-notes/clients/${props.clientId}/enrollment-sections`,{params:{agencyId:props.agencyId},skipGlobalLoading:true});if(current===generation){assessments.value=data.assessments || [];loaded.value=true;}}catch(e){if(current===generation)error.value=e.response?.data?.error?.message || 'Assessment history could not be loaded.';}finally{if(current===generation)busy.value=false;}}
 const label=key=>({psc17:'PSC-17',phq9:'PHQ-9',phqa:'PHQ-A',gad7:'GAD-7'})[key] || key;
 </script>

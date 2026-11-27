@@ -2664,6 +2664,7 @@
             :key="`${editorInfoClientId}:${editorAppointmentId}`"
             :client-id="editorInfoClientId"
             :appointment-id="editorAppointmentId"
+            :agency-id="editorAgencyId"
             :client-name="editorInfoClientName"
           />
           <div v-if="!editorIsLearning" v-show="editorWorkspaceTab === 'clinical'" class="appt-workspace-panel appt-workspace-panel--flush">
@@ -5569,7 +5570,7 @@
                 class="stack-details-cancelled-badge"
                 style="margin-top: 8px;"
               >
-                {{calendarSessionState(item) || 'Cancelled'}} — retained in schedule history
+                {{ item.calendarCancellation?.archived ? 'Deleted' : calendarSessionState(item) || 'Canceled' }} · retained in schedule history
               </div>
               <p v-if="item.isCancelled && item.meetingSettings?.cancellationReason" class="muted">
                 {{ item.meetingSettings.cancellationReason }}

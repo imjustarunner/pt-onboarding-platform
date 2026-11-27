@@ -16,7 +16,7 @@ export const qaPlan = Object.freeze({
   emailInbox: 'testing@itsco.health', providerPhone: '+16189107000',
   timezone: 'America/Denver', startLocal: '05:00', deleteClients: false,
   accounts: [
-    { key: 'provider', name: 'Avery Morgan QA', role: 'provider', permissions: ['clinical', 'schedule'] },
+    { key: 'provider', name: 'Avery Morgan QA', role: 'provider', credential: 'LPC', permissions: ['clinical', 'schedule'] },
     { key: 'support', name: 'Jordan Ellis QA Support', role: 'support', permissions: ['schedule', 'records_manager'] },
     { key: 'setup', name: 'Casey Lane QA Setup', role: 'admin', permissions: ['admin', 'clinical', 'schedule', 'supervise', 'agreements', 'records_manager'] }
   ]
@@ -66,9 +66,9 @@ export async function provision(db, credentialsPath) {
       const platformPassword = crypto.randomBytes(24).toString('base64url');
       const auricwellPassword = crypto.randomBytes(24).toString('base64url');
       const [user] = await db.execute(`INSERT INTO users
-        (email,personal_email,username,first_name,last_name,role,status,is_active,is_demo,created_via_dev_fill,password_hash,identity_product,timezone,phone_number,personal_phone,languages_spoken,sees_clients,provider_accepting_new_clients)
-        VALUES (?,?,?,?,?,?,'ACTIVE_EMPLOYEE',1,1,1,?,'full_suite',?,?,?,?,?,?)`,
-      [email,email,email,definition.name.split(' ')[0],definition.name.split(' ').slice(1).join(' '),definition.role,
+        (email,personal_email,username,first_name,last_name,role,credential,status,is_active,is_demo,created_via_dev_fill,password_hash,identity_product,timezone,phone_number,personal_phone,languages_spoken,sees_clients,provider_accepting_new_clients)
+        VALUES (?,?,?,?,?,?,?,'ACTIVE_EMPLOYEE',1,1,1,?,'full_suite',?,?,?,?,?,?)`,
+      [email,email,email,definition.name.split(' ')[0],definition.name.split(' ').slice(1).join(' '),definition.role,definition.credential || null,
         await bcrypt.hash(platformPassword,12),qaPlan.timezone,
         definition.key==='provider'?qaPlan.providerPhone:null,definition.key==='provider'?qaPlan.providerPhone:null,
         definition.key==='provider'?'English, Spanish':null,definition.key==='provider'?1:0,definition.key==='provider'?1:0]);

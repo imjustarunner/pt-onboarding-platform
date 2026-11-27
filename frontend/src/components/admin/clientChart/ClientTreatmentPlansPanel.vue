@@ -680,6 +680,7 @@ function openNoteAidUpdater() {
   const usable = planId && !['superseded', 'inactive', 'discarded'].includes(status);
   const query = treatmentPlanUpdaterQuery(props.clientId, {
     planId: usable ? planId : null,
+    agencyId: Number(props.agencyId) || null,
     // Never pass a psychotherapy CPT — treatment plan writer is sessionless / non-billable.
     serviceCode: null
   });

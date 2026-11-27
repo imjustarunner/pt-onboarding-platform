@@ -27,6 +27,7 @@ const dates = ref([props.date]), addDate = ref(''), scopeMode = ref('days'), sel
 const draftPlan = ref(null);
 const forwardMode = ref(false);
 const forwardCount = computed(() => plan.value?.items?.length || 0);
+const forwardCanceled = computed(() => (plan.value?.items || []).filter(item => plan.value.results?.[item.key]?.status === 'completed').length);
 const contactChoices = reactive({}), messages = reactive({}), schoolChoices = reactive({});
 const offerDays = ref(2), offeredSlots = ref([]), slotOptions = ref([]), slotBusy = ref(false);
 const pendingOfficeRequests = ref([]);
@@ -63,10 +64,11 @@ onMounted(async () => {
     agencies.value = (allowed.data?.agencies || []).map(agency => ({ id: Number(agency.id), label: agency.name }))
       .filter(agency => !props.schoolId || agency.id === props.agencyId);
     selected.value = agencies.value.map(agency => agency.id);
-    const previous = previousResponse?.data?.review;
+    const recovered = previousResponse?.data?.review;
+    const previous = recovered?.scopeMode === 'forward' && !props.reviewToken ? null : recovered;
     if (previous?.scopeMode === 'forward') forwardMode.value = true;
-    if (previous) { plan.value = previous; signed.value = true; reviewed.value = true; urgent.value = previous.urgent !== false; dates.value = previous.dates || [props.date]; followUpAction.value = previous.followUpAction; followUpMessage.value = previous.followUpMessage; notificationMode.value = previous.notificationMode || 'send'; scopeMode.value = previous.scopeMode || 'days'; }
-    if (props.reviewToken && previous?.status === 'processing') await apply();
+    if (previous) { plan.value = previous; signed.value = previous.status !== 'preview'; reviewed.value = true; urgent.value = previous.urgent !== false; dates.value = previous.dates || [props.date]; followUpAction.value = previous.followUpAction; followUpMessage.value = previous.followUpMessage; notificationMode.value = previous.notificationMode || 'send'; scopeMode.value = previous.scopeMode || 'days'; }
+    if (props.reviewToken && previous?.status === 'processing' && !forwardMode.value) await apply();
     resumeChecked.value = true;
   } catch (e) { error.value = e.response?.data?.error?.message || 'Could not load the organizations for this cancellation. Close and reopen the review to try again.'; }
   finally { busy.value = false; }
@@ -108,6 +110,7 @@ async function review(finalReview = false) {
 }
 function startForward() {
   forwardMode.value = true;
+  signed.value = false;
   plan.value = null;
   dates.value = [props.date];
   error.value = '';
@@ -120,7 +123,7 @@ async function reviewForward() {
       agencyIds: selected.value, date: props.date, scopeMode: 'forward'
     }, { skipGlobalLoading: true });
     plan.value = data;
-    signed.value = true;
+    signed.value = false;
   } catch (e) { error.value = reviewError(e); }
   finally { busy.value = false; }
 }
@@ -158,6 +161,7 @@ function reviewedMessages() {
   }));
 }
 async function apply(retryFailed = false) {
+  if (!plan.value?.token || !signed.value) return;
   busy.value = true; error.value = ''; applyAttempted.value = true;
   try {
     do {
@@ -176,7 +180,16 @@ async function apply(retryFailed = false) {
       <p>Cancel this provider’s upcoming client sessions from {{ date }} forward and end any affected recurring sessions. Cancellation notices won’t be sent.</p>
       <fieldset v-if="!plan"><legend>Agencies</legend><label v-for="agency in agencies" :key="agency.id"><input v-model="selected" type="checkbox" :value="agency.id"> {{ agency.label }}</label></fieldset>
       <template v-else>
-        <p role="status">{{ forwardCount }} session{{ forwardCount === 1 ? '' : 's' }} · {{ Object.values(plan.results || {}).filter(result => result.status === 'completed').length }} canceled</p>
+        <template v-if="plan.status === 'preview'">
+          <h3>{{ forwardCount }} upcoming {{ forwardCount === 1 ? 'session' : 'sessions' }} to review</h3>
+          <ul class="day-items"><li v-for="item in plan.items" :key="item.key">{{ when(item) }} · {{ item.title }}</li></ul>
+          <label class="day-signature"><input v-model="signed" type="checkbox"> I reviewed these sessions and authorize cancellation from {{ date }} forward.</label>
+        </template>
+        <p v-else role="status">{{ forwardCanceled }} {{ forwardCanceled === 1 ? 'session' : 'sessions' }} canceled
+          <template v-if="plan.items.some(item => plan.results?.[item.key]?.status === 'skipped')">
+            · {{ plan.items.filter(item => plan.results?.[item.key]?.status === 'skipped').length }} already canceled
+          </template>
+        </p>
         <ul v-if="plan.status === 'partial'">
           <template v-for="(result, key) in plan.results" :key="key">
             <li v-if="result.status === 'failed'">{{ plan.items.find(item => item.key === key)?.date }} · {{ result.message }}</li>
@@ -295,7 +308,7 @@ async function apply(retryFailed = false) {
         <button v-if="!plan" type="button" :disabled="busy || !selected.length" class="day-primary" @click="reviewForward">Review upcoming sessions</button>
         <template v-else-if="plan.status === 'preview'">
           <button type="button" :disabled="busy" @click="startForward">Review again</button>
-          <button type="button" :disabled="busy" class="day-danger" @click="apply()">Cancel {{ forwardCount }} {{ forwardCount === 1 ? 'session' : 'sessions' }}</button>
+          <button type="button" :disabled="busy || !signed" class="day-danger" @click="apply()">Cancel {{ forwardCount }} {{ forwardCount === 1 ? 'session' : 'sessions' }}</button>
         </template>
         <button v-else-if="plan.status === 'processing'" type="button" :disabled="busy" @click="apply()">Continue cancellation</button>
         <button v-else-if="plan.status === 'partial'" type="button" :disabled="busy" @click="apply(true)">Retry failed sessions</button>

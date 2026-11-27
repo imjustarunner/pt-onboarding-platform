@@ -7,7 +7,7 @@
       </p>
     </div>
 
-    <div v-if="openError" class="error">{{ openError }}</div>
+    <div v-if="openError" class="error" role="alert">{{ openError }}</div>
     <div v-if="openFallbackUrl" class="cdg-fallback">
       <a :href="openFallbackUrl" target="_blank" rel="noopener">Open document</a>
     </div>
@@ -279,7 +279,12 @@ async function openViewKey(viewKey) {
     }
   } catch (e) {
     closePopupQuietly(popup);
-    openError.value = e.response?.data?.error?.message || e.message || 'Failed to open document';
+    const data = e.response?.data;
+    let message = data?.error?.message;
+    if (data instanceof Blob) {
+      try { message = JSON.parse(await data.text()).error?.message; } catch { /* The server response may contain no readable error. */ }
+    }
+    openError.value = message || 'The document could not be opened. Try again or contact support.';
   } finally {
     opening.value = false;
   }

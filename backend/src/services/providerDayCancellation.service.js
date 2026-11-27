@@ -489,7 +489,7 @@ export function createDayCancellationService(overrides = {}) {
               const { getAppointmentChangeWorkflow } = await import('./appointmentChangeWorkflow.service.js');
               const workflow = await getAppointmentChangeWorkflow(item.id);
               if (workflow?.facts?.reviewedCancellationToken !== token) {
-                results[item.key] = { status: 'completed', notificationDelivery: null };
+                results[item.key] = { status: 'skipped', message: 'Already canceled outside this review.' };
                 continue;
               }
             }
@@ -636,7 +636,7 @@ export function createDayCancellationService(overrides = {}) {
     // before or after its original calendar anchor. Plans remain encrypted.
     for (const row of rows) {
       const plan=JSON.parse(deps.decrypt(typeof row.plan_json === 'string' ? row.plan_json : JSON.stringify(row.plan_json)));
-      if (!(plan.dates || [plan.date]).includes(date)) continue;
+      if ((!token && plan.scopeMode === 'forward') || !(plan.dates || [plan.date]).includes(date)) continue;
       await authorize(actor,plan.providerId,plan.scopes.map(s=>s.agencyId));
       return {review:response(row,plan,parse(row.results_json) || {})};
     }

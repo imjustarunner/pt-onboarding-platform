@@ -353,7 +353,7 @@ async function commit() {
     const appointmentRefs = (data.appointments || []).filter(item => !item.existing && item.id > 0).map(item => `#${item.id}`);
     result.value = `Booked ${data.createdCount} new ${data.createdCount === 1 ? 'appointment' : 'appointments'} · ${data.existingCount} already on the calendar.`;
     if (appointmentRefs.length) result.value += ` Appointment ${appointmentRefs.length === 1 ? 'number' : 'numbers'} ${appointmentRefs.join(', ')}.`;
-    if (data.officeRoomsBooked || data.officeVisitsWithoutRoom) result.value += ` ${data.officeRoomsBooked} with a room · ${data.officeVisitsWithoutRoom} awaiting a room.`;
+    if (data.officeRoomsBooked || data.officeVisitsWithoutRoom) result.value += ` ${data.officeRoomsBooked} with a room · ${data.officeVisitsWithoutRoom} booked without a room.`;
     void loadDay();
     emit('saved', data);
   } catch (failure) { error.value = message(failure); }

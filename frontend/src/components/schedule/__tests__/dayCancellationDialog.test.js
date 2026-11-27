@@ -403,9 +403,12 @@ it('reviews and confirms the distinct silent forward cancellation mode', async (
   expect(m.post).toHaveBeenCalledWith(`${base}/preview`, {
     agencyIds: [2, 3], date: '2026-10-15', scopeMode: 'forward'
   }, expect.anything());
+  expect(button('Cancel 1 session').element.disabled).toBe(true);
+  expect(m.post).toHaveBeenCalledTimes(1);
+  await wrapper.get('.day-signature input').setValue(true);
   await button('Cancel 1 session').trigger('click');
   await flushPromises();
-  expect(wrapper.text()).toContain('1 canceled');
+  expect(wrapper.text()).toContain('1 session canceled');
   expect(m.post).toHaveBeenLastCalledWith(`${base}/${token}/apply`, { signatureConfirmed: true, retryFailed: false }, expect.anything());
 });
 

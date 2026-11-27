@@ -2,6 +2,7 @@ import { assertClientDiagnosisPolicy } from '../services/clinicalDiagnosisPolicy
 import ClinicalNote from '../models/clinical/ClinicalNote.model.js';
 import ClinicalEligibilityService from '../services/clinicalEligibility.service.js';
 import clinicalPool from '../config/clinicalDatabase.js';
+import pool from '../config/database.js';
 import { hasSchedulingBillingAccess } from '../services/schedulingBillingAccess.service.js';
 import { getApprovedClinicalContext } from '../services/clinicalNoteVersionBilling.service.js';
 import { resolveNoteDocumentationPolicy, parseObject, policyError, validDate, isNonBillableDocument } from '../services/supervisedBillingPolicy.service.js';
@@ -69,17 +70,53 @@ async function contextForRevision(revision, context) {
     return { ...context, policy: { supervisorUserId: null } };
   }
 }
-async function exposeRevision(revision, summary, context) {
-  return revision ? { ...revision, capabilities: revisionCapabilities(revision, summary, await contextForRevision(revision, context)) } : null;
+async function revisionActorNames(revisions) {
+  const ids = new Set();
+  for (const revision of revisions.filter(Boolean)) {
+    if (positiveId(revision.proposedByUserId)) ids.add(Number(revision.proposedByUserId));
+    for (const signature of revision.signatures || []) {
+      if (!signature.attestation?.signerLabel && positiveId(signature.actorUserId)) ids.add(Number(signature.actorUserId));
+    }
+  }
+  if (!ids.size) return new Map();
+  try {
+    const [rows] = await pool.execute(
+      `SELECT id, preferred_name, first_name, last_name FROM users WHERE id IN (${[...ids].map(() => '?').join(',')})`,
+      [...ids]
+    );
+    return new Map(rows.map(row => [
+      Number(row.id),
+      [row.preferred_name?.trim() || row.first_name, row.last_name].filter(Boolean).join(' ').trim()
+    ]));
+  } catch {
+    // Saved signatures remain readable even when the staff directory is unavailable.
+    return new Map();
+  }
+}
+
+async function exposeRevision(revision, summary, context, names) {
+  if (!revision) return null;
+  const labels = names || await revisionActorNames([revision]);
+  return {
+    ...revision,
+    proposedByName: labels.get(Number(revision.proposedByUserId)) || null,
+    signatures: (revision.signatures || []).map(signature => ({
+      ...signature,
+      actorName: signature.attestation?.signerLabel || labels.get(Number(signature.actorUserId)) || null
+    })),
+    capabilities: revisionCapabilities(revision, summary, await contextForRevision(revision, context))
+  };
 }
 async function summaryResponse(context) {
   const summary = await getRevisionSummary(context);
-  const revisions = await Promise.all((summary.revisions || []).map(r => exposeRevision(r, summary, context)));
+  const source = summary.revisions || [];
+  const names = await revisionActorNames([...source, summary.pendingRevision, summary.effectiveRevision]);
+  const revisions = await Promise.all(source.map(revision => exposeRevision(revision, summary, context, names)));
   return {
     ...summary,
     revisions,
-    pendingRevision: revisions.find(r => Number(r.id) === Number(summary.pendingRevisionId)) || await exposeRevision(summary.pendingRevision, summary, context),
-    effectiveRevision: revisions.find(r => Number(r.id) === Number(summary.effectiveRevisionId)) || await exposeRevision(summary.effectiveRevision, summary, context),
+    pendingRevision: revisions.find(r => Number(r.id) === Number(summary.pendingRevisionId)) || await exposeRevision(summary.pendingRevision, summary, context, names),
+    effectiveRevision: revisions.find(r => Number(r.id) === Number(summary.effectiveRevisionId)) || await exposeRevision(summary.effectiveRevision, summary, context, names),
     capabilities: context.capabilities
   };
 }

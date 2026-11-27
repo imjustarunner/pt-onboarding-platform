@@ -71,6 +71,9 @@ describe('Narriva exact-content evidence policy',()=>{
  });
  it('keeps participant findings in check 2 and never in encounter/consent',()=>{
   const input=good();input.facts.clientPresent=false;
+  input.inputText='The clinician met with the client to discuss school. The family reported that the client was absent from school.';
+  expect(deriveNarrivaCheck('service_code',input).findings).toEqual([]);
+  input.inputText='The client was not present during this visit. The clinician interviewed the caregiver.';
   expect(deriveNarrivaCheck('service_code',input).findings[0].id).toBe('service_code:client_absent');
   expect(deriveNarrivaCheck('encounter_consent',input).status).toBe('passed');
  });
