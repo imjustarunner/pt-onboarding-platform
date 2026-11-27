@@ -4,6 +4,8 @@ on:
   pull_request:
     paths: ['frontend/**', 'backend/**', 'scripts/check-production-release*.mjs', '.github/workflows/release-recovery-regressions.yml']
 jobs:
+  plotline-sms-mysql8:
+    uses: ./.github/workflows/plotline-sms-mysql8.yml
   recovered-features:
     runs-on: ubuntu-latest
     steps:

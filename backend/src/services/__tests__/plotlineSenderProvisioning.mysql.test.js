@@ -8,8 +8,8 @@ import { runPlotlineProvisioning } from '../../scripts/provisionPlotlineIntervie
 // local test port. Never use the production Cloud SQL proxy or backend/.env.
 it.skipIf(!process.env.PLOTLINE_PROVISIONING_TEST_MYSQL_URL)('executes the immutable procedure, denies direct access, and preserves idempotency in isolated MySQL', async () => {
   const url = new URL(process.env.PLOTLINE_PROVISIONING_TEST_MYSQL_URL);
-  if (url.protocol !== 'mysql:' || !['127.0.0.1', 'localhost'].includes(url.hostname) || url.port !== '43327') {
-    throw new Error('PLOTLINE_TEST_REQUIRES_DISPOSABLE_LOCAL_MYSQL_ON_43327');
+  if (url.protocol !== 'mysql:' || !['127.0.0.1', 'localhost'].includes(url.hostname) || url.port !== '33319') {
+    throw new Error('PLOTLINE_TEST_REQUIRES_DISPOSABLE_LOCAL_MYSQL_ON_33319');
   }
   const { default: mysql } = await import('mysql2/promise');
   const name = 'plotline_provisioning_test_' + randomBytes(6).toString('hex');
