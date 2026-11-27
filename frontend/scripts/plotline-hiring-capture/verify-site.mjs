@@ -46,6 +46,7 @@ try{
      if([1440,390].includes(width))for(const id of ['interview-platform','professional-references','pre-hire-portal'])await page.locator('#'+id).screenshot({path:`${output}/${id}-${width}.png`});
     }
    }
+   if(section==='pricing' && [1440,390].includes(width))for(const selector of ['.pl-pilot','.pl-rate-section','.pl-price-estimator'])await page.locator(selector).screenshot({path:`${output}/${selector.slice(1)}-${width}.png`});
    results.push({section:section||'home',width,status:'PASS'});
   }
  }
@@ -55,10 +56,17 @@ try{
   assert.equal(await page.getByLabel('What would you like to explore?',{exact:true}).inputValue(),label);
  }
  await page.goto(origin+'/plottline/pricing');
- await page.getByLabel('Active employees',{exact:true}).fill('50');
- await page.getByLabel('AuricWell',{exact:true}).check();await page.getByLabel('Conversa',{exact:true}).check();
- assert.equal(await page.locator('.pl-quote>strong').innerText(),'$229');
+ assert.equal(await page.locator('.pl-quote>strong').innerText(),'$30');
+ await page.getByRole('button',{name:'Small team hiring',exact:true}).click();
+ assert.equal(await page.locator('.pl-quote>strong').innerText(),'$81');
+ assert.match(await page.locator('.pl-quote').innerText(),/recurring platform estimate is \$29/);
+ await page.getByRole('link',{name:'Discuss this estimate',exact:true}).click();
+ assert.equal(await page.getByLabel('What would you like to explore?',{exact:true}).inputValue(),'Pay-as-you-grow pricing');
+ assert.match(await page.locator('[aria-label="Your planning estimate"]').innerText(),/\$81 USD/);
+ await page.goto(origin+'/plottline/pricing');
+ await page.getByRole('link',{name:'Request my five-interview pilot',exact:true}).click();
+ assert.equal(await page.getByLabel('What would you like to explore?',{exact:true}).inputValue(),'Five-interview pilot');
  assert.deepEqual(errors,[]);assert.deepEqual(blocked,[]);assert.deepEqual(writes,[]);
  writeFileSync(output+'/BROWSER.json',JSON.stringify({status:'PASS',origin,results,errors,blocked,writes,mediaAttempts:0,featureLinks:'PASS',dialogs:'PASS',keyboard:'PASS',pricing:'PASS',limits:'Local compiled website only. No production identity, video, reference, signature, invitation, message or inquiry submission.'},null,2)+'\n');
- console.log('PASS: 40 responsive page checks, interview perspectives, dialogs, keyboard, pre-hire screens, three inquiry handoffs and existing pricing. No media or writes.');
+ console.log('PASS: 40 responsive page checks, interview perspectives, dialogs, keyboard, pre-hire screens, three inquiry handoffs and activity pricing/pilot inquiries. No media or writes.');
 }finally{await context.close();await browser.close();}
