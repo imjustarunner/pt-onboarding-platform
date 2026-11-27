@@ -51,8 +51,8 @@ describe.skipIf(!port)('calendar cancellation archive in isolated MySQL', () => 
   it('archives a cancellation idempotently, with actor attribution and agency visibility', async () => {
     const authorize = vi.fn(), authorizeAppointment = vi.fn();
     const request = { providerId: 7, type: 'appointment', id: 1, actor: { id: 7, role: 'provider' }, authorize, authorizeAppointment };
-    await archiveCanceledCalendarItem(request, db);
-    await archiveCanceledCalendarItem(request, db);
+    expect(await archiveCanceledCalendarItem(request, db)).toMatchObject({ archived: true, agencyId: 2, newlyArchived: true });
+    expect(await archiveCanceledCalendarItem(request, db)).toMatchObject({ archived: true, agencyId: 2, newlyArchived: false });
     expect(authorize).toHaveBeenCalledWith(request.actor, 7, [2]);
     const events = { provider_event: [entry(1, 'canceled_by_provider'), entry(2, 'late_canceled')] };
     expect((await view(events)).provider_event).toEqual([]);

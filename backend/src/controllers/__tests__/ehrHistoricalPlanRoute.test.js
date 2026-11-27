@@ -11,6 +11,7 @@ vi.mock('../../models/clinical/ClinicalTreatmentPlan.model.js',()=>({default:{cr
 vi.mock('../../models/clinical/ClinicalNote.model.js',()=>({default:{findById:mocks.findIntake,hasSignedIntakeForClient:vi.fn()}}));
 vi.mock('../../services/treatmentPlanApproval.service.js',()=>({
   attestTreatmentPlanProvider:mocks.signPlan, treatmentPlanContentHash:vi.fn(async ()=>'signed-content'),
+  finalizeTreatmentPlanProviderSignature:mocks.signPlan,
   getTreatmentPlanApproval:vi.fn(async ()=>({providerApproved:true,supervisorApproved:false}))
 }));
 vi.mock('../../services/narrivaTreatmentPlanReview.service.js',()=>({recordTreatmentPlanReview:mocks.recordReview}));
@@ -53,6 +54,7 @@ it('prepares and signs an initial plan against its signed intake without a claim
     provider_signed_at: '2026-11-25', metadata_json: { serviceCode: '90791', dateOfService: '2026-09-05' } });
   mocks.create.mockResolvedValue(plan);
   mocks.findPlan.mockResolvedValue(plan);
+  mocks.signPlan.mockResolvedValue({ plan, approval: { providerApproved: true, supervisorApproved: false } });
   mocks.execute.mockResolvedValue([[]]);
   const res = { status: vi.fn().mockReturnThis(), json: vi.fn() }, next = vi.fn();
   await saveTreatmentPlanToChart(req, res, next);

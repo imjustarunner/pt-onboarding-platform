@@ -19,10 +19,12 @@ beforeEach(() => {
 });
 afterEach(async () => { wrappers.splice(0).forEach(w => w.unmount()); await flushPromises(); vi.useRealTimers(); });
 describe('scheduled quick notes and Note Workspace handoff', () => {
-  it('opens an intake from its exact saved appointment and draft', async () => {
+  it('opens an intake from its exact appointment without creating an empty draft', async () => {
     const w=await open({serviceCode:'90791'});
     await w.find('.oesn-open-aid').trigger('click');await flushPromises();
-    expect(mocks.push).toHaveBeenCalledWith(expect.objectContaining({query:expect.objectContaining({draftId:'55',clinicalSessionId:'101',officeEventId:'201',launchIntent:'intake',noteType:'INTAKE',serviceCode:'90791'})}));
+    expect(mocks.post).not.toHaveBeenCalled();
+    expect(mocks.push).toHaveBeenCalledWith(expect.objectContaining({query:expect.objectContaining({clinicalSessionId:'101',officeEventId:'201',launchIntent:'intake',noteType:'INTAKE',serviceCode:'90791'})}));
+    expect(mocks.push.mock.calls[0][0].query).not.toHaveProperty('draftId');
   });
   it('does not create a draft or confirm attendance just by opening', async () => {
     const w = await open(); await vi.advanceTimersByTimeAsync(1000);
@@ -42,7 +44,9 @@ describe('scheduled quick notes and Note Workspace handoff', () => {
     ] } });
     const w = await open(); expect(w.find('textarea').element.value).toBe('');
     await w.find('.oesn-open-aid').trigger('click'); await flushPromises();
-    expect(mocks.post).toHaveBeenCalledWith('/clinical-notes/drafts', expect.not.objectContaining({ attendanceIntent: expect.anything() }), expect.anything());
+    expect(mocks.post).not.toHaveBeenCalled();
+    expect(mocks.push.mock.calls[0][0].query).not.toHaveProperty('draftId');
+    expect(mocks.push.mock.calls[0][0].query).toMatchObject({ clinicalSessionId: '101', officeEventId: '201', clientId: '17' });
   });
   it('loads an existing draft without re-saving or confirming attendance', async () => {
     mocks.get.mockResolvedValue({ data: { drafts: [{ id: 91, client_id: 17, clinical_session_id: 101, input_text: 'Existing source text' }] } });

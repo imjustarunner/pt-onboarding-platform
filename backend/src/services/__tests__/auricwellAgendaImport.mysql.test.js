@@ -73,7 +73,7 @@ suite('agenda fingerprints and import locks against disposable MySQL', () => {
     expect(again.summary).toMatchObject({ existingAppointments: 1, newAppointments: 0 });
   });
 
-  it('recognizes an existing canonical appointment and refuses a canceled or edited imported record', async () => {
+  it('reuses a canonical appointment and replaces a canceled entry while preserving its history', async () => {
     let preview = await service.preview({ actor, input });
     const commit = { ...input, rows: preview.rows, confirm: true, previewToken: preview.previewToken };
     const created = await service.commit({ actor, input: commit });
@@ -85,9 +85,14 @@ suite('agenda fingerprints and import locks against disposable MySQL', () => {
     const source = book.mock.calls[0][0].row.source;
     await state.db.execute("UPDATE appointments SET source=?,status='canceled_by_provider'", [source]);
     preview = await service.preview({ actor, input });
-    expect(preview.summary.blockedRows).toBe(1); expect(preview.previewToken).toBeNull();
+    expect(preview.summary).toMatchObject({ blockedRows: 0, existingAppointments: 0, newAppointments: 1 });
+    const replacement = await service.commit({ actor, input: { ...input, rows: preview.rows, confirm: true, previewToken: preview.previewToken } });
+    expect(replacement.createdCount).toBe(1);
+    expect(replacement.appointments[0].id).not.toBe(created.appointments[0].id);
+    const [[original]] = await state.db.execute('SELECT status FROM appointments WHERE id=?', [created.appointments[0].id]);
+    expect(original.status).toBe('canceled_by_provider');
     const [[counts]] = await state.db.execute('SELECT COUNT(*) count FROM appointments');
-    expect(Number(counts.count)).toBe(1);
+    expect(Number(counts.count)).toBe(2);
   });
   it('uses only an available room assigned to this provider at the selected office', async () => {
     await state.db.execute("INSERT INTO office_locations VALUES (90,2,'America/Denver',1),(99,3,'America/Denver',1)");
