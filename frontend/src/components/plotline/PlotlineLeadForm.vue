@@ -14,7 +14,7 @@
         <label>Organization type<select v-model="form.businessType" aria-label="Organization type" required><option value="" disabled>Select your organization</option><option value="mental-health">Care or behavioral health</option><option value="consulting">Consulting</option><option value="coaching">Coaching</option><option value="tutoring">Education or tutoring</option><option value="other">Nonprofit or another organization</option></select></label>
         <label>Current stage<select v-model="form.stage" required><option value="established">Established</option><option value="expanding">Growing or restructuring</option><option value="launching">Preparing to launch</option><option value="idea">Exploring an idea</option></select></label>
         <label class="pl-full">What would you like to explore?<select v-model="interest" aria-label="What would you like to explore?"><option>People Operations</option><option>Plotline walkthrough</option><option>Browser interviews</option><option>Professional references</option><option>Pre-hire portal</option><option>Five-interview pilot</option><option>Pay-as-you-grow pricing</option><option>High-volume or multiple organizations</option><option v-if="legacyPlan">{{ legacyPlan }}</option><option>Multiple organizations</option></select></label>
-        <label class="pl-full">What would make a difference for your team?<textarea aria-label="What would make a difference for your team?" v-model.trim="form.goals" required maxlength="750" rows="4" placeholder="Tell us about your team, your current process, and what you’d like to improve."/><small>Please leave out employee, applicant, patient, and payment details.</small></label>
+        <label class="pl-full">What would make a difference for your team?<textarea aria-label="What would make a difference for your team?" v-model.trim="form.goals" required :maxlength="goalsLimit" rows="4" placeholder="Tell us about your team, your current process, and what you’d like to improve."/><small>Up to {{ goalsLimit }} characters. Please leave out employee, applicant, patient, and payment details.</small></label>
       </div>
       <div class="pl-trap" aria-hidden="true"><label>Leave empty<input v-model="form.websiteTrap" tabindex="-1" autocomplete="off"></label></div>
       <label class="pl-consent"><input v-model="form.consent" type="checkbox" required><span>I agree that PlotTwistCo may contact me about this request. This does not create a contract or authorize charges. <a href="https://plottwisthq.com/privacypolicy" target="_blank" rel="noopener">Privacy policy</a></span></label>
@@ -35,15 +35,18 @@ const featureInterest=Object.hasOwn(featureInterests,route.query.interest)?featu
 const interest = ref(route.query.topic === 'people-operations' ? 'People Operations' : (Object.hasOwn(plans,route.query.plan)?plans[route.query.plan]:'') || featureInterest || 'Plotline walkthrough');
 const requestedQuote=plotlineQuoteFromQuery(route.query);
 const quoteSummary=computed(()=>interest.value==='Pay-as-you-grow pricing' && requestedQuote ? `${requestedQuote.employees} active employees; ${requestedQuote.screenings} completed screenings; ${requestedQuote.interviewMinutes} interview minutes; ${requestedQuote.onboardings} new completed onboardings. Estimated activity-month total: ${money(requestedQuote.monthlyCents)} USD, including ${money(requestedQuote.onboardingCents)} in one-time onboarding fees. Recurring platform: ${money(requestedQuote.recurringCents)} USD/month before new activity.` : '');
+const inquiryPrefix=computed(()=>`Plotline website · ${interest.value}\n${quoteSummary.value?quoteSummary.value+'\n':''}`);
+const goalsLimit=computed(()=>Math.min(750,Math.max(0,1000-inquiryPrefix.value.length)));
 const form = reactive({businessName:'',firstName:'',lastName:'',email:'',phone:'',businessType:'',stage:'established',goals:'',consent:false,websiteTrap:''});
 const busy=ref(false),error=ref(''),submitted=ref(''),success=ref(null);
 let submissionKey='',lastPayload='';
 async function submit() {
   if (busy.value) return;
+  if (form.goals.length>goalsLimit.value) { error.value=`Keep your message to ${goalsLimit.value} characters or fewer so the complete estimate can be included.`;return; }
   busy.value=true;error.value='';
   // The existing public business intake accepts "people". Keep compatibility
   // with the deployed backend while recording Plotline explicitly in the request.
-  const payload=JSON.stringify({...form,path:'hq',services:['people'],goals:`Plotline website · ${interest.value}\n${quoteSummary.value?quoteSummary.value+'\n':''}${form.goals}`});
+  const payload=JSON.stringify({...form,path:'hq',services:['people'],goals:inquiryPrefix.value+form.goals});
   if (payload!==lastPayload) { submissionKey=crypto.randomUUID();lastPayload=payload; }
   try {
     const response=await fetch('/api/public/marketing-pages/ptco/business/requests',{method:'POST',credentials:'omit',headers:{'Content-Type':'application/json','Idempotency-Key':submissionKey},body:payload});

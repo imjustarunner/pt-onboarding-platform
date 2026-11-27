@@ -39,6 +39,31 @@ async function lead(query){
  wrapper=mount(LeadForm,{global:{plugins:[router]}});await flushPromises();
 }
 describe('Pilot and estimate inquiries',()=>{
+ it('preserves the complete quote and longest allowed message within the existing inquiry limit',async()=>{
+  const fetch=vi.fn(async()=>({ok:true,json:async()=>({id:'fictional-long-quote'})}));vi.stubGlobal('fetch',fetch);
+  await lead({plan:'usage',employees:'100000',screenings:'1000000',interviewMinutes:'1000000',onboardings:'1000000'});
+  const textarea=wrapper.get('textarea');
+  const limit=Number(textarea.attributes('maxlength'));
+  expect(limit).toBeGreaterThan(0);expect(limit).toBeLessThan(750);
+  const message='x'.repeat(limit);
+  await textarea.setValue(message);
+  await wrapper.get('form').trigger('submit');await flushPromises();
+  const body=JSON.parse(fetch.mock.calls[0][1].body);
+  expect(body.goals).toHaveLength(1000);
+  expect(body.goals.endsWith(message)).toBe(true);
+  expect(body.goals).toContain('1000000 new completed onboardings');
+ });
+ it('keeps an oversized written message visible and sends no invalid inquiry',async()=>{
+  const fetch=vi.fn();vi.stubGlobal('fetch',fetch);
+  await lead({plan:'usage',employees:'5',screenings:'10',interviewMinutes:'60',onboardings:'1'});
+  const textarea=wrapper.get('textarea');
+  const message='x'.repeat(Number(textarea.attributes('maxlength'))+1);
+  await textarea.setValue(message);
+  await wrapper.get('form').trigger('submit');await flushPromises();
+  expect(fetch).not.toHaveBeenCalled();
+  expect(textarea.element.value).toBe(message);
+  expect(wrapper.get('[role=alert]').text()).toContain('so the complete estimate can be included');
+ });
  it('opens a pilot request without initiating an account, trial or payment',async()=>{
   const fetch=vi.fn();vi.stubGlobal('fetch',fetch);
   await lead({plan:'pilot'});
