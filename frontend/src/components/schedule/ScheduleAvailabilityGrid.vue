@@ -291,6 +291,10 @@
               <path d="M21 12a9 9 0 1 1-2.64-6.36" stroke-linecap="round"/><path d="M21 3v6h-6" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
           </button>
+          <label v-if="canShowDeletedCalendarItems" class="sched-nav-btn">
+            <input type="checkbox" :checked="showDeletedCalendarItems" @change="setShowDeletedCalendarItems($event.target.checked)" />
+            Show deleted
+          </label>
           <button
             v-if="Number(effectiveAgencyId || 0) > 0 && clientSessionBookingEnabled"
             class="sched-nav-btn"
@@ -1747,6 +1751,8 @@
     </div>
 
     <p v-if="summary?.outcomeHistoryComplete===false" role="alert">Some past attendance could not be loaded. Refresh the schedule or contact Support for the complete history.</p>
+    <CanceledCalendarItemDialog v-if="canceledCalendarItem" :item="canceledCalendarItem" :provider-id="Number(userId)"
+      @close="canceledCalendarItem = null" @archived="onCanceledCalendarItemArchived" @details="openOriginalCalendarDetails" />
     <AppointmentOutcomeDetails v-if="outcomeDetailsId" :appointment-id="outcomeDetailsId" :can-book="canBookFromGrid" @makeup="bookOutcomeMakeup" @close="outcomeDetailsId=0" @changed="load({forceRefresh:true})" />
     <Teleport :to="fullscreenActive && fullscreenRoot ? fullscreenRoot : 'body'">
     <div v-if="showRequestModal" class="modal-backdrop modal-backdrop--request" data-schedule-ui="v2" @click.self="requestCloseModal">
@@ -5569,6 +5575,7 @@
                 {{ item.meetingSettings.cancellationReason }}
               </p>
               <CanceledSessionDetails v-if="item.isCancelled && item.appointmentId" :appointment-id="Number(item.appointmentId)" />
+              <button v-if="item.calendarCancellation?.canArchive" type="button" class="btn btn-secondary btn-sm" @click="requestCloseStackDetailsModal(); openCalendarCancellation(item)">Delete from calendar</button>
               <div
                 v-if="isEditableScheduleStackItem(item) && scheduleEventEditId !== Number(item.eventId || 0)"
                 class="stack-details-actions"
@@ -6224,6 +6231,7 @@ import ScheduleColorLegend from './ScheduleColorLegend.vue';
 import ScheduleHelp from './ScheduleHelp.vue';
 import ScheduleQuarterHourPicker from './ScheduleQuarterHourPicker.vue';
 import DayCancellationDialog from './DayCancellationDialog.vue';
+import CanceledCalendarItemDialog from './CanceledCalendarItemDialog.vue';
 import ProviderDayPlanner from './ProviderDayPlanner.vue';
 import OfficeSchedulingTransition from './OfficeSchedulingTransition.vue';
 import OfficeAssignmentUsageReviews from './OfficeAssignmentUsageReviews.vue';
@@ -6614,6 +6622,31 @@ const untimedSchoolBlocksForDay = day => {
 };
 const hasVisibleUntimedSchoolItems = computed(() => visibleDays.value.some(day => untimedSchoolBlocksForDay(day).length));
 const cancelDayDate = ref('');
+const canceledCalendarItem = ref(null);
+const showDeletedCalendarItems = ref(false);
+const canShowDeletedCalendarItems = computed(() => !props.teamAvailabilityOnly
+  && ['super_admin','superadmin','admin','agency_admin','backoffice_admin'].includes(String(authStore.user?.role || '').toLowerCase()));
+
+async function onCanceledCalendarItemArchived() {
+  canceledCalendarItem.value = null;
+  invalidateScheduleSummaryCacheForUser(props.userId);
+  await load({ forceRefresh: true });
+}
+function setShowDeletedCalendarItems(value) {
+  showDeletedCalendarItems.value = value;
+  void load({ forceRefresh: true });
+}
+function openCalendarCancellation(block, openDetails = null) {
+  if (!block?.calendarCancellation || block.peerOnly) return false;
+  canceledCalendarItem.value = { ...block.calendarCancellation, label: block.shortLabel || block.label || 'Calendar item', openDetails };
+  return true;
+}
+function openOriginalCalendarDetails() {
+  const openDetails = canceledCalendarItem.value?.openDetails;
+  canceledCalendarItem.value = null;
+  openDetails?.();
+}
+
 const cancelDaySchool = ref(null);
 function openSchoolFamilyCancellation() {
   cancelDaySchool.value = {...schoolRailDetail.value};
@@ -6682,7 +6715,7 @@ const allDayBlocksForDay = (day) => {
     key: ev.teamAvailabilityOnly ? `team-busy:${ev.startAt}:${ev.endAt}` : `sevt-${ev.kind}-${ev.id || ev.title}`,
     kind: 'sevt', eventKind: ev.kind, peerOnly: !!ev.teamAvailabilityOnly,
     eventId: Number(ev.id) || null, agencyId: ev.agencyId || ev._agencyId,
-    allDay: true, isCancelled: isScheduleEventCancelled(ev),
+    allDay: true, isCancelled: isScheduleEventCancelled(ev), calendarCancellation: ev.calendarCancellation,
     clientId: ev.clientId, clientName: ev.clientName, isClientSession: isClientSessionScheduleEvent(ev),
     shortLabel: ev.title || scheduleKindLabel(ev.kind, ev),
     title: `${ev.title || scheduleKindLabel(ev.kind, ev)} · All day`,
@@ -10365,6 +10398,7 @@ function refreshGoogleSummaryInBackground({ cacheKey, generation, uid, week, sna
   const revision = scheduleSummaryRevision(uid);
   const current = () => !scheduleDisposed && revision === scheduleSummaryRevision(uid) && generation === scheduleReadGeneration && props.userId === uid && weekStart.value === week;
   const params = { weekStart: week, timeZone: bookingTimezoneIana.value, weekStartsOn: effectiveWeekStartsOn.value, includeAllAgencies: 'true', skipOfficeMaterialize: 'true',
+    showDeleted: showDeletedCalendarItems.value && canShowDeletedCalendarItems.value ? '1' : undefined,
     skipGoogleSync: 'false', includeGoogleBusy: googleBusyPreference.value ? 'true' : 'false', includeGoogleEvents: googleEventsPreference.value ? 'true' : 'false' };
   setTimeout(async () => {
     if (!current()) return;
@@ -10405,7 +10439,8 @@ const load = async ({ forceRefresh = false } = {}) => {
   const calendarScope = props.teamCalendar
     ? `team:${Number(props.agencyId || 0)}:${props.teamAvailabilityOnly ? 'availability' : 'default'}`
     : useAllAgencies ? 'all' : [...ids].sort((a, b) => a - b).join(',');
-  const cacheKey = `${props.userId}|${calendarScope}|${weekStart.value}|${effectiveWeekStartsOn.value}|${googleBusyPreference.value}|${googleEventsPreference.value}|${showExternalBusy.value}|${(selectedExternalCalendarIds.value || []).slice().sort((a, b) => a - b).join(',')}|tz:${requestedTimeZone}`;
+  const deletedFilter = showDeletedCalendarItems.value && canShowDeletedCalendarItems.value ? '1' : undefined;
+  const cacheKey = `${props.userId}|${calendarScope}|${weekStart.value}|${effectiveWeekStartsOn.value}|${googleBusyPreference.value}|${googleEventsPreference.value}|${showExternalBusy.value}|${(selectedExternalCalendarIds.value || []).slice().sort((a, b) => a - b).join(',')}|tz:${requestedTimeZone}|${deletedFilter || 0}`;
   // Coalesce concurrent identical fetches (save/close + watchers used to stack dozens).
   const revision = scheduleSummaryRevision(uid);
   const flightKey = `${cacheKey}|${revision}`;
@@ -10423,7 +10458,7 @@ const load = async ({ forceRefresh = false } = {}) => {
   displayedScheduleKey = cacheKey;
   const personalReadConfig = {
     params: {
-      weekStart: requestedWeekStart, timeZone: requestedTimeZone, weekStartsOn: effectiveWeekStartsOn.value,
+      weekStart: requestedWeekStart, timeZone: requestedTimeZone, showDeleted: deletedFilter, weekStartsOn: effectiveWeekStartsOn.value,
       ...(props.teamCalendar ? { teamCalendar: 'true', agencyId: props.agencyId || undefined,
         ...(props.teamAvailabilityOnly ? { detailLevel: 'availability' } : {}) } : { includeAllAgencies: 'true' }),
       skipOfficeMaterialize: viewMode.value === 'office_layout' ? 'false' : 'true',
@@ -10492,6 +10527,7 @@ const load = async ({ forceRefresh = false } = {}) => {
         params: {
           weekStart: requestedWeekStart,
           timeZone: requestedTimeZone,
+          showDeleted: deletedFilter,
           weekStartsOn: effectiveWeekStartsOn.value,
           agencyId: ids[0],
           includeGoogleBusy: props.hideOfficeAndCalendarIntegration ? 'false' : (showGoogleBusy.value ? 'true' : 'false'),
@@ -10515,6 +10551,7 @@ const load = async ({ forceRefresh = false } = {}) => {
                 params: {
                   weekStart: requestedWeekStart,
                   timeZone: requestedTimeZone,
+                  showDeleted: deletedFilter,
                   weekStartsOn: effectiveWeekStartsOn.value,
                   agencyId,
                   includeGoogleBusy: props.hideOfficeAndCalendarIntegration ? 'false' : (showGoogleBusy.value ? 'true' : 'false'),
@@ -11879,7 +11916,7 @@ const scheduleEventShortLabel = (ev, segmentClass = 'single', { multiline = fals
   else if (eventKind === 'PERSONAL_EVENT' && isClientSessionScheduleEvent(ev)) typePrefix = 'Session';
   else if (eventKind === 'PERSONAL_EVENT') typePrefix = 'Personal';
   else if (/virtual|session/i.test(raw)) typePrefix = 'Session';
-  const stateLabel=calendarSessionState(ev);
+  const stateLabel=ev.calendarCancellation?.archived ? 'Deleted' : calendarSessionState(ev);
   const canceledPrefix = stateLabel ? `${stateLabel} · ` : '';
   const typeLabel = `${canceledPrefix}${typePrefix}`.trim();
   const whoLabel = (eventKind === 'HUDDLE' || eventKind === 'TEAM_MEETING')
@@ -12426,11 +12463,25 @@ const buildCellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout 
   const sessionOfficeIds = new Set(scheduleEventsInCell(dayName, hour, minute)
     .filter(event => !isScheduleEventTerminal(event) && Number(event.appointmentId) > 0)
     .map(event => Number(event.officeEventId)).filter(Boolean));
+  const officeEventsAtTime = officeEventsInCell(dayName, hour, minute);
+  for (const event of officeEventsAtTime) {
+    const cancellation = event.calendarCancellation;
+    if (cancellation?.type !== 'office_event') continue;
+    const segment = quarterSegmentForRange(dayName, hour, minute, event.startAt, event.endAt);
+    if (!expanded && (segment === 'middle' || segment === 'end')) continue;
+    const label = `${cancellation.archived ? 'Deleted' : 'Canceled'} · Office reservation`;
+    blocks.push({
+      key: `office-canceled-${event.id}`, kind: 'sevt', eventId: Number(event.id), agencyId: event.agencyId,
+      calendarCancellation: cancellation, isCancelled: true, draggable: false, shortLabel: label, title: label,
+      startAt: event.startAt, endAt: event.endAt, timedSlice: appointmentSpanSlice(event.startAt, event.endAt, dayName, hour, minute)
+    });
+  }
+  const openOfficeEvents = officeEventsAtTime.filter(event => !event.calendarCancellation);
   const officeHits = !showMyRooms.value || selectedOfficeId === OFFICE_SCOPE_OFF
     ? []
     : selectedOfficeId === OFFICE_SCOPE_ALL
-      ? officeEventsInCell(dayName, hour, minute)
-      : officeEventsInCell(dayName, hour, minute).filter((e) => Number(e?.buildingId || 0) === selectedOfficeId);
+      ? openOfficeEvents
+      : openOfficeEvents.filter((e) => Number(e?.buildingId || 0) === selectedOfficeId);
   const officeByKey = new Map();
   for (const e of officeHits) {
     if (sessionOfficeIds.has(Number(e.id || e.eventId))) continue;
@@ -12693,6 +12744,7 @@ const buildCellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout 
       key: `supv-${agencyId || 'x'}-${Number(first?.id || 0) || 'x'}`,
       kind: isSignupBlock ? 'supv-signup' : 'supv',
       isCancelled: isScheduleEventCancelled(first),
+      calendarCancellation: first?.calendarCancellation,
       isMissed: isScheduleEventMissed(first),
       shortLabel: isScheduleEventMissed(first) ? `Missed · Supervision · ${first?.counterpartyName || ''}` : isScheduleEventCancelled(first) ? `Canceled · ${first?.cancelReason || 'Supervision'}` : unlimited ? [clockRangeLabel(first?.startAt, first?.endAt), isSignupBlock ? OPEN_GROUP_SUPERVISION_LABEL : 'Supervision', first?.counterpartyName].filter(Boolean).join('\n') : supervisionLabel(dayName, hour, minute, 'start', { multiline: true }),
       title: isScheduleEventMissed(first) ? `Missed supervision · ${clockRangeLabel(first?.startAt, first?.endAt)} · ${first?.counterpartyName || ''}` : isScheduleEventCancelled(first) ? `Canceled supervision · ${clockRangeLabel(first?.startAt, first?.endAt)} · ${first?.cancelReason || ''}` : unlimited ? [clockRangeLabel(first?.startAt, first?.endAt), isSignupBlock ? OPEN_GROUP_SUPERVISION_LABEL : 'Supervision', first?.counterpartyName].filter(Boolean).join(' · ') : supervisionTitle(dayName, hour, minute),
@@ -12771,6 +12823,7 @@ const buildCellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout 
       locationAddress: String(ev?.locationAddress || '').trim() || null,
       mapsUrl: String(ev?.mapsUrl || '').trim() || null,
       isCancelled: isScheduleEventCancelled(ev),
+      calendarCancellation: ev?.calendarCancellation,
       isMissed: isScheduleEventMissed(ev),
       ...scheduleAppointmentContext(ev),
       ...scheduleEventStackExtras(ev),
@@ -27151,7 +27204,10 @@ const onAppointmentPointerUp = (e) => {
   // Click (no drag) — let the normal click handler run.
 };
 
-const dispatchCellBlockAction = (block, dayName, hour, minute = 0) => {
+const dispatchCellBlockAction = (block, dayName, hour, minute = 0, showCancellation = true) => {
+  const openDetails = block?.calendarCancellation?.type === 'office_event' ? null
+    : () => dispatchCellBlockAction(block, dayName, hour, minute, false);
+  if (showCancellation && openCalendarCancellation(block, openDetails)) return;
   if (block?.peerOnly) return;
   if (block?.borrowedRoom) { void openBorrowedRoom(block.borrowedRoom); return; }
   const kind = String(block?.kind || '');
@@ -27305,6 +27361,15 @@ const dispatchCellBlockAction = (block, dayName, hour, minute = 0) => {
 };
 
 const onCellBlockClick = (e, block, dayName, hour, minute = 0, explicitPick = false) => {
+  const openDetails = () => {
+    if (block.canonicalOutcome) outcomeDetailsId.value = Number(block.appointmentId);
+    else dispatchCellBlockAction(block, dayName, hour, minute, false);
+  };
+  if (block?.calendarCancellation && openCalendarCancellation(block, block.calendarCancellation.type === 'office_event' ? null : openDetails)) {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
+    return;
+  }
   if(block?.canonicalOutcome || isMissedTutoringBlock(block)){e?.preventDefault?.();e?.stopPropagation?.();outcomeDetailsId.value=Number(block.appointmentId)||0;return;}
   if (suppressNextAppointmentClick) {
     suppressNextAppointmentClick = false;
@@ -28821,6 +28886,7 @@ const buildScheduleStackItemFromEvent = (ev, overrides = {}) => {
       || (ev?.canReschedule !== false && ev?.canEdit !== false)
     ),
     isCancelled: cancelled,
+    calendarCancellation: ev?.calendarCancellation,
     isTrainingPayEligible: !!ev?.isTrainingPayEligible,
     reminderMinutes: ev?.reminderMinutes === undefined ? 5 : ev.reminderMinutes,
     meetingSubtype: normalizeMeetingSubtype(ev?.meetingSubtype),

@@ -136,7 +136,7 @@ export async function submitAppointmentEmailAction(token,action) {
   } finally {try {if(locked)await db.execute('SELECT RELEASE_LOCK(?)',[lock]);} finally {db.release();}}
 }
 
-export async function buildAppointmentEmail({appointment,clientId,to,kind='reminder',actionUrl,schoolOptOut,message='',requiresConfirmation=true}) {
+export async function buildAppointmentEmail({appointment,clientId,to,kind='reminder',actionUrl,schoolOptOut,message=''}) {
   const context=await clientEmailContext({agencyId:appointment.agencyId,clientId,...(['learning','tutoring'].includes(String(appointment.businessType||appointment.business_type||'').toLowerCase())?{learning:true}: {})});
   const setting=await resolveAppointmentServiceSetting(appointment);
   if(setting.isSchool && schoolOptOut===undefined) schoolOptOut=await createSchoolSessionEmailOptOutLink({agencyId:appointment.agencyId,clientId,to});
@@ -145,9 +145,9 @@ export async function buildAppointmentEmail({appointment,clientId,to,kind='remin
   const when=formatAppointmentTime(appointment),name=context.tenant.name;
   const subject=setting.isSchool?`${name}: School session notice`:`${name}: ${kind.startsWith('confirmation')?'Please confirm your appointment':'Appointment reminder'}`;
   const confirmed = sessionRsvpState(appointment) === 'confirmed';
-  const ask = !confirmed && requiresConfirmation;
+  const ask = !confirmed;
   const tutorName=context.learning?await appointmentEmailTutorName(appointment):'';
-  const emailMessage=context.learning?String(message).replace(/\s*Reply Y to confirm, N to cancel, R to request a reschedule\./gi,'').trim():message;
+  const emailMessage=String(message).replace(/\s*Reply Y to confirm, N to cancel, R to request a reschedule\./gi,'').trim();
   const intro=setting.isSchool?`${schoolAppointmentReminderText} Scheduled session: ${when}.`:(emailMessage || `${confirmed?'A friendly reminder: your':'Your'} ${context.learning?'tutoring session':'appointment'} with ${name} is scheduled for ${when}.${confirmed?' We look forward to seeing you.':''}`)+(tutorName?` Your tutor: ${tutorName}.`:'');
   const actions=appointmentEmailActions(setting.isSchool).filter(action=>action!=='confirm'||ask);
   const links=actionUrl?actions.map(action=>({label:setting.isSchool?'Cancel school session':actionLabels[action],url:`${actionUrl}?action=${action}`})):setting.isSchool?[]:[{label:'Open your portal',url:context.url(`guardian?panel=appointments&clientId=${clientId}`)}];

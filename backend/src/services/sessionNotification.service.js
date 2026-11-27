@@ -814,9 +814,9 @@ async function sendContactSessionEmail({ contact, appointment, clientId }) {
   return result;
 }
 
-async function sendSessionEmail({to,agencyId,clientId,kind='reminder',appointment,text,requiresConfirmation=true,reminderId=null,guardianUserId=null}) {
+async function sendSessionEmail({to,agencyId,clientId,kind='reminder',appointment,text,reminderId=null,guardianUserId=null}) {
   const {sendAppointmentEmail}=await import('./appointmentEmailActions.service.js');
-  const result=await sendAppointmentEmail({to,clientId,kind,appointment,message:text,requiresConfirmation,reminderId,guardianUserId});
+  const result=await sendAppointmentEmail({to,clientId,kind,appointment,message:text,reminderId,guardianUserId});
   if(['school_session_email_opted_out','service_ended_notifications_disabled'].includes(result?.reason)) return result;
   if(!result?.id || result.skipped || result.blocked || result.queued || result.pendingApproval) throw new Error('The appointment email was not confirmed as sent.');
   return result;
@@ -1214,7 +1214,7 @@ export async function processDueSessionNotifications({ limit = 50, agencyId = nu
           agencyId: appt.agencyId || null,
           clientId: clientId || null,
           kind,
-          requiresConfirmation: askConfirmation, reminderId: row.id, guardianUserId: row.recipient_guardian_user_id || null
+          reminderId: row.id, guardianUserId: row.recipient_guardian_user_id || null
         });
         emailSent=!delivery?.skipped;
         if(emailSent)await trackReminderEmail({appointment:appt,row,clientId,to:consent.emailAddress,result:delivery});

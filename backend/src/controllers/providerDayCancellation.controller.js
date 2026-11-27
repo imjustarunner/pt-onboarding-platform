@@ -1,5 +1,6 @@
 import pool from '../config/database.js';
 import dayCancellation from '../services/providerDayCancellation.service.js';
+import { archiveCanceledCalendarItem } from '../services/calendarCancellationArchive.service.js';
 import { assertAppointmentChangeAccess } from './appointment.controller.js';
 
 const managers = new Set(['super_admin', 'superadmin', 'admin', 'agency_admin', 'backoffice_admin', 'staff', 'support', 'scheduler', 'front_desk']);
@@ -90,4 +91,14 @@ export async function applyDayCancellation(req, res, next) {
     const result = await dayCancellation.apply(req.params.token, { ...req.body, providerId: Number(req.params.providerId) }, req.user, authorizeDayCancellation, appointmentAccess);
     res.json(result);
   } catch (e) { if (e.status) return res.status(e.status).json({ error: { message: e.message } }); next(e); }
+}
+
+export async function deleteCanceledCalendarItem(req, res, next) {
+  try {
+    const result = await archiveCanceledCalendarItem({
+      providerId: Number(req.params.providerId), type: req.params.type, id: Number(req.params.id),
+      actor: req.user, authorize: authorizeDayCancellation, authorizeAppointment: appointmentAccess
+    });
+    res.json(result);
+  } catch (error) { if (error.status) return res.status(error.status).json({ error: { message: error.message } }); next(error); }
 }

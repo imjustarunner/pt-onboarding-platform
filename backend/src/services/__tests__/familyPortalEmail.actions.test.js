@@ -119,3 +119,17 @@ it('sends a confirmed client a friendly reminder without another confirm button'
 
 it('allows a subsequent cancellation after confirmation while keeping each completed response idempotent',async()=>{row.status='completed';row.chosen_action='confirm';row.result_message='Confirmed';appt.status='confirmed';m.reply.mockResolvedValue({ackMessage:'Cancellation received.'});expect(await submitAppointmentEmailAction(token,'cancel')).toBe('Cancellation received.');row.chosen_action='cancel';expect(await submitAppointmentEmailAction(token,'cancel')).toBe('Cancellation received.');expect(m.reply).toHaveBeenCalledTimes(1);});
 it.each([{billingOnly:true},{canViewAppointments:false},'malformed'])('withholds appointment responses for restricted or malformed permissions %j',async permissions=>{access.permissions_json=permissions;await expect(appointmentEmailActionContext(token)).rejects.toMatchObject({status:403});expect(m.reply).not.toHaveBeenCalled();});
+
+it('offers RSVP in routine clinical email even when a confirmation request was not queued', async () => {
+ const content = await buildAppointmentEmail({
+   appointment: appt, clientId: 22, to: email, requiresConfirmation: false,
+   actionUrl: 'https://example.test/respond/opaque',
+   message: 'Your session is tomorrow. Reply Y to confirm, N to cancel, R to request a reschedule.'
+ });
+ expect(content.text).toContain('Your session is tomorrow.');
+ expect(content.text).not.toContain('Reply Y');
+ for (const action of ['confirm', 'cancel', 'reschedule']) {
+   expect(content.html).toContain(`?action=${action}`);
+   expect(content.text).toContain(`?action=${action}`);
+ }
+});

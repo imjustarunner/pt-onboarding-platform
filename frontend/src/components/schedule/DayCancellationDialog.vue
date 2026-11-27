@@ -25,6 +25,8 @@ function chooseReason(reason) { reasonKey.value = reason.key; reasonCategory.val
 const notificationMode = ref('send'), suppressionReason = ref(''), urgent = ref(true), showPlannedOut = ref(false);
 const dates = ref([props.date]), addDate = ref(''), scopeMode = ref('days'), selectedSessions = ref([]);
 const draftPlan = ref(null);
+const forwardMode = ref(false);
+const forwardCount = computed(() => plan.value?.items?.length || 0);
 const contactChoices = reactive({}), messages = reactive({}), schoolChoices = reactive({});
 const offerDays = ref(2), offeredSlots = ref([]), slotOptions = ref([]), slotBusy = ref(false);
 const pendingOfficeRequests = ref([]);
@@ -62,6 +64,7 @@ onMounted(async () => {
       .filter(agency => !props.schoolId || agency.id === props.agencyId);
     selected.value = agencies.value.map(agency => agency.id);
     const previous = previousResponse?.data?.review;
+    if (previous?.scopeMode === 'forward') forwardMode.value = true;
     if (previous) { plan.value = previous; signed.value = true; reviewed.value = true; urgent.value = previous.urgent !== false; dates.value = previous.dates || [props.date]; followUpAction.value = previous.followUpAction; followUpMessage.value = previous.followUpMessage; notificationMode.value = previous.notificationMode || 'send'; scopeMode.value = previous.scopeMode || 'days'; }
     if (props.reviewToken && previous?.status === 'processing') await apply();
     resumeChecked.value = true;
@@ -100,6 +103,24 @@ async function review(finalReview = false) {
     if (props.deferredToken || recoveryToken.value) { dates.value = plan.value.dates || [props.date]; scopeMode.value = plan.value.scopeMode || 'days'; }
     reviewed.value = finalReview; signed.value = false;
     if (!finalReview) { initializeEditors(); draftPlan.value = plan.value; }
+  } catch (e) { error.value = reviewError(e); }
+  finally { busy.value = false; }
+}
+function startForward() {
+  forwardMode.value = true;
+  plan.value = null;
+  dates.value = [props.date];
+  error.value = '';
+}
+async function reviewForward() {
+  busy.value = true;
+  error.value = '';
+  try {
+    const { data } = await api.post(`${base.value}/preview`, {
+      agencyIds: selected.value, date: props.date, scopeMode: 'forward'
+    }, { skipGlobalLoading: true });
+    plan.value = data;
+    signed.value = true;
   } catch (e) { error.value = reviewError(e); }
   finally { busy.value = false; }
 }
@@ -150,13 +171,28 @@ async function apply(retryFailed = false) {
 
 <template>
   <dialog ref="dialog" class="cancel-day-dialog" aria-labelledby="cancel-day-title" @cancel.prevent="close" @click="($event.target === dialog) && close()">
-    <header><div><h2 id="cancel-day-title">{{ emailReview ? 'Review cancellation emails' : 'Cancel day' }}</h2><p>{{ dates.join(', ') }}<template v-if="schoolId"> · {{ schoolName || 'Selected school' }} only</template></p></div><button type="button" :disabled="busy" aria-label="Close" @click="close">×</button></header>
-    <div class="cancel-day-body">
+    <header><div><h2 id="cancel-day-title">{{ forwardMode ? 'Cancel everything forward' : emailReview ? 'Review cancellation emails' : 'Cancel day' }}</h2><p>{{ dates.join(', ') }}<template v-if="schoolId"> · {{ schoolName || 'Selected school' }} only</template></p></div><button type="button" :disabled="busy" aria-label="Close" @click="close">×</button></header>
+    <div v-if="forwardMode" class="cancel-day-body">
+      <p>Cancel this provider’s upcoming client sessions from {{ date }} forward and end any affected recurring sessions. Cancellation notices won’t be sent.</p>
+      <fieldset v-if="!plan"><legend>Agencies</legend><label v-for="agency in agencies" :key="agency.id"><input v-model="selected" type="checkbox" :value="agency.id"> {{ agency.label }}</label></fieldset>
+      <template v-else>
+        <p role="status">{{ forwardCount }} session{{ forwardCount === 1 ? '' : 's' }} · {{ Object.values(plan.results || {}).filter(result => result.status === 'completed').length }} canceled</p>
+        <ul v-if="plan.status === 'partial'">
+          <template v-for="(result, key) in plan.results" :key="key">
+            <li v-if="result.status === 'failed'">{{ plan.items.find(item => item.key === key)?.date }} · {{ result.message }}</li>
+          </template>
+        </ul>
+      </template>
+    </div>
+    <div v-else class="cancel-day-body">
       <p v-if="emailReview">These sessions are already canceled. Review the recipients and email messages, then approve sending them.</p><p v-else>Use this for an urgent absence. Planned Out is for vacations and scheduled time away.</p>
       <p v-if="!emailReview && schoolId" class="day-scope-note">Only sessions and assigned families at {{ schoolName || 'this school' }} are included. Other schools, meetings, and availability stay unchanged. Review the recipients and messages before sending.</p>
       <p v-else-if="!emailReview" class="day-scope-note">Canceling whole days marks those days unavailable across the provider’s calendars. Canceling selected sessions leaves the rest of the day available. Other recurring dates remain scheduled. School assignments remain in place. Assigned-day clients are included even without booked appointments. Review the family emails and any urgent school notice below; missing contacts and delivery restrictions need separate follow-up.</p>
       <template v-if="!plan">
-        <p v-if="!emailReview"><button type="button" :disabled="busy || !resumeChecked || !selected.length" @click="showPlannedOut = true">Use Planned Out instead</button></p>
+        <p v-if="!emailReview" class="tone-choices">
+          <button type="button" :disabled="busy || !resumeChecked || !selected.length" @click="showPlannedOut = true">Use Planned Out instead</button>
+          <button v-if="!schoolId" type="button" :disabled="busy || !resumeChecked || !selected.length" @click="startForward">Cancel everything forward</button>
+        </p>
         <label class="day-field">Absence type <select v-model="urgent" @change="reasonCategory = urgent ? 'provider_unavailable' : 'facility'; followUpAction = 'none'"><option :value="true">Urgent — sickness, weather, unexpected absence</option><option :value="false">Nonurgent — planned school closure or holiday</option></select></label>
         <p>Each selected recipient gets the email you review below. Parents who already opted into texts also get a short text with the portal link. Replies go to support, with support and any supervisor copied. The letter does not mention rescheduling unless you add that yourself.</p>
         <p v-if="urgent && dateTooFar" class="day-error" role="alert">Please use Planned Out. Cancel Day is only for today, tomorrow, and the next day.</p>
@@ -255,14 +291,23 @@ async function apply(retryFailed = false) {
       <div v-if="error" id="day-cancellation-action-error" role="alert" class="day-action-feedback day-error"><strong>Could not continue</strong><span>{{ error }}</span><span>Your edits are preserved. Correct the listed issue and try again.</span></div>
       <p v-else-if="plan && !reviewed && finalReviewIssue" class="day-action-feedback" role="status">{{ finalReviewIssue }}</p>
       <button type="button" :disabled="busy" @click="close">{{ changed ? 'Done' : 'Close' }}</button>
-      <button v-if="!plan" type="button" class="day-primary" :disabled="busy || !resumeChecked || !selected.length || !reasonCategory || dateTooFar || (notificationMode === 'none' && !suppressionReason.trim())" @click="review(false)">Review day</button>
+      <template v-if="forwardMode">
+        <button v-if="!plan" type="button" :disabled="busy || !selected.length" class="day-primary" @click="reviewForward">Review upcoming sessions</button>
+        <template v-else-if="plan.status === 'preview'">
+          <button type="button" :disabled="busy" @click="startForward">Review again</button>
+          <button type="button" :disabled="busy" class="day-danger" @click="apply()">Cancel {{ forwardCount }} {{ forwardCount === 1 ? 'session' : 'sessions' }}</button>
+        </template>
+        <button v-else-if="plan.status === 'processing'" type="button" :disabled="busy" @click="apply()">Continue cancellation</button>
+        <button v-else-if="plan.status === 'partial'" type="button" :disabled="busy" @click="apply(true)">Retry failed sessions</button>
+      </template>
+      <button v-else-if="!plan" type="button" class="day-primary"  :disabled="busy || !resumeChecked || !selected.length || !reasonCategory || dateTooFar || (notificationMode === 'none' && !suppressionReason.trim())" @click="review(false)">Review day</button>
       <template v-else-if="!finished">
         <button v-if="!changed" type="button" :disabled="busy" @click="reviewed ? (reviewed = false, signed = false, plan = draftPlan) : emailReview ? close() : (plan = null, followUpAction = 'none')">Back</button>
         <button v-if="!reviewed && !changed" type="button" class="day-primary" :aria-describedby="error ? 'day-cancellation-action-error' : undefined" :disabled="busy || slotBusy || !!finalReviewIssue" @click="review(true)">{{ busy ? 'Preparing final review…' : 'Review final cancellation' }}</button>
         <button v-else type="button" class="day-danger" :disabled="busy || !signed" @click="apply()">{{ changed || error ? 'Continue' : emailReview ? 'Approve and send emails' : 'Confirm cancellation' }}</button>
       </template>
       <button v-else-if="plan.status === 'partial'" type="button" class="day-primary" :disabled="busy" @click="apply(true)">Retry failed items</button>
-      <button v-if="finished && plan.unsentFamilyNotices > 0" type="button" class="day-primary" :disabled="busy" @click="reviewUnsent">Review unsent family emails</button>
+      <button v-if="!forwardMode && finished && plan.unsentFamilyNotices > 0" type="button" class="day-primary" :disabled="busy" @click="reviewUnsent">Review unsent family emails</button>
     </footer>
     <PlannedOutModal v-if="showPlannedOut" :agency-id="selected[0]" :agency-options="agencies" :initial-agency-ids="selected" :user-id="providerId" :initial-date="date" :time-zone="timeZone" @close="showPlannedOut = false" @created="emit('saved'); close()" />
   </dialog>

@@ -1039,7 +1039,7 @@ class SupervisionSession {
     return this.findById(sid);
   }
 
-  static async listForUserInWindow({ agencyId, allAgencies = false, userId, windowStart, windowEnd }) {
+  static async listForUserInWindow({ agencyId, allAgencies = false, userId, windowStart, windowEnd, includeCalendarDeleted = false }) {
     const uId = parseInt(userId, 10);
     if (!uId || !windowStart || !windowEnd) return [];
     const aId = parseInt(agencyId, 10);
@@ -1124,7 +1124,7 @@ class SupervisionSession {
          )
          AND ss.start_at < ?
          AND ss.end_at > ?
-         AND ss.calendar_deleted_at IS NULL
+         ${includeCalendarDeleted ? '' : 'AND ss.calendar_deleted_at IS NULL'}
          AND COALESCE(ss.recurrence_horizon_held,0)=0
        ORDER BY ss.start_at ASC`,
       [uId, uId, uId, ...agencyParams, uId, uId, uId, uId, uId, windowEnd, windowStart]
