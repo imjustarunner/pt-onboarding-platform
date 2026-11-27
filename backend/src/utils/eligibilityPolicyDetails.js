@@ -1,3 +1,4 @@
+import {eligibilityDeductiblePeriods} from './eligibilityBenefitPeriods.js';
 // A readable projection of retained payer evidence. Never infer billing routes,
 // subscriber identity, payer order, or a patient's final liability from it.
 export const eligibilityList=value=>Array.isArray(value)?value:value?[value]:[];
@@ -31,13 +32,13 @@ export function eligibilityPolicyFields(entry,payerId) {
   effectiveDate:eligibilityDate(entry?.plan_begin_date)||eligibilityDate(entry?.policy_effective_date),terminationDate:eligibilityDate(entry?.plan_end_date)||eligibilityDate(entry?.policy_expiration_date),
   payerPhone:text(contact.entity_phone),payerAddressLine1:text(contact.entity_addr_1),payerCity:text(contact.entity_city),payerState:text(contact.entity_state),payerPostalCode:text(contact.entity_zip)};
 }
-export function eligibilityPolicyDetails(result,{payerId}={}) {
+export function eligibilityPolicyDetails(result,{payerId,serviceDate}={}) {
  const benefits=[],otherInsurance=[];
  const members=eligibilityMembers(result);
  const policies=members.map((entry,memberIndex)=>({memberIndex,...eligibilityPolicyFields(entry,payerId),
   reportedBeginDate:text(entry.plan_begin_date||entry.policy_effective_date),reportedEndDate:text(entry.plan_end_date||entry.policy_expiration_date)}));
  members.forEach((entry,memberIndex)=>eligibilityList(entry.benefit).forEach((benefit,benefitIndex)=>{
-  benefits.push({id:`${memberIndex}:${benefitIndex}`,kind:text(benefit.benefit_coverage_code),kindDescription:text(benefit.benefit_coverage_description),
+  benefits.push({id:`${memberIndex}:${benefitIndex}`,memberIndex,otherPayerBenefit:otherInsuranceBenefit(benefit,payerId),kind:text(benefit.benefit_coverage_code),kindDescription:text(benefit.benefit_coverage_description),
    serviceCode:text(benefit.benefit_code),serviceDescription:text(benefit.benefit_description),network:text(benefit.inplan_network),
    levelCode:text(benefit.benefit_level_code),levelDescription:text(benefit.benefit_level_description),
    periodCode:text(benefit.benefit_period_code),periodDescription:text(benefit.benefit_period_description),
@@ -59,5 +60,5 @@ export function eligibilityPolicyDetails(result,{payerId}={}) {
   });
  }));
  const distinctOther=[...new Map(otherInsurance.map(item=>[JSON.stringify([item.name,item.role,item.reportedPolicyNumber,item.reportedEntityId,item.phone,item.address,item.beginDate,item.endDate]),item])).values()];
- return {policies,benefits,otherInsurance:distinctOther,otherCoverageReported:otherInsurance.length>0};
+ return {policies,benefits,deductiblePeriods:eligibilityDeductiblePeriods(benefits,{serviceDate}),otherInsurance:distinctOther,otherCoverageReported:otherInsurance.length>0};
 }

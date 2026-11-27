@@ -14,13 +14,13 @@ const list = value => Array.isArray(value) ? value : value ? [value] : [];
  * guessed member IDs, billing routes, or primary/secondary assignments. */
 export function eligibilityProfileRecord(check, evidence, fingerprint=null) {
   const entries = list(evidence?.result?.elig || evidence?.result?.result?.elig);
-  const summary = evidence?.result ? summarizeEligibility(evidence.result, { payerId: evidence.eligibilityPayerId }) : evidence?.summary;
+  const summary = evidence?.result ? summarizeEligibility(evidence.result, { payerId: evidence.eligibilityPayerId,serviceDate:check.service_date }) : evidence?.summary;
   return {
     id: check.id, slot: check.policy_slot, serviceDate: check.service_date,isCurrent:fingerprint?check.insurance_fingerprint===fingerprint:null,
     checkedAt: check.completed_at || check.created_at, payerId: evidence?.eligibilityPayerId || '',
     status: summary?.status || check.status, identityMatches: evidence?.summary?.identityMatches ?? null,
     otherCoverageReported: !!(summary?.otherCoverageReported || evidence?.summary?.otherCoverageReported),
-    details:eligibilityPolicyDetails(evidence?.result,{payerId:evidence?.eligibilityPayerId}),
+    details:eligibilityPolicyDetails(evidence?.result,{payerId:evidence?.eligibilityPayerId,serviceDate:check.service_date}),
     otherInsurers: entries.flatMap(entry => list(entry.benefit).filter(benefit => otherInsuranceBenefit(benefit, evidence?.eligibilityPayerId))),
     // Include the complete response, including carrier-specific fields and errors.
     response: evidence?.result || null, reference: summary?.reference || null

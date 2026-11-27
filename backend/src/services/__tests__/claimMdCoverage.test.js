@@ -117,10 +117,10 @@ describe('client-scoped eligibility and other coverage',()=>{
   for(const change of [{review:null},{review:{...review,status:'unresolved'}},{latestCheckId:9},{review:{...review,has_new_evidence:1}},{now:new Date('2026-10-10')},{insurance:{...info,patient:{...info.patient,firstName:'Changed'}}}])expect(coverageReviewBlockers({...base,...change}).length).toBeGreaterThan(0);
  });
  it.each([1,2,6,377])('passes agency %i to eligibility and saves encrypted evidence without exposing credentials',async(agencyId)=>{
-  const db={execute:vi.fn().mockResolvedValue([{insertId:10}])},request=vi.fn().mockResolvedValue({elig:{ins_name_f:'PRIVATE NAME',benefit:{benefit_code:'30',benefit_coverage_code:'1'}}});
+  const db={execute:vi.fn().mockResolvedValue([{insertId:10}])},request=vi.fn().mockResolvedValue({elig:{ins_name_f:'PRIVATE NAME',benefit:[{benefit_code:'30',benefit_coverage_code:'1'},{benefit_code:'MH',benefit_coverage_code:'C',benefit_period_code:'23'}]}});
   const result=await runCoverageCheck({agencyId,clientId:2,slot:'primary',serviceDate:'2026-09-24',requestKey:'unique-test-request',actorUserId:5,profile,accountKey:'SYNTHETIC-KEY'},{db,request,readInsurance:async()=>insurance()});
   expect(request).toHaveBeenCalledWith({agencyId,accountKey:'SYNTHETIC-KEY',payload:expect.objectContaining({payerid:'TEST'})});
-  expect(result.summary.status).toBe('active_reported');const stored=db.execute.mock.calls[1][1][0];expect(stored).not.toMatch(/PRIVATE NAME|SYNTHETIC-KEY/);expect(decryptFamilyBilling(stored,`coverage:${agencyId}:2`).result.elig.ins_name_f).toBe('PRIVATE NAME');
+  expect(result.summary.status).toBe('active_reported');expect(result.summary.policyDetails.deductiblePeriods[0].expectedResetDate).toBe('2027-01-01');expect(request).toHaveBeenCalledOnce();const stored=db.execute.mock.calls[1][1][0];expect(stored).not.toMatch(/PRIVATE NAME|SYNTHETIC-KEY/);expect(decryptFamilyBilling(stored,`coverage:${agencyId}:2`).result.elig.ins_name_f).toBe('PRIVATE NAME');
   expect(()=>decryptFamilyBilling(stored,'coverage:9:2')).toThrow();expect(db.execute.mock.calls[1][0]).toContain('completed_at=CURRENT_TIMESTAMP(6)');
  });
  it('does not repeat an eligibility request with an existing key',async()=>{
@@ -160,4 +160,13 @@ it('stores original vendor errors only in encrypted client evidence and logs a c
  expect(()=>decryptFamilyBilling(encrypted,'coverage:9:2')).toThrow();
  expect(takeClaimMdFailureEvidence(thrown)).toBeUndefined();expect(request).toHaveBeenCalledTimes(1);
  warn.mockRestore();
+});
+
+it('projects a saved deductible year for its original service date using only read queries',async()=>{
+ const saved={eligibilityPayerId:'TEST',summary:{identityMatches:true},result:{elig:{benefit:[{benefit_code:'30',benefit_coverage_code:'1'},{benefit_code:'MH',benefit_coverage_code:'C',benefit_period_code:'23'}]}}};
+ const encrypted=encryptFamilyBilling(saved,'coverage:2:4');
+ const db={execute:vi.fn().mockResolvedValueOnce([[{id:10,service_date:new Date('2025-11-26T00:00:00Z'),evidence_encrypted:encrypted}]]).mockResolvedValueOnce([[]]).mockResolvedValueOnce([[{latest_check_id:10}]]).mockResolvedValueOnce([[]]).mockResolvedValueOnce([[{pending:0,updated_at:null}]])};
+ const evidence=await listCoverageEvidence({agencyId:2,clientId:4,serviceDate:'2025-11-26'},db);
+ expect(evidence.checks[0].evidence.summary.policyDetails.deductiblePeriods[0].expectedResetDate).toBe('2026-01-01');
+ expect(db.execute.mock.calls.every(([sql])=>sql.startsWith('SELECT'))).toBe(true);expect(decryptFamilyBilling(encrypted,'coverage:2:4')).toEqual(saved);
 });

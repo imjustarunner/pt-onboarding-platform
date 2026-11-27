@@ -11,6 +11,11 @@ import { buildClaimMdJsonClaim } from '../claimMd.service.js';
 const patient={firstName:'Test',lastName:'Member',dateOfBirth:'2010-01-02',state:'CO'};
 const profile={billingNpi:'1306688650',practice:{tax_id:'123456789',name:'Synthetic'}};
 const evidence=()=>({id:7,eligibilityPayerId:'SKCO0',summary:{status:'active_reported',identityMatches:true},result:{elig:{ins_name_f:'Test',ins_name_l:'Member',ins_dob:'20100102',ins_number:'SYNTHETIC',group_number:'TESTGROUP',plan_begin_date:'20260101',benefit:[{benefit_code:'30',benefit_coverage_code:'1'},{benefit_code:'30',benefit_coverage_code:'U',entity_name:'Other insurer',entity_policy:'TEST-POLICY',extra_payer_field:{keep:'all fields'}}]}}});
+it('projects deductible periods from an older retained secondary verification without changing its evidence or insurance',()=>{
+ const raw=evidence();raw.result.elig.benefit.push({benefit_code:'MH',benefit_coverage_code:'C',benefit_period_code:'23',benefit_level_code:'IND',inplan_network:'Y'});const before=structuredClone(raw);
+ const result=eligibilityProfileRecord({id:7,policy_slot:'secondary',service_date:'2025-11-26',insurance_fingerprint:'same'},raw,'same');
+ expect(result.details.deductiblePeriods[0]).toMatchObject({expectedResetDate:'2026-01-01',startDate:'2025-01-01'});expect(result.slot).toBe('secondary');expect(raw).toEqual(before);expect(result.response).toEqual(raw.result);
+});
 describe('eligibility import into billing profile',()=>{
  it('replaces a parent-listed Medicaid ID only with an exact child match, retaining the reported ID and commercial policy',()=>{
   const insurance={primary:{insurerName:'Commercial',memberId:'PRIMARY'},secondary:{isMedicaid:true,eligibilityPayerId:'SKCO0',memberId:'P123456',paperSubscriberName:'Parent Member',subscriberFirstName:'Parent',subscriberLastName:'Member',subscriberDob:'1980-01-01',relationshipToSubscriber:'child'},patient};

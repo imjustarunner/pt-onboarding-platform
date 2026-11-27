@@ -91,7 +91,7 @@ export function eligibilityIdentityMatches(payload,result) {
   &&String(member.ins_dob||'').replaceAll('-','')===payload.ins_dob
   &&(!payload.ins_number||String(member.ins_number)===String(payload.ins_number));
 }
-export function summarizeEligibility(result,{payerId}={}) {
+export function summarizeEligibility(result,{payerId,serviceDate}={}) {
  const elig=result?.elig||result?.result?.elig;
  const benefits=asList(elig).flatMap(e=>asList(e.benefit));
  const plan=benefits.filter(b=>String(b.benefit_code)==='30');
@@ -102,7 +102,7 @@ export function summarizeEligibility(result,{payerId}={}) {
   // Colorado uses U for TPL. Other payers use U for general referrals to
   // another entity, so only apply Colorado's meaning to its verified route.
   otherCoverageReported:benefits.some(b=>otherInsuranceBenefit(b,payerId)),
-  policyDetails:eligibilityPolicyDetails(result,{payerId}),
+  policyDetails:eligibilityPolicyDetails(result,{payerId,serviceDate}),
   benefits,reference:asList(elig)[0]?.eligid||null,
   warning:'Eligibility is not a payment guarantee. An absent other-payer record does not establish that no other coverage exists.'};
 }
@@ -123,7 +123,7 @@ export async function listCoverageEvidence({agencyId,clientId,serviceDate},db=po
   const evidence=decryptFamilyBilling(row.evidence_encrypted,context(agencyId,clientId));
   // Re-evaluate the flag for older saved responses without changing the
   // encrypted evidence, repeating a paid inquiry, or clearing a prior flag.
-  if(evidence?.result){const current=summarizeEligibility(evidence.result,{payerId:evidence.eligibilityPayerId});evidence.summary={...evidence.summary,policyDetails:current.policyDetails,otherCoverageReported:evidence.summary?.otherCoverageReported===true||current.otherCoverageReported};}
+  if(evidence?.result){const current=summarizeEligibility(evidence.result,{payerId:evidence.eligibilityPayerId,serviceDate:row.service_date});evidence.summary={...evidence.summary,policyDetails:current.policyDetails,otherCoverageReported:evidence.summary?.otherCoverageReported===true||current.otherCoverageReported};}
   return {...row,evidence,evidence_encrypted:undefined};
  }),review:review?{...review,evidence:decryptFamilyBilling(review.evidence_encrypted,context(agencyId,clientId)),evidence_encrypted:undefined}:null};
 }
@@ -140,7 +140,7 @@ export async function runCoverageCheck({agencyId,clientId,slot,serviceDate,reque
  try {
   const result=await (deps.request||requestEligibilityJson)({agencyId,accountKey,payload});
   stage='saving_response';
-  const evidence={result,summary:summarizeEligibility(result,{payerId:payload.payerid}),requestInsuranceFingerprint:fingerprint,eligibilityPayerId:payload.payerid,billingOfficeId:profile.officeId,billingNpi:profile.billingNpi,lookupMode:payload.ins_number?'member_id':'demographics'};
+  const evidence={result,summary:summarizeEligibility(result,{payerId:payload.payerid,serviceDate:date}),requestInsuranceFingerprint:fingerprint,eligibilityPayerId:payload.payerid,billingOfficeId:profile.officeId,billingNpi:profile.billingNpi,lookupMode:payload.ins_number?'member_id':'demographics'};
   // A demographic fallback may find the person under a different member ID.
   // Preserve that finding, but do not approve the currently saved wrong ID.
   const childDiscovery=payload.payerid==='SKCO0'&&!payload.ins_number&&medicaidMemberIdNeedsDiscovery(insurance?.[slot],insurance?.patient);
