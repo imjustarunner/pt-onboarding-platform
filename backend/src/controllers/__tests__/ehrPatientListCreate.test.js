@@ -1,9 +1,11 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  execute: vi.fn(), create: vi.fn(), update: vi.fn(), history: vi.fn(), access: vi.fn()
+  execute: vi.fn(), create: vi.fn(), update: vi.fn(), history: vi.fn(), access: vi.fn(), assignment: vi.fn()
 }));
 vi.mock('../../config/database.js', () => ({ default: { execute: mocks.execute }, onTableWrite: vi.fn() }));
+vi.mock('../../utils/clientCode.js', () => ({ generateUniqueSixDigitClientCode: vi.fn(async () => '123456') }));
+vi.mock('../../services/providerServiceOfferings.service.js', () => ({ requireAssignmentService: mocks.assignment }));
 vi.mock('../../models/Client.model.js', () => ({ default: { create: mocks.create, update: mocks.update } }));
 vi.mock('../../models/ClientStatusHistory.model.js', () => ({ default: { create: mocks.history } }));
 vi.mock('../../models/Agency.model.js', () => ({ default: {
@@ -42,6 +44,7 @@ beforeEach(() => {
   mocks.history.mockResolvedValue({ id: 56 });
   mocks.update.mockResolvedValue({ id: 42 });
   mocks.access.mockResolvedValue(undefined);
+  mocks.assignment.mockResolvedValue(undefined);
   mocks.execute.mockImplementation(async sql => {
     if (guardedLookup(sql)) {
       if (lookupError) throw lookupError;
@@ -68,6 +71,7 @@ it.each([
   expect(mocks.create).not.toHaveBeenCalled();
   expect(mocks.update).not.toHaveBeenCalled();
   expect(mocks.history).not.toHaveBeenCalled();
+  expect(mocks.assignment).not.toHaveBeenCalled();
   expect(writes()).toHaveLength(0);
 });
 
@@ -96,6 +100,7 @@ it('creates a legitimate new EHR chart after a successful no-match lookup with p
   const { res, next } = await run();
   expect(next).not.toHaveBeenCalled();
   expect(res.status).toHaveBeenCalledWith(201);
+  expect(mocks.assignment).toHaveBeenCalledWith(2, 7, 'counseling');
   expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ source: 'EHR_PATIENT_LIST', full_name: 'Ann Example', provider_id: 7 }));
   expect(mocks.update).not.toHaveBeenCalled();
 });

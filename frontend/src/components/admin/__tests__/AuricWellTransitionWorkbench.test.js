@@ -1,5 +1,6 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { flushPromises, shallowMount } from '@vue/test-utils';
+import { defineComponent, ref } from 'vue';
 const mocks = vi.hoisted(() => ({ api: { get: vi.fn(), post: vi.fn(), put: vi.fn() }, agency: { currentAgency: { id: 2, slug: 'practice', name: 'Synthetic practice' } }, auth: { user: { role: 'admin' } } }));
 vi.mock('../../../services/api', () => ({ default: mocks.api }));
 vi.mock('../../../store/agency', () => ({ useAgencyStore: () => mocks.agency }));
@@ -27,6 +28,28 @@ beforeEach(() => {
 async function open() { const wrapper = shallowMount(Workbench, { props: { scopedAgencyId: 2 } }); await flushPromises(); await wrapper.get('.aw-context select').setValue('7'); await flushPromises(); return wrapper; }
 async function click(wrapper, text) { const button = wrapper.findAll('button').find(b => b.text() === text); expect(button, text).toBeTruthy(); await button.trigger('click'); await flushPromises(); }
 async function identity(wrapper) { await wrapper.get('.aw-identity textarea').setValue('Legal Name: Taylor Example\nDate of Birth: 2/3/2010'); await click(wrapper, 'Read patient info and find matches'); }
+it('retains the agenda across tabs and resets it when the provider selection changes', async () => {
+  const agenda = defineComponent({
+    name: 'AuricWellAgendaImport',
+    setup() { return { paste: ref('') }; },
+    template: '<textarea v-model="paste" aria-label="Synthetic retained paste" />'
+  });
+  const wrapper = shallowMount(Workbench, { props: { scopedAgencyId: 2 }, global: { stubs: { AuricWellAgendaImport: agenda } } });
+  await flushPromises();
+  await wrapper.get('.aw-context select').setValue('7'); await flushPromises();
+  await click(wrapper, '2. Import schedule');
+  await wrapper.get('[aria-label="Synthetic retained paste"]').setValue('Monday 09:00 Synthetic Client');
+  await click(wrapper, '1. Clients and chart records');
+  expect(wrapper.get('[aria-label="Synthetic retained paste"]').isVisible()).toBe(false);
+  await click(wrapper, '2. Import schedule');
+  expect(wrapper.get('[aria-label="Synthetic retained paste"]').element.value).toBe('Monday 09:00 Synthetic Client');
+  await wrapper.get('.aw-context select').setValue(''); await flushPromises();
+  expect(wrapper.find('[aria-label="Synthetic retained paste"]').exists()).toBe(false);
+  await wrapper.get('.aw-context select').setValue('7'); await flushPromises();
+  await click(wrapper, '2. Import schedule');
+  expect(wrapper.get('[aria-label="Synthetic retained paste"]').element.value).toBe('');
+  wrapper.unmount();
+});
 it('reuses an incomplete school chart and preserves its primary provider and identity', async () => {
   searchRows = [chart]; const wrapper = await open(); await identity(wrapper); await click(wrapper, 'Use this existing chart');
   expect(mocks.api.post).toHaveBeenCalledWith('/clients/41/provider-assignments', expect.objectContaining({ provider_user_id: 7, is_primary: false }), expect.anything());

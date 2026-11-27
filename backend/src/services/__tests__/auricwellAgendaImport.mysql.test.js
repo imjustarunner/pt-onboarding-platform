@@ -12,7 +12,7 @@ suite('agenda fingerprints and import locks against disposable MySQL', () => {
   const input = { agencyId: 2, providerId: 19, weekStart: '2026-11-16', timeZone: 'America/Denver', text: 'Monday | 09:00 | 09:50 | DEMO QA Avery', defaults: { tenantServiceId: 3, serviceLocationId: 5, modality: 'IN_PERSON', recurrence: 'ONCE' } };
   beforeAll(async () => {
     // This opt-in fixture can only address the task-owned local MySQL instance.
-    const connection = { host: '127.0.0.1', port: 13386, user: 'root', password: '', timezone: '+00:00' };
+    const connection = { host: '127.0.0.1', port: 33319, user: 'root', password: '', timezone: '+00:00' };
     admin = await mysql.createConnection(connection);
     await admin.query(`CREATE DATABASE \`${schema}\``);
     state.db = mysql.createPool({ ...connection, database: schema, connectionLimit: 6 });
