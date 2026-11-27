@@ -1,6 +1,6 @@
 <template>
   <section class="aw-workbench" aria-labelledby="aw-transition-title">
-    <header class="aw-heading"><div><p class="aw-eyebrow">AuricWell · {{ agency?.name || 'Select a practice' }}</p><h2 id="aw-transition-title">EHR Transition</h2><p>Choose a provider, move clients into the same shared charts, preserve their records, then bring over the week’s appointments.</p></div><a v-if="agency" class="btn btn-secondary" :href="providerDirectoryHref">Import providers</a></header>
+    <header class="aw-heading"><div><p class="aw-eyebrow">AuricWell · {{ agency?.name || 'Select a practice' }}</p><h2 id="aw-transition-title">EHR Transition</h2><p>Choose a provider, move clients into the same shared charts, preserve their records, then bring over the provider’s appointments.</p></div><a v-if="agency" class="btn btn-secondary" :href="providerDirectoryHref">Import providers</a></header>
     <p v-if="!canManage" role="status">Select a practice you administer to begin.</p>
     <template v-else>
       <fieldset class="aw-context" :disabled="busy">
@@ -47,7 +47,7 @@
             </section>
           </div>
         </div>
-        <AuricWellAgendaImport v-if="activeTab === 'agenda'" :key="`agenda-${agency.id}-${providerId}`" :agency-id="agency.id" :provider-id="Number(providerId)" :provider-label="providerLabel" @busy="childBusy.agenda = $event" @saved="agendaSaved" />
+        <AuricWellAgendaImport v-if="agendaOpened || activeTab === 'agenda'" v-show="activeTab === 'agenda'" :key="`agenda-${agency.id}-${providerId}`" :agency-id="agency.id" :provider-id="Number(providerId)" :provider-label="providerLabel" @busy="childBusy.agenda = $event" @saved="agendaSaved" />
         <AuricWellSchoolTransition v-if="activeTab === 'school'" :key="`school-${agency.id}-${providerId}`" :agency-id="agency.id" :provider-id="Number(providerId)" @busy="childBusy.school = $event" />
         <p v-if="notice" class="aw-success" role="status">{{ notice }}</p>
       </template>
@@ -73,11 +73,12 @@ const api = transitionRequestScope(sharedApi, () => agency.value?.id);
 const canManage = computed(() => !!agency.value?.id && ['admin', 'super_admin'].includes(String(authStore.user?.role || '').toLowerCase()));
 const providers = ref([]), organizations = ref([]), providerId = ref(''), caseload = ref([]), currentClient = ref(null), sourceEhr = ref('TherapyNotes'), activeTab = ref('clients'), clientTab = ref('chart'), loading = ref(false), writing = ref(false), error = ref(''), notice = ref(''), identityPaste = ref(''), candidates = ref([]), searchComplete = ref(false), confirmedNew = ref(false), newOrganizationId = ref('');
 const identity = reactive({ fullName: '', dateOfBirth: '', phone: '' }), progress = reactive({});
+const agendaOpened = ref(false);
 const childBusy = reactive({ chart: false, archive: false, agenda: false, school: false });
 const busy = computed(() => loading.value || writing.value || Object.values(childBusy).some(Boolean));
 defineExpose({ beforeNavigate: () => { if (!busy.value) return true; error.value = 'Wait for the current transition step to finish before leaving.'; return false; } });
 onBeforeUnmount(() => { generation++; });
-const tabs = [{ id: 'clients', label: '1. Clients and chart records' }, { id: 'agenda', label: '2. Weekly agenda' }, { id: 'school', label: '3. School appointment connection' }];
+const tabs = [{ id: 'clients', label: '1. Clients and chart records' }, { id: 'agenda', label: '2. Import schedule' }, { id: 'school', label: '3. School appointment connection' }];
 const providerLabel = computed(() => { const provider = providers.value.find(p => Number(p.id) === Number(providerId.value)); return provider ? [provider.first_name, provider.last_name].filter(Boolean).join(' ') : 'Provider'; });
 const prefix = computed(() => agency.value?.slug || agency.value?.portal_url ? `/${encodeURIComponent(agency.value.slug || agency.value.portal_url)}` : '');
 const providerDirectoryHref = computed(() => `${prefix.value}/admin/providers?agencyId=${agency.value?.id}`);
@@ -92,7 +93,8 @@ const message = e => e.response?.data?.error?.message || e.message || 'Unable to
 function resetClient() { Object.keys(childBusy).forEach(key => { childBusy[key] = false; }); currentClient.value = null; identityPaste.value = ''; candidates.value = []; searchComplete.value = false; confirmedNew.value = false; Object.assign(identity, { fullName: '', dateOfBirth: '', phone: '' }); clientTab.value = 'chart'; notice.value = ''; }
 function beginClient() { if (!busy.value) resetClient(); }
 watch(() => agency.value?.id, () => { generation++; providerId.value = ''; providers.value = []; caseload.value = []; organizations.value = []; resetClient(); void loadContext(); }, { immediate: true });
-watch(providerId, () => { generation++; caseload.value = []; resetClient(); activeTab.value = props.initialTab; void loadCaseload(); });
+watch(providerId, () => { generation++; caseload.value = []; resetClient(); activeTab.value = props.initialTab; agendaOpened.value = activeTab.value === 'agenda'; void loadCaseload(); });
+watch(activeTab, tab => { if (tab === 'agenda') agendaOpened.value = true; });
 async function loadContext() {
   if (!canManage.value) return;
   const id = generation, agencyId = Number(agency.value.id); loading.value = true; error.value = '';

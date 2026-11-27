@@ -58,7 +58,7 @@ it('locks provider changes and navigation while a child saves', async () => {
   panel.vm.$emit('busy', false); await flushPromises(); expect(wrapper.vm.beforeNavigate()).toBe(true); wrapper.unmount();
 });
 it('keeps partial agenda results visible without claiming a successful import', async () => {
-  const wrapper = await open(); await click(wrapper, '2. Weekly agenda');
+  const wrapper = await open(); await click(wrapper, '2. Import schedule');
   wrapper.findComponent({ name: 'AuricWellAgendaImport' }).vm.$emit('saved', { complete: false, error: 'One visit still needs review', savedAppointmentIds: [81] });
   await flushPromises(); expect(wrapper.get('[role=alert]').text()).toContain('One visit still needs review');
   expect(wrapper.text()).not.toContain('Agenda import saved.'); wrapper.unmount();

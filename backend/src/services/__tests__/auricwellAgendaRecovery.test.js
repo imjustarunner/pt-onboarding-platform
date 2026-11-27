@@ -11,11 +11,13 @@ vi.mock('../../config/database.js', () => ({ onTableWrite: vi.fn(), default: { e
 vi.mock('../../models/User.model.js', () => ({ default: { findById: vi.fn(async () => ({ id: 19, email: 'provider@example.test' })) } }));
 vi.mock('../sameDayServiceWarning.service.js', () => ({ confirmSameDayServiceWarnings: vi.fn(async () => true), sameDayServiceWarnings: vi.fn(async () => []) }));
 vi.mock('../schedulingBillingAccess.service.js', () => ({ hasSchedulingBillingAccess: vi.fn(async () => true), schedulingResponseForUser: vi.fn(async (_user, _agencyId, payload) => payload) }));
+vi.mock('../appointmentScheduleNotice.service.js', () => ({ appointmentScheduleNotices: { queue: vi.fn(async () => {}) } }));
+vi.mock('../sessionNotification.service.js', () => ({ scheduleSessionNotifications: vi.fn(async () => {}) }));
 vi.mock('../googleCalendar.service.js', () => ({ default: { upsertProviderPrimaryCalendarEvent: vi.fn(async () => ({ skipped: true })) } }));
 vi.mock('../appointmentClinicalLink.service.js', () => ({ ensureAppointmentClinicalLink: vi.fn(async () => []) }));
 vi.mock('../appointmentConflict.service.js', () => ({
   appointmentOccupiesTime: () => true, withAppointmentWindow: vi.fn(),
-  assertAppointmentWindowAvailable: vi.fn(async (_db, row) => {
+  reviewGroupSupervisionOverlap: vi.fn(async () => []), assertAppointmentWindowAvailable: vi.fn(async (_db, row) => {
     if (state.events.some(event => event.provider_id === row.providerUserId && event.start_at < row.endAt && event.end_at > row.startAt && event.id !== row.providerScheduleEventId)) {
       throw Object.assign(new Error('Calendar event conflicts with this appointment'), { status: 409 });
     }
@@ -28,9 +30,9 @@ vi.mock('../../models/ProviderScheduleEvent.model.js', () => ({ default: { creat
 }) } }));
 vi.mock('../appointment.service.js', () => ({
   createAppointment: vi.fn(async input => {
-    const { wallMysqlToUtcMysql } = await import('../../utils/zonedWallTime.util.js');
+    const { clientScheduleInstantToUtcMysql } = await import('../../utils/zonedWallTime.util.js');
     const appointment = { id: state.appointments.length + 101, agency_id: input.agencyId, provider_user_id: input.providerUserId, source: input.source,
-      start_at: wallMysqlToUtcMysql(input.startAt, input.timeZone), end_at: wallMysqlToUtcMysql(input.endAt, input.timeZone), status: 'scheduled',
+      start_at: clientScheduleInstantToUtcMysql(input.startAt, input.timeZone), end_at: clientScheduleInstantToUtcMysql(input.endAt, input.timeZone), status: 'scheduled',
       service_location_id: input.serviceLocationId, tenant_service_id: input.tenantServiceId, modality: input.modality, provider_schedule_event_id: null };
     state.appointments.push(appointment);
     state.participants.push({ id: state.participants.length + 1, appointment_id: appointment.id, client_id: input.participants[0].clientId, role: 'client', sort_order: 0 });

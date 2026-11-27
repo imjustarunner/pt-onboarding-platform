@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import mysql from 'mysql2/promise';
 const state = vi.hoisted(() => ({ db: null }));
 vi.mock('../../config/database.js', () => ({ default: { execute: (...args) => state.db.execute(...args), getConnection: (...args) => state.db.getConnection(...args) }, onTableWrite: vi.fn() }));
+import { agendaOfficeReservation } from '../auricwellAgendaOffice.service.js';
 import { createAuricwellAgendaImporter } from '../auricwellAgendaImport.service.js';
 
 const suite = process.env.AURICWELL_AGENDA_MYSQL_TEST === '1' ? describe : describe.skip;
@@ -18,12 +19,18 @@ suite('agenda fingerprints and import locks against disposable MySQL', () => {
     for (const sql of [
       'CREATE TABLE clients (id INT PRIMARY KEY,full_name VARCHAR(100)) ENGINE=InnoDB',
       `CREATE TABLE appointments (id INT AUTO_INCREMENT PRIMARY KEY,agency_id INT,provider_user_id INT,start_at DATETIME,end_at DATETIME,
-        status VARCHAR(32) DEFAULT 'scheduled',tenant_service_id INT,service_location_id INT,modality VARCHAR(32),source VARCHAR(64),provider_schedule_event_id INT NULL,office_event_id INT NULL,
+        status VARCHAR(32) DEFAULT 'scheduled',tenant_service_id INT,service_location_id INT,modality VARCHAR(32),source VARCHAR(64),provider_schedule_event_id INT NULL,office_event_id INT NULL,room_id INT NULL,
         KEY provider_window(provider_user_id,start_at),KEY agency_source(agency_id,source)) ENGINE=InnoDB`,
       `CREATE TABLE appointment_participants (id INT AUTO_INCREMENT PRIMARY KEY,appointment_id INT,client_id INT,role VARCHAR(32),sort_order INT DEFAULT 0,
         FOREIGN KEY(appointment_id) REFERENCES appointments(id),FOREIGN KEY(client_id) REFERENCES clients(id)) ENGINE=InnoDB`,
       `CREATE TABLE provider_schedule_events (id INT AUTO_INCREMENT PRIMARY KEY,agency_id INT,provider_id INT,client_id INT,start_at DATETIME,end_at DATETIME,
         status VARCHAR(32),kind VARCHAR(32),reason_code VARCHAR(64)) ENGINE=InnoDB`,
+      'CREATE TABLE office_locations (id INT PRIMARY KEY,agency_id INT,timezone VARCHAR(80),is_active BOOLEAN)',
+      'CREATE TABLE office_location_agencies (office_location_id INT,agency_id INT)',
+      'CREATE TABLE office_rooms (id INT PRIMARY KEY,location_id INT,name VARCHAR(50),label VARCHAR(50),sort_order INT,is_active BOOLEAN)',
+      `CREATE TABLE office_events (id INT PRIMARY KEY,office_location_id INT,room_id INT,assigned_provider_id INT,booked_provider_id INT,
+        start_at DATETIME,end_at DATETIME,status VARCHAR(20),slot_state VARCHAR(24),client_id INT,clinical_session_id INT,
+        note_context_id INT,billing_context_id INT,session_context_json JSON)`,
       "INSERT INTO clients VALUES (41,'DEMO QA Avery')"
     ]) await state.db.query(sql);
   }, 20000);
@@ -82,4 +89,19 @@ suite('agenda fingerprints and import locks against disposable MySQL', () => {
     const [[counts]] = await state.db.execute('SELECT COUNT(*) count FROM appointments');
     expect(Number(counts.count)).toBe(1);
   });
+  it('uses only an available room assigned to this provider at the selected office', async () => {
+    await state.db.execute("INSERT INTO office_locations VALUES (90,2,'America/Denver',1),(99,3,'America/Denver',1)");
+    await state.db.execute("INSERT INTO office_rooms VALUES (91,90,'Preferred','Room A',0,1),(92,90,'Second','Room B',1,1),(93,90,'Other','Room C',2,1)");
+    await state.db.execute(`INSERT INTO office_events
+      (id,office_location_id,room_id,assigned_provider_id,start_at,end_at,status,slot_state,session_context_json)
+      VALUES (900,90,91,19,'2026-11-16 16:00:00','2026-11-16 17:00:00','RELEASED','ASSIGNED_AVAILABLE',JSON_OBJECT('agencyId',3)),
+             (901,90,92,19,'2026-11-16 16:00:00','2026-11-16 17:00:00','RELEASED','ASSIGNED_AVAILABLE',JSON_OBJECT('agencyId',2)),
+             (902,90,93,20,'2026-11-16 16:00:00','2026-11-16 17:00:00','BOOKED','ASSIGNED_BOOKED',NULL)`);
+    const row = { agencyId: 2, providerId: 19, officeLocationId: 90, startAt: '2026-11-16 16:10:00', endAt: '2026-11-16 16:55:00' };
+    await expect(agendaOfficeReservation({ actor, row })).resolves.toMatchObject({ eventId: 901, roomId: 92, label: 'Room B' });
+    await state.db.execute("INSERT INTO appointments (agency_id,provider_user_id,room_id,start_at,end_at) VALUES (2,21,92,'2026-11-16 16:15:00','2026-11-16 16:30:00')");
+    await expect(agendaOfficeReservation({ actor, row })).resolves.toBeNull();
+    await expect(agendaOfficeReservation({ actor, row: { ...row, officeLocationId: 99 } })).rejects.toMatchObject({ status: 400 });
+  });
+
 });

@@ -1,43 +1,59 @@
 <template>
   <section class="aw-agenda-import" aria-labelledby="aw-agenda-title">
-    <h3 id="aw-agenda-title">Import {{ providerLabel || 'the provider' }}’s weekly agenda</h3>
-    <p>Paste the week, review each client and appointment, then create the sessions in the shared schedule. Existing matching appointments are reused. Normal appointment notifications apply.</p>
+    <h3 id="aw-agenda-title">Import {{ providerLabel || 'the provider' }}’s schedule</h3>
+    <p>Paste the schedule, review client matches and locations, then book the appointments.</p>
     <p v-if="loading" role="status">Loading this provider’s caseload and booking options…</p>
     <p v-if="error" class="aw-error" role="alert">{{ error }}</p>
     <template v-if="options">
       <div class="aw-agenda-context">
-        <label>Week starts Monday<input v-model="weekStart" type="date" :disabled="busy" @input="invalidate" /></label>
+        <label>How to schedule
+          <select v-model="scheduleMode" :disabled="busy" @change="onPasteChange">
+            <option value="as_sent">Schedule as pasted</option>
+            <option value="recurring">Schedule as recurring</option>
+          </select>
+        </label>
+        <label>Monday of the first week<input v-model="weekStart" type="date" :disabled="busy" @input="onPasteChange" /></label>
+        <label v-if="scheduleMode === 'recurring'">Last appointment date<input v-model="untilDate" type="date" :min="weekStart" :disabled="busy" @input="invalidate" /></label>
         <label>Agenda time zone<input v-model="timeZone" type="text" placeholder="America/Denver" :disabled="busy" @input="invalidate" /></label>
+      </div>
+      <details>
+        <summary>Defaults for fields missing from the paste</summary>
+        <div class="aw-agenda-context">
         <label>Duration when no end time is pasted (minutes)<input v-model="defaults.durationMinutes" type="number" min="5" max="240" placeholder="Choose a duration" :disabled="busy" @input="invalidate" /></label>
         <label>Service for pasted rows<select v-model="defaults.tenantServiceId" :disabled="busy" @change="invalidate"><option value="">Choose a service</option><option v-for="service in options.services" :key="service.id" :value="service.id">{{ service.name }} · {{ service.serviceCode }}</option></select></label>
         <label>Location for pasted rows<select v-model="defaults.serviceLocationId" :disabled="busy" @change="invalidate"><option value="">Choose a location</option><option v-for="location in options.locations" :key="location.id" :value="location.id">{{ serviceLocationDisplay(location) }}</option></select></label>
         <label>Care setting<select v-model="defaults.modality" :disabled="busy" @change="invalidate"><option value="">Choose a setting</option><option value="IN_PERSON">In person</option><option value="TELEHEALTH">Telehealth</option></select></label>
-        <label>Repeat pasted appointments<select v-model="defaults.recurrence" :disabled="busy" @change="invalidate"><option value="ONCE">Only this week</option><option value="WEEKLY">Weekly</option><option value="BIWEEKLY">Every two weeks</option></select></label>
-        <label v-if="defaults.recurrence !== 'ONCE'">Total appointments per row<input v-model="defaults.occurrenceCount" type="number" min="1" max="52" placeholder="Choose a count" :disabled="busy" @input="invalidate" /></label>
-      </div>
-      <label class="aw-paste-label">Weekly agenda paste
+        </div>
+      </details>
+      <label class="aw-paste-label">Schedule paste
         <textarea v-model="text" rows="7" :disabled="busy" placeholder="Monday | 09:00 | 09:50 | Client name&#10;Tuesday | 1:00 PM | 1:50 PM | Another client" @input="onPasteChange" />
       </label>
-      <p class="aw-agenda-hint">Use a weekday or full date, a start time, an end time, and the client name. Separate columns with tabs or |. Use explicit AM/PM on each time or 24-hour time. School appointments require an activated school transition and a matching saved school slot. Office room reservations remain in Office Scheduling.</p>
-      <button type="button" :disabled="busy || !text.trim() || !weekStart" @click="previewPaste">{{ previewing ? 'Reading agenda…' : 'Read pasted agenda' }}</button>
+      <p class="aw-agenda-hint">Paste dates, times, client names or initials, service codes, and locations. For school visits, we’ll look up the client’s school and link its planning hold after the school appointment connection is active. Office visits use an available room already assigned to the provider when one covers the visit.</p>
+      <p v-if="scheduleMode === 'recurring'" class="aw-agenda-hint">Consistent weekly or biweekly patterns become series through the last appointment date. Review each frequency and the dates it will book.</p>
+      <button type="button" :disabled="busy || !text.trim() || !weekStart || (scheduleMode === 'recurring' && !untilDate)" @click="previewPaste">{{ previewing ? 'Reading agenda…' : 'Read pasted agenda' }}</button>
       <button type="button" :disabled="busy" @click="loadOptions(true)">Refresh provider options</button>
 
       <template v-if="rows.length">
         <h4>Review appointments</h4>
-        <p>Choose the existing client for any unmatched name. Review dates, times, services, locations, and recurrence before checking the final preview.</p>
+        <p>Choose a chart when a name or initials are unclear. Review each visit before booking.</p>
         <div class="aw-agenda-table-wrap">
           <table>
             <thead><tr><th>Include</th><th>Client</th><th>Date</th><th>Start / end</th><th>Service / location</th><th>Setting</th><th>Repeat</th><th>Review</th></tr></thead>
             <tbody>
               <tr v-for="(row, index) in rows" :key="row.rowId" :class="{ 'aw-row-excluded': row.include === false }">
                 <td><input v-model="row.include" type="checkbox" :aria-label="`Include row ${index + 1}`" :disabled="busy" @change="invalidate" /></td>
-                <td><span class="aw-source">{{ row.clientInput || row.sourceLine || `Row ${index + 1}` }}</span><select v-model="row.clientId" :aria-label="`Client for row ${index + 1}`" :disabled="busy" @change="invalidate"><option :value="null">Choose existing client</option><option v-for="client in options.clients" :key="client.id" :value="client.id">{{ client.label }} · #{{ client.id }}</option></select></td>
+                <td><span class="aw-source">{{ row.clientInput || row.sourceLine || `Row ${index + 1}` }}</span><select v-model="row.clientId" :aria-label="`Client for row ${index + 1}`" :disabled="busy" @change="onClientChange(row)"><option :value="null">Choose existing client</option><option v-for="client in clientsFor(row)" :key="client.id" :value="client.id">{{ client.label }} · #{{ client.id }}</option></select></td>
                 <td><input v-model="row.date" type="date" :aria-label="`Date for row ${index + 1}`" :disabled="busy" @input="invalidate" /></td>
                 <td><input v-model="row.startTime" type="time" :aria-label="`Start for row ${index + 1}`" :disabled="busy" @input="invalidate" /><input v-model="row.endTime" type="time" :aria-label="`End for row ${index + 1}`" :disabled="busy" @input="invalidate" /><small v-if="row.durationMinutes">{{ row.durationMinutes }} minutes in last preview</small></td>
-                <td><select v-model="row.tenantServiceId" :aria-label="`Service for row ${index + 1}`" :disabled="busy" @change="invalidate"><option :value="null">Choose service</option><option v-for="service in options.services" :key="service.id" :value="service.id">{{ service.name }} · {{ service.serviceCode }}</option></select><select v-model="row.serviceLocationId" :aria-label="`Location for row ${index + 1}`" :disabled="busy" @change="invalidate"><option :value="null">Choose location</option><option v-for="location in options.locations" :key="location.id" :value="location.id">{{ location.name }}</option></select><select v-if="schoolFor(row)" v-model="row.schoolSlotId" :aria-label="`School slot for row ${index + 1}`" :disabled="busy" @change="invalidate"><option :value="null">Match a single saved school slot</option><option v-for="slot in availableSlots(row)" :key="slot.id" :value="slot.id">{{ slot.label }}</option></select></td>
+                <td><small v-if="row.serviceCodeInput || row.locationInput">{{ [row.serviceCodeInput, row.locationInput].filter(Boolean).join(' · ') }}</small><select v-model="row.tenantServiceId" :aria-label="`Service for row ${index + 1}`" :disabled="busy" @change="invalidate"><option :value="null">Choose service</option><option v-for="service in options.services" :key="service.id" :value="service.id">{{ service.name }} · {{ service.serviceCode }}</option></select><select v-model="row.serviceLocationId" :aria-label="`Location for row ${index + 1}`" :disabled="busy" @change="onLocationChange(row)"><option :value="null">Choose location</option><option v-for="location in options.locations" :key="location.id" :value="location.id">{{ location.name }}</option></select><select v-if="schoolFor(row)" v-model="row.schoolSlotId" :aria-label="`School slot for row ${index + 1}`" :disabled="busy" @change="invalidate"><option :value="null">Match a single saved school slot</option><option v-for="slot in availableSlots(row)" :key="slot.id" :value="slot.id">{{ slot.label }}</option></select></td>
                 <td><select v-model="row.modality" :aria-label="`Setting for row ${index + 1}`" :disabled="busy" @change="invalidate"><option value="">Choose</option><option value="IN_PERSON">In person</option><option value="TELEHEALTH">Telehealth</option></select></td>
-                <td><select v-model="row.recurrence" :aria-label="`Repeat for row ${index + 1}`" :disabled="busy" @change="invalidate"><option value="ONCE">Once</option><option value="WEEKLY">Weekly</option><option value="BIWEEKLY">Every two weeks</option></select><input v-if="row.recurrence !== 'ONCE'" v-model="row.occurrenceCount" type="number" min="1" max="52" :aria-label="`Appointment count for row ${index + 1}`" :disabled="busy" @input="invalidate" /></td>
-                <td><span>{{ row.status === 'blocked' ? 'Needs review' : row.status === 'existing' ? 'Already scheduled' : 'Ready in last preview' }}</span><p v-for="message in row.errors || []" :key="message" class="aw-error">{{ message }}</p><p v-for="message in row.warnings || []" :key="message" class="aw-warning">{{ message }}</p><small v-if="row.existingCount">{{ row.existingCount }} existing appointment(s) kept</small></td>
+                <td>
+                  <select v-if="scheduleMode === 'recurring'" v-model="row.recurrence" :aria-label="`Repeat for row ${index + 1}`" :disabled="busy" @change="invalidate"><option value="ONCE">Once</option><option value="WEEKLY">Weekly</option><option value="BIWEEKLY">Every two weeks</option></select>
+                  <span v-else>Once</span>
+                  <details v-if="row.occurrenceDates?.length > 1"><summary>{{ row.occurrenceDates.length }} dates</summary><small v-for="date in row.occurrenceDates" :key="date">{{ date }}</small></details>
+                  <small v-if="row.pastedDates?.length > 1">{{ row.pastedDates.length }} visits in the paste</small>
+                </td>
+                <td><span>{{ row.status === 'blocked' ? 'Needs review' : row.status === 'existing' ? 'Already scheduled' : 'Ready in last preview' }}</span><p v-for="message in row.errors || []" :key="message" class="aw-error">{{ message }}</p><p v-for="message in row.warnings || []" :key="message" class="aw-warning">{{ message }}</p><small v-if="row.replacesSchoolHold">Replaces the linked school planning hold.</small><small v-for="room in row.officeRooms || []" :key="room.date">{{ room.date }} · {{ room.label }} available at preview</small><small v-if="row.existingCount">{{ row.existingCount }} existing appointment(s) kept</small></td>
               </tr>
             </tbody>
           </table>
@@ -51,7 +67,8 @@
       </template>
       <div v-if="result" class="aw-agenda-result" :class="{ 'aw-warning': !result.complete }" role="status">
         <p v-if="result.complete">Scheduled {{ result.createdCount }} new appointments; kept {{ result.existingCount }} existing appointments.</p>
-        <template v-else><p>{{ result.error }}</p><p>{{ result.message }}</p><p v-if="result.savedAppointmentIds?.length">Saved appointment IDs: {{ result.savedAppointmentIds.join(', ') }}</p></template>
+        <p v-if="result.complete && (result.officeRoomsBooked || result.officeVisitsWithoutRoom)">Office visits · {{ result.officeRoomsBooked }} with a room · {{ result.officeVisitsWithoutRoom }} at the building without a room.</p>
+        <template v-if="!result.complete"><p>{{ result.error }}</p><p>{{ result.message }}</p><p v-if="result.savedAppointmentIds?.length">Saved appointment IDs: {{ result.savedAppointmentIds.join(', ') }}</p></template>
       </div>
     </template>
   </section>
@@ -60,22 +77,38 @@
 <script setup>
 import {serviceLocationDisplay} from '../../utils/serviceLocationDisplay.js';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
-import api from '../../services/api';
+import sharedApi from '../../services/api';
+import { transitionRequestScope } from '../../utils/transitionRequestScope.js';
 const props = defineProps({ agencyId: { type: [Number, String], required: true }, providerId: { type: [Number, String], required: true }, providerLabel: { type: String, default: '' } });
 const emit = defineEmits(['saved', 'busy']);
+const api = transitionRequestScope(sharedApi, () => props.agencyId);
 const options = ref(null), loading = ref(false), previewing = ref(false), saving = ref(false), error = ref('');
-const weekStart = ref(''), timeZone = ref(''), text = ref(''), rows = ref([]), summary = ref(null), previewToken = ref(null), confirmed = ref(false), acknowledgeSameDay = ref(false), result = ref(null);
-const defaults = ref({ durationMinutes: '', tenantServiceId: '', serviceLocationId: '', modality: '', recurrence: 'ONCE', occurrenceCount: '' });
+const weekStart = ref(''), scheduleMode = ref('as_sent'), untilDate = ref(''), timeZone = ref(''), text = ref(''), rows = ref([]), summary = ref(null), previewToken = ref(null), confirmed = ref(false), acknowledgeSameDay = ref(false), result = ref(null);
+const defaults = ref({ durationMinutes: '', tenantServiceId: '', serviceLocationId: '', modality: '', recurrence: 'ONCE' });
 const busy = computed(() => loading.value || previewing.value || saving.value);
 watch(busy, value => emit('busy', value), { flush: 'sync' });
 let requestId = 0;
 const contextKey = () => `${Number(props.agencyId)}:${Number(props.providerId)}`;
 const schoolFor = row => options.value?.locations.find(location => Number(location.id) === Number(row.serviceLocationId))?.schoolId || null;
 const availableSlots = row => (options.value?.schoolSlots || []).filter(slot => Number(slot.schoolId) === Number(schoolFor(row)) && Number(slot.clientId) === Number(row.clientId));
+function clientsFor(row) {
+  const ids = row.clientCandidateIds || [];
+  return [...options.value.clients].sort((a, b) => Number(ids.includes(b.id)) - Number(ids.includes(a.id)));
+}
+function onClientChange(row) {
+  row.schoolSlotId = null;
+  if (schoolFor(row)) row.serviceLocationId = null;
+  invalidate();
+}
+function onLocationChange(row) {
+  row.schoolSlotId = null;
+  row.modality = '';
+  invalidate();
+}
 function invalidate() { previewToken.value = null; confirmed.value = false; acknowledgeSameDay.value = false; }
 function onPasteChange() { invalidate(); rows.value = []; summary.value = null; result.value = null; }
 function payload(reviewed) {
-  return { agencyId: Number(props.agencyId), providerId: Number(props.providerId), weekStart: weekStart.value, timeZone: timeZone.value.trim(), defaults: { ...defaults.value },
+  return { agencyId: Number(props.agencyId), providerId: Number(props.providerId), weekStart: weekStart.value, scheduleMode: scheduleMode.value, untilDate: untilDate.value || undefined, timeZone: timeZone.value.trim(), defaults: { ...defaults.value },
     ...(reviewed ? { rows: rows.value.filter(row => row.include !== false).map(row => ({ ...row })) } : { text: text.value }) };
 }
 function showError(exception) { error.value = exception?.response?.data?.error?.message || exception?.message || 'The agenda could not be checked.'; }
@@ -84,8 +117,8 @@ async function loadOptions(preserveInput = false) {
   const id = ++requestId, key = contextKey();
   error.value = ''; invalidate();
   if (!preserve) {
-    options.value = null; text.value = ''; rows.value = []; summary.value = null; result.value = null;
-    defaults.value = { durationMinutes: '', tenantServiceId: '', serviceLocationId: '', modality: '', recurrence: 'ONCE', occurrenceCount: '' };
+    options.value = null; text.value = ''; weekStart.value = ''; untilDate.value = ''; scheduleMode.value = 'as_sent'; rows.value = []; summary.value = null; result.value = null;
+    defaults.value = { durationMinutes: '', tenantServiceId: '', serviceLocationId: '', modality: '', recurrence: 'ONCE' };
   }
   loading.value = false;
   if (!Number(props.agencyId) || !Number(props.providerId)) return;
@@ -102,9 +135,9 @@ async function preview(reviewed) {
   const key = contextKey(), input = payload(reviewed);
   error.value = ''; result.value = null; invalidate(); previewing.value = true;
   try {
-    const { data } = await api.post('/auricwell-agenda-import/preview', input);
+    const { data } = await api.post('/auricwell-agenda-import/preview', input, { timeout: 180000 });
     if (key !== contextKey()) return;
-    rows.value = data.rows.map(row => ({ ...row, include: true })); summary.value = data.summary; previewToken.value = data.previewToken;
+    rows.value = data.rows.map(row => ({ ...row, recurrence: row.recurrence || 'ONCE', include: true })); summary.value = data.summary; previewToken.value = data.previewToken;
   } catch (exception) { if (key === contextKey()) showError(exception); }
   finally { previewing.value = false; }
 }
@@ -114,7 +147,7 @@ async function commit() {
   const key = contextKey(), input = { ...payload(true), previewToken: previewToken.value, confirm: true, acknowledgeSameDayServices: acknowledgeSameDay.value };
   error.value = ''; result.value = null; saving.value = true;
   try {
-    const { data } = await api.post('/auricwell-agenda-import/commit', input);
+    const { data } = await api.post('/auricwell-agenda-import/commit', input, { timeout: 300000 });
     emit('saved', { ...data, agencyId: input.agencyId, providerId: input.providerId });
     if (key !== contextKey()) return;
     result.value = data; invalidate();

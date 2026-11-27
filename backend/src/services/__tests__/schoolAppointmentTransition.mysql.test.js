@@ -32,7 +32,9 @@ describe.skipIf(!process.env.SCHOOL_TRANSITION_TEST_MYSQL_PORT)('school transiti
    'CREATE TABLE agencies(id INT PRIMARY KEY,name VARCHAR(60),organization_type VARCHAR(20),timezone VARCHAR(60))',
    'CREATE TABLE users(id INT PRIMARY KEY,first_name VARCHAR(60),last_name VARCHAR(60))',
    'CREATE TABLE tenant_services(id INT UNSIGNED PRIMARY KEY)',
-   'CREATE TABLE clients(id INT PRIMARY KEY,agency_id INT,organization_id INT,provider_id INT,initials VARCHAR(20),identifier_code VARCHAR(30))',
+   'CREATE TABLE clients(id INT PRIMARY KEY,agency_id INT,organization_id INT,provider_id INT,initials VARCHAR(20),identifier_code VARCHAR(30),status VARCHAR(30) DEFAULT \'ACTIVE\',client_status_id INT,is_demo BOOLEAN,created_via_dev_fill BOOLEAN,compliance_archived_at DATETIME,termination_reason VARCHAR(100),terminated_at DATETIME,terminated_by_user_id INT,termination_last_provider_id INT,termination_last_provider_name VARCHAR(100),termination_effective_date DATE,updated_at DATETIME)',
+   'CREATE TABLE client_statuses(id INT PRIMARY KEY,status_key VARCHAR(30))',
+   'CREATE TABLE client_agency_assignments(client_id INT,agency_id INT,is_active BOOLEAN)',
    'CREATE TABLE provider_school_assignments(id INT PRIMARY KEY,school_organization_id INT,provider_user_id INT,day_of_week VARCHAR(20),is_active BOOLEAN,start_time TIME,end_time TIME)',
    'CREATE TABLE agency_service_locations(id INT PRIMARY KEY,agency_id INT,school_organization_id INT)',
    'CREATE TABLE client_organization_assignments(client_id INT,organization_id INT,is_active BOOLEAN)',
@@ -41,12 +43,12 @@ describe.skipIf(!process.env.SCHOOL_TRANSITION_TEST_MYSQL_PORT)('school transiti
    'CREATE TABLE school_profiles(school_organization_id INT,district_name VARCHAR(60))',
    'CREATE TABLE company_events(id INT,agency_id INT,organization_id INT,district_name VARCHAR(60),event_type VARCHAR(60),title VARCHAR(60),description TEXT,starts_at DATETIME,ends_at DATETIME,timezone VARCHAR(60),created_at DATETIME,created_by_user_id INT,is_active BOOLEAN,school_event_status VARCHAR(30))',
    'CREATE TABLE client_schedule_termination_jobs(id INT,client_id INT,completed_at DATETIME)',
-   'CREATE TABLE office_events(id INT,booked_provider_id INT,assigned_provider_id INT,client_id INT,status VARCHAR(30),start_at DATETIME,end_at DATETIME)',
+   'CREATE TABLE office_events(id INT,booked_provider_id INT,assigned_provider_id INT,client_id INT,status VARCHAR(30),start_at DATETIME,end_at DATETIME,updated_at DATETIME,session_context_json JSON)',
    'CREATE TABLE supervision_sessions(id INT,status VARCHAR(30),start_at DATETIME,end_at DATETIME,supervisor_user_id INT,co_facilitator_user_id INT,session_type VARCHAR(30),supervisee_user_id INT)',
    'CREATE TABLE supervision_session_attendees(session_id INT,user_id INT,is_required BOOLEAN,status VARCHAR(30))',
    'CREATE TABLE clinical_sessions(id INT PRIMARY KEY,appointment_id INT)',
    'CREATE TABLE clinical_notes(id INT PRIMARY KEY,clinical_session_id INT,is_deleted BOOLEAN,provider_signed_at DATETIME)',
-   'CREATE TABLE provider_schedule_events(id INT PRIMARY KEY,start_at DATETIME,end_at DATETIME,status VARCHAR(30),updated_by_user_id INT)'
+   'CREATE TABLE provider_schedule_events(id INT PRIMARY KEY,provider_id INT,agency_id INT,start_at DATETIME,end_at DATETIME,status VARCHAR(30),updated_by_user_id INT,recurrence_series_id VARCHAR(100),recurrence_frequency VARCHAR(30))'
   ])await db.query(sql);
   for(const file of ['979_unified_appointments.sql','238_school_portal_soft_schedule_slots.sql','1786_school_appointment_transition.sql']){
    const contents=await readFile(new URL(`../../../../database/migrations/${file}`,import.meta.url),'utf8');for(const sql of splitSqlStatements(contents)){await db.query(sql);if(/CREATE TRIGGER school_schedule_slot_identity_detach/.test(sql))createSafetyTrigger=sql;}
@@ -61,11 +63,11 @@ describe.skipIf(!process.env.SCHOOL_TRANSITION_TEST_MYSQL_PORT)('school transiti
  });
  beforeEach(async()=>{
   for(const table of ['school_schedule_appointment_links','school_schedule_transitions','appointment_participants','appointment_billing','appointments','soft_schedule_slots','clients','client_provider_assignments','client_organization_assignments','clinical_notes','clinical_sessions','provider_schedule_events','company_events'])await db.query(`DELETE FROM ${table}`);
-  await db.query("INSERT INTO clients VALUES(1,450,451,7,'AA','SYN-AA'),(2,450,451,7,'BB','SYN-BB'),(3,999,451,7,'XX','OTHER-PRACTICE')");
+  await db.query("INSERT INTO clients(id,agency_id,organization_id,provider_id,initials,identifier_code) VALUES(1,450,451,7,'AA','SYN-AA'),(2,450,451,7,'BB','SYN-BB'),(3,999,451,7,'XX','OTHER-PRACTICE')");
   await db.query('INSERT INTO client_organization_assignments VALUES(1,451,1),(2,451,1),(3,451,1)');await db.query('INSERT INTO client_provider_assignments VALUES(1,451,7,1),(2,451,7,1)');
   await db.query("INSERT INTO soft_schedule_slots(id,school_organization_id,weekday,provider_user_id,slot_index,start_time,end_time,client_id,created_by_user_id,updated_by_user_id) VALUES(10,451,'Monday',7,1,'09:00','10:00',1,99,99),(11,451,'Monday',7,2,NULL,NULL,2,99,99)");
   await db.query("INSERT INTO appointments(id,agency_id,provider_user_id,start_at,end_at,status,source,service_location_id,source_timezone,product_origin,service_code,provider_schedule_event_id) VALUES(100,450,7,'2028-11-06 16:00:00','2028-11-06 17:00:00','scheduled','school_weekly',10,'America/Denver','full_suite','90837',77)");
-  await db.query("INSERT INTO appointment_participants(appointment_id,client_id,role) VALUES(100,1,'client')");await db.query("INSERT INTO provider_schedule_events VALUES(77,'2028-11-06 16:00:00','2028-11-06 17:00:00','ACTIVE',99)");
+  await db.query("INSERT INTO appointment_participants(appointment_id,client_id,role) VALUES(100,1,'client')");await db.query("INSERT INTO provider_schedule_events(id,provider_id,agency_id,start_at,end_at,status,updated_by_user_id) VALUES(77,7,450,'2028-11-06 16:00:00','2028-11-06 17:00:00','ACTIVE',99)");
   m.rollout.mockResolvedValue({enabled:true});m.clinical.mockClear();m.notices.mockClear();m.notifications.mockClear();
  });
  afterAll(async()=>{await db?.end();if(admin){await admin.query(`DROP DATABASE ${schema}`);await admin.end();}});

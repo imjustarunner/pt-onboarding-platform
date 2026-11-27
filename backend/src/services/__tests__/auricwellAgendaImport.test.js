@@ -142,3 +142,99 @@ describe('reviewed agenda creation', () => {
     expect(deps.book).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('pasted schedule modes', () => {
+  const text = `1
+Monday 11/30
+8:45 - 9:45AM
+AvHa: Therapy Session (90837) - District 11- MEDICAID
+12:30 - 1:15PM
+JaQu: Therapy Session (90834) - Main Office-437 Sample Place
+Thursday 12/3
+11:00AM - 11:45AM
+SaVe: Therapy Session (90834) - Telehealth
+Monday 12/7
+8:45 - 9:45AM
+AvHa: Therapy Session (90837) - District 11
+12:30 - 1:15PM
+JaQu: Therapy Session (90834) - Main Office-437 Sample Place
+Thursday 12/10
+11:00AM - 11:45AM
+SaVe: Therapy Session (90834) - Telehealth
+Monday 12/14
+8:45 - 9:45AM
+AvHa: Therapy Session (90837) - District 11
+12:30 - 1:15PM
+JaQu: Therapy Session (90834) - Main Office-437 Sample Place
+Thursday 12/17
+1:10 - 2:10PM
+CaPo: Therapy Session (90837) - District 11`;
+  const scopedContext = () => ({
+    ...context(),
+    clients: [...context().clients, { id: 43, full_name: 'Sam Vera' }, { id: 44, full_name: 'Cameron Pope' }],
+    services: [...context().services, { id: 4, serviceCode: '90837', modality: 'IN_PERSON' }],
+    locations: [...context().locations.map(location => location.id !== 5 ? location :
+      { ...location, physical_office_location_id: 90, billing_office_street: '437 Sample Place' }),
+    { id: 7, name: 'Assigned School', place_of_service: '03', school_organization_id: 70 }],
+    schoolAssignments: [{ client_id: 41, organization_id: 70 }, { client_id: 44, organization_id: 70 }],
+    schoolSlots: [{ id: 11, client_id: 41, school_organization_id: 70, weekday: 'Monday' }]
+  });
+  const input = () => ({ ...base(), weekStart: '2026-11-30', text, scheduleMode: 'as_sent', defaults: {} });
+  const commit = (input, preview) => service.commit({ actor, input: { ...input, rows: preview.rows, previewToken: preview.previewToken, confirm: true } });
+
+  beforeEach(() => {
+    deps.loadContext.mockImplementation(async () => scopedContext());
+    deps.findOffice = vi.fn(async ({ row }) => row.date === '2026-11-30' ? { office: { id: 90 }, roomId: 91, label: 'Room 91' } : null);
+    deps.bookOffice = vi.fn(async ({ row, existing }) => {
+      if (existing) return existing;
+      const appointment = { id: saved.size + 100, source: row.source, officeEventId: 92 };
+      saved.set(row.source, appointment);
+      return appointment;
+    });
+    service = createAuricwellAgendaImporter(deps);
+  });
+
+  it('books exactly the pasted dates with the assigned school, code and office building', async () => {
+    const request = input();
+    const preview = await service.preview({ actor, input: request });
+    expect(preview.summary).toMatchObject({ newAppointments: 9, blockedRows: 0 });
+    expect(preview.rows[0]).toMatchObject({ clientId: 41, startTime: '08:45', endTime: '09:45', durationMinutes: 60,
+      serviceCode: '90837', serviceLocationId: 7, schoolSlotId: 11, replacesSchoolHold: true });
+    expect(preview.rows[1]).toMatchObject({ clientId: 42, startTime: '12:30', endTime: '13:15', officeLocationId: 90,
+      officeRooms: [{ date: '2026-11-30', label: 'Room 91' }] });
+    expect(preview.rows[2]).toMatchObject({ clientId: 43, date: '2026-12-03', serviceLocationId: 6, modality: 'TELEHEALTH' });
+    expect(preview.rows.at(-1)).toMatchObject({ clientId: 44, date: '2026-12-17', schoolSlotId: null });
+    expect(deps.book).not.toHaveBeenCalled();
+    expect(deps.findOffice.mock.calls.every(([call]) => !call.materialize)).toBe(true);
+    const result = await commit(request, preview);
+    expect(result).toMatchObject({ complete: true, createdCount: 9, officeRoomsBooked: 1, officeVisitsWithoutRoom: 2 });
+    expect(deps.bookOffice).toHaveBeenCalledTimes(1);
+    expect(deps.book.mock.calls.filter(([{ row }]) => row.officeLocationId === 90)).toHaveLength(2);
+    expect(deps.linkSchool).toHaveBeenCalledTimes(3);
+    expect((await commit(request, preview)).existingCount).toBe(9);
+  });
+
+  it('suggests weekly and biweekly recurrence, honors the end date and keeps an observed gap', async () => {
+    const request = { ...input(), scheduleMode: 'recurring', untilDate: '2026-12-17' };
+    const preview = await service.preview({ actor, input: request });
+    expect(preview.summary).toMatchObject({ newAppointments: 9, blockedRows: 0, rows: 5 });
+    expect(preview.rows.find(row => row.clientId === 41)).toMatchObject({ recurrence: 'WEEKLY', occurrenceDates: ['2026-11-30', '2026-12-07', '2026-12-14'] });
+    expect(preview.rows.filter(row => row.clientId === 43).map(row => [row.date, row.recurrence])).toEqual([['2026-12-03', 'ONCE'], ['2026-12-10', 'ONCE']]);
+    const biweekly = await service.preview({ actor, input: { ...request, untilDate: '2027-01-06',
+      text: 'Monday 11/30 | 08:45 | 09:45 | Avery Hart\nMonday 12/14 | 08:45 | 09:45 | Avery Hart',
+      defaults: { tenantServiceId: 4, serviceLocationId: 7 } } });
+    expect(biweekly.rows[0]).toMatchObject({ recurrence: 'BIWEEKLY', occurrenceDates: ['2026-11-30', '2026-12-14', '2026-12-28'] });
+  });
+
+  it('requires explicit selection for multiple and missing initials', async () => {
+    const duplicate = { id: 45, full_name: 'Ava Harris' };
+    deps.loadContext.mockImplementation(async () => ({ ...scopedContext(), clients: [...scopedContext().clients, duplicate] }));
+    const request = { ...input(), text: 'Monday 11/30\n8:45 - 9:45AM\nAvHa: Therapy Session (90837) - District 11\n11:00AM - 12:00PM\nXxYy: Therapy Session (90837) - District 11' };
+    const preview = await service.preview({ actor, input: request });
+    expect(preview.previewToken).toBeNull();
+    expect(preview.rows.map(row => [row.clientId, row.clientCandidateIds])).toEqual([[null, [41, 45]], [null, []]]);
+    const fixed = await service.preview({ actor, input: { ...request, rows: preview.rows.map((row, index) => ({ ...row, clientId: index ? 44 : 41 })) } });
+    expect(fixed.summary.blockedRows).toBe(0);
+    expect(deps.book).not.toHaveBeenCalled();
+  });
+});
