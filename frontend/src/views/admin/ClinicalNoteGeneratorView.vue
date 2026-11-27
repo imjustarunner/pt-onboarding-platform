@@ -1137,9 +1137,8 @@
         </NarrivaCompliancePanel>
         </NarrivaReviewWorkspace>
         <section v-if="!signedNoteViewerId && !chartNoteReadOnly && !isClientChartAid && !displayPanels.length && !narrivaReview?.draftPreview && (draftId || inputText)" class="na-sign-attest" aria-label="Signing status">
-          <p role="status">Signing unavailable: create or restore the note text, review it, and complete the required checks and attestations. Your saved narrative remains a draft.</p>
-          <p v-if="approvalError">{{ approvalError }}</p>
-          <button type="button" class="na-btn-primary" disabled>Sign</button>
+          <p role="status">{{ inputText ? 'Your session narrative is saved. Create and review the note to sign it.' : 'Add your note content and review it to sign.' }}</p>
+          <button v-if="!skipAiAid && !useCsNoteBuildPathway" type="button" class="na-btn-outline" @click="narrativeInput?.focus()">Go to session narrative</button>
         </section>
         <div v-if="!signedNoteViewerId && !chartNoteReadOnly && !isClientChartAid && effectiveClientId && !showNarrivaAssessmentEvidence && !narrivaAssessmentEvidence.length" class="na-assessment-entry" data-note-section="Assessments">
           <button type="button" class="na-btn-outline" data-testid="open-assessment-evidence" aria-controls="narriva-assessment-evidence" @click="openNarrivaAssessmentEvidence">Assessment evidence</button>
@@ -2092,11 +2091,15 @@ const planOnFile = computed(() =>
 const treatmentPlanMaxAgeDays = ref(90);
 const treatmentPlanRenewalPolicy = ref({ ...DEFAULT_RENEWAL_POLICY });
 const chartTreatmentPlans = ref([]);
+const encounterPlanEligibility = computed(() => evaluateTreatmentPlanForEncounter({ plans: chartTreatmentPlans.value.length ? chartTreatmentPlans.value : latestTreatmentPlan.value ? [latestTreatmentPlan.value] : [], dateOfService: dateOfService.value, policy: treatmentPlanRenewalPolicy.value }));
 const planAwaitingReview = computed(() => {
+  const eligibleId = Number(encounterPlanEligibility.value.planId);
+  if (encounterPlanEligibility.value.eligible && eligibleId) {
+    return chartTreatmentPlans.value.find(plan => Number(plan.id) === eligibleId) || latestTreatmentPlan.value;
+  }
   const pending = chartTreatmentPlans.value.filter(plan => plan.status === 'draft' && String(plan.source_tool_id || '') !== 'intake_packet_bootstrap');
   return pending.find(plan => Number(plan.id) === Number(planDraftEditorId.value)) || pending[0] || latestTreatmentPlan.value || null;
 });
-const encounterPlanEligibility = computed(() => evaluateTreatmentPlanForEncounter({ plans: chartTreatmentPlans.value.length ? chartTreatmentPlans.value : latestTreatmentPlan.value ? [latestTreatmentPlan.value] : [], dateOfService: dateOfService.value, policy: treatmentPlanRenewalPolicy.value }));
 const planRenewalStatus = computed(() => {
   const selected = chartTreatmentPlans.value.find(plan => Number(plan.id) === Number(encounterPlanEligibility.value.planId)) || latestTreatmentPlan.value;
   const normal = treatmentPlanRenewalStatus(selected, treatmentPlanRenewalPolicy.value, dateOfService.value || todayIsoDate());
@@ -8194,6 +8197,12 @@ watch(selectedClientId, () => {
 
 watch([selectedClientId,dateOfService,sessionClinicalSessionId,sessionOfficeEventId,noteAidAgencyId],(next,previous)=>{ if((Number(next[0]) || Number(previous?.[0])) && canUseTool.value && currentAgencyId.value)refreshPayerServiceChoices(); });
 
+function planSignedMessage(approval) {
+  return approval.supervisorUserId === null && !approval.supervisorApproved
+    ? 'Treatment plan signed. Your practice needs to assign a clinical supervisor to review this plan.'
+    : 'Treatment plan signed. Supervisor review is next.';
+}
+
 const onPlanImportSaved = async (plan, { finalized = false, approval = null, approvalError: signatureError = null } = {}) => {
   if (intakePlanWork.value && plan?.id) {
     patchActiveWorkQueueStatus(DOC_STATUS.STARTED, { treatmentPlanId: plan.id, treatmentPlanPrepared: finalized });
@@ -8233,7 +8242,7 @@ const onPlanImportSaved = async (plan, { finalized = false, approval = null, app
   if (!plan) {
     approvalMessage.value = 'Treatment plan draft discarded.';
   } else if (approval?.providerApproved) {
-    approvalMessage.value = 'Treatment plan signed. Supervisor review is next.';
+    approvalMessage.value = planSignedMessage(approval);
   } else if (finalized && signatureError) {
     approvalMessage.value = 'Treatment plan saved for signature.';
     approvalError.value = signatureError;
@@ -8389,34 +8398,6 @@ function resolveSignedClinicalNoteId(itemOrRow = {}) {
   return hit?.noteId ? Number(hit.noteId) : null;
 }
 
-function snapMissingDraftsOnQueue() {
-  const live = new Set((recentDrafts.value || []).map((d) => String(d.id)));
-  const activeId = activeWorkQueueItemId.value;
-  workQueueItems.value = (workQueueItems.value || []).map((item) => {
-    const status = deriveWorkQueueDocStatus(item);
-    if (status === DOC_STATUS.SIGNED || status === DOC_STATUS.COMPLETED) return item;
-    if (item.draftId && live.has(String(item.draftId))) {
-      // Ensure right panel matches left: linked draft ⇒ in progress.
-      if (status !== DOC_STATUS.STARTED) {
-        return { ...item, status: DOC_STATUS.STARTED, docStatus: DOC_STATUS.STARTED };
-      }
-      return item;
-    }
-    // Stale draftId (draft deleted) — clear link; keep STARTED only while this ToDo is open.
-    if (item.draftId && !live.has(String(item.draftId))) {
-      const keepStarted = activeId && String(item.id) === String(activeId);
-      return {
-        ...item,
-        draftId: null,
-        status: keepStarted ? DOC_STATUS.STARTED : DOC_STATUS.NOT_STARTED,
-        docStatus: keepStarted ? DOC_STATUS.STARTED : DOC_STATUS.NOT_STARTED
-      };
-    }
-    if (status === DOC_STATUS.STARTED) return item;
-    return item;
-  });
-}
-
 function applySignedSessionsToQueue(signedSessions = []) {
   const sessionByKey = new Map();
   const sessionByDraftId = new Map();
@@ -8452,7 +8433,7 @@ function applySignedSessionsToQueue(signedSessions = []) {
       };
     });
   }
-  snapMissingDraftsOnQueue();
+  // A bounded recent-drafts response cannot establish that a linked draft was deleted.
   persistWorkQueue();
 }
 
@@ -9127,6 +9108,16 @@ async function activateWorkQueueItem(item) {
       return;
     }
     if (seq !== workQueueActivateSeq) return;
+    if (!reuse) {
+      const signed = signedNoteSessions.value.find(note => Number(note.draftId) === Number(item.draftId)
+        && Number(note.agencyId) === Number(item.agencyId) && Number(note.clientId) === clientId);
+      if (signed?.noteId) {
+        await openSignedClinicalNote(signed.noteId, { agencyId: signed.agencyId, preserveWorkQueueId: item.id });
+      } else {
+        approvalError.value = 'The linked draft could not be loaded. Reopen the encounter to see its current note.';
+      }
+      return;
+    }
   }
   if (reuse) {
     await loadDraftIntoWorkspace(reuse, {
@@ -9255,7 +9246,7 @@ async function onIntakePlanSigned(approval) {
   if (!approval?.providerApproved || !intakePlanWork.value) return;
   markActiveWorkQueueItemCompleted();
   await closeNoteWorkspace();
-  postSignatureNotice.value = { message: 'Treatment plan signed. Supervisor review is next.' };
+  postSignatureNotice.value = { message: planSignedMessage(approval) };
 }
 
 async function ensureWorkQueueDraft(item) {
@@ -9690,6 +9681,7 @@ const loadDraftIntoWorkspace = async (d, options = {}) => {
   const loadSeq = ++draftLoadSeq;
   const activationSeq = workQueueActivateSeq;
   const isCurrentLoad = () => loadSeq === draftLoadSeq && activationSeq === workQueueActivateSeq;
+  approvalError.value = '';
   cancelPendingAutosave();
   resetWorkspaceAudio();
   liveTranscript.value = '';
@@ -10269,36 +10261,14 @@ onMounted(async () => {
           loadClientGuardianNames(embedCid)
         ]);
       }
-      if (props.embedClinicalNoteId) {
-        await loadClinicalNoteIntoWorkspace(props.embedClinicalNoteId);
-      } else if (props.embedDraftId) {
-        const hit = recentDrafts.value.find((d) => String(d.id) === String(props.embedDraftId));
-        if (hit) {
-          await loadDraftIntoWorkspace(hit);
-        } else {
-          // Chart-created draft may not be in the recent list yet — seed session context.
-          draftId.value = Number(props.embedDraftId) || null;
-          if (props.embedDateOfService) dateOfService.value = String(props.embedDateOfService).slice(0, 10);
-          if (props.embedServiceCode) {
-            try { selectedServiceCode.value = String(props.embedServiceCode).trim().toUpperCase(); } catch { /* ignore */ }
-          }
-          if (props.embedOfficeEventId) sessionOfficeEventId.value = Number(props.embedOfficeEventId) || null;
-          if (props.embedClinicalSessionId) sessionClinicalSessionId.value = Number(props.embedClinicalSessionId) || null;
-          try {
-            const recentRes = await api.get('/clinical-notes/recent', {
-              params: { agencyId: qAgency, clientIds: embedCid || undefined, days: 120 },
-              skipGlobalLoading: true
-            });
-            const drafts = Array.isArray(recentRes.data?.drafts) ? recentRes.data.drafts : [];
-            recentDrafts.value = drafts;
-            const again = drafts.find((d) => String(d.id) === String(props.embedDraftId));
-            if (again) await loadDraftIntoWorkspace(again);
-          } catch {
-            /* keep seeded draftId / session ids */
-          }
-          noteWizardStep.value = 2;
-          showAidPicker.value = false;
-        }
+      if (props.embedDraftId) {
+        const draft = recentDrafts.value.find(row => String(row.id) === String(props.embedDraftId))
+          || await fetchWorkspaceDraft(props.embedDraftId, qAgency).catch(() => null);
+        if (draft) await loadDraftIntoWorkspace(draft, { expectedClientId: embedCid });
+        else approvalError.value = 'The saved draft could not be loaded. Reopen the encounter to see its current note.';
+        showAidPicker.value = false;
+      } else if (props.embedClinicalNoteId) {
+        await loadClinicalNoteIntoWorkspace(props.embedClinicalNoteId, { agencyId: qAgency });
       } else if (props.embedOpenLibrary !== false) {
         // New note from client profile — pick a tool with the client already attached.
         showAidPicker.value = true;
@@ -10563,7 +10533,7 @@ async function openWorkspaceRouteSelection() {
   }
   const qNote = String(route.query?.noteId || route.query?.clinicalNoteId || route.query?.clinical_note_id || '').trim();
   const qDraft = String(route.query?.draftId || route.query?.draft_id || '').trim();
-  if (qNote) {
+  if (qNote && (!qDraft || route.query?.launchIntent === 'cosign')) {
     if (String(route.query?.launchIntent || '') === 'cosign') {
       const queued = cosignQueueItems.value.find(item => Number(item.clinicalNoteId) === Number(qNote));
       const agencyId = qAgency || queued?.agencyId || currentAgencyId.value;
@@ -10585,8 +10555,13 @@ async function openWorkspaceRouteSelection() {
         return;
       }
     }
-    if (hit && String(draftId.value || '') !== qDraft) await loadDraftIntoWorkspace(hit);
-    else if (!hit) approvalError.value = recentError.value || 'The requested note could not be loaded. Reopen it from its appointment or try again.';
+    if (hit) {
+      if (String(draftId.value || '') !== qDraft || signedNoteViewerId.value) {
+        await loadDraftIntoWorkspace(hit, { expectedClientId: Number(route.query.clientId || route.query.client_id || 0) });
+      }
+    } else {
+      approvalError.value = recentError.value || 'The saved draft is no longer available. Reopen the encounter to see its current note.';
+    }
   } else if (bookingContext.value.clinicalSessionId || bookingContext.value.officeEventId) {
     await openActualSessionRoute();
   }

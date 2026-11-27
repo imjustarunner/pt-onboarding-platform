@@ -26,9 +26,9 @@
       <component :is="mode === 'all' ? 'details' : 'section'" v-if="showQueue" :open="queueOpen" class="review-queue" @toggle="onQueueToggle">
         <summary v-if="mode === 'all'">Clinical documentation review</summary>
         <button :disabled="busy" @click="loadDocuments">Refresh documents</button>
-        <p>Review this supervisee’s signed notes and treatment plans. This is the clinical review list; their task list and My Work are separate views. Each page shows up to 100 signed notes and 100 active or final plans. Clinical review and cosign are recorded separately.</p>
+        <p>Review this supervisee’s signed notes and treatment plans. This is the clinical review list; their task list and My Work are separate views. Provider-signed treatment plans awaiting approval appear with the practice’s existing documents. Clinical review and cosign are recorded separately.</p>
         <div class="table-scroll"><table><thead><tr><th>Document</th><th>Review</th><th>Latest outcome</th><th></th></tr></thead><tbody>
-          <tr v-for="doc in documents" :key="`${doc.type}-${doc.id}`"><td>{{ doc.title }}<small>{{ label(doc.noteType) }} · #{{ doc.id }}</small><small>Client #{{ doc.clientId }} · Author #{{ doc.authorUserId || providerId }}</small></td><td>{{ doc.amendmentSignoffRequired ? 'Amendment · supervisor sign-off required' : doc.mandatoryReview ? 'Mandatory' : doc.reviewRequested ? 'Requested' : 'Discretionary review off' }}</td><td>{{ doc.latestReview ? label(doc.latestReview.outcome) : doc.cosignedAt ? 'Cosigned; separate clinical review not recorded' : 'Not reviewed' }}<small v-if="doc.latestReview?.stale">Document changed since review</small><small v-if="doc.reviewRequested && doc.signedAt && !doc.cosignedAt">Cosign due {{ date(doc.cosignDueAt) }}</small><small v-if="doc.cosignedAt">Cosigned {{ date(doc.cosignedAt) }}</small></td><td><button :disabled="busy" @click="openDocument(doc)">Open</button></td></tr>
+          <tr v-for="doc in documents" :key="`${doc.type}-${doc.id}`"><td>{{ doc.title }}<small>{{ label(doc.noteType) }} · #{{ doc.id }}</small><small>Client #{{ doc.clientId }} · Author #{{ doc.authorUserId || providerId }}</small></td><td>{{ doc.awaitingPlanReview ? 'Treatment plan awaiting approval' : doc.amendmentSignoffRequired ? 'Amendment · supervisor sign-off required' : doc.mandatoryReview ? 'Mandatory' : doc.reviewRequested ? 'Requested' : 'Discretionary review off' }}</td><td>{{ doc.latestReview ? label(doc.latestReview.outcome) : doc.cosignedAt ? 'Cosigned; separate clinical review not recorded' : 'Not reviewed' }}<small v-if="doc.latestReview?.stale">Document changed since review</small><small v-if="doc.reviewRequested && doc.signedAt && !doc.cosignedAt">Cosign due {{ date(doc.cosignDueAt) }}</small><small v-if="doc.cosignedAt">Cosigned {{ date(doc.cosignedAt) }}</small></td><td><button :disabled="busy" @click="openDocument(doc)">Open</button></td></tr>
         </tbody></table></div>
         <p v-if="documentClientId">Showing client #{{ documentClientId }} <button :disabled="busy" @click="viewCaseNotes(null)">All clients</button></p>
         <button :disabled="busy || documentPage === 1" @click="changeDocumentPage(-1)">Previous documents</button><span>Page {{ documentPage }}</span><button :disabled="busy || !hasMoreDocuments" @click="changeDocumentPage(1)">More documents</button>
@@ -36,11 +36,13 @@
         <section v-if="opened" class="document-review">
           <h4>{{ opened.title }}</h4><CosignReviewTimer v-if="opened.type === 'note' && opened.canTrackCosignTime" :key="`${opened.id}-${opened.contentHash}`" :agency-id="agencyId" :provider-id="providerId" :note-id="opened.id" :content-hash="opened.contentHash" /><ClinicalReviewContent :content="opened.content" />
           <p v-if="opened.latestReview?.feedback">Last review: {{ opened.latestReview.feedback }}</p>
-          <form v-if="canReview" @submit.prevent="recordReview">
+          <TreatmentPlanDocumentationReview v-if="opened.planApproval?.providerApproved" :review="opened.documentationReview" />
+          <p v-if="opened.planApproval?.providerApproved && opened.planApproval.supervisorUserId === null">No clinical supervisor is assigned to the plan author.</p>
+          <form v-if="canReview && (opened.type !== 'treatment_plan' || opened.canReviewPlan)" @submit.prevent="recordReview">
             <label>Outcome<select v-model="outcome"><option value="approved">Reviewed and approved</option><option value="changes_requested">Changes requested</option></select></label>
             <label>Feedback<textarea v-model="feedback" maxlength="4000" :required="outcome === 'changes_requested'" /></label>
             <label><input v-model="reviewAttested" type="checkbox" required /> I reviewed this version of the document and its addenda.</label>
-            <button :disabled="busy || !reviewAttested">Record clinical review</button>
+            <button :disabled="busy || !reviewAttested">{{ opened.type === 'treatment_plan' && outcome === 'approved' ? 'Approve and sign treatment plan' : 'Record clinical review' }}</button>
             <button v-if="(opened.canCosign ?? canAttest) && opened.type === 'note' && !opened.cosignedAt" type="button" :disabled="busy || !reviewAttested || outcome !== 'approved'" @click="cosign">{{ opened.amendmentSignoffRequired ? 'Sign off on note and all amendments' : 'Cosign this note' }}</button>
           </form><button @click="opened = null">Close document</button>
         </section>
@@ -64,6 +66,7 @@
   </section>
 </template>
 <script setup>
+import TreatmentPlanDocumentationReview from '../clinical/TreatmentPlanDocumentationReview.vue';
 import { ref, computed, watch, onBeforeUnmount } from 'vue';
 import api from '../../services/api';
 import { employeeTimeStatusLabel } from '../../utils/employeeTimeStatus';

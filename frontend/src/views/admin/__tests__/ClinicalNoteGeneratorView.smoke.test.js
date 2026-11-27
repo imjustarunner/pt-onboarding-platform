@@ -886,9 +886,9 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     await nextTick();
     expect(state.progressPlanIsCurrent).toBe(true);
     expect(state.encounterPlanEligibility).toMatchObject({ planId: 10, planDate: '2026-11-17', dateOfService: '2026-11-16', latePlan: true });
-    expect(state.planAwaitingReview.id).toBe(11);
+    expect(state.planAwaitingReview.id).toBe(10);
     state.planDraftEditorId = 999;
-    expect(state.planAwaitingReview.id).toBe(12);
+    expect(state.planAwaitingReview.id).toBe(10);
     expect(state.latestTreatmentPlan.id).toBe(10);
     state.dateOfService = '2026-11-09';
     await nextTick();
@@ -1271,9 +1271,10 @@ describe('ClinicalNoteGeneratorView smoke', () => {
       return { data: {} };
     });
     const { wrapper, state } = await workspace('90791_intake_plan', {
-      preserveSelection: true, query: { draftId: '42', agencyId: '7', clientId: '22', serviceCode: '90837', dateOfService: '2026-11-18' }
+      preserveSelection: true, query: { draftId: '42', noteId: '99', agencyId: '7', clientId: '22', serviceCode: '90837', dateOfService: '2026-11-18' }
     });
     try {
+      expect(api.get).not.toHaveBeenCalledWith('/medical-billing/notes/99', expect.anything());
       expect(state.inputText).toBe(draft.input_text);
       expect(state.dateOfService).toBe('2026-11-19');
       expect(state.actualServiceCode).toBe('90791');

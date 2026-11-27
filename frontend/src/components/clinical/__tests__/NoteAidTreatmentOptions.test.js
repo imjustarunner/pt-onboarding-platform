@@ -4,7 +4,7 @@ import Frequency from '../NoteAidFrequencySelect.vue';
 import Interventions from '../NoteAidInterventionPicker.vue';
 import PlanEditor from '../NoteAidTreatmentPlanImportReview.vue';
 import api from '../../../services/api';
-vi.mock('../../../services/api', () => ({ default: { get: vi.fn(), post: vi.fn() } }));
+vi.mock('../../../services/api', () => ({ default: { get: vi.fn(), post: vi.fn(), put: vi.fn() } }));
 beforeEach(() => vi.resetAllMocks());
 
 it('selects defaults, preserves imported values, and persists personal frequency additions', async () => {
@@ -125,4 +125,84 @@ it('focuses the first missing field in reading order and keeps later issues visi
     expect(wrapper.get('[role="alert"]').text()).toContain('Select or enter the prescribed frequency.');
     expect(api.post).not.toHaveBeenCalled();
   } finally { wrapper.unmount(); }
+});
+
+
+const completePlan = {
+  id: 55, status: 'draft', effectiveDate: '2026-11-24', presentingProblem: 'Synthetic concern.',
+  prescribedFrequency: 'Weekly', dischargePlan: 'Use the agreed routine independently.',
+  diagnoses: [{ icd10Code: 'F99', description: 'Synthetic diagnosis', justification: 'Synthetic justification.', isPrimary: true }],
+  goals: [{ goalText: 'Practice a routine', durationMonths: 3, objectives: [
+    { objectiveText: 'Practice the routine.', scaleCurrent: 2, scaleTarget: 7, scaleDirection: 'increase' },
+    { objectiveText: 'Record when the routine was used.', scaleCurrent: 3, scaleTarget: 6, scaleDirection: 'increase' }
+  ] }]
+};
+const planProps = { open: true, fullPage: true, agencyId: 7, clientId: 9, mode: 'generated', initialPlan: completePlan };
+
+async function startGoalSuggestion(wrapper) {
+  await wrapper.get('[aria-label="Add goal with Narriva"]').trigger('click');
+  await wrapper.get('.na-plan-action-form textarea').setValue('Practice an additional routine.');
+  await wrapper.get('.na-plan-action-form').trigger('submit');
+}
+
+it('signs a complete plan while suggestions are pending and discards their late response', async () => {
+  let finishSuggestion;
+  vi.mocked(api.get).mockResolvedValue({ data: { all: [] } });
+  vi.mocked(api.post).mockImplementation(url => url.endsWith('narriva-suggestions')
+    ? new Promise(resolve => { finishSuggestion = resolve; })
+    : Promise.resolve({ data: { plan: { id: 55 }, providerApproval: { providerApproved: true } } }));
+  const wrapper = mount(PlanEditor, { props: planProps });
+  try {
+    await flushPromises();
+    await startGoalSuggestion(wrapper);
+    const signal = api.post.mock.calls.find(([url]) => url.endsWith('narriva-suggestions'))[2].signal;
+    const sign = wrapper.findAll('button').find(button => button.text() === 'Sign treatment plan');
+    expect(sign.element.disabled).toBe(false);
+    await sign.trigger('click');
+    await flushPromises();
+    expect(signal.aborted).toBe(true);
+    expect(api.post).toHaveBeenCalledWith('/medical-billing/treatment-plans', expect.objectContaining({ signPlan: true }));
+    finishSuggestion({ data: { proposal: { goals: [{ ref: '1', goalText: 'Late suggestion' }] } } });
+    await flushPromises();
+    expect(wrapper.text()).not.toContain('Late suggestion');
+    expect(wrapper.text()).not.toContain('Preparing suggestions');
+  } finally { wrapper.unmount(); }
+});
+
+it('releases a hung suggestions request and lets the provider retry', async () => {
+  vi.useFakeTimers();
+  vi.mocked(api.get).mockResolvedValue({ data: { all: [] } });
+  vi.mocked(api.post).mockImplementation(() => new Promise(() => {}));
+  const wrapper = mount(PlanEditor, { props: planProps });
+  try {
+    await flushPromises();
+    await startGoalSuggestion(wrapper);
+    await vi.advanceTimersByTimeAsync(60000);
+    await flushPromises();
+    expect(wrapper.text()).toContain('Narriva took too long to respond');
+    expect(wrapper.get('.na-plan-action-form button[type="submit"]').element.disabled).toBe(false);
+  } finally { wrapper.unmount(); vi.useRealTimers(); }
+});
+
+it('keeps edits after failed persistence and auto-saves the next edit to the encrypted chart-draft endpoint', async () => {
+  vi.useFakeTimers();
+  vi.mocked(api.get).mockResolvedValue({ data: { all: [] } });
+  vi.mocked(api.put).mockRejectedValueOnce(new Error('Storage unavailable')).mockResolvedValue({ data: { revision: 2 } });
+  const wrapper = mount(PlanEditor, { props: { ...planProps, initialPlan: { ...completePlan, chartDraft: { revision: 1 } } } });
+  try {
+    await flushPromises();
+    const presenting = wrapper.get('textarea[id$="-presenting-problem"]');
+    await presenting.setValue('Retained concern');
+    await vi.advanceTimersByTimeAsync(1800);
+    await flushPromises();
+    expect(wrapper.text()).toContain('Storage unavailable');
+    expect(presenting.element.value).toBe('Retained concern');
+    await presenting.setValue('Retained concern, updated.');
+    await vi.advanceTimersByTimeAsync(1800);
+    await flushPromises();
+    expect(api.put).toHaveBeenLastCalledWith('/medical-billing/treatment-plans/55/chart-draft',
+      expect.objectContaining({ revision: 1, draft: expect.objectContaining({ presentingProblem: 'Retained concern, updated.' }) }),
+      { skipGlobalLoading: true });
+    expect(wrapper.text()).toContain('Draft saved.');
+  } finally { wrapper.unmount(); vi.useRealTimers(); }
 });

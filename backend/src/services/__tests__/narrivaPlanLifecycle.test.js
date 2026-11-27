@@ -7,6 +7,7 @@ import { treatmentPlanApprovalState, treatmentPlanContentHash, attestTreatmentPl
 import { loadEncounterTreatmentPlanEligibility, assertEncounterTreatmentPlanEligibility } from '../treatmentPlanEncounterEligibility.service.js';
 import ClinicalTreatmentPlan from '../../models/clinical/ClinicalTreatmentPlan.model.js';
 import clinicalPool from '../../config/clinicalDatabase.js';
+import { loadTreatmentPlanReview } from '../narrivaTreatmentPlanReview.service.js';
 import { loadClinicalMseHistory } from '../clinicalMseHistory.service.js';
 
 const plan = { id: 10, agency_id: 4, client_id: 50, created_by_user_id: 8, status: 'active', effective_date: '2026-11-17', goals: [{ id: 20, goal_text: 'Synthetic coping goal', objectives: [{ id: 30, objective_text: 'Practice a coping skill', scale_start: 2, scale_target: 8, scale_direction: 'increase' }] }] };
@@ -148,4 +149,23 @@ test('clinical intervention edits are atomically scoped to the author and pendin
     clinicalPool.execute = async () => [{ affectedRows: 0 }];
     assert.equal(await ClinicalTreatmentPlan.updateDraftObjectiveInterventions({ objectiveId: 30, agencyId: 4, clientId: 50, actorUserId: 8, interventions: [] }), false);
   } finally { clinicalPool.execute = execute; }
+});
+
+
+test('reads scoped documentation results for the signed plan version only', async () => {
+  const contentHash = await treatmentPlanContentHash(plan);
+  const completedAt = '2026-11-24T18:00:00Z';
+  const result = { phase: 'treatment_plan', planId: plan.id, clientId: plan.client_id, scoring: { score: 90,
+    criteria: [{ label: 'Goals', message: 'Present', status: 'supported' },
+      { label: 'Discharge criteria', message: 'Record discharge criteria.', status: 'missing' }]
+  } };
+  const database = { execute: async (_sql, params) => {
+    assert.deepEqual(params, [plan.agency_id, plan.created_by_user_id, 'treatment-plan-v1', contentHash]);
+    return [[{ result_encrypted: JSON.stringify(result), completed_at: completedAt }]];
+  } };
+  assert.deepEqual(await loadTreatmentPlanReview(plan, contentHash, database), {
+    score: 90, completedAt, missing: [{ label: 'Discharge criteria', message: 'Record discharge criteria.' }]
+  });
+  assert.equal(await loadTreatmentPlanReview({ ...plan, client_id: 51 }, contentHash, database), null);
+  assert.equal(await loadTreatmentPlanReview(plan, contentHash, { execute: async () => [[]] }), null);
 });
