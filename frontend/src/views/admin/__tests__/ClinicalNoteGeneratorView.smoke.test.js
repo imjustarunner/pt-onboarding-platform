@@ -121,11 +121,71 @@ describe('ClinicalNoteGeneratorView smoke', () => {
       expect(editor.props('fullPage')).toBe(true);
       expect(wrapper.get('.na-shell--treatment-plan main').element.contains(editor.element)).toBe(true);
       expect(wrapper.findComponent({ name: 'NoteAidClientSetupDrawer' }).exists()).toBe(false);
+      expect(wrapper.findComponent({ name: 'NoteAidTreatmentPlanStandaloneModal' }).exists()).toBe(false);
+      expect(editor.props('signedIntakeHref')).toBe('/note-aid?agencyId=7&noteId=171');
       expect(wrapper.findAll('button').filter(button => button.isVisible()).some(button => button.text() === 'Continue treatment plan')).toBe(false);
       expect(state.planDraftInitialPlan).toMatchObject({effectiveDate:'2026-09-12',presentingProblem:'Synthetic concern',
         diagnoses:[{icd10Code:'Z55.3',justification:'Documented impacts'}],goals:[{goalText:'Build a study routine'}]});
       expect(vi.mocked(api.post).mock.calls.some(([url])=>url==='/clinical-notes/drafts')).toBe(false);
     } finally {wrapper.unmount();}
+  });
+
+  it('opens a saved intake plan draft even when its source intake cannot be fetched', async () => {
+    const { wrapper, state } = await workspace('');
+    const task = { id: 'intake_plan_7_22', agencyId: 7, clientId: 22, clientName: 'Synthetic Client',
+      sourceIntakeNoteId: 171, treatmentPlanId: 42, noteKind: 'treatment_plan', date: '2026-11-24', status: 'started' };
+    state.workQueueItems = [task];
+    vi.mocked(api.get).mockImplementation(async url => {
+      if (url === '/medical-billing/notes/171') throw new Error('Unavailable intake');
+      return { data: {} };
+    });
+    try {
+      await state.activateWorkQueueItem(task);
+      await flushPromises();
+      const editor = wrapper.getComponent({ name: 'NoteAidTreatmentPlanImportReview' });
+      expect(editor.props()).toMatchObject({ fullPage: true, planId: 42, mode: 'draft' });
+      expect(wrapper.findComponent({ name: 'NoteAidTreatmentPlanStandaloneModal' }).exists()).toBe(false);
+      expect(vi.mocked(api.get).mock.calls.some(([url]) => url === '/medical-billing/notes/171')).toBe(false);
+    } finally { wrapper.unmount(); }
+  });
+
+  it('opens the signed intake link in the read-only note viewer', async () => {
+    vi.mocked(api.get).mockImplementation(async url => ({
+      data: url === '/medical-billing/notes/171' ? { note: {
+        id: 171, agencyId: 7, clientId: 22, serviceCode: '90791',
+        providerSignedAt: '2026-11-25', dateOfService: '2026-11-24',
+        outputJson: { sections: { 'Presenting Problem': 'Synthetic concern' } }
+      } } : {}
+    }));
+    const { wrapper, state } = await workspace('', { preserveSelection: true, query: { agencyId: '7', noteId: '171' } });
+    try {
+      expect(api.get).toHaveBeenCalledWith('/medical-billing/notes/171', expect.objectContaining({ params: { agencyId: 7 } }));
+      expect(state.viewingChartNote).toMatchObject({ id: 171 });
+      expect(state.chartNoteReadOnly).toBe(true);
+      expect(wrapper.text()).not.toContain('Use scheduled time');
+    } finally { wrapper.unmount(); }
+  });
+
+  it('restores the booked start, end and duration on an unsigned note', async () => {
+    const { wrapper, state } = await workspace('90791_intake_plan');
+    try {
+      state.selectedServiceCode = '90791';
+      state.draftId = 296;
+      state.sessionClinicalSessionId = 192;
+      state.sessionSourceTimezone = 'America/Denver';
+      state.sessionScheduledStart = '2026-11-24T21:30:00.000Z';
+      state.sessionScheduledEnd = '2026-11-24T22:30:00.000Z';
+      state.sessionStartTimeLocal = '14:40';
+      state.sessionEndTimeLocal = '15:35';
+      state.sessionDurationMinutes = 55;
+      await nextTick();
+      const restore = wrapper.findAll('button').find(button => button.text() === 'Use scheduled time');
+      await restore.trigger('click');
+      expect(state.sessionStartTimeLocal).toBe('14:30');
+      expect(state.sessionEndTimeLocal).toBe('15:30');
+      expect(state.sessionDurationMinutes).toBe(60);
+      expect(wrapper.text()).not.toContain('Use scheduled time');
+    } finally { wrapper.unmount(); }
   });
 
   it('offers removal in the appointment picker for an unlinked not-started task', async () => {

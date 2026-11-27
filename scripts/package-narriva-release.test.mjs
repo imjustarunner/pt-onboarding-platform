@@ -14,6 +14,10 @@ test('overlay requires pinned provenance and the established builder identity', 
  assert.match(files.backend, /1846_narriva_plan_provider_signoffs/);
  assert.match(files.backend, /1847_narriva_platform_generator_settings/);
  assert.match(files.backend, /1848_itsco_provider_account_conversions/);
+ for (const name of ['035_treatment_objective_target_dates.sql', '039_preserve_imported_treatment_frequency.sql']) {
+  const file = `database/clinical_migrations/${name}`;
+  assert.ok(files.backend.includes(`COPY ${file} /app/${file}`));
+ }
  assert.doesNotMatch(files.backend, /npm|SECRET|ENV .*KEY/);
  assert.match(files.frontend, /tenant-legal-locations.conf/);
  assert.match(files.frontend, /nginx -t/);

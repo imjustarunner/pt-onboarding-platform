@@ -8,10 +8,11 @@
  </div>
 </template>
 <script setup>
-import {ref,watch,onBeforeUnmount,useId} from 'vue';
-const props=defineProps({modelValue:String,label:{type:String,default:'Diagnosis'},agencyId:[Number,String],dateOfService:String,disabled:Boolean,search:Function,filterResults:Function});
+import {computed,ref,watch,onBeforeUnmount,useId} from 'vue';
+const props=defineProps({modelValue:String,inputId:String,label:{type:String,default:'Diagnosis'},agencyId:[Number,String],dateOfService:String,disabled:Boolean,search:Function,filterResults:Function});
 const emit=defineEmits(['update:modelValue','select']);
-const inputId='diagnosis-'+useId(),query=ref(props.modelValue || ''),items=ref([]),active=ref(-1),open=ref(false),loading=ref(false),searched=ref(false),error=ref('');
+const generatedId='diagnosis-'+useId();
+const inputId=computed(()=>props.inputId || generatedId),query=ref(props.modelValue || ''),items=ref([]),active=ref(-1),open=ref(false),loading=ref(false),searched=ref(false),error=ref('');
 let timer,blurTimer,sequence=0,controller;
 watch(()=>props.modelValue,value=>{if(!value && props.modelValue!==query.value)query.value='';else if(value && !query.value.startsWith(value))query.value=value;});
 watch(()=>[props.agencyId,props.dateOfService],()=>{cancel();items.value=[];searched.value=false;});

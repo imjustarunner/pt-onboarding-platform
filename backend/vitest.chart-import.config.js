@@ -15,6 +15,7 @@ export default defineConfig({
     'src/services/__tests__/clientChartSetupNeeds.test.js','src/controllers/__tests__/providerScheduling.assignable.test.js',
     'src/services/__tests__/clientClinicalRecordsImport.test.js','src/services/__tests__/chartSetupStatus.consistency.test.js','src/services/__tests__/intakeDraftReview.test.js','src/services/__tests__/narrivaPlanDraft.test.js',
     'src/models/__tests__/ClinicalTreatmentPlan.importedDraft.test.js','src/controllers/__tests__/intakeFinalizationConcurrency.test.js',
+    'src/services/__tests__/clinicalImportedPlanFrequencySchema.test.js',
     'src/controllers/__tests__/ehrHistoricalPlanRoute.test.js','src/controllers/__tests__/ehrHistoricalIntake.test.js',
     'src/controllers/__tests__/clientInsuranceSources.test.js', 'src/services/__tests__/payerDirectorySelection.test.js'
   ] }
