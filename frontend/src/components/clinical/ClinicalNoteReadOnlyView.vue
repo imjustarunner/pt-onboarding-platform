@@ -299,7 +299,7 @@
       <article v-for="signature in pastCosigns" :key="`${signature.cosignedAt}-${signature.contentHash}`" class="ccn-addendum" aria-label="Earlier supervisor signature">
         <strong>Earlier signed version · supervisor cosign</strong>
         <p>{{ signature.statement || `${signature.signerLabel || 'Supervisor'} approved the earlier version.` }}</p>
-        <small>Signed {{ formatTimestamp(signature.cosignedAt) }} · user #{{ signature.cosignedByUserId }}</small>
+        <small>Signed {{ formatTimestamp(signature.cosignedAt) }} · {{ signature.signerLabel || 'Supervisor' }}</small>
         <p class="ccn-field-hint">This signature applies to the version reviewed at that time. Later additions require their own sign-off.</p>
       </article>
       <p v-if="amendmentPending" role="status">New additions are awaiting supervisor sign-off. Earlier signatures remain on record.</p>

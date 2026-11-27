@@ -83,7 +83,7 @@ export function pendingNarrivaScoring() {
   findings:[],missingCriteria:[],
   criteria:NARRIVA_QUALITY_CRITERIA.map(c=>({id:c.id,label:c.label,earned:0,possible:c.points,status:'pending',evidence:[],message:c.instruction}))};
 }
-export function deriveNarrivaCheck(id,{facts,encounter,clinical,service},{standaloneTest=false,preGeneration=false}={}) {
+export function deriveNarrivaCheck(id,{facts,encounter,clinical,service,inputText},{standaloneTest=false,preGeneration=false}={}) {
  const profile=clinicalServiceRequirements({serviceCode:service.documentationCode || service.code,assessmentKind:service.assessmentKind,clientPresent:encounter.clientPresent});
  const intake=profile.assessment;
  const result={id,label:NARRIVA_CHECKS.find(c=>c[0]===id)[1],status:'passed',findings:[],actions:[]};
@@ -111,7 +111,10 @@ export function deriveNarrivaCheck(id,{facts,encounter,clinical,service},{standa
   if(documentationCode==='H0004'&&service.billingReview?.code==='H0004_DURATION_OVER_LIMIT')result.advisories=[{id:'service_code:billing_duration_review',message:service.billingReview.reason,category:'billing_review',blocksClaims:true,units:service.billingReview.units}];
 
   required(nonempty(encounter.participants),'participants','Select the participants who attended.','participants');
-  if(facts.clientPresent===false && encounter.clientPresent===true)add('client_absent','The narrative describes the client as absent. Update participants or confirm your note is correct.','participants');
+  // Enrollment history and model-written text cannot establish who attended this encounter.
+  const explicitlyAbsent = typeof inputText === 'string'
+    && /\b(?:client|patient) (?:was absent|was not present|did not attend) (?:for |during |at )?(?:today|this (?:session|visit|encounter))\b|\b(?:client|patient) (?:was absent|was not present|did not attend)\s*(?:[.!?]|$)/i.test(inputText);
+  if(facts.clientPresent===false && encounter.clientPresent===true && explicitlyAbsent)add('client_absent','The narrative describes the client as absent. Update participants or confirm your note is correct.','participants');
   if(facts.clientPresent===true && encounter.clientPresent===false)add('client_present','The narrative describes the client attending. Reconcile participants.','participants');
   if(facts.additionalParticipants===true && !encounter.additionalParticipantsDocumented)add('additional','Did another person attend this session? Confirm who attended or clarify that they were only discussed.','participants');
   if(facts.crisisService===true && ['90837','H0004'].includes(documentationCode)) {

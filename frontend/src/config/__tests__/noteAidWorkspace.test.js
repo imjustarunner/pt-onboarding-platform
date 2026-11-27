@@ -12,6 +12,7 @@ import {
   aidUsesFreeformCsPathway,
   aidServiceCodeDisplay,
   findNoteAidById,
+  findNoteAidByToolOrCode,
   isSocialDeterminantCode,
   orderNoteAidCategoriesForHcbs,
   resolveTreatmentPlanAidId
@@ -61,6 +62,12 @@ describe('note aid kinds', () => {
     expect(findNoteAidById('h0004_note')?.aid?.toolId).toBe('clinical_h0004_note');
     expect(findNoteAidById('h2014_group')?.aid?.toolId).toBe('clinical_h2014_group');
     expect(findNoteAidById('h2014_individual')?.aid?.toolId).toBe('clinical_h2014_individual');
+  });
+
+  it('uses the progress writer for a booked H0004 and preserves the explicit standalone plan writer', () => {
+    const plan = findNoteAidById('h0004_plan').aid;
+    expect(findNoteAidByToolOrCode({ serviceCode: 'H0004' }).aid.id).toBe('h0004_note');
+    expect(findNoteAidByToolOrCode({ serviceCode: 'H0004', toolId: plan.toolId }).aid.id).toBe(plan.id);
   });
 
   it('treats psychotherapy progress notes as progress', () => {

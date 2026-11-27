@@ -14,6 +14,7 @@
       <div class="assessment-choices"><button v-for="measure in filtered" :key="measure.id" type="button" @click="start(measure)"><strong>{{ measure.title }}</strong><span>{{ measure.population }}</span><small>{{ measure.respondent === 'caregiver' ? 'Parent / guardian report' : 'Client self-report' }} · {{ measure.timeframe }}</small><b>Open full screen →</b></button></div></template>
       <template v-if="workspaceView === 'trends'"><p v-if="historyLimited">Graphs include the 500 most recent client assessments plus all results from this appointment.</p><OutcomeMeasureTrends :responses="responses" /><VanderbiltProgress :responses="responses" /><p v-if="!responses.length">Completed assessments will appear here as they are recorded.</p></template>
     </template>
+    <EnrollmentAssessmentHistory v-if="ready && agencyId" :client-id="clientId" :agency-id="agencyId" />
     <dialog ref="dialog" class="live-assessment-dialog" aria-labelledby="live-assessment-title" @cancel.prevent="close">
       <div v-if="selected || viewed" class="live-dialog-content">
         <header class="live-dialog-header"><div><p>AuricWell · {{ clientName || 'Client' }} · Appointment #{{ appointmentId }}</p><h2 id="live-assessment-title">{{ viewed ? 'Assessment results' : selected.title }}</h2></div><button type="button" :disabled="saving" @click="close">{{ viewed ? 'Back to appointment' : 'Close' }}</button></header>
@@ -41,7 +42,8 @@ import OutcomeMeasureTrends from './OutcomeMeasureTrends.vue';
 import VanderbiltProgress from './VanderbiltProgress.vue';
 import { outcomeItemVisible } from '../../utils/outcomeMeasureFields.js';
 import { outcomeReporter } from '../../utils/outcomeTrends.js';
-const props=defineProps({clientId:{type:[Number,String],required:true},appointmentId:{type:[Number,String],required:true},clientName:String});
+import EnrollmentAssessmentHistory from './EnrollmentAssessmentHistory.vue';
+const props=defineProps({agencyId:[Number,String],clientId:{type:[Number,String],required:true},appointmentId:{type:[Number,String],required:true},clientName:String});
 const measures=ref([]),responses=ref([]),guardians=ref([]),loading=ref(false),ready=ref(false),error=ref(''),search=ref('');
 const workspaceView=ref('administer');
 const historyLimited=ref(false);

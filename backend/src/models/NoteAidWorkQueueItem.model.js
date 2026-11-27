@@ -214,8 +214,11 @@ export function projectWorkQueueSchedule(row, item, now = Date.now()) {
   const sourceTimezone = row.live_source_timezone || item.sourceTimezone || 'UTC';
   const end = row.live_end_at || (officeOnly ? row.live_office_end_at : null);
   const scheduledEnd = utcMysqlToIso(end);
+  const scheduledCode = String(row.live_service_code || (officeOnly ? row.live_office_service_code : '') || '').trim().toUpperCase();
+  const unfinished = ['not_started', 'started'].includes(item.docStatus || item.status);
   return {
     ...item,
+    serviceCode: unfinished && scheduledCode ? scheduledCode : item.serviceCode,
     appointmentId: Number(row.live_appointment_id) || item.appointmentId,
     date: utcDateToZonedYmd(scheduledStart, sourceTimezone),
     timeLabel: new Date(startMs).toLocaleTimeString('en-US', { timeZone: sourceTimezone, hour: 'numeric', minute: '2-digit' }),
@@ -249,8 +252,8 @@ class NoteAidWorkQueueItem {
     const [rows] = await pool.execute(
       `SELECT q.*,d.id AS linked_draft_id,
          ap.id AS live_appointment_id, ap.start_at AS live_start_at, ap.end_at AS live_end_at,
-         ap.status AS live_status, ap.source_timezone AS live_source_timezone,
-         oe.start_at AS live_office_start_at, oe.end_at AS live_office_end_at, oe.status AS live_office_status
+         ap.status AS live_status, ap.source_timezone AS live_source_timezone, ap.service_code AS live_service_code,
+         oe.start_at AS live_office_start_at, oe.end_at AS live_office_end_at, oe.status AS live_office_status, oe.service_code AS live_office_service_code
        FROM note_aid_work_queue_items q LEFT JOIN clinical_note_drafts d ON d.id=q.draft_id AND d.user_id=q.user_id
        LEFT JOIN appointments ap ON ap.id=(
          SELECT a.id FROM appointments a WHERE a.clinical_session_id=q.clinical_session_id

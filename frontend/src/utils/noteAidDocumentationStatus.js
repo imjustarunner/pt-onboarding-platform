@@ -274,6 +274,14 @@ export function filterWorkQueueForRightPanel(items) {
  * projection: draft-only rows retain the draft that must be opened directly. */
 export function buildMyWorkItems({ drafts = [], workQueueItems = [] } = {}) {
   const rows = [];
+  const codeOf = code => String(code || '').trim().toUpperCase();
+  const intakeKind = ({ serviceCode, noteKind, toolId }) => {
+    if (codeOf(serviceCode) === '90791' && (!noteKind || noteKind === 'progress')) return 'intake';
+    if (codeOf(serviceCode) === 'H0031' && !noteKind) {
+      return /h0031_additional/i.test(String(toolId || '')) ? 'progress' : 'intake';
+    }
+    return noteKind;
+  };
   for (const item of workQueueItems || []) {
     if (!isRightPanelStatus(deriveWorkQueueDocStatus(item))) continue;
     const existing = rows.find(row => draftMatchesWorkQueueItem(
@@ -283,7 +291,7 @@ export function buildMyWorkItems({ drafts = [], workQueueItems = [] } = {}) {
       if (!existing.draftId && item.draftId) Object.assign(existing, item);
       continue;
     }
-    rows.push({ ...item });
+    rows.push({ ...item, noteKind: intakeKind(item) });
   }
   for (const draft of drafts || []) {
     if (draft.archived_at || deriveDraftDocStatus(draft) !== DOC_STATUS.STARTED) continue;
@@ -303,6 +311,7 @@ export function buildMyWorkItems({ drafts = [], workQueueItems = [] } = {}) {
       clientName: draft.client_full_name || draft.clientFullName || draft.initials || 'Draft note',
       date: toWorkQueueDateOnly(draft.date_of_service || draft.dateOfService),
       serviceCode: draft.service_code || draft.serviceCode || '',
+      noteKind: intakeKind({ serviceCode: draft.service_code || draft.serviceCode, noteKind: draft.note_kind || draft.noteKind, toolId: draft.tool_id || draft.toolId }),
       status: DOC_STATUS.STARTED, docStatus: DOC_STATUS.STARTED,
       startedAt: draft.created_at || null, updatedAt: draft.updated_at || null,
       rawDraft: draft

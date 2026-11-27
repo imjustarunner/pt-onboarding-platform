@@ -429,7 +429,8 @@ export const getTreatmentPlanById = async (req, res, next) => {
       if (Number(editorClient?.agency_id)===agencyId) {
         const { readChartRecord }=await import('../services/clientChartRecordRead.service.js');
         const { getTreatmentPlanApproval }=await import('../services/treatmentPlanApproval.service.js');
-        plan.providerApproved=(await getTreatmentPlanApproval(plan)).providerApproved;
+        const { providerApproved, providerSignedAt, supervisorRequired, supervisorUserId } = await getTreatmentPlanApproval(plan);
+        Object.assign(plan, { providerApproved, providerSignedAt, supervisorRequired, supervisorUserId });
         plan.chartDraft=await readChartRecord({agencyId,clientId},`plan_edit_${planId}`,0);
         if (plan.recordsImportSource && !plan.providerApproved && !plan.chartDraft.value) {
           const { applyImportedPlanRatingReview } = await import('../services/clientClinicalRecordsImport.service.js');
@@ -993,6 +994,7 @@ export const listClientChart = async (req, res, next) => {
     if (latestPlan && latestPlanMeta?.providerApproved) {
       latestPlan.providerApproved = true;
       latestPlan.providerSignedAt = latestPlanMeta.providerSignedAt;
+      latestPlan.supervisorRequired = latestPlanMeta.supervisorRequired;
     }
     let diagnoses = [];
     try {

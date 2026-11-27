@@ -108,6 +108,7 @@
         @book-virtual="onBookVirtual"
         @join="onJoinEvent"
         @open-focus="openFocusFromSchedule"
+        @open-appointment="openTodayAppointment"
       />
       </DashboardOverviewSection>
       <DashboardOverviewSection v-if="availableCardKeys.includes('pay') && !hiddenCards.includes('pay')" v-show="!collapsedCards.includes('pay')"
@@ -482,6 +483,14 @@ const quickActions = computed(() => {
 const navigate = (tab) => {
   emit('navigate', tab);
 };
+
+function openTodayAppointment(appointmentId) {
+  const slug = route.params.organizationSlug;
+  router.push({
+    path: slug ? `/${slug}/my-schedule` : '/my-schedule',
+    query: { scheduleAction: 'appointment', scheduleAppointmentId: String(appointmentId) }
+  });
+}
 
 const onBookSchedule = () => {
   emit('book-schedule');

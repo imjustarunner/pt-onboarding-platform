@@ -380,7 +380,7 @@
         </section>
         <PriorIntakeNotice v-if="!signedNoteViewerId && ['90791', '90792', 'H0031'].includes(actualServiceCode)" :sessions="signedNoteSessions" :client-id="effectiveClientId" :clinical-session-id="sessionClinicalSessionId" />
         <DraftAppointmentRepair v-if="draftId && !signedNoteViewerId && !isClientChartAid && !isReviewOnlyAid" :draft-id="draftId" :before-link="prepareDraftAppointmentRepair" @linked="onDraftAppointmentRepaired" @context="onDraftAppointmentContext" />
-        <p v-if="draftId && needsActualProgressSession" class="na-context-strip na-context-strip--warn" role="alert">This saved progress draft has no verified actual session. Its text is preserved. Link its matching appointment above before saving, generating, or signing.</p>
+        <p v-if="draftId && needsActualProgressSession && !narrivaServiceLoading" class="na-context-strip na-context-strip--warn" role="alert">This saved draft has no verified session. Its text is preserved. Link its matching appointment above before saving, generating, or signing.</p>
 
         <section
           v-if="needsClientAttachStep"
@@ -2120,7 +2120,7 @@ const planRenewalStatus = computed(() => {
   return { ...normal, required: !encounterPlanEligibility.value.eligible && encounterPlanEligibility.value.code === 'treatment_plan_expired', expired: encounterPlanEligibility.value.code === 'treatment_plan_expired' };
 });
 const progressPlanIsCurrent = computed(() => !!encounterPlanEligibility.value.eligible);
-const encounterPlanBlockMessage = computed(() => planAwaitingReview.value?.providerApproved && !progressPlanIsCurrent.value
+const encounterPlanBlockMessage = computed(() => planAwaitingReview.value?.providerApproved && planAwaitingReview.value?.supervisorRequired !== false && !progressPlanIsCurrent.value
   ? 'The provider signed the treatment plan. It needs supervisor approval before this progress note can be signed.'
   : encounterPlanEligibility.value.message);
 
@@ -7603,8 +7603,6 @@ const bootstrapWorkspace = async ({ resetForm = false } = {}) => {
     loadClientIntakeSummary(bookingClientId);
   }
 
-  // Deep-link from client file: open updater with chart preload.
-  const launchAid = String(route.query?.noteAid || route.query?.note_aid || '').trim();
   const launchIntentQ = String(route.query?.launchIntent || route.query?.launch_intent || '')
     .trim()
     .toLowerCase();
@@ -7620,47 +7618,6 @@ const bootstrapWorkspace = async ({ resetForm = false } = {}) => {
     }
     showIntakeDraftEditor.value = true;
     intakeDraftEditorId.value = qDraft || null;
-  } else if (launchIntentQ !== 'work_queue' && (launchAid === 'psychotherapy_plan' || launchIntentQ === 'update_treatment_plan')) {
-    const qClient = Number(route.query?.clientId || route.query?.client_id || 0);
-    const qPlanId = Number(route.query?.planId || route.query?.plan_id || 0);
-    // Clear any billable CPT context — TP writer is never a 90832/34/37 session note.
-    selectedServiceCode.value = '';
-    actualServiceCode.value = '';
-    if (qClient) {
-      selectedClientId.value = qClient;
-      selectedClient.value = { id: qClient };
-      await hydrateSelectedClient(qClient);
-      await loadClientTreatmentPlan(qClient);
-      await loadClientIntakeSummary(qClient);
-    }
-    const selectedPlanId = qPlanId || Number(latestTreatmentPlan.value?.id || 0);
-    if (selectedPlanId) {
-      const knownPlan = Number(latestTreatmentPlan.value?.id) === selectedPlanId ? latestTreatmentPlan.value : null;
-      let selectedPlan = knownPlan;
-      if (!knownPlan || knownPlan.status === 'draft' && !knownPlan.chartDraft) {
-        try {
-          const response = await api.get(`/medical-billing/treatment-plans/${selectedPlanId}`, {
-            params: { agencyId: chartAgencyIdForSave.value, clientId: qClient || effectiveClientId.value },
-            skipGlobalLoading: true
-          });
-          selectedPlan = response.data?.plan || knownPlan;
-        } catch { /* The plan editor will display a load error if the record remains unavailable. */ }
-      }
-      const isRevision = route.query.revision === '1' || (selectedPlan && (selectedPlan.status !== 'draft' || selectedPlan.providerApproved));
-      planDraftEditorId.value = selectedPlanId;
-      planDraftEditorMode.value = isRevision ? 'update' : 'draft';
-      planDraftInitialPlan.value = selectedPlan;
-      planUpdaterRenewalReason.value = isRevision && route.query.revision === '1'
-        ? 'Review the documented progress and recommend revisions to the existing goals and objectives.' : '';
-      showPlanImportReview.value = true;
-    } else {
-      await openTreatmentPlanUpdater({
-        renewalReason:
-          launchIntentQ === 'update_treatment_plan'
-            ? 'Opened from client file — update treatment plan using chart diagnosis, goals, and ratings.'
-            : ''
-      });
-    }
   }
 
   // Route selection must wait for the draft it is about to open.
@@ -9151,6 +9108,7 @@ async function activateWorkQueueItem(item) {
       preserveWorkQueueItemId: true,
       expectedClientId: clientId,
       preferredServiceCode: item.serviceCode || null,
+      preferredClinicalSessionId: item.clinicalSessionId || null,
       preferredDateOfService: toWorkQueueDateOnly(item.date),
       preferredStartTimeLabel: item.timeLabel || null,
       preferredScheduledStart: item.scheduledStart || null,
@@ -9771,9 +9729,14 @@ const loadDraftIntoWorkspace = async (d, options = {}) => {
   currentDraftArchivedAt.value = d.archived_at || null;
   currentDraftCreatedAt.value = d.created_at || null;
   lastSavedAt.value = d.updated_at ? new Date(d.updated_at).toLocaleString() : 'Previously saved';
-  const draftCode = singleServiceCodeLabel(
-    d.service_code || d.serviceCode || persistedSession.serviceCode || options.preferredServiceCode || ''
-  );
+  const storedDraftCode = singleServiceCodeLabel(d.service_code || d.serviceCode || persistedSession.serviceCode);
+  const linkedSessionCode = Number(options.preferredClinicalSessionId) > 0
+    && Number(options.preferredClinicalSessionId) === Number(sessionClinicalSessionId.value)
+    ? singleServiceCodeLabel(options.preferredServiceCode)
+    : '';
+  const hasWrittenSections = Object.values(outputObj.value?.sections || {}).some(section => String(section || '').trim());
+  const draftCode = (hasWrittenSections ? storedDraftCode : linkedSessionCode)
+    || storedDraftCode || singleServiceCodeLabel(options.preferredServiceCode);
   otherServiceCode.value = '';
   if (isExtendedEncounterCode(draftCode)) {
     selectedServiceCode.value = '90834';
@@ -9873,7 +9836,7 @@ const loadDraftIntoWorkspace = async (d, options = {}) => {
     billingPrimaryUnits.value = 2;
   }
   const draftToolId = String(outputObj.value?.meta?.toolId || d.tool_id || '').trim();
-  const aidHit = findNoteAidByToolOrCode({ toolId: draftToolId, serviceCode: draftCode });
+  const aidHit = findNoteAidByToolOrCode({ toolId: draftCode === storedDraftCode ? draftToolId : null, serviceCode: draftCode });
   if (aidHit) {
     selectedNoteCategory.value = aidHit.category.id;
     selectedAidId.value = aidHit.aid.id;
@@ -10533,10 +10496,68 @@ async function openActualSessionRoute() {
   }
 }
 
+async function openRoutedTreatmentPlan() {
+  const request = route.query;
+  const launchIntentQ = String(request.launchIntent || request.launch_intent || '').trim().toLowerCase();
+  const qClient = Number(request.clientId || request.client_id || 0);
+  const qPlanId = Number(request.planId || request.plan_id || 0);
+  if (showTreatmentPlanWorkspace.value && Number(effectiveClientId.value) === qClient
+    && (!qPlanId || Number(planDraftEditorId.value) === qPlanId)) return;
+  cancelPendingAutosave();
+  showPlanImportReview.value = false;
+  clearSignedNoteViewer();
+  selectedServiceCode.value = '';
+  selectedAidId.value = '';
+  if (qClient) {
+    selectedClientId.value = qClient;
+    selectedClient.value = { id: qClient };
+    await hydrateSelectedClient(qClient);
+    await loadClientTreatmentPlan(qClient);
+    if (route.query !== request) return;
+    await loadClientIntakeSummary(qClient);
+  }
+  if (route.query !== request) return;
+  const selectedPlanId = qPlanId || Number(latestTreatmentPlan.value?.id || 0);
+  if (selectedPlanId) {
+    const knownPlan = Number(latestTreatmentPlan.value?.id) === selectedPlanId ? latestTreatmentPlan.value : null;
+    let selectedPlan = knownPlan;
+    if (!knownPlan || knownPlan.status === 'draft' && !knownPlan.chartDraft) {
+      try {
+        const response = await api.get(`/medical-billing/treatment-plans/${selectedPlanId}`, {
+          params: { agencyId: chartAgencyIdForSave.value, clientId: qClient || effectiveClientId.value },
+          skipGlobalLoading: true
+        });
+        selectedPlan = response.data?.plan || knownPlan;
+      } catch { /* The plan editor will display a load error if the record remains unavailable. */ }
+    }
+    if (route.query !== request) return;
+    const isRevision = request.revision === '1' || (selectedPlan && (selectedPlan.status !== 'draft' || selectedPlan.providerApproved));
+    planDraftEditorId.value = selectedPlanId;
+    planDraftEditorMode.value = isRevision ? 'update' : 'draft';
+    planDraftInitialPlan.value = selectedPlan;
+    planUpdaterRenewalReason.value = isRevision && request.revision === '1'
+      ? 'Review the documented progress and recommend revisions to the existing goals and objectives.' : '';
+    showPlanImportReview.value = true;
+  } else {
+    await openTreatmentPlanUpdater({
+      renewalReason:
+        launchIntentQ === 'update_treatment_plan'
+          ? 'Opened from client file — update treatment plan using chart diagnosis, goals, and ratings.'
+          : ''
+    });
+  }
+}
+
 async function openWorkspaceRouteSelection() {
   if (!workspaceReady.value || !canUseTool.value) return;
   const qAgency = Number(route.query?.agencyId || route.query?.agency_id || 0) || null;
   if (qAgency) selectedQueueAgencyId.value = qAgency;
+  const launchIntent = String(route.query?.launchIntent || route.query?.launch_intent || '').trim().toLowerCase();
+  const launchAid = String(route.query?.noteAid || route.query?.note_aid || '').trim();
+  if (launchIntent === 'update_treatment_plan' || (!route.query?.workQueueId && launchAid === 'psychotherapy_plan')) {
+    await openRoutedTreatmentPlan();
+    return;
+  }
   if (route.query?.launchIntent === 'h0002_review' && Number(route.query.clinicalSessionId)) {
     activeScreeningReview.value = { clinicalSessionId: Number(route.query.clinicalSessionId), agencyId: qAgency || currentAgencyId.value };
     return;

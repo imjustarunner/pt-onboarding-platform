@@ -10,6 +10,16 @@ it('pages one supervisee within one agency with stable ordering and retained can
  await SupervisionSession.listSessionsForSuperviseeWithArtifacts({superviseeUserId:20,agencyId:2,limit:51,offset:50,includeCancelled:true});
  const sql=execute.mock.calls[0][0];expect(sql).toContain('ss.agency_id = 2');expect(sql).toContain('ssar.user_id = 20');expect(sql).toContain('ORDER BY ss.start_at DESC, ss.id DESC');expect(sql).toContain('LIMIT 51 OFFSET 50');expect(sql).not.toContain("ss.status <> 'CANCELLED'");
 });
+it('includes upcoming assigned sessions and excludes deleted and held sessions on My Supervision', async () => {
+  await SupervisionSession.listSessionsForSuperviseeWithArtifacts({ superviseeUserId: 20, agencyId: 2, includeUpcoming: true });
+  await SupervisionSession.listSessionsForSupervisorWithArtifacts({ supervisorUserId: 21, agencyId: 2, includeUpcoming: true });
+  for (const [sql] of execute.mock.calls) {
+    expect(sql).toContain('ss.start_at < UTC_TIMESTAMP() + INTERVAL 30 DAY');
+    expect(sql).toContain('ss.calendar_deleted_at IS NULL');
+    expect(sql).toContain('COALESCE(ss.recurrence_horizon_held,0)=0');
+    expect(sql).toContain('CASE WHEN ss.end_at > UTC_TIMESTAMP() THEN ss.start_at END ASC');
+  }
+});
 it('returns the supervisee-specific audited absence reason and preserves unknown attendance',async()=>{
  execute.mockResolvedValue([[{id:1,agency_id:2,status:'FINALIZED',total_seconds:0,attendance_correction_type:'MISSED',attendance_reason:'Did not attend after reminder.'},{id:2,agency_id:2,status:'FINALIZED',total_seconds:null}]]);
  const rows=await SupervisionSession.listSessionsForSuperviseeWithArtifacts({superviseeUserId:20,agencyId:2});

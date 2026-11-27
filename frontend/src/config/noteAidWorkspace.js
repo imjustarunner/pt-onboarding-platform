@@ -369,6 +369,8 @@ export function findNoteAidByToolOrCode({ toolId, serviceCode } = {}) {
       if (aid) return { category: cat, aid };
     }
   }
+  // The code is shared with a standalone plan writer. A booked H0004 defaults to the encounter note.
+  if (code === 'H0004') return findNoteAidById('h0004_note');
   if (tid) {
     for (const cat of NOTE_AID_CATEGORIES) {
       const aid = (cat.aids || []).find((a) => a.toolId === tid);

@@ -138,6 +138,7 @@ export function useDashboardOverview(opts = {}) {
       items.push({
         id: `office-${e.id || startMs}`,
         kind: 'office',
+        appointmentId: Number(e.appointmentId) || null,
         title: e.isClientSession ? e.title : room || 'Office reservation',
         subtitle: e.isClientSession ? ['Client session',room].filter(Boolean).join(' · ') : e.displayStatus || 'Office reservation',
         startMs,
@@ -168,6 +169,7 @@ export function useDashboardOverview(opts = {}) {
       items.push({
         id: `sched-${e.kind || 'evt'}-${e.id || startMs}`,
         eventId: Number(e.id || 0) || null,
+        appointmentId: Number(e.appointmentId) || null,
         kind: String(e.kind || 'event').toLowerCase(),
         eventKind,
         reasonCode: String(e.reasonCode || '').trim().toUpperCase() || null,
