@@ -23,7 +23,7 @@ const props = defineProps({ agencyId: Number, type: { type: String, default:'gen
 const emit = defineEmits(['update:modelValue']);
 const types = ref([]), canEdit = ref(false), editingDefaults = ref(false), defaultsDraft = ref({}), saving = ref(false), error = ref(''), customMinutes = ref(null);
 const labels = { dialIn:'Allow phone dial-in for app video', includeGoogleDialIn:'Include available Google Meet phone instructions in emails and reminders', agenda:'Agenda', goals:'Goals', actionItems:'Action items', attendance:'Track attendance', transcription:'Transcribe by default', screenShare:'Allow everyone to share their screen', compensation:'Attendance time claims for eligible participants' };
-const fallback = () => ({agenda:props.type!=='interview',goals:props.type!=='interview',actionItems:props.type!=='interview',dialIn:false,attendance:true,transcription:true,screenShare:true,compensation:['interview','huddle','cpa','mentorship','admin','town_hall','evaluation','leadership_circle','supervisors_meeting'].includes(props.type),reminders:['business_days_3',1440,5]});
+const fallback = () => ({agenda:props.type!=='interview',goals:props.type!=='interview',actionItems:props.type!=='interview',dialIn:false,attendance:true,transcription:props.type!=='training',screenShare:true,compensation:['interview','huddle','cpa','mentorship','admin','town_hall','evaluation','leadership_circle','supervisors_meeting'].includes(props.type),reminders:['business_days_3',1440,5]});
 const current = computed(() => {
  const value = editingDefaults.value ? defaultsDraft.value : (props.modelValue || types.value.find(t=>t.key===props.type)?.settings || fallback());
  return props.type === 'interview' ? {...value,compensation:true} : value;

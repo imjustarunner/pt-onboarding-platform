@@ -1472,9 +1472,9 @@ function setRemoteAudioByConnection(connectionId, hasAudio, displayName = '') {
 }
 
 /** Re-send our mic/camera state so peers who joined mid-toggle (or missed a signal) stay in sync. */
-function rebroadcastLocalMediaState() {
-  broadcastMicState(publishAudio.value);
-  broadcastCameraState(publishVideo.value);
+function rebroadcastLocalMediaState(toConnection = null) {
+  broadcastMicState(publishAudio.value, toConnection);
+  broadcastCameraState(publishVideo.value, toConnection);
 }
 
 /**
@@ -1554,14 +1554,14 @@ function setRemoteVideoByConnection(connectionId, hasVideo) {
   setRemoteVideoState({ connectionId, hasVideo });
 }
 
-function broadcastCameraState(hasVideo) {
+function broadcastCameraState(hasVideo, toConnection = null) {
   const connId = localConnectionId();
   if (!connId) return;
   sendSessionSignal('camera_state', {
     connectionId: connId,
     hasVideo: !!hasVideo,
     displayName: cleanPersonName(props.localName) || 'You'
-  });
+  }, toConnection);
 }
 
 function emitAudioMapChange() {
@@ -1584,14 +1584,14 @@ function emitAudioMapChange() {
   });
 }
 
-function broadcastMicState(hasAudio) {
+function broadcastMicState(hasAudio, toConnection = null) {
   const connId = localConnectionId();
   if (!connId) return;
   sendSessionSignal('mic_state', {
     connectionId: connId,
     hasAudio: !!hasAudio,
     displayName: cleanPersonName(props.localName) || 'You'
-  });
+  }, toConnection);
 }
 
 function sendSessionSignal(type, data, toConnection = null) {
@@ -2149,10 +2149,10 @@ function trainingStreamPermission(stream) {
     audio:proctor || !props.trainingPolicy.muteAll || (props.trainingPolicy.approvedIds || []).includes(id),
     video:proctor || props.trainingPolicy.videoAllowed };
 }
-watch(()=>props.trainingPolicy, policy=>{
+watch(()=>props.trainingPolicy, (policy, previous)=>{
   if (!policy) return;
-  if (!policy.canUnmute) applyForceMuteLocal();
-  if (!policy.proctor && !policy.videoAllowed) {
+  if (!policy.canUnmute && (previous?.canUnmute || publishAudio.value)) applyForceMuteLocal();
+  if (!policy.proctor && !policy.videoAllowed && publishVideo.value) {
     publishVideo.value=false;try{publisher?.publishVideo(false);}catch{};broadcastCameraState(false);
   }
   for (const [id,sub] of subscribers) {
@@ -2293,6 +2293,7 @@ async function subscribeStreamOnce(stream, owner) {
 
   if (session !== owner || subscribers.has(streamId) || !remotes.value.some((remote) => remote.streamId === streamId)) return;
   targetEl.innerHTML = '';
+  const permission = trainingStreamPermission(stream);
   const sub = session.subscribe(
     stream,
     targetEl,
@@ -2301,8 +2302,8 @@ async function subscribeStreamOnce(stream, owner) {
       width: '100%',
       height: '100%',
       fitMode: props.preserveVideoAspect ? 'contain' : 'cover',
-      subscribeToAudio: trainingStreamPermission(stream).audio,
-      subscribeToVideo: trainingStreamPermission(stream).video,
+      subscribeToAudio: permission.audio,
+      subscribeToVideo: permission.video,
       audioVolume: remoteListeningVolume(remoteMetaFromStream(stream)),
       style: { buttonDisplayMode: 'off', nameDisplayMode: 'off' }
     },
@@ -2330,6 +2331,8 @@ async function subscribeStreamOnce(stream, owner) {
     }
   );
 
+  sub.__trainingAudioAllowed = permission.audio;
+  sub.__trainingVideoAllowed = permission.video;
   subscribers.set(streamId, sub);
   try { sub.setAudioVolume?.(remoteListeningVolume(remoteMetaFromStream(stream))); } catch { /* The SDK still owns playback. */ }
   monitorMeetingAudio(sub, owner);
@@ -2585,7 +2588,9 @@ async function connect() {
       observeConnection(event.stream?.connection);
       void subscribeToStream(event.stream).then(() => {
         // New peer may have missed our earlier mic_state signal — nudge them.
-        rebroadcastLocalMediaState();
+        if (session === connectingSession && event.stream?.connection && !isOwnStream(event.stream)) {
+          rebroadcastLocalMediaState(event.stream.connection);
+        }
         emit('stream-created', event);
       });
     });

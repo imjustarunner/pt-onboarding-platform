@@ -19,8 +19,8 @@ describe('scheduled training permissions and attendance',()=>{
   expect(()=>validateTrainingInput({...base,sessions:[{startAt:'2026-10-27T17:00',endAt:'2026-10-27T19:00'}]})).toThrow(/offset/);
   expect(()=>validateTrainingInput({...base,sessions:[{startAt:'2026-10-27T17:00:00Z',endAt:'2026-10-29T19:00:00Z'}]})).toThrow(/24 hours/);
  });
- it('defaults to transcription and matching reminders with mandatory/optional wording',()=>{
-  const settings=defaultMeetingSettings('training');expect(settings.transcription).toBe(true);expect(settings.reminders).toEqual([10080,1440,60]);
+ it('defaults to optional transcription and matching reminders with mandatory/optional wording',()=>{
+  const settings=defaultMeetingSettings('training');expect(settings.transcription).toBe(false);expect(settings.reminders).toEqual([10080,1440,60]);
   const event={id:4,meeting_subtype:'training',title:base.title,start_at:'2026-10-27 23:00:00',end_at:'2026-10-28 01:00:00',event_timezone:'America/Denver',meeting_settings_json:settings};
   const content=id=>meetingInvitationContent({events:[event],joinUrl:'https://app.test/join/invitation/personal',recipientUserId:id,participants:[{id:1,name:'Required',is_required:1},{id:2,name:'Optional',is_required:0}]});
   expect(content(1).subject).toBe('Mandatory training invitation: Crisis Training');expect(content(1).text).toContain('Your attendance is required');expect(content(2).subject).toContain('Optional training');expect(content(2).text).toContain('welcome to attend');

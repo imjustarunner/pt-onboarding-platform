@@ -61,3 +61,38 @@ it('lets an interviewer leave with one click and keeps ending separate',async()=
  expect(m.post.mock.calls.some(([url])=>url.endsWith('/complete'))).toBe(false);
  expect(wrapper.findComponent({name:'MeetingSessionExitPanel'}).props('canRejoin')).toBe(true);
 });
+
+it('keeps one slow lobby admission in flight and ignores its credentials after leaving', async () => {
+  m.host = false;
+  m.subtype = 'training';
+  const get = m.get.getMockImplementation();
+  let admit;
+  m.get.mockImplementation(async url => {
+    if (url.includes('admission-status')) return new Promise(resolve => { admit = resolve; });
+    const result = await get(url);
+    if (url.includes('video-token')) result.data.roomMode = 'lobby';
+    return result;
+  });
+  const leave = await render();
+  await vi.advanceTimersByTimeAsync(7500);
+  expect(m.get.mock.calls.filter(([url]) => url.includes('admission-status'))).toHaveLength(1);
+  await leave.trigger('click'); await flushPromises();
+  const beats = m.post.mock.calls.length;
+  admit({data:{admitted:true, token:'admitted', roomMode:'main', sessionId:'main'}});
+  await flushPromises();
+  expect(wrapper.findComponent({name:'MeetingSessionExitPanel'}).exists()).toBe(true);
+  expect(m.post.mock.calls).toHaveLength(beats);
+});
+
+it('keeps one presence request in flight when a training heartbeat takes longer than its interval', async () => {
+  m.subtype = 'training';
+  let finish;
+  m.post.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  await render();
+  await vi.advanceTimersByTimeAsync(30000);
+  const beats = () => m.post.mock.calls.filter(([url, data]) => url.endsWith('/join-presence') && data.action === 'heartbeat');
+  expect(beats()).toHaveLength(1);
+  finish({data:{ok:true}}); await flushPromises();
+  await vi.advanceTimersByTimeAsync(15000);
+  expect(beats()).toHaveLength(2);
+});

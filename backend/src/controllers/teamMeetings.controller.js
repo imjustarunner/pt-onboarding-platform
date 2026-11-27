@@ -29,6 +29,7 @@ import { canAccessHiringInterview } from '../services/hiringInterviewAccess.serv
  */
 
 import pool from '../config/database.js';
+import { isScheduledTraining } from '../services/scheduledTrainingPolicy.js';
 import { activeTrainingStaff, trainingAccess } from '../services/scheduledTraining.service.js';
 import { mapMeetingAgendaItem } from '../models/MeetingAgendaItem.model.js';
 import { meetingEndPermission } from '../services/meetingEndPermission.service.js';
@@ -50,7 +51,10 @@ import {
   resolveVideoProjectId,
   getVideoClientDiagnostics
 } from '../services/video.service.js';
-import { isAttendanceTrackingEnabledForEvent } from '../services/meetingAttendanceSegments.service.js';
+import {
+  isAttendanceTrackingEnabledForEvent, openAttendanceSegment, closeAttendanceSegment,
+  rebuildAttendanceRollupsFromSegments
+} from '../services/meetingAttendanceSegments.service.js';
 import { buildInterviewEndedGuestPayload } from './interviewHub.controller.js';
 
 /**
@@ -361,6 +365,15 @@ async function admitJoinIdentity({ eventId, userId = null, joinIdentity = null }
   }
 }
 
+async function openParticipantAttendance(event, userId, joinIdentity) {
+  const opened = await openAttendanceSegment({ eventId: event.id, userId, joinIdentity, source: 'platform' });
+  // Training shows live time from segments. Departure and completion settle the totals.
+  if (!isScheduledTraining(event) && (opened?.created || opened?.alreadyOpen)) {
+    await rebuildAttendanceRollupsFromSegments(event.id, { syncClaims: false });
+  }
+  return opened;
+}
+
 /**
  * Start attendance for every authenticated participant who is actively present in the main room.
  * Lobby-only users remain excluded. General team meetings remain opt-in; huddles, admin meetings,
@@ -372,23 +385,21 @@ async function commenceTeamMeetingAttendance({ eventRow, eventId, includeUserIds
   if (!isAttendanceTrackingEnabledForEvent(eventRow)) {
     return { opened: 0, trackingEnabled: false };
   }
-  const {
-    openAttendanceSegment,
-    rebuildAttendanceRollupsFromSegments
-  } = await import('../services/meetingAttendanceSegments.service.js');
-
-  const [presenceRows] = await pool.execute(
-    `SELECT join_identity
-     FROM provider_schedule_event_join_presence
-     WHERE event_id = ?
-       AND left_at IS NULL
-       AND last_seen_at >= (UTC_TIMESTAMP() - INTERVAL ${JOIN_PRESENCE_STALE_SECONDS} SECOND)`,
-    [eid]
-  );
-  const userIds = new Set((includeUserIds || []).map(Number).filter((uid) => uid > 0));
-  for (const presence of presenceRows || []) {
-    const match = /^user-(\d+)$/i.exec(String(presence?.join_identity || '').trim());
-    if (match?.[1]) userIds.add(Number(match[1]));
+  const userIds = new Set(includeUserIds.map(Number).filter(uid => uid > 0));
+  // A trainer admitting one person only needs to start that person's segment.
+  if (!isScheduledTraining(eventRow) || !userIds.size) {
+    const [presenceRows] = await pool.execute(
+      `SELECT join_identity
+       FROM provider_schedule_event_join_presence
+       WHERE event_id = ?
+         AND left_at IS NULL
+         AND last_seen_at >= (UTC_TIMESTAMP() - INTERVAL ${JOIN_PRESENCE_STALE_SECONDS} SECOND)`,
+      [eid]
+    );
+    for (const presence of presenceRows || []) {
+      const match = /^user-(\d+)$/i.exec(String(presence?.join_identity || '').trim());
+      if (match?.[1]) userIds.add(Number(match[1]));
+    }
   }
 
   const hostId = Number(eventRow?.provider_id || 0);
@@ -413,7 +424,7 @@ async function commenceTeamMeetingAttendance({ eventRow, eventId, includeUserIds
     });
     if (result?.created || result?.alreadyOpen) opened += 1;
   }
-  await rebuildAttendanceRollupsFromSegments(eid, { syncClaims: false });
+  if (!isScheduledTraining(eventRow)) await rebuildAttendanceRollupsFromSegments(eid, { syncClaims: false });
   return { opened };
 }
 
@@ -883,19 +894,7 @@ export const getTeamMeetingVideoToken = async (req, res, next) => {
     // (lobby heartbeats alone were leaving attendees at 0m until a later rebuild).
     if (!useLobby && actorUserId) {
       try {
-        const {
-          openAttendanceSegment,
-          rebuildAttendanceRollupsFromSegments
-        } = await import('../services/meetingAttendanceSegments.service.js');
-        const opened = await openAttendanceSegment({
-          eventId,
-          userId: actorUserId,
-          joinIdentity: identity,
-          source: 'platform'
-        });
-        if (opened?.created || opened?.alreadyOpen) {
-          await rebuildAttendanceRollupsFromSegments(eventId, { syncClaims: false });
-        }
+        await openParticipantAttendance(row, actorUserId, identity);
       } catch (e) {
         console.warn('[teamMeeting] open attendance on token failed', e?.message || e);
       }
@@ -970,12 +969,6 @@ export const postTeamMeetingJoinPresence = async (req, res, next) => {
       if (guestBlock) return res.status(guestBlock.status).json(guestBlock.body);
     }
 
-    const {
-      openAttendanceSegment,
-      closeAttendanceSegment,
-      rebuildAttendanceRollupsFromSegments
-    } = await import('../services/meetingAttendanceSegments.service.js');
-
     if (action === 'leave') {
       await markJoinPresenceLeft({ eventId: row.id, joinIdentity: identity });
       await closeAttendanceSegment({ eventId: row.id, joinIdentity: identity });
@@ -996,18 +989,7 @@ export const postTeamMeetingJoinPresence = async (req, res, next) => {
       || await isUserAdmitted({ eventId: row.id, userId: actorUserId, joinIdentity: identity });
 
     // Only accrue attendance once they're in the main room (not waiting).
-    let opened = null;
-    if (admitted) {
-      opened = await openAttendanceSegment({
-        eventId: row.id,
-        userId: guestJoin ? null : actorUserId,
-        joinIdentity: identity,
-        source: 'platform'
-      });
-      if (opened?.created || opened?.alreadyOpen) {
-        await rebuildAttendanceRollupsFromSegments(row.id, { syncClaims: false });
-      }
-    }
+    const opened = admitted ? await openParticipantAttendance(row, guestJoin ? null : actorUserId, identity) : null;
     res.json({ ok: true, attendance: opened || null, admitted: !!admitted,
       ...(guestJoin ? {canEndForEveryone:false} : await meetingEndPermission('team-meeting',row.id,actorUserId)) });
   } catch (e) {
@@ -1294,14 +1276,11 @@ export const getTeamMeetingAdmissionStatus = async (req, res, next) => {
     });
     if (guestBlock) return res.status(guestBlock.status).json(guestBlock.body);
 
-    const identity = guestJoin
-      ? (interviewGuestIdentityFromRow(row) || `guest-iv-${row.id}`)
-      : `user-${actorUserId}`;
     const waitingRoomOn = isWaitingRoomEnabled(row);
-    const isHost = await isMeetingHost(row, actorUserId);
-    const isInterviewer = !!(isInterviewMeeting(row) && actorUserId && !guestJoin
-      && await canAccessInterviewMeeting(req, row));
-    const transcriptArtifact = await ProviderScheduleEventArtifact.findByEventId(row.id);
+    const trainingStatusOnly = req.query?.statusOnly === '1' && isScheduledTraining(row);
+    const transcriptArtifact = trainingStatusOnly
+      ? await ProviderScheduleEventArtifact.transcriptControls(row.id)
+      : await ProviderScheduleEventArtifact.findByEventId(row.id);
     const transcriptState = {
       startedAt: transcriptArtifact?.transcript_started_at || null,
       paused: !!Number(transcriptArtifact?.transcript_paused || 0),
@@ -1325,6 +1304,23 @@ export const getTeamMeetingAdmissionStatus = async (req, res, next) => {
       });
     }
 
+    // A connected training room only needs closure and transcript state. Admission
+    // (including credentials and attendance) is reserved for the lobby-to-room transition.
+    if (trainingStatusOnly) {
+      return res.json({
+        meetingCompleted: false,
+        waitingRoomEnabled: waitingRoomOn,
+        transcriptState,
+        attendanceTrackingEnabled: isAttendanceTrackingEnabledForEvent(row)
+      });
+    }
+
+    const identity = guestJoin
+      ? (interviewGuestIdentityFromRow(row) || `guest-iv-${row.id}`)
+      : `user-${actorUserId}`;
+    const isHost = await isMeetingHost(row, actorUserId);
+    const isInterviewer = !!(isInterviewMeeting(row) && actorUserId && !guestJoin
+      && await canAccessInterviewMeeting(req, row));
     if (isHost || isInterviewer) {
       await admitJoinIdentity({
         eventId: row.id,
@@ -1424,19 +1420,7 @@ export const getTeamMeetingAdmissionStatus = async (req, res, next) => {
 
     if (actorUserId) {
       try {
-        const {
-          openAttendanceSegment,
-          rebuildAttendanceRollupsFromSegments
-        } = await import('../services/meetingAttendanceSegments.service.js');
-        const opened = await openAttendanceSegment({
-          eventId: row.id,
-          userId: actorUserId,
-          joinIdentity: identity,
-          source: 'platform'
-        });
-        if (opened?.created || opened?.alreadyOpen) {
-          await rebuildAttendanceRollupsFromSegments(row.id, { syncClaims: false });
-        }
+        await openParticipantAttendance(row, actorUserId, identity);
       } catch (e) {
         console.warn('[teamMeeting] open attendance on admit-status failed', e?.message || e);
       }
@@ -2369,11 +2353,17 @@ export const getTeamMeetingAttendance = async (req, res, next) => {
         meetingCompletedAt: event.meeting_completed_at || null
       });
     }
-    try {
-      const { syncAttendanceSegmentsWithPresence } = await import('../services/meetingAttendanceSegments.service.js');
-      await syncAttendanceSegmentsWithPresence(eventId, { staleSeconds: JOIN_PRESENCE_STALE_SECONDS });
-    } catch (e) {
-      console.warn('[teamMeeting] attendance sync on list failed', e?.message || e);
+    if (isScheduledTraining(event)) {
+      // Admission and heartbeats already open the attendee's segment. A roster
+      // read should only expire disconnected participants, never admit lobby users.
+      await pruneStaleJoinPresence(eventId);
+    } else {
+      try {
+        const { syncAttendanceSegmentsWithPresence } = await import('../services/meetingAttendanceSegments.service.js');
+        await syncAttendanceSegmentsWithPresence(eventId, { staleSeconds: JOIN_PRESENCE_STALE_SECONDS });
+      } catch (e) {
+        console.warn('[teamMeeting] attendance sync on list failed', e?.message || e);
+      }
     }
     const { listAttendanceSummary } = await import('../services/meetingAttendanceSegments.service.js');
     const summary = await listAttendanceSummary(eventId);

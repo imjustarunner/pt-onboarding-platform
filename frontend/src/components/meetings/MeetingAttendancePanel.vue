@@ -133,6 +133,7 @@ const copyWithTime = ref('');
 const meetingCompletedAt = ref(null);
 const copied = ref(false);
 let pollTimer = null;
+let activeRead = null;
 
 function formatMins(m) {
   const n = Number(m || 0);
@@ -193,13 +194,22 @@ async function load({ quiet = false } = {}) {
   if (!eid) return;
   const url = attendanceUrl();
   if (!url) return;
+  if (activeRead?.url === url) return activeRead.promise;
+  const read = { url };
+  activeRead = read;
+  read.promise = readAttendance(read, quiet);
+  return read.promise;
+}
+
+async function readAttendance(read, quiet) {
   if (!quiet) loading.value = true;
   error.value = '';
   try {
-    const { data } = await api.get(url, {
+    const { data } = await api.get(read.url, {
       skipGlobalLoading: true,
       skipAuthRedirect: true
     });
+    if (activeRead !== read) return;
     participants.value = Array.isArray(data?.participants) ? data.participants : [];
     copyNames.value = String(data?.copyNamesCsv || '');
     copyWithTime.value = String(data?.copyNamesWithTimeCsv || '');
@@ -208,11 +218,14 @@ async function load({ quiet = false } = {}) {
       emit('tracking-status', !!data.attendanceTrackingEnabled);
     }
   } catch (e) {
-    if (!quiet) {
+    if (activeRead === read && !quiet) {
       error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load attendance';
     }
   } finally {
-    if (!quiet) loading.value = false;
+    if (activeRead === read) {
+      activeRead = null;
+      loading.value = false;
+    }
   }
 }
 

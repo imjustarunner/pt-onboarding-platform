@@ -66,6 +66,7 @@ const props=defineProps({eventId:{type:[Number,String],required:true},live:Boole
 const auth=useAuthStore(),state=ref(null),error=ref(''),busy=ref(false),topic=ref('');let timer=null;
 let refresh=createMeetingRefresh();
 let stateVersion=0;
+let lastLoadedAt = 0;
 const saving=ref(false);
 const activeTab=ref('Overview');
 const registrationDeadline=ref('');
@@ -88,11 +89,26 @@ async function readTraining(){
  const {data}=await api.get(path,{skipGlobalLoading:true,timeout:10000});
  if(path!==base.value || version!==stateVersion)return;
  if(!state.value){topic.value=data.event.topic || '';if(data.registrationClosesAt){const d=new Date(data.registrationClosesAt);registrationDeadline.value=new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,16);}}
+ lastLoadedAt = Date.now();
  state.value=data;error.value='';emit('state',data);
 }
-async function load(){try{await refresh.run(readTraining);}catch(e){error.value=e.response?.data?.error?.message || 'Training controls are temporarily unavailable. Retrying…';}}
+async function load() {
+ try { await refresh.run(readTraining); }
+ catch (e) { error.value = e.response?.data?.error?.message || 'Training controls are temporarily unavailable. Retrying…'; }
+}
+async function reloadAfterChange() {
+ try { await refresh.afterChange(readTraining); }
+ catch (e) { error.value = e.response?.data?.error?.message || 'Training controls are temporarily unavailable. Retrying…'; }
+}
 watch(()=>props.eventId,()=>{state.value=null;refresh=createMeetingRefresh();void load();},{immediate:true});
-watch(()=>props.live,live=>{clearInterval(timer);if(live)timer=setInterval(load,10000);},{immediate:true});
+// Moderation signals refresh immediately. Poll less often once permissions are
+// known, while still retrying promptly if the initial room setup failed.
+watch(() => props.live, live => {
+ clearInterval(timer);
+ if (live) timer = setInterval(() => {
+   if (!state.value || Date.now() - lastLoadedAt >= 30000) void load();
+ }, 10000);
+}, {immediate:true});
 onUnmounted(()=>clearInterval(timer));
 async function rsvp(response){
  if(rsvpSaving.value || (response==='declined' && !state.value?.event?.transitionSequence && Number(myInvitation.value?.is_required) && !declineReason.value.trim()))return;
@@ -118,12 +134,12 @@ async function change(body){
  }catch(e){error.value=e.response?.data?.error?.message || 'Could not refresh training controls. Please try again.';}
  finally{saving.value=false;}
 }
-async function hand(action,userId){try{await api.post(`${base.value}/hand`,{action,userId});await load();return true;}catch(e){error.value=e.response?.data?.error?.message || 'Could not update hand.';return false;}}
+async function hand(action,userId){try{await api.post(`${base.value}/hand`,{action,userId});await reloadAfterChange();return true;}catch(e){error.value=e.response?.data?.error?.message || 'Could not update hand.';return false;}}
 async function deny(id){if(await hand('deny',id))emit('private-chat',id);}
 async function upload(e){const file=e.target.files?.[0];if(!file)return;busy.value=true;try{const fd=new FormData();fd.append('file',file);await api.post(`${base.value}/assets`,fd);await load();e.target.value='';}catch(e){error.value=e.response?.data?.error?.message || 'Upload failed.';}finally{busy.value=false;}}
 async function download(asset){try{const {data}=await api.get(`${base.value}/assets/${asset.id}`,{responseType:'blob'});const url=URL.createObjectURL(data),a=document.createElement('a');a.href=url;a.download=asset.filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),10000);}catch{error.value='Download failed.';}}
 async function remove(asset){try{await api.delete(`${base.value}/assets/${asset.id}`);await load();}catch{error.value='Could not remove asset.';}}
-defineExpose({hand,load});
+defineExpose({hand,load,reloadAfterChange});
 </script>
 <style scoped>
 .training-rsvp { margin:16px 0; }

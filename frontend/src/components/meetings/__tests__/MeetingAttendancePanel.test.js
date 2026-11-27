@@ -26,6 +26,20 @@ describe('MeetingAttendancePanel', () => {
     });
   });
 
+  it('shares one slow roster request across refreshes and participant departures', async () => {
+    let finish;
+    apiMock.get.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const wrapper = mount(MeetingAttendancePanel, {props:{eventId:42}, global:{stubs:{MeetingParticipantsDetails:true}}});
+    const first = wrapper.vm.load({quiet:true});
+    const second = wrapper.vm.load({quiet:true});
+    expect(apiMock.get).toHaveBeenCalledTimes(1);
+    finish({data:{participants:[]}});
+    await Promise.all([first, second]);
+    await wrapper.vm.load({quiet:true});
+    expect(apiMock.get).toHaveBeenCalledTimes(2);
+    wrapper.unmount();
+  });
+
   it('shows live participants without implying their time is tracked', async () => {
     const wrapper = mount(MeetingAttendancePanel, {
       global: {stubs:{MeetingParticipantsDetails:true}},

@@ -92,6 +92,32 @@ describe('VideoSessionRoom connection lifecycle', () => {
     expect(wrapper.vm.stageRemotes.map(r=>r.streamId)).toEqual(['Trainer','Cohost','Attendee']);expect(wrapper.videoDOM.find('.vsr__stage--grid').exists()).toBe(true);expect(videoSdk.session.disconnect).not.toHaveBeenCalled();wrapper.unmount();
   });
 
+  it('refreshes training permissions without interrupting a speaker or rebroadcasting to the room', async () => {
+    const policy = {userId:4, proctor:false, primaryId:1, proctorIds:[1], approvedIds:[3], muteAll:true, videoAllowed:false, canUnmute:false};
+    const wrapper = mount(VideoSessionRoom, {props:{applicationId:'11111111-1111-4111-8111-111111111111', sessionId:'training-audio', token:'video', trainingPolicy:policy, startMuted:true, startVideoOff:true}});
+    await flushPromises(); await vi.dynamicImportSettled();
+    const session = videoSdk.session;
+    session.connection = {connectionId:'local'};
+    const sub = {on:vi.fn(), subscribeToAudio:vi.fn(), subscribeToVideo:vi.fn()};
+    session.subscribe = vi.fn(() => sub);
+    const connection = {connectionId:'speaker', data:JSON.stringify({identity:'user-3'})};
+    session._handlers.streamCreated({stream:{streamId:'speaker', connection, hasVideo:false, hasAudio:true}});
+    await flushPromises();
+    expect(session.subscribe.mock.calls[0][2]).toMatchObject({subscribeToAudio:true, subscribeToVideo:false});
+    expect(session.signal.mock.calls.filter(([msg]) => ['mic_state','camera_state'].includes(msg.type)).map(([msg]) => msg.to)).toEqual([connection, connection]);
+    session.signal.mockClear();
+    await wrapper.setProps({trainingPolicy:{...policy, approvedIds:[3]}});
+    expect(sub.subscribeToAudio).not.toHaveBeenCalled();
+    expect(sub.subscribeToVideo).not.toHaveBeenCalled();
+    expect(session.signal).not.toHaveBeenCalled();
+    await wrapper.setProps({trainingPolicy:{...policy, approvedIds:[]}});
+    expect(sub.subscribeToAudio.mock.calls).toEqual([[false]]);
+    await wrapper.setProps({trainingPolicy:policy});
+    expect(sub.subscribeToAudio.mock.calls).toEqual([[false], [true]]);
+    expect(session.disconnect).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
   it.each([true,false])('keeps a connected training publisher and camera choice when video is allowed (trainer=%s)',async proctor=>{
     const publisher={on:vi.fn(),destroy:vi.fn(),publishVideo:vi.fn(),publishAudio:vi.fn()};
     videoSdk.initPublisher.mockImplementation((_el,_opts,callback)=>{queueMicrotask(()=>callback(null));return publisher;});

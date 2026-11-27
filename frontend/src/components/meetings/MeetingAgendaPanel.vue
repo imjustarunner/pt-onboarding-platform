@@ -725,9 +725,8 @@ onUnmounted(() => { stopPoll(); });
   font-weight: 500;
   color: #1e293b;
   line-height: 1.4;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 .agenda-item-author {
   display: block;
@@ -736,7 +735,6 @@ onUnmounted(() => { stopPoll(); });
   color: #64748b;
 }
 .meeting-agenda-panel--dark .agenda-item-author { color: #cbd5e1; }
-.agenda-item--live-sidebar:hover .agenda-item-title { white-space: normal; }
 .meeting-agenda-panel--dark .agenda-title,
 .meeting-agenda-panel--dark .agenda-item-title,
 .meeting-agenda-panel--dark .agenda-section-head h3,
@@ -795,32 +793,10 @@ onUnmounted(() => { stopPoll(); });
 .agenda-item--editing .agenda-item-actions {
   opacity: 1;
 }
-.agenda-item:hover .agenda-item-title,
-.agenda-item--editing .agenda-item-title {
-  /* Keep a single line so actions never cover wrapped title text */
-  white-space: nowrap;
-}
 .mw-hover-wrap {
   position: relative;
   min-width: 0;
   flex: 1;
-}
-.mw-hover-wrap:hover .agenda-item-title,
-.mw-hover-wrap:hover .mgap__text {
-  /* Title stays truncated; full text remains available via title attribute / edit */
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.mgap__hover-meta {
-  display: none;
-  margin-top: 2px;
-  font-size: 0.72rem;
-  font-weight: 600;
-  color: #64748b;
-}
-.mw-hover-wrap:hover .mgap__hover-meta {
-  display: block;
 }
 .agenda-action-btn {
   appearance: none;
