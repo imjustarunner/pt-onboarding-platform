@@ -19,6 +19,24 @@ describe('clinical record PDF content and attachments', () => {
     expect(clinicalValueHtml(0)).toContain('0');
     expect(clinicalValueHtml(new Date('2026-11-17T18:00:00Z'))).toContain('2026-11-17T18:00:00.000Z');
   });
+  it('identifies the treating clinician separately from the signatures on the approved version', () => {
+    const html = buildClinicalRecordHtml({
+      names: { 7: 'Treating clinician', 8: 'Note author', 9: 'Clinical supervisor', 10: 'Previous supervisor' },
+      notes: [{ session: { provider_user_id: 7 }, note: {
+        provider_signed_by_user_id: 8, provider_signed_at: '2026-11-11',
+        supervisor_cosigned_by_user_id: 10, supervisor_cosigned_at: '2026-11-12',
+        clinical_version_number: 2, note_payload: 'Signed documentation',
+        clinical_version_signatures: [
+          { action: 'author_sign', actorUserId: 8, signedAt: '2026-11-13' },
+          { action: 'supervisor_sign', actorUserId: 9, signedAt: '2026-11-14' }
+        ]
+      } }]
+    });
+    expect(html).toContain('<dt>Treating Provider</dt><dd><span>Treating clinician</span></dd>');
+    expect(html).toContain('electronically signed: Note author');
+    expect(html).toContain('electronically signed: Clinical supervisor');
+    expect(html).not.toContain('Previous supervisor');
+  });
   it('appends all PDF pages, embeds original files, preserves duplicate filenames, and lists unrenderable files', async () => {
     const base = await PDFDocument.create(); base.addPage();
     const attachment = await PDFDocument.create(); attachment.addPage(); attachment.addPage();

@@ -12,7 +12,7 @@ import { getCanonicalFeeSchedule } from '../services/feeSchedule.service.js';
 import { priceNewClaimLines } from '../services/newClaimFees.service.js';
 import {reconcileNewClaimAfterHours,savedClinicalFunding,assertNoAutomaticProBonoClaim} from '../services/clinicalAfterHours.service.js';
 import { listClientDiagnosisAlerts } from '../services/clinicalDiagnosisPolicy.service.js';
-import { assertClinicalBillingApproval } from '../services/billingClinicalApproval.service.js';
+import { assertClinicalBillingApproval, clinicalBillingStageFromSummary } from '../services/billingClinicalApproval.service.js';
 import { clinicalNoteSnapshotHash, ensureOriginalRevision, appendOriginalSignature, hasPendingRevision, getRevisionSummary, listPendingRevisionWork, appendRevisionAddendum } from '../services/clinicalNoteVersion.service.js';
 import { medicalCatalogActiveChoice } from '../services/serviceCodeInventoryPresentation.js';
 import { assertConfiguredTestingReferenceCodes } from '../services/testingCatalogClaimGuard.service.js';
@@ -732,7 +732,16 @@ export const discardTreatmentPlanDraft = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'agencyId, clientId, and planId are required' } });
     }
     await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
-    const plan = await ClinicalTreatmentPlan.discardDraft({ planId, agencyId, clientId });
+    const { withHistoricalImportLock } = await import('../services/ehrHistoricalImportLock.service.js');
+    const { getTreatmentPlanApproval } = await import('../services/treatmentPlanApproval.service.js');
+    const plan = await withHistoricalImportLock(agencyId, clientId, 'plan', async () => {
+      const current = await ClinicalTreatmentPlan.findById(planId);
+      if (Number(current?.agency_id) !== agencyId || Number(current?.client_id) !== clientId) return null;
+      if (current.status === 'draft' && (await getTreatmentPlanApproval(current)).providerApproved) {
+        throw Object.assign(new Error('This version has been signed. Open the treatment plan to create a revision.'), { status: 409 });
+      }
+      return ClinicalTreatmentPlan.discardDraft({ planId, agencyId, clientId });
+    });
     if (!plan) return res.status(404).json({ error: { message: 'Treatment plan not found' } });
     return res.json({ plan });
   } catch (e) {
@@ -962,6 +971,8 @@ export const listClientChart = async (req, res, next) => {
       notes = noteRows || [];
     }
     const plans = await ClinicalTreatmentPlan.listByClient({ agencyId, clientId });
+    const { annotateProviderSignedDrafts } = await import('../services/treatmentPlanApproval.service.js');
+    await annotateProviderSignedDrafts(plans);
     const {
       pickAuthoritativeTreatmentPlan,
       resolvePrimaryDiagnosisForChart,
@@ -976,6 +987,11 @@ export const listClientChart = async (req, res, next) => {
       latestPlanId = Number(withGoals?.id || 0);
     }
     const latestPlan = latestPlanId > 0 ? await ClinicalTreatmentPlan.findById(latestPlanId) : null;
+    const latestPlanMeta = plans.find(plan => Number(plan.id) === latestPlanId);
+    if (latestPlan && latestPlanMeta?.providerApproved) {
+      latestPlan.providerApproved = true;
+      latestPlan.providerSignedAt = latestPlanMeta.providerSignedAt;
+    }
     let diagnoses = [];
     try {
       const [dxRows] = await clinicalPool.execute(
@@ -1664,38 +1680,29 @@ export const getClinicalNoteById = async (req, res, next) => {
       || primaryDiagnosis?.justification
       || null;
 
-    let providerSigner = null;
-    const signerId = note.provider_signed_by_user_id || note.created_by_user_id || metadata?.signedByUserId || metadata?.providerUserId || null;
-    if (signerId) {
-      try {
-        const pool = (await import('../config/database.js')).default;
-        const [userRows] = await pool.execute(
-          `SELECT id, first_name, last_name, credential, email
-           FROM users WHERE id = ? LIMIT 1`,
-          [Number(signerId)]
-        );
-        const u = userRows?.[0];
-        if (u) {
-          providerSigner = {
-            id: u.id,
-            name: [u.first_name, u.last_name].filter(Boolean).join(' ').trim() || null,
-            credentials: u.credential || null,
-            npi: await providerBillingNpi({agencyId:note.agency_id,userId:u.id}),
-            email: u.email || null
-          };
-        }
-      } catch {
-        providerSigner = null;
-      }
+    async function loadNoteClinician(userId) {
+      if (!userId) return null;
+      const [[user]] = await pool.execute(
+        'SELECT id, first_name, last_name, credential, email FROM users WHERE id = ? LIMIT 1', [Number(userId)]
+      );
+      if (!user) return null;
+      return { id: user.id, name: [user.first_name, user.last_name].filter(Boolean).join(' ') || null,
+        credentials: user.credential || null, email: user.email || null };
     }
+    const signerId = note.provider_signed_by_user_id || note.created_by_user_id || metadata?.signedByUserId || metadata?.providerUserId || null;
+    const serviceDetailSession = approvedContext.session || {};
+    const treatingId = serviceDetailSession.provider_user_id || signerId;
+    const treatingClinician = await loadNoteClinician(treatingId);
+    const signer = Number(treatingId) === Number(signerId) ? treatingClinician : await loadNoteClinician(signerId);
+    const providerSigner = signer ? {
+      ...signer, npi: await providerBillingNpi({ agencyId: note.agency_id, userId: signer.id }).catch(() => null)
+    } : null;
 
     let sessionTiming = null;
-    let serviceDetailSession = {};
-    if (clinicalSessionId) {
+    if (clinicalSessionId || note.clinical_version_encounter_context) {
       try {
         const s = approvedContext.session;
         if (!s) throw new Error('Linked encounter unavailable');
-        serviceDetailSession = s;
         if (s) {
           sessionTiming = {
             appointmentId: s.appointment_id || null,
@@ -1710,28 +1717,6 @@ export const getClinicalNoteById = async (req, res, next) => {
             locationLabel: sessionLocationLabel(s),
             providerUserId: s.provider_user_id || null
           };
-          if (!providerSigner && s.provider_user_id) {
-            try {
-              const pool = (await import('../config/database.js')).default;
-              const [userRows] = await pool.execute(
-                `SELECT id, first_name, last_name, credential, email
-                 FROM users WHERE id = ? LIMIT 1`,
-                [Number(s.provider_user_id)]
-              );
-              const u = userRows?.[0];
-              if (u) {
-                providerSigner = {
-                  id: u.id,
-                  name: [u.first_name, u.last_name].filter(Boolean).join(' ').trim() || null,
-                  credentials: u.credential || null,
-                  npi: await providerBillingNpi({agencyId:note.agency_id,userId:u.id}),
-                  email: u.email || null
-                };
-              }
-            } catch {
-              // ignore
-            }
-          }
         }
       } catch {
         throw Object.assign(new Error('Unable to load the linked encounter details. Please try again.'), { status: 503 });
@@ -1778,6 +1763,7 @@ export const getClinicalNoteById = async (req, res, next) => {
 
     await logNoteAidChartEvent(req, { clientId: note.client_id, agencyId: note.agency_id, action: 'clinical_note_viewed', metadata: { noteId: note.id, clinicalSessionId: note.clinical_session_id || null } });
     const serviceDetailView = effectiveServiceDetails(note,serviceDetailSession);
+    const billingStage = versions ? clinicalBillingStageFromSummary(note, versions) : null;
     let serviceDetailProposal = null;
     if (metadata.source === H0002_SOURCE && metadata.screeningTaskId && !metadata.structuredChart?.participants) {
       try {
@@ -1787,6 +1773,17 @@ export const getClinicalNoteById = async (req, res, next) => {
     }
     let canSuperviseReview = false;
     try { canSuperviseReview = Number((await resolveNoteDocumentationPolicy(note)).supervisorUserId) === Number(req.user.id) && Number(note.provider_signed_by_user_id || note.created_by_user_id) !== Number(req.user.id); } catch { /* Authorization fails closed. */ }
+    let submissionReview = null;
+    if (canSuperviseReview && note.provider_signed_at) {
+      const { recordedSubmissionReview, submissionReviewDisplay } = await import('../services/narrivaReview.service.js');
+      try {
+        submissionReview = submissionReviewDisplay(await recordedSubmissionReview({
+          source: note, agencyId: note.agency_id, noteId: note.id
+        })).submissionReview;
+      } catch {
+        submissionReview = submissionReviewDisplay(null).submissionReview;
+      }
+    }
     const clinicalSigner = CLINICAL_SIGNER_ROLES.has(String(req.user.role || req.user.effectiveRole || '').toLowerCase());
     let clientName = metadata.clientName || null;
     if (note.client_id) {
@@ -1801,6 +1798,7 @@ export const getClinicalNoteById = async (req, res, next) => {
         clientId: note.client_id,
         clientName,
         canSuperviseReview,
+        submissionReview,
         canSignClinicalNote: clinicalSigner && !note.provider_signed_at && Number(note.created_by_user_id)===Number(req.user.id),
         canSignAddendum: clinicalSigner && !!note.provider_signed_at && (canSuperviseReview || Number(note.provider_signed_by_user_id || note.created_by_user_id)===Number(req.user.id)),
         signingToken,
@@ -1813,6 +1811,7 @@ export const getClinicalNoteById = async (req, res, next) => {
         serviceDetailAmendments: metadata.serviceDetailAmendments || [],
         serviceTimeZone: sessionTiming?.timeZone || 'America/Denver',
         effectiveServiceDetails: serviceDetailView,
+        billingStage,
         serviceDetailProposal,
         pendingServiceDetails: pendingServiceDetails(metadata),
         title: note.title,
@@ -1840,6 +1839,7 @@ export const getClinicalNoteById = async (req, res, next) => {
         metadata,
         structuredChart,
         sessionTiming,
+        treatingClinician,
         providerSigner,
         linkedClaim,
         clientPayer,

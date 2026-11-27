@@ -41,6 +41,35 @@ export async function getTreatmentPlanApproval(plan, { database = pool, supervis
   return treatmentPlanApprovalState({ plan, contentHash, providerSignoff: providerResult[0]?.[0], supervisorReview: supervisorResult[0]?.[0], supervisorUserId: supervisor?.supervisor_id,
     legacyHash: crypto.createHash('sha256').update(JSON.stringify(plan)).digest('hex') });
 }
+export async function annotateProviderSignedDrafts(plans, { database = pool, model = ClinicalTreatmentPlan } = {}) {
+  const drafts = plans.filter(plan => plan.status === 'draft');
+  if (!drafts.length) return;
+  const [signoffs] = await database.execute(
+    `SELECT treatment_plan_id, provider_user_id, content_hash, signed_at
+     FROM clinical_treatment_plan_provider_signoffs WHERE agency_id=? AND client_id=?
+       AND treatment_plan_id IN (${drafts.map(() => '?').join(',')})`,
+    [drafts[0].agency_id, drafts[0].client_id, ...drafts.map(plan => plan.id)]
+  );
+  const byPlan = new Map();
+  for (const signoff of signoffs) {
+    const id = Number(signoff.treatment_plan_id);
+    if (!byPlan.has(id)) byPlan.set(id, []);
+    byPlan.get(id).push(signoff);
+  }
+  await Promise.all(drafts.filter(plan => byPlan.has(Number(plan.id))).map(async plan => {
+    const current = await model.findById(plan.id);
+    if (current?.status !== 'draft' || Number(current.agency_id) !== Number(plan.agency_id) || Number(current.client_id) !== Number(plan.client_id)) return;
+    const hash = await treatmentPlanContentHash(current);
+    const signature = byPlan.get(Number(plan.id)).find(signoff =>
+      Number(signoff.provider_user_id) === Number(current.created_by_user_id) && signoff.content_hash === hash
+    );
+    if (signature) {
+      plan.providerApproved = true;
+      plan.providerSignedAt = signature.signed_at;
+    }
+  }));
+}
+
 export async function assertTreatmentPlanShareApproval(plan, dependencies) {
   const approval = await getTreatmentPlanApproval(plan, dependencies);
   if (!approval.ready) throw fail('The provider and assigned supervisor must review and sign off on this treatment-plan version before it can be shared for client approval.');

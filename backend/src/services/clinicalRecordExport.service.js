@@ -120,7 +120,7 @@ export function createClinicalRecordExporter(dependencies = {}) {
     const nameFor = async id => {
       if (!positive(id) || names[id]) return;
       const user = await findUser(id);
-      names[id] = [user?.first_name, user?.last_name, user?.credentials].filter(Boolean).join(' ') || `User ${id}`;
+      names[id] = [user?.first_name, user?.last_name, user?.credential || user?.credentials].filter(Boolean).join(' ') || `User ${id}`;
     };
     for (let note of sourceNotes) {
       const [[session]] = note.clinical_session_id ? await db.execute('SELECT * FROM clinical_sessions WHERE id=? AND agency_id=? AND client_id=?', [note.clinical_session_id, agencyId, clientId]) : [[{}]];
@@ -141,7 +141,7 @@ export function createClinicalRecordExporter(dependencies = {}) {
         const [rows] = await db.execute('SELECT * FROM clinical_note_addenda WHERE clinical_note_id=? AND agency_id=? ORDER BY created_at,id', [note.id, agencyId]);
         addenda = rows;
       }
-      for (const actorId of [note.created_by_user_id, note.provider_signed_by_user_id, note.supervisor_cosigned_by_user_id, ...addenda.map(entry => entry.created_by_user_id), ...revisions.flatMap(revision => (revision.signatures || []).map(signature => signature.actorUserId))]) await nameFor(actorId);
+      for (const actorId of [context.session?.provider_user_id, note.created_by_user_id, note.provider_signed_by_user_id, note.supervisor_cosigned_by_user_id, ...addenda.map(entry => entry.created_by_user_id), ...revisions.flatMap(revision => (revision.signatures || []).map(signature => signature.actorUserId))]) await nameFor(actorId);
       notes.push({ note, session: context.session || session || {}, addenda, revisions });
     }
     if (!singleDocument || planId) {

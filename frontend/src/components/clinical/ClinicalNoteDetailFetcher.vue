@@ -20,7 +20,7 @@ const props = defineProps({
 
 const emit = defineEmits(['amended']);
 const readOnlyView = ref(null);
-defineExpose({ refresh:()=>load(),openRevision: revisionId => readOnlyView.value?.openRevision(revisionId) });
+defineExpose({ refresh:()=>load(),openRevision: revisionId => readOnlyView.value?.openRevision(revisionId), openCorrection: () => readOnlyView.value?.openCorrection() });
 async function onAmended(result) { emit('amended', result); await load(); }
 
 const loading = ref(false);

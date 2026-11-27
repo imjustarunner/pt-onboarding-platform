@@ -90,7 +90,7 @@ describe('supervisor note review', () => {
   });
 
   it('returns changes needed with an explicit message and exact review hash', async () => {
-    api.post.mockResolvedValue({ data: { ok: true, reviewRequest: { id: 8, action: 'changes_needed', message: 'Please clarify the intervention.' } } });
+    api.post.mockResolvedValue({ data: { ok: true, claimOnHold: true, reviewRequest: { id: 8, action: 'changes_needed', message: 'Please clarify the intervention.' } } });
     const w = mounted(); await flushPromises();
     await byText(w, 'Return / provide feedback').trigger('click');
     await w.find('[data-testid="feedback-message"]').setValue('Please clarify the intervention.');
@@ -103,12 +103,13 @@ describe('supervisor note review', () => {
   it('previews a documentation request and sends it atomically with the exact-version co-sign', async () => {
     const w=mounted(); await flushPromises();
     await byText(w,'Return / provide feedback').trigger('click');
+    await w.get('[data-testid="feedback-action"]').setValue('request_addendum');
     const selections=w.findAll('.correction-fields select');
     await selections[0].setValue('Objective');
     await selections[1].setValue('detail');
     await selections[2].setValue('clinical interventions');
     expect(w.get('blockquote').text()).toBe('Can you please add additional information in the objective content section regarding clinical interventions?');
-    expect(byText(w,'Send request')).toBeUndefined();
+    expect(byText(w,'Send addendum request').element.disabled).toBe(false);
     await w.get('[data-testid="supervisor-attestation"]').setValue(true);
     await byText(w,'Co-sign & request addendum').trigger('click'); await flushPromises();
     expect(api.post).toHaveBeenCalledWith('/medical-billing/notes/71/cosign',expect.objectContaining({
@@ -117,6 +118,35 @@ describe('supervisor note review', () => {
     }),{skipGlobalLoading:true});
     w.unmount();
   });
+  it.each([
+    ['changes_needed', 'Return and hold claim', true],
+    ['request_addendum', 'Send addendum request', false]
+  ])('sends %s without a co-sign when the encounter is incomplete', async (selection, button, claimOnHold) => {
+    api.get.mockImplementation(async url => ({ data: url.includes('document-reviews')
+      ? review()
+      : { note: { ...note(), effectiveServiceDetails: { startTime: '10:00', endTime: '10:45', durationMinutes: 45 },
+        locationLabel: null, serviceLocationId: null, placeOfService: null } } }));
+    api.post.mockResolvedValue({ data: { ok: true, claimOnHold,
+      reviewRequest: { id: 8, action: 'changes_needed', resolutionMode: claimOnHold ? undefined : 'signed_addendum' } } });
+    const w = mounted();
+    await flushPromises();
+    await byText(w, 'Return / provide feedback').trigger('click');
+    await w.get('[data-testid="feedback-action"]').setValue(selection);
+    const fields = w.findAll('.correction-fields select');
+    await fields[0].setValue('Objective');
+    await fields[1].setValue('detail');
+    await fields[2].setValue('clinical interventions');
+    expect(byText(w, button).element.disabled).toBe(false);
+    await w.find('.feedback-form').trigger('submit');
+    await flushPromises();
+    const [url, payload] = api.post.mock.calls[0];
+    expect(url).toBe('/medical-billing/notes/71/supervisor-review');
+    expect(payload.documentationOnly === true).toBe(!claimOnHold);
+    expect(payload.correction).toEqual({ section: 'Objective', reason: 'detail', topic: 'clinical interventions' });
+    expect(w.emitted('signed')).toBeUndefined();
+    w.unmount();
+  });
+
   it('co-signs with an acknowledgeable supervision comment', async () => {
     const w=mounted(); await flushPromises();
     await byText(w,'Return / provide feedback').trigger('click');

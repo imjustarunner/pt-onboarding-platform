@@ -71,7 +71,10 @@ export function effectiveServiceDetails(note, session = {}) {
     if (!isValidTimeZone(session.source_timezone || 'America/Denver')) return null;
     return new Intl.DateTimeFormat('en-GB',{timeZone:session.source_timezone || 'America/Denver',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(instant);
   };
-  return approved?.serviceDetails || {durationMinutes: chart.durationMinutes ?? session.duration_minutes ?? null, locationLabel: chart.locationLabel || sessionLocationLabel(session) || meta.locationLabel || null, startTime: chart.startTime || localTime(session.scheduled_start_at), endTime: chart.endTime || localTime(session.scheduled_end_at), placeOfService: chart.placeOfService || session.place_of_service || null,serviceLocationId:Number(session.service_location_id) || null, ...(chart.participants ? {participants:chart.participants} : {}), ...(typeof chart.patientPresent === 'boolean' ? {patientPresent:chart.patientPresent} : {})};
+  const fallback = {durationMinutes: chart.durationMinutes ?? session.duration_minutes ?? null, locationLabel: chart.locationLabel || sessionLocationLabel(session) || meta.locationLabel || null, startTime: chart.startTime || localTime(session.scheduled_start_at), endTime: chart.endTime || localTime(session.scheduled_end_at), placeOfService: chart.placeOfService || session.place_of_service || null,serviceLocationId:Number(session.service_location_id) || null, ...(chart.participants ? {participants:chart.participants} : {}), ...(typeof chart.patientPresent === 'boolean' ? {patientPresent:chart.patientPresent} : {})};
+  const context = note.clinical_version_encounter_context || {};
+  const fields = ['durationMinutes', 'startTime', 'endTime', 'locationLabel', 'placeOfService', 'serviceLocationId', 'participants', 'patientPresent'];
+  return approved?.serviceDetails || { ...fallback, ...Object.fromEntries(fields.filter(field => context[field] != null && context[field] !== '').map(field => [field, context[field]])) };
 }
 export function pendingServiceDetails(meta) { return (meta.serviceDetailAmendments || []).filter(a => !a.approvedAt && !a.supersededByAmendmentId && !a.supersededByRevisionId).at(-1)?.serviceDetails || null; }
 export function assertServiceDetailsComplete(note, session = {}) {

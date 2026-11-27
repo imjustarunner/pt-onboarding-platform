@@ -51,8 +51,9 @@ function signatureHtml(note, names = {}, recordType = 'clinical') {
   const revised = Number(note.clinical_version_number) > 1;
   const signed = revised ? author?.signedAt : note.provider_signed_at;
   const authorId = author?.actorUserId || note.provider_signed_by_user_id || note.created_by_user_id;
+  const supervisorSignedAt = supervisor?.signedAt || (!revised ? note.supervisor_cosigned_at : null);
   const role = recordType === 'tutoring' ? 'Tutor' : 'Provider';
-  return `<aside class="signatures"><strong>Signature record</strong><p>${signed ? `${role} electronically signed: ${escape(names[authorId] || `User ${authorId}`)} · ${escape(signed)}` : revised ? `${role} signature is not present on this amendment; see the amendment approval below.` : `Unsigned draft — ${role.toLowerCase()} signature not recorded.`}</p>${supervisor?.signedAt || note.supervisor_cosigned_at ? `<p>${recordType === 'tutoring' ? 'Supervisor' : 'Clinical supervisor'} electronically signed: ${escape(names[supervisor?.actorUserId || note.supervisor_cosigned_by_user_id] || 'Authorized supervisor')} · ${escape(supervisor?.signedAt || note.supervisor_cosigned_at)}</p>` : ''}</aside>`;
+  return `<aside class="signatures"><strong>Signature record</strong><p>${signed ? `${role} electronically signed: ${escape(names[authorId] || `User ${authorId}`)} · ${escape(signed)}` : revised ? `${role} signature is not present on this amendment; see the amendment approval below.` : `Unsigned draft — ${role.toLowerCase()} signature not recorded.`}</p>${supervisorSignedAt ? `<p>${recordType === 'tutoring' ? 'Supervisor' : 'Clinical supervisor'} electronically signed: ${escape(names[supervisor?.actorUserId || note.supervisor_cosigned_by_user_id] || 'Authorized supervisor')} · ${escape(supervisorSignedAt)}</p>` : ''}</aside>`;
 }
 const dateLabel = value => value instanceof Date ? value.toISOString().slice(0, 10) : typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value) ? value.slice(0, 10) : value;
 const agencyName = agency => String(agency.official_name || agency.name || 'Clinical practice').trim();
@@ -108,7 +109,7 @@ export function buildClinicalRecordHtml({ client = {}, agency = {}, notes = [], 
       timeZone: session.source_timezone || agency.timezone, participants: chart.participants || encounter.participants || metadata.participants || 'Not recorded in this note.',
       participantDetails: chart.participantsDetail || encounter.participantsDetail || metadata.participantsDetail || metadata.narrivaContext?.participantsDetail,
       location: chart.locationLabel || encounter.locationLabel || metadata.locationLabel, placeOfService: chart.placeOfService || session.place_of_service,
-      [recordType === 'tutoring' ? 'tutor' : 'provider']: names[note.provider_signed_by_user_id || note.created_by_user_id] };
+      [recordType === 'tutoring' ? 'tutor' : 'treatingProvider']: names[session.provider_user_id || note.provider_signed_by_user_id || note.created_by_user_id] };
     const localClock = value => typeof value === 'string' && /^\d{1,2}:\d{2}(?::\d{2})?(?:\s?[AP]M)?$/i.test(value.trim());
     if (localClock(header.startTime) && localClock(header.endTime)) {
       header.time = `${header.startTime}–${header.endTime}${header.durationMinutes != null ? ` · ${header.durationMinutes} min` : ''}${header.timeZone ? ` · ${header.timeZone}` : ''}`;

@@ -52,3 +52,16 @@ it('loads imported plan details for the chart summary and numbers legacy rows by
  expect(w.text()).toContain('Edit draft in chart');
  w.unmount();
 });
+
+it('labels a provider-signed plan awaiting supervisor approval and uses the revision workflow', async () => {
+  const plan = { id: 51, status: 'draft', title: 'Synthetic treatment plan draft', providerApproved: true, goals: [] };
+  state.get.mockResolvedValue({ data: { plans: [plan], latestPlan: plan } });
+  const wrapper = mount(Panel, { props: { clientId: 2297, agencyId: 450, clientType: 'clinical' } });
+  await flushPromises();
+  expect(wrapper.text()).toContain('Provider signed · Supervisor review pending');
+  expect(wrapper.text()).not.toContain('Discard draft');
+  expect(wrapper.text()).not.toContain('Draft — updating');
+  await wrapper.findAll('button').find(button => button.text() === 'Revise plan with Narriva').trigger('click');
+  expect(state.push).toHaveBeenCalledWith(expect.objectContaining({ query: expect.objectContaining({ planId: '51', revision: '1' }) }));
+  wrapper.unmount();
+});

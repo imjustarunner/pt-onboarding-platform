@@ -978,6 +978,7 @@
             <TutoringStudentsView v-if="serviceWorkspace(authStore.user,currentAgency).learningOnly" :agency-id="currentAgencyId" />
             <ProviderClientsTab
               v-else
+              ref="providerClientsTab"
               :initial-section="String(route.query.clients || route.query.clientsSection || 'all')"
               @update:needsAttentionCount="clientsNeedsAttentionCount = $event"
               @update:pendingClientsCount="providerPendingClientsCount = $event"
@@ -3836,9 +3837,11 @@ function openSocialFeedInDetail(feed) {
   router.replace({ query: { ...route.query, tab: 'social_feeds' } });
 }
 
+const providerClientsTab = ref(null);
 const handleCardClick = (card) => {
   closeCardDescriptor();
   if (props.previewMode) return;
+  if (card.id === 'clients') providerClientsTab.value?.closeClientProfile();
   // When leaving Overview push a new history entry so Back returns here.
   const leavingOverview = activeTab.value === 'overview';
   const navFn = (loc) => {

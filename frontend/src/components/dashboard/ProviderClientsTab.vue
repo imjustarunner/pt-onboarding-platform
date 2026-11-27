@@ -1359,8 +1359,11 @@ async function openClientProfile(client, navList = null, initialTab='') {
 }
 
 function closeClientProfile() {
+  closeQuickView();
   profileClient.value = null;
 }
+
+defineExpose({ closeClientProfile });
 
 async function onProfileNavigate({ direction }) {
   profileInitialTab.value='';

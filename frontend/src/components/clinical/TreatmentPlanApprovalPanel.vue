@@ -4,9 +4,9 @@
     <p>Treatment plans require provider and supervisor signoff. Quick sign does not apply. The approved version is then shared for client or guardian approval.</p>
     <p v-if="error" role="alert">{{ error }}</p>
     <template v-if="approval">
-      <p><strong>Provider:</strong> {{ approval.providerApproved ? 'Signed and reviewed' : 'Review required' }} · <strong>Supervisor:</strong> {{ approval.supervisorApproved ? 'Approved' : 'Review required' }}</p>
+      <p v-if="!approval.legacyRecordOnFile"><strong>Provider:</strong> {{ approval.providerApproved ? 'Signed and reviewed' : 'Review required' }} · <strong>Supervisor:</strong> {{ approval.supervisorApproved ? 'Approved' : 'Review required' }}</p>
       <p v-if="approval.legacyRecordOnFile">This historical finalized plan remains on file. Provider and supervisor signatures were not captured in this workflow; new sharing requires their review.</p>
-      <template v-if="canProviderSign && !approval.providerApproved">
+      <template v-if="canProviderSign && !readOnly && !approval.providerApproved">
         <label><input v-model="confirmed" type="checkbox" :disabled="busy || disabled" /> I reviewed the full plan and confirm its clinical content is accurate and supported.</label>
         <button type="button" :disabled="!confirmed || busy || disabled" @click="sign">{{ busy ? 'Saving…' : 'Sign plan and send for supervisor review' }}</button>
       </template>
@@ -22,7 +22,7 @@
 import { ref, watch } from 'vue';
 import api from '../../services/api';
 import TreatmentPlanDocumentationReview from './TreatmentPlanDocumentationReview.vue';
-const props = defineProps({ agencyId: [Number, String], clientId: [Number, String], planId: [Number, String], disabled: Boolean });
+const props = defineProps({ agencyId: [Number, String], clientId: [Number, String], planId: [Number, String], disabled: Boolean, readOnly: Boolean });
 const emit = defineEmits(['updated']);
 let requestSequence = 0;
 const documentationReview = ref(null);
@@ -37,7 +37,7 @@ async function load() {
   finally { if (request === requestSequence) busy.value = false; }
 }
 async function sign() {
-  if (busy.value || props.disabled || !confirmed.value || !approval.value?.contentHash) return;
+  if (busy.value || props.disabled || props.readOnly || !confirmed.value || !approval.value?.contentHash) return;
   const request = ++requestSequence;
   busy.value = true; error.value = '';
   try { const { data } = await api.post(`/medical-billing/treatment-plans/${props.planId}/provider-review`, { agencyId: props.agencyId, clientId: props.clientId, contentHash: approval.value.contentHash, reviewedAndAccurate: true }); if (request !== requestSequence) return; approval.value = data.approval; documentationReview.value = data.documentationReview; emit('updated', data.approval); }

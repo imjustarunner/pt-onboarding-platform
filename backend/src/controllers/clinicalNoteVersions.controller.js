@@ -222,7 +222,11 @@ async function attest(req, res, next, action, capability) {
         diagnoses:snapshot.metadataJson?.structuredChart?.diagnoses || snapshot.metadataJson?.structuredChart?.intakeDiagnoses});
     }
     if(action!=='author_acknowledge')await assertNarrivaRiskBeforeSignature({...context.note,note_payload:revision.snapshot?.notePayload ?? context.note.note_payload,metadata_json:revision.snapshot?.metadataJson || context.note.metadata_json});
-    const signedRevision = await signRevision({ ...context, revisionId, action, attested: true, expectedContentHash: req.body.expectedContentHash, expectedEntryManifestHash: req.body.expectedEntryManifestHash,
+    const supervisorComment = req.body.supervisorComment;
+    if (supervisorComment !== undefined && (action !== 'supervisor_sign' || typeof supervisorComment !== 'string' || supervisorComment.length > 4000)) {
+      throw policyError(400, 'Only the co-signing supervisor may include a comment of up to 4,000 characters.');
+    }
+    const signedRevision = await signRevision({ ...context, revisionId, action, attested: true, supervisorComment: supervisorComment?.trim(), expectedContentHash: req.body.expectedContentHash, expectedEntryManifestHash: req.body.expectedEntryManifestHash,
       requestEvidence:clinicalSignatureEvidence(req) });
     const finalSummary = await summaryResponse(context);
     if (action !== 'author_acknowledge' && Number(finalSummary.effectiveRevisionId) === Number(signedRevision.id) && !finalSummary.pendingRevisionId) {
