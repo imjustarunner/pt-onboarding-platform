@@ -19,6 +19,10 @@ beforeEach(() => {
   recipients = [{ clientId: 12, displayName: 'Client One', receivesReminders: true }];
   appointments = [{ id: 1, providerUserId: 9, agencyId: 2, status: 'scheduled', title: 'Session', startAt: '2026-11-04 18:00:00', endAt: '2026-11-04 19:00:00', updatedAt: '2026-10-01 00:00:00' }];
   const execute = vi.fn(async (sql, args = []) => {
+    if (sql.includes('FROM appointments a') && sql.includes('AS series_id')) return [appointments
+      .filter(a => a.agencyId === args[0] && a.providerUserId === args[1] && a.startAt >= args[2] && a.status === 'scheduled')
+      .map(a => ({ id: a.id, series_id: a.seriesId, series_agency_id: a.agencyId, plan_id: a.officePlanId }))];
+    if (sql.includes('SET recurrence_stopped=1') || sql.startsWith('UPDATE office_booking_plans')) return [{ affectedRows: 1 }];
     if (sql.includes('GET_LOCK')) return [[{ acquired: 1 }]];
     if (sql.includes('RELEASE_LOCK')) return [[{ released: 1 }]];
     if (sql.startsWith('INSERT INTO provider_day_cancellations')) { record = { token: args[0], provider_id: args[1], actor_user_id: args[2], cancellation_date: args[3], plan_json: args[4], results_json: '{}', status: 'preview', expires_at: '2026-11-05 01:00:00' }; return [{ affectedRows: 1 }]; }
@@ -399,4 +403,27 @@ it('reviews and releases an assigned office occurrence in the selected agency an
  );
  await apply(plan);
  expect(dependencies.releaseRoom).toHaveBeenCalledOnce();
+});
+
+it('stops future client series and resumes the existing workflow without sending or deferring notices', async () => {
+  appointments[0].seriesId = 'series-1';
+  appointments.push({ ...appointments[0], id: 2, startAt: '2026-12-09 18:00:00', endAt: '2026-12-09 19:00:00', officePlanId: 3 });
+  appointments.push({ ...appointments[0], id: 3, status: 'completed' });
+  appointments.push({ ...appointments[0], id: 4, agencyId: 3 });
+  const review = await service.preview({ ...input, absenceSource: 'cancel_day', scopeMode: 'forward', notificationMode: 'send' }, actor, authorize, appointmentAccess);
+  expect(review.notificationMode).toBe('none');
+  expect(review.items.map(row => row.id)).toEqual([1, 2]);
+  const result = await apply(review);
+  expect(result).toMatchObject({ status: 'completed', remaining: 0, notificationTaskId: null });
+  expect(database.execute).toHaveBeenCalledWith(expect.stringContaining('SET recurrence_stopped=1'), [2, 9, 'series-1']);
+  expect(database.execute).toHaveBeenCalledWith(expect.stringContaining('UPDATE office_booking_plans'), ['2026-12-09', '2026-12-09', 3, '2']);
+  expect(dependencies.completeAppointment).toHaveBeenCalledTimes(2);
+  for (const [, facts] of dependencies.completeAppointment.mock.calls) {
+    expect(facts).toMatchObject({ notificationMode: 'none', followUpAction: 'none', initiator: 'provider' });
+  }
+  expect(dependencies.ensureTask).not.toHaveBeenCalled();
+  expect(dependencies.contacts).not.toHaveBeenCalled();
+  expect(blocks).toEqual([]);
+  await apply(review);
+  expect(dependencies.completeAppointment).toHaveBeenCalledTimes(2);
 });

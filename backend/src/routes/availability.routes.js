@@ -2,7 +2,7 @@ import {getContractSchedulingExpectation} from '../controllers/contractSchedulin
 import {getServices,putServices,getSettings,saveSettings,checkSettings,snoozeReminder,getMyReminders,enableWaitlist} from '../controllers/providerAvailabilitySettings.controller.js';
 import { getEnrollmentWaitlist } from '../controllers/providerEnrollmentWaitlist.controller.js';
 import express from 'express';
-import { listDayCancellationAgencies, previewDayCancellation, applyDayCancellation, resumeDayCancellation, rewriteDayCancellation, previewDayCancellationEmail } from '../controllers/providerDayCancellation.controller.js';
+import { listDayCancellationAgencies, previewDayCancellation, applyDayCancellation, resumeDayCancellation, rewriteDayCancellation, previewDayCancellationEmail, deleteCanceledCalendarItem } from '../controllers/providerDayCancellation.controller.js';
 import {getWorkspace,deletePublication,movePublication} from '../controllers/providerAvailabilityWorkspace.controller.js';
 import { authenticate, requireActiveStatus } from '../middleware/auth.middleware.js';
 import { requireSkillBuildersSchoolProgramForAgencyContext } from '../middleware/skillBuildersSchoolProgram.middleware.js';
@@ -72,6 +72,7 @@ router.post('/providers/:providerId/day-cancellation/preview', requireActiveStat
 router.post('/providers/:providerId/day-cancellation/email-preview', requireActiveStatus, previewDayCancellationEmail);
 router.post('/providers/:providerId/day-cancellation/rewrite', requireActiveStatus, rewriteDayCancellation);
 router.post('/providers/:providerId/day-cancellation/:token/apply', requireActiveStatus, applyDayCancellation);
+router.delete('/providers/:providerId/calendar/canceled/:type/:id', requireActiveStatus, deleteCanceledCalendarItem);
 router.get('/providers/:providerId/contract-scheduling-expectation', getContractSchedulingExpectation);
 router.get('/providers/:providerId/enrollment-waitlist', getEnrollmentWaitlist);
 router.get('/admin/enrollment-waitlist', getEnrollmentWaitlist);

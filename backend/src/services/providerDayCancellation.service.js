@@ -136,7 +136,61 @@ export function createDayCancellationService(overrides = {}) {
     notifyMeetings: sendMeetingScheduleChange, invalidate: invalidateAvailabilityReminders, ...overrides
   };
 
+  async function forwardInventory(plan, actor, authorizeAppointment) {
+    const items = [];
+    const now = deps.now();
+    for (const scope of plan.scopes) {
+      const [rows] = await db.execute(`SELECT a.id, p.recurrence_series_id AS series_id, p.agency_id AS series_agency_id,
+        o.booking_plan_id AS plan_id
+        FROM appointments a
+        LEFT JOIN provider_schedule_events p ON p.id=a.provider_schedule_event_id
+        LEFT JOIN office_events o ON o.id=a.office_event_id
+        WHERE a.agency_id=? AND a.provider_user_id=? AND a.start_at>=?
+          AND a.start_at>? AND a.status IN ('scheduled','confirmed','client_confirmed','reschedule_requested','cancellation_requested')
+          AND EXISTS (SELECT 1 FROM appointment_participants ap WHERE ap.appointment_id=a.id AND ap.client_id IS NOT NULL)
+        ORDER BY a.start_at,a.id`, [scope.agencyId, plan.providerId, scope.start, now]);
+      for (const row of rows) {
+        const a = await deps.getAppointment(row.id);
+        if (!a || Number(a.providerUserId) !== plan.providerId || Number(a.agencyId) !== scope.agencyId
+          || !cancellable.has(a.status) || utc(a.startAt) <= now) continue;
+        await authorizeAppointment(actor, a);
+        const startAt = stamp(a.startAt);
+        items.push({
+          key: `appointment:${a.id}`, kind: 'appointment', id: a.id, agencyId: scope.agencyId,
+          timeZone: scope.timeZone, date: localCalendarDate(utc(a.startAt), scope.timeZone),
+          title: a.title || 'Client session', startAt, endAt: stamp(a.endAt),
+          source: { updatedAt: stamp(a.updatedAt), participants: await deps.participants(a.id),
+            seriesId: row.series_id, seriesAgencyId: row.series_agency_id, officePlanId: row.plan_id },
+          facts: { ...plan.facts, ...(a.officeEventId ? { officeReservationDisposition: 'release' } : {}) }
+        });
+      }
+    }
+    return { items, unchanged: [], fingerprint: fingerprint(items) };
+  }
+
+  async function stopForwardRecurrence(conn, plan) {
+    const series = new Map();
+    const officePlans = new Map();
+    for (const item of plan.items) {
+      const { seriesId, seriesAgencyId } = item.source;
+      if (seriesId && seriesAgencyId) series.set(`${seriesAgencyId}:${seriesId}`, [seriesAgencyId, seriesId]);
+      if (item.source.officePlanId && !officePlans.has(item.source.officePlanId)) officePlans.set(item.source.officePlanId, item);
+    }
+    for (const [agencyId, id] of series.values()) {
+      await conn.execute('UPDATE provider_schedule_events SET recurrence_stopped=1 WHERE agency_id=? AND provider_id=? AND recurrence_series_id=?',
+        [agencyId, plan.providerId, id]);
+    }
+    for (const [id, item] of officePlans) {
+      await conn.execute(`UPDATE office_booking_plans SET session_context_json=JSON_SET(session_context_json,
+        '$.clientUnscheduleFromDate',LEAST(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(session_context_json,'$.clientUnscheduleFromDate')),?),?),
+        '$.officeReservationDisposition','release') WHERE id=?
+        AND JSON_UNQUOTE(JSON_EXTRACT(session_context_json,'$.agencyId'))=?`,
+      [item.date, item.date, id, String(item.agencyId)]);
+    }
+  }
+
   async function inventory(plan, actor, authorizeAppointment) {
+    if (plan.scopeMode === 'forward') return forwardInventory(plan, actor, authorizeAppointment);
     const items = [], unchanged = [];
     const composeLetter = deps.composeLetter || createAbsenceLetterComposer();
     const now = deps.now();
@@ -324,11 +378,17 @@ export function createDayCancellationService(overrides = {}) {
     if (!dates.length || dates.length > dateLimit) throw fail(`Choose between one and ${dateLimit} dates.`);
     if (input.windowStart && (input.absenceSource !== 'planned_out' || !Number.isFinite(+utc(input.windowStart)) || !Number.isFinite(+utc(input.windowEnd)) || utc(input.windowEnd) <= utc(input.windowStart))) throw fail('Choose a valid planned-out time window.');
     const scopeMode = input.scopeMode || 'days';
-    if (!['days', 'sessions'].includes(scopeMode)) throw fail('Choose selected days or individual sessions.');
+    if (scopeMode === 'forward' && (schoolId || dates.length !== 1 || input.absenceSource !== 'cancel_day')) throw fail('Choose one date on the provider calendar.');
+    if (!['days', 'sessions', 'forward'].includes(scopeMode)) throw fail('Choose selected days or individual sessions.');
     const appointmentIds = scopeMode === 'sessions' ? [...new Set((input.appointmentIds || []).map(Number))] : null;
     if (appointmentIds && (!appointmentIds.length || appointmentIds.some(id => !Number.isSafeInteger(id) || id < 1))) throw fail('Select at least one session.');
     const plan = { providerId, agencyIds, schoolId, date: input.date || dates[0], dates, scopeMode, appointmentIds, windowStart: input.windowStart, windowEnd: input.windowEnd, includeUntimedKeys:input.includeUntimedKeys || [],
       contactFollowUpVersion:1, followupOwner: input.followupOwner === 'support' ? 'support' : 'provider', messagesReviewed: input.messagesReviewed === true, contactChoices: input.contactChoices || {}, schoolChoices: input.schoolChoices || {}, messages: input.messages || {}, facts: { ...dayCancellationFacts(input), providerAuthored: Number(actor.id) === providerId }, internalReason: String(input.internalReason || '').trim().slice(0, 2000), scopes: [] };
+    if (scopeMode === 'forward') {
+      plan.date = dates[0];
+      plan.messagesReviewed = true;
+      plan.facts = dayCancellationFacts({ urgent: false, notificationMode: 'none', suppressionReason: 'Future schedule canceled without notification.' });
+    }
     for (const agencyId of agencyIds) for (const date of dates) {
       const timeZone = input.absenceSource === 'planned_out' && input.timeZone ? input.timeZone : await deps.timeZone(agencyId), bounds = dayBounds(date, timeZone);
       if (plan.windowStart) {
@@ -341,6 +401,7 @@ export function createDayCancellationService(overrides = {}) {
       plan.scopes.push({ agencyId, timeZone, date, ...bounds });
     }
     Object.assign(plan, await inventory(plan, actor, authorizeAppointment));
+    if (scopeMode === 'forward' && !plan.items.length) throw fail('There are no upcoming sessions from this date.');
     if (plan.facts.notificationMode !== 'none') for (const item of plan.items) item.emailPreviews = await deps.noticePreview(item);
     if (appointmentIds && appointmentIds.some(id => !plan.items.some(i => i.kind === 'appointment' && Number(i.id) === id))) throw fail('A selected session is outside these dates, inaccessible, or cannot be canceled.');
     const row = { token: randomUUID(), status: 'preview' };
@@ -371,13 +432,15 @@ export function createDayCancellationService(overrides = {}) {
         if (!plan.messagesReviewed) throw fail('Review the recipients and editable emails before confirming.');
         if (utc(row.expires_at) <= deps.now()) throw fail('This review expired. Review the current schedule again.', 409);
         // The same provider lock is used by appointment booking. Install the day block before releasing it.
+        if (plan.scopeMode === 'forward') await lock('recurring-schedule-year');
         await lock(`public-provider-selection:${plan.providerId}`);
         await lock(`supervision-time:${plan.providerId}`);
         const current = plan.notificationsOnly ? await deferredInventory(plan, actor, authorizeAppointment) : await inventory(plan, actor, authorizeAppointment);
         if (current.fingerprint !== plan.fingerprint) throw fail('The schedule changed. Review the day again before canceling.', 409);
         await conn.beginTransaction();
         try {
-          for (const scope of plan.notificationsOnly || plan.schoolId || plan.scopeMode === 'sessions' || plan.facts.absenceSource === 'planned_out' ? [] : plan.scopes) {
+          if (plan.scopeMode === 'forward') await stopForwardRecurrence(conn, plan);
+          for (const scope of plan.notificationsOnly || plan.schoolId || ['sessions', 'forward'].includes(plan.scopeMode) || plan.facts.absenceSource === 'planned_out' ? [] : plan.scopes) {
             await conn.execute(`INSERT INTO provider_schedule_events
               (agency_id,provider_id,kind,title,description,is_private,all_day,start_at,end_at,start_date,end_date,event_timezone,status,created_by_user_id,updated_by_user_id)
               VALUES (?,?,'SCHEDULE_HOLD','Unavailable',NULL,1,1,?,?,?,?,?,'ACTIVE',?,?)`,
@@ -391,15 +454,15 @@ export function createDayCancellationService(overrides = {}) {
         // Do not retain provider booking locks while the signed appointment flow takes its own locks.
         for (const key of locks.splice(1).reverse()) await conn.execute('SELECT RELEASE_LOCK(?)', [key]);
       }
-      if (plan.facts.notificationMode === 'none' && !results.notificationTaskId) {
+      if (plan.scopeMode !== 'forward' && plan.facts.notificationMode === 'none' && !results.notificationTaskId) {
         results.notificationTaskId = await deps.ensureTask(token, plan, actor);
         await conn.execute('UPDATE provider_day_cancellations SET results_json=?,status=? WHERE token=?', [JSON.stringify(results), row.status, token]);
       }
       if (input.retryFailed === true) {
         for (const [key, result] of Object.entries(results)) if (result.status === 'failed') delete results[key];
       }
-      const item = plan.items.find(i => !results[i.key]);
-      if (item) {
+      const pending = plan.items.filter(i => !results[i.key]);
+      for (const item of pending.slice(0, plan.scopeMode === 'forward' ? 8 : 1)) {
         try {
           let delivery;
           const reviewedProof = {reviewedCancellationToken:token,reviewedCancellationItemKey:item.key};
@@ -414,6 +477,14 @@ export function createDayCancellationService(overrides = {}) {
             for (const c of item.clients || []) {
               const fresh = await deps.contacts(c.clientId, item.agencyId, plan.contactChoices?.[c.clientId], { required: plan.facts.notificationMode !== 'none', allowMissingEmail: true });
               if (JSON.stringify(fresh.contacts) !== JSON.stringify(c.contacts)) throw fail('This client’s contacts changed. Review the session individually.', 409);
+            }
+            if (plan.scopeMode === 'forward' && isCanceled(appointment.status)) {
+              const { getAppointmentChangeWorkflow } = await import('./appointmentChangeWorkflow.service.js');
+              const workflow = await getAppointmentChangeWorkflow(item.id);
+              if (workflow?.facts?.reviewedCancellationToken !== token) {
+                results[item.key] = { status: 'completed', notificationDelivery: null };
+                continue;
+              }
             }
             const facts = {...(item.facts || { ...plan.facts, followUpAfterAt: plan.scopes.find(s => s.agencyId === item.agencyId)?.end }),...reviewedProof};
             const completed = await (plan.notificationsOnly ? deps.notifyAppointment : deps.completeAppointment)(item.id, facts, plan.notificationsOnly ? actor.id : { actorUserId: actor.id, actorRole: actor.role });
@@ -535,6 +606,7 @@ export function createDayCancellationService(overrides = {}) {
     const original = JSON.parse(deps.decrypt(typeof source.plan_json === 'string' ? source.plan_json : JSON.stringify(source.plan_json)));
     if (Number(input.providerId) !== original.providerId) throw fail('Cancellation follow-up not found.', 404);
     await authorize(actor, original.providerId, original.scopes.map(s => s.agencyId));
+    if (original.scopeMode === 'forward') throw fail('Forward cancellations have no deferred notices.', 409);
     if (source.status !== 'completed' || (!input.unsentToken && original.facts.notificationMode !== 'none')) throw fail('Finish canceling these sessions before reviewing their emails.', 409);
     const results = parse(source.results_json) || {};
     const unsentItems=original.items.filter(item=>confirmedUnsentFamily(item,results[item.key]));

@@ -1,3 +1,4 @@
+import { applyCalendarCancellationVisibility, canSeeDeletedCalendarItems } from '../services/calendarCancellationArchive.service.js';
 import { officeOccupancy } from '../utils/officeRoomOccupancy.js';
 import { officeSessionGapSql } from '../utils/officeSessionGap.js';
 import {attachAgencyAffiliationMetadata as attachAffiliationMeta} from '../services/agencyAffiliationMetadata.service.js';
@@ -4109,6 +4110,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
 
     // Ensure office_events are materialized for this week for buildings relevant to this provider (best-effort).
     // My Schedule personal grid can skip this — materialize only when office board needs it.
+    const showDeleted = detailLevel === 'full' && canSeeDeletedCalendarItems(req.user?.role) && req.query.showDeleted === '1';
     const skipOfficeMaterialize = teamCalendar || ['1', 'true', 'yes'].includes(
       String(req.query.skipOfficeMaterialize || '').trim().toLowerCase()
     );
@@ -4631,7 +4633,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
         allAgencies: includeAllAgencies,
         userId: providerId,
         windowStart,
-        windowEnd
+        windowEnd,
+        includeCalendarDeleted: showDeleted
       });
       let signupRows = [];
       try {
@@ -4778,6 +4781,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
           endAt: endWall,
           startDateYmd,
           status: r.status,
+          ...(r.calendar_deleted_at ? { calendarPreviouslyDeleted: true } : {}),
           modality: r.modality,
           locationText: r.location_text,
           notes: r.notes,
@@ -6055,6 +6059,17 @@ export const getUserScheduleSummary = async (req, res, next) => {
     scheduleEvents.push(...invitedCompanyEvents.map(event => companyEventScheduleVisibility(event, isSelf)));
 
     if (!isSelf) scheduleEvents = scheduleEvents.map(redactPrivatePersonalCalendarEvent);
+
+    const cancellationVisibility = await applyCalendarCancellationVisibility({
+      provider_event: scheduleEvents, office_event: officeEvents, supervision: supervisionSessions
+    }, {
+      showDeleted, providerId,
+      canArchive: detailLevel === 'full' && (isSelf || canSeeDeletedCalendarItems(req.user?.role)),
+      allowedAgencies: isSelf ? null : allowedDetailAgencies
+    });
+    scheduleEvents = cancellationVisibility.provider_event;
+    officeEvents = cancellationVisibility.office_event;
+    supervisionSessions = cancellationVisibility.supervision;
 
     let fullPayload = {
       ok: true,

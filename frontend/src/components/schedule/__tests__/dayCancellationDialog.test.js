@@ -2,12 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, mount, shallowMount } from '@vue/test-utils';
 import { reactive } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
-const m = vi.hoisted(() => ({ post: vi.fn(), get: vi.fn(), route: null }));
-vi.mock('../../../services/api', () => ({ default: { post: m.post, get: m.get, put: vi.fn() }, isApiRateLimited: () => false }));
+const m = vi.hoisted(() => ({ post: vi.fn(), get: vi.fn(), delete: vi.fn(), route: null }));
+vi.mock('../../../services/api', () => ({ default: { post: m.post, get: m.get, delete: m.delete, put: vi.fn() }, isApiRateLimited: () => false }));
 vi.mock('vue-router', () => ({ useRoute: () => m.route, useRouter: () => ({ push: vi.fn(), replace: vi.fn(), resolve: () => ({ href: '/dashboard' }) }) }));
 vi.mock('../../../store/auth', () => ({ useAuthStore: () => ({ user: { id: 7, role: 'provider' }, isAuthenticated: true }) }));
 vi.mock('../../../store/agency', () => ({ useAgencyStore: () => ({ currentAgency: { id: 2, name: 'Test' }, agencies: [], userAgencies: [] }) }));
 import Dialog from '../DayCancellationDialog.vue';
+import ArchiveDialog from '../CanceledCalendarItemDialog.vue';
 import Grid from '../ScheduleAvailabilityGrid.vue';
 import { clearScheduleSummaryCache } from '../../../utils/scheduleSummaryCache';
 
@@ -386,4 +387,38 @@ it('opens deferred messages without applying cancellation or sending, then requi
   expect(button('Approve and send emails').element.disabled).toBe(true);
   await wrapper.find('.day-signature input').setValue(true); await button('Approve and send emails').trigger('click'); await flushPromises();
   expect(m.post.mock.calls.at(-1)[0]).toContain('/apply');
+});
+
+it('reviews and confirms the distinct silent forward cancellation mode', async () => {
+  open();
+  await flushPromises();
+  await button('Cancel everything forward').trigger('click');
+  expect(wrapper.text()).toContain('Cancellation notices won’t be sent.');
+  const preview = { ...fixture(), scopeMode: 'forward', items: [fixture().items[0]] };
+  m.post.mockResolvedValueOnce({ data: preview }).mockResolvedValueOnce({ data: {
+    ...preview, status: 'completed', results: { 'appointment:41': { status: 'completed' } }
+  } });
+  await button('Review upcoming sessions').trigger('click');
+  await flushPromises();
+  expect(m.post).toHaveBeenCalledWith(`${base}/preview`, {
+    agencyIds: [2, 3], date: '2026-10-15', scopeMode: 'forward'
+  }, expect.anything());
+  await button('Cancel 1 session').trigger('click');
+  await flushPromises();
+  expect(wrapper.text()).toContain('1 canceled');
+  expect(m.post).toHaveBeenLastCalledWith(`${base}/${token}/apply`, { signatureConfirmed: true, retryFailed: false }, expect.anything());
+});
+
+it('archives from the canceled item while keeping the existing details available', async () => {
+  const item = { type: 'appointment', id: 41, label: 'Canceled session', canArchive: true, openDetails: vi.fn() };
+  wrapper = shallowMount(ArchiveDialog, { props: { providerId: 7, item } });
+  await button('Open details').trigger('click');
+  expect(wrapper.emitted('details')).toHaveLength(1);
+  m.delete.mockResolvedValue({ data: { archived: true } });
+  await button('Delete from calendar').trigger('click');
+  await flushPromises();
+  expect(m.delete).toHaveBeenCalledWith('/availability/providers/7/calendar/canceled/appointment/41');
+  expect(wrapper.emitted('archived')).toHaveLength(1);
+  await wrapper.setProps({ item: { ...item, archived: true, canArchive: false } });
+  expect(button('Delete from calendar')).toBeUndefined();
 });
