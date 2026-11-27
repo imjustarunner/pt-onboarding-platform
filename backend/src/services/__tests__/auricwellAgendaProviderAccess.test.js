@@ -43,3 +43,9 @@ describe('agenda uses the canonical care and booking eligibility gates', () => {
     await expect(options()).rejects.toMatchObject({ status: 403 });
   });
 });
+
+it('does not allow one provider to read or plan a different provider’s schedule', async () => {
+  const actor = { id: 19, role: 'provider' };
+  await expect(createAuricwellAgendaImporter().options({ actor, agencyId: 2, providerId: 20, planner: true }))
+    .rejects.toMatchObject({ status: 403, message: 'You can only plan your own schedule.' });
+});

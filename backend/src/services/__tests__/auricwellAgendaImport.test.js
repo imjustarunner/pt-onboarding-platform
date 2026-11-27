@@ -238,3 +238,18 @@ CaPo: Therapy Session (90837) - District 11`;
     expect(deps.book).not.toHaveBeenCalled();
   });
 });
+
+describe('day planner booking boundary', () => {
+  it('requires explicit rows and a planner preview and books the reviewed day through the existing importer', async () => {
+    const input = { ...base(), providerId: 19, date: '2026-10-19', scheduleMode: 'recurring', rows: [{ rowId: 'visit', clientId: 41, date: '2026-10-19',
+      startTime: '09:00', endTime: '09:45', tenantServiceId: 3, serviceLocationId: 5, recurrence: 'WEEKLY' }] };
+    await expect(service.preview({ actor, input: base(), planner: true })).rejects.toMatchObject({ status: 400 });
+    const display = await service.preview({ actor, input, planner: true });
+    expect(display.rows[0].occurrenceDates).toEqual(['2026-10-19']);
+    expect(deps.book).not.toHaveBeenCalled();
+    const checked = { ...input, previewToken: display.previewToken, confirm: true };
+    await expect(service.commit({ actor, input: checked })).rejects.toMatchObject({ status: 403 });
+    await expect(service.commit({ actor, input: checked, planner: true })).resolves.toMatchObject({ complete: true, createdCount: 1 });
+    expect(deps.book).toHaveBeenCalledTimes(1);
+  });
+});

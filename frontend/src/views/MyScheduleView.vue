@@ -22,6 +22,10 @@
           <router-link v-if="teamUserId && (canPickEmployeeSchedule || isSupervisorUser)" :to="{ path: orgTo('/dashboard'), query: { tab: 'my_schedule', scheduleViewAs: String(teamUserId) } }" class="btn btn-secondary btn-sm">Open schedule tools</router-link>
         </template>
         <template #header-actions>
+          <button v-if="!teamUserId && plannerAgencyId" type="button" class="btn btn-secondary btn-sm"
+            :disabled="plannerBusy" :aria-expanded="showDayPlanner" @click="showDayPlanner = !showDayPlanner">
+            {{ showDayPlanner ? 'Close bulk scheduler' : 'Bulk scheduler' }}
+          </button>
           <router-link class="btn btn-secondary btn-sm" :to="orgTo('/meeting-times')">Offer meeting times</router-link>
           <button v-if="isSuperadmin" class="btn btn-secondary btn-sm" @click="showOfficeTransition = !showOfficeTransition" :aria-expanded="showOfficeTransition">Office scheduling transition</button>
           <router-link
@@ -54,6 +58,9 @@
           </router-link>
         </template>
 
+        <ProviderDayPlanner v-if="showDayPlanner && !teamUserId && plannerAgencyId"
+          :key="`planner-${plannerAgencyId}-${authStore.user.id}`" :agency-id="plannerAgencyId" :provider-id="Number(authStore.user.id)" :initial-date="weekStartYmd"
+          @busy="plannerBusy = $event" @saved="scheduleRevision++" />
         <OfficeSchedulingTransition v-if="isSuperadmin && showOfficeTransition" />
         <OfficeAssignmentUsageReviews />
         <ProviderCopayAttendance v-if="!learningOnly" />
@@ -84,7 +91,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, defineAsyncComponent, ref, watch } from 'vue';
 import DayCancellationDialog from '../components/schedule/DayCancellationDialog.vue';
 import { dayCancellationLinkContext } from '../utils/dayCancellationLink.js';
 import { useRoute, useRouter } from 'vue-router';
@@ -107,6 +114,9 @@ const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
+const ProviderDayPlanner = defineAsyncComponent(() => import('../components/schedule/ProviderDayPlanner.vue'));
+const plannerAgencyId = computed(() => Number(agencyStore.currentAgency?.id) || null);
+const showDayPlanner = ref(false), plannerBusy = ref(false);
 const learningOnly = computed(() => serviceWorkspace(authStore.user, agencyStore.currentAgency || {}).learningOnly);
 const cancelDayLinkClosed = ref(false), scheduleRevision = ref(0);
 const cancelDayLink = computed(() => authStore.user?.id ? dayCancellationLinkContext(route.query, authStore.user) : null);

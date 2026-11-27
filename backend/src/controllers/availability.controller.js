@@ -1430,6 +1430,10 @@ export const createMyOfficeAvailabilityRequest = async (req, res, next) => {
 
     const preferences = await resolveOfficeRequestPreferences(pool, {agencyId,officeIds,slots:normalizedSlots,preferredRoomIds:req.body?.preferredRoomIds,preferredRoomId:req.body?.preferredRoomId});
     normalizedSlots = preferences.slots;
+    const specificRoom = req.body?.requirePreferredRoom === true;
+    if (specificRoom && (officeIds.length !== 1 || preferences.preferredRooms.length !== 1)) {
+      return res.status(400).json({ error: { message: 'Choose a single building and room for this request.' } });
+    }
 
     const requestWindows = distinctOfficeRequestWindows(normalizedSlots, requestedStartDate);
     if (requestedRecurrence.recurrence === 'ONCE') {
@@ -1494,7 +1498,7 @@ export const createMyOfficeAvailabilityRequest = async (req, res, next) => {
     for (const window of requestWindows) {
       let allocation, lastError;
       for (const officeId of allowedOffices) {
-        try { allocation = await allocateOfficeRoom(conn, { ...window, source: 'intake', officeId:Number(officeId), providerId, roomType:req.body?.roomType || 'counseling', preferredRoomIds:preferences.preferredRooms.map(r=>Number(r.id)), recurrence:requestedRecurrence.recurrence, occurrenceCount:requestedRecurrence.occurrenceCount }); break; }
+        try { allocation = await allocateOfficeRoom(conn, { ...window, source: 'intake', officeId:Number(officeId), providerId, roomType:req.body?.roomType || 'counseling', roomId:specificRoom ? window.roomId : null, preferredRoomIds:preferences.preferredRooms.map(r=>Number(r.id)), recurrence:requestedRecurrence.recurrence, occurrenceCount:requestedRecurrence.occurrenceCount }); break; }
         catch(error) { if(error.code==='ALREADY_REQUESTED')throw error; if(error.code!=='NO_SUITABLE_OFFICE')throw error; lastError=error; }
       }
       if(!allocation)throw lastError || new Error('No suitable office available.');
