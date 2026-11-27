@@ -1,0 +1,4 @@
+{"at":"2026-11-27T02:43:59.813Z","actorType":"automation","automationIdentity":"plotline-number-provisioning-20261126","action":"purchase_requested","number":"17197165766","monthlyRentalEur":"0.93","initialPriceEur":"0.93"}
+{"at":"2026-11-27T02:44:03.690Z","actorType":"automation","automationIdentity":"plotline-number-provisioning-20261126","action":"purchase_confirmed","number":"17197165766"}
+{"at":"2026-11-27T02:44:04.102Z","actorType":"automation","automationIdentity":"plotline-number-provisioning-20261126","action":"campaign_link_requested","number":"17197165766","brandId":"BCGLCIL","campaignId":"VCZOP4JO"}
+{"at":"2026-11-27T02:44:04.658Z","actorType":"automation","automationIdentity":"plotline-number-provisioning-20261126","action":"campaign_link_accepted","number":"17197165766","status":"LINKING","brandId":"BCGLCIL","campaignId":"VCZOP4JO"}

@@ -35,7 +35,7 @@ export async function getSmsSender(from) {
   const phone = normalizeSmsPhone(from);
   if (!phone) throw smsPolicyError('sms_invalid_sender', 'A valid sending number is required');
   const [rows] = await pool.execute(
-    `SELECT n.id, n.agency_id, n.phone_number, n.is_active, n.status,
+    `SELECT n.id, n.agency_id, n.number_purpose, n.phone_number, n.is_active, n.status,
             a.name AS agency_name, a.phone_number AS support_phone, a.slug AS agency_slug, a.feature_flags AS agency_feature_flags,
             r.campaign_id, r.registration_json
      FROM twilio_numbers n LEFT JOIN agencies a ON a.id = n.agency_id
@@ -119,7 +119,7 @@ export async function isSmsSuppressed(sender, phone) {
   return staff.length > 0;
 }
 
-export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, complianceReply, agencyId, staffNotificationKind = 'notifications', senderFirstName, staffAssistantReply, hiringUserId, interviewId, interviewSmsConfirmation = false, interviewSmsStartAt = null, companyEventId, companyEventReply = false, clientId, recipientUserId, notificationCategory, providerRelayEnrollmentId, requireConfirmedCare = false, reminderFooter = null }) {
+export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, complianceReply, agencyId, staffNotificationKind = 'notifications', senderFirstName, staffAssistantReply, hiringUserId, interviewId, interviewAgencyId, interviewSmsConfirmation = false, interviewSmsStartAt = null, companyEventId, companyEventReply = false, clientId, recipientUserId, notificationCategory, providerRelayEnrollmentId, requireConfirmedCare = false, reminderFooter = null }) {
   const recipient = normalizeSmsPhone(to);
   if (!recipient) throw smsPolicyError('sms_invalid_recipient', 'A valid recipient number is required');
   if (mediaUrl) throw smsPolicyError('sms_mms_unsupported', 'Attachments require a configured MMS transport; nothing was sent');
@@ -172,8 +172,8 @@ export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, co
   }
   if (purpose === 'workforce' && staffNotificationKind === 'plotlineInterview') {
     const { authorizeInterviewSms } = await import('./hiringInterviewSms.service.js');
-    await authorizeInterviewSms({ sender, phone: recipient, interviewId, confirmation: interviewSmsConfirmation, expectedStartAt: interviewSmsStartAt });
-    return { to: recipient, from: sender.phone_number, agencyId: sender.agency_id,
+    const interview = await authorizeInterviewSms({ sender, phone: recipient, interviewId, agencyId: interviewAgencyId ?? sender.agency_id, confirmation: interviewSmsConfirmation, expectedStartAt: interviewSmsStartAt });
+    return { to: recipient, from: sender.phone_number, agencyId: interview.agencyId,
       body: formatRegisteredSms(body, registration.brandName), registration, purpose };
   }
   if (purpose === 'workforce' && staffNotificationKind === 'hiring') {

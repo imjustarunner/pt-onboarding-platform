@@ -4,15 +4,26 @@ import { formatRegisteredSms, smsPolicyError, validateSmsRegistration } from '..
 import { getSmsSender, isSmsSuppressed } from './smsCompliance.service.js';
 import { tenantInterviewJoinUrl } from '../utils/tenantMeetingUrl.js';
 import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
+import { allowQaSmsDelivery } from '../utils/auricwellQaPolicy.js';
 
 async function interviewSmsSender(agencyId) {
-  let config;
-  try { config = JSON.parse(process.env.PLOTLINE_INTERVIEW_SMS_CAMPAIGNS_JSON || '{}')?.[Number(agencyId)]; }
+  const id = Number(agencyId);
+  if (!Number.isSafeInteger(id) || id < 1) return null;
+  let config, platform;
+  try {
+    const campaigns = JSON.parse(process.env.PLOTLINE_INTERVIEW_SMS_CAMPAIGNS_JSON || '{}');
+    platform = !Object.hasOwn(campaigns, String(id));
+    config = platform ? campaigns.platform : campaigns[id];
+  }
   catch { return null; }
   if (!config?.from || !config.brandId || !config.campaignId) return null;
+  if (platform && config.scope !== 'all_agencies') return null;
   const sender = await getSmsSender(config.from).catch(() => null);
   const r = sender?.registration;
-  if (!sender || Number(sender.agency_id) !== Number(agencyId) || validateSmsRegistration(r).length
+  const ownerMatches = platform
+    ? sender?.agency_id === null && sender?.number_purpose === 'platform_contact' && r?.platformInterviewSender === true
+    : Number(sender?.agency_id) === id;
+  if (!sender || !ownerMatches || validateSmsRegistration(r).length
     || (r.provider || 'vonage') !== 'vonage' || (r.purposes.length !== 1 || !r.purposes.includes('workforce')) || !/^plotline\b/i.test(r.brandName)
     || r.interviewOnly !== true || sender.campaign_id !== config.campaignId
     || r.brandId !== config.brandId || r.campaignId !== config.campaignId) return null;
@@ -61,8 +72,8 @@ export async function interviewSmsCalendarSettings(interview) {
 }
 
 // Called by the shared SMS policy after the campaign and STOP checks.
-export async function authorizeInterviewSms({ sender, phone, interviewId, confirmation, expectedStartAt }) {
-  const approved = await interviewSmsSender(sender.agency_id);
+export async function authorizeInterviewSms({ sender, phone, interviewId, agencyId = sender.agency_id, confirmation, expectedStartAt }) {
+  const approved = await interviewSmsSender(agencyId);
   const consent = Number(interviewId) > 0 ? await latestConsent(interviewId) : null;
   if (!approved || Number(approved.id) !== Number(sender.id) || !consent || consent.phone !== phone
     || Number(consent.number_id) !== Number(sender.id) || consent.brand_id !== sender.registration.brandId
@@ -70,15 +81,21 @@ export async function authorizeInterviewSms({ sender, phone, interviewId, confir
     || consent.confirmation_status !== (confirmation ? 'sending' : 'sent')) {
     throw smsPolicyError('sms_interview_consent_required', 'A current Plotline interview text opt-in is required.');
   }
-  const [[event]] = await pool.execute(`SELECT e.meeting_settings_json FROM hiring_interviews h
+  const [[event]] = await pool.execute(`SELECT h.agency_id, a.slug AS agency_slug,
+      a.feature_flags AS agency_feature_flags, e.meeting_settings_json FROM hiring_interviews h
     JOIN provider_schedule_events e ON e.id=h.provider_schedule_event_id AND e.agency_id=h.agency_id
+    JOIN agencies a ON a.id=h.agency_id AND a.is_active=1 AND COALESCE(a.is_archived,0)=0
     LEFT JOIN meeting_participant_preferences p ON p.event_id=e.id AND p.user_id=h.candidate_user_id
     WHERE h.id=? AND h.agency_id=? AND e.status='ACTIVE' AND e.meeting_completed_at IS NULL
       AND h.status IN ('scheduled','in_progress') AND h.guest_access_ended_at IS NULL AND e.start_at > UTC_TIMESTAMP()
       AND COALESCE(p.rsvp,'pending')<>'declined' AND (? IS NULL OR e.start_at=?)`,
-    [interviewId, sender.agency_id, expectedStartAt || null, expectedStartAt || null]);
+    [interviewId, Number(agencyId), expectedStartAt || null, expectedStartAt || null]);
   const settings = typeof event?.meeting_settings_json === 'string' ? JSON.parse(event.meeting_settings_json) : event?.meeting_settings_json;
-  if (!settings?.interviewSmsReminders) throw smsPolicyError('sms_interview_reminders_disabled', 'Interview text reminders are turned off.');
+  if (!settings?.interviewSmsReminders || Number(event.agency_id) !== Number(agencyId)) throw smsPolicyError('sms_interview_reminders_disabled', 'Interview text reminders are turned off.');
+  if (!allowQaSmsDelivery({ id: event.agency_id, slug: event.agency_slug, feature_flags: event.agency_feature_flags }, { to: phone, purpose: 'workforce' })) {
+    throw smsPolicyError('sms_qa_recipient_blocked', 'QA texts are limited to the owner-approved testing phone.');
+  }
+  return { agencyId: Number(agencyId) };
 }
 
 async function sendInterviewText(interview, consent, body, { confirmation = false, expectedStartAt = null } = {}) {
@@ -86,7 +103,8 @@ async function sendInterviewText(interview, consent, body, { confirmation = fals
   if (!sender || !consent) return { skipped: true };
   const { default: Vonage } = await import('./vonage.service.js');
   return Vonage.sendSms({
-    purpose: 'workforce', staffNotificationKind: 'plotlineInterview', agencyId: interview.agency_id,
+    purpose: 'workforce', staffNotificationKind: 'plotlineInterview', agencyId: sender.agency_id,
+    interviewAgencyId: interview.agency_id,
     interviewId: interview.id, interviewSmsConfirmation: confirmation, interviewSmsStartAt: expectedStartAt, to: consent.phone, from: sender.phone_number,
     body: formatRegisteredSms(body, sender.registration.brandName)
   });

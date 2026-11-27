@@ -76,6 +76,8 @@ or establish consent for any recipient. Provision app records using an explicitl
 authorized, scoped automation identity with automation audit attribution.
 
 1. Apply the interview SMS consent migration.
-2. Link the approved Vonage number and record the exact verified brand, campaign, support contact, keyword ownership, terms, privacy, and evidence URLs on the agency’s sender registration. Mark the line `interviewOnly: true`.
-3. Set `PLOTLINE_INTERVIEW_SMS_CAMPAIGNS_JSON` with a mapping from each approved agency ID to its `from`, `brandId`, and `campaignId`. Keep candidate reminders on their approved sender arrangement.
+2. Register the approved number once as a platform-owned `platform_contact` line with `agency_id=NULL`. Its registration must contain both `interviewOnly: true` and `platformInterviewSender: true`. The dedicated procedure-only identity and fixed registration are described in the [release handoff](releases/plotline-sms-activation-2026-11-26/README.md).
+3. Set `PLOTLINE_INTERVIEW_SMS_CAMPAIGNS_JSON` to `{"platform":{"from":"+17197165766","brandId":"BCGLCIL","campaignId":"VCZOP4JO","scope":"all_agencies"}}`. This explicit platform scope enables the interview program across agencies. An explicit agency key overrides the shared default; setting an agency key to `null` disables it there. Existing per-agency configurations continue to require a sender owned by that agency.
 4. Verify consent, the enrollment confirmation, a reminder with the join link, and HELP and STOP using a controlled test recipient. Check that the candidate’s RSVP and email still work after SMS opt-out.
+
+The shared sender retains the actual interview agency in authorization and delivery attribution. It requires current consent for that interview, matches its recipient and campaign, checks the active appointment and agency, and applies the actual agency’s QA recipient restrictions. STOP remains scoped to the Plotline campaign. Ordinary workforce, clinical, and unrelated messages cannot use this interview-only number.
