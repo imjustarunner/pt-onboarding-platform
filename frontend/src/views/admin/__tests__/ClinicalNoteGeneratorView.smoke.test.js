@@ -611,7 +611,7 @@ describe('ClinicalNoteGeneratorView smoke', () => {
       expect(state.canConfirmAndSign).toBe(false);
       expect(wrapper.findComponent({ name: 'DraftAppointmentRepair' }).exists()).toBe(true);
       expect(wrapper.find('.na-session-picker').exists()).toBe(false);
-      expect(wrapper.text()).toContain('This saved progress draft has no verified actual session');
+      expect(wrapper.text()).toContain('This saved draft has no verified session');
       expect(state.inputText).toBe('Original preserved clinical facts.');
       vi.mocked(api.patch).mockClear(); vi.mocked(api.post).mockClear();
       state.inputText = 'Unsaved reviewed clinical correction.';

@@ -24,12 +24,12 @@ describe('immutable signed note version history', () => {
   it('labels observed legacy dates without inventing a new signature over the captured snapshot', async () => {
     const legacy = { ...original(), signatures: [], provenance: { kind: 'legacy_observed', observedAt: '2026-11-03T17:00:00Z', legacyProviderSignedAt: '2026-11-01T17:00:00Z', legacyProviderSignedByUserId: 9 } };
     response = { ...summary(), revisions: [legacy], effectiveRevision: legacy }; const w = mountHistory(); await flushPromises();
-    expect(w.text()).toContain('Legacy record captured'); expect(w.text()).toContain('do not establish a new signature'); expect(w.text()).toContain('Legacy author: User #9');
+    expect(w.text()).toContain('Legacy record captured'); expect(w.text()).toContain('do not establish a new signature'); expect(w.text()).toContain('Legacy author: Account 9');
     expect(w.findAll('.revision-signatures article')).toHaveLength(0); w.unmount();
   });
   it('signs a provider or billing proposal as the original author and leaves supervisor approval pending', async () => {
     const pending = revision({ origin: 'billing', proposedByUserId: 22, capabilities: { canSign: true } }); response = summary(pending);
-    const w = mountHistory(); await flushPromises(); expect(w.text()).toContain('Proposed by billing: User #22');
+    const w = mountHistory(); await flushPromises(); expect(w.text()).toContain('Proposed by billing: Account 22');
     const signed = { ...pending, status: 'awaiting_supervisor_signature', capabilities: {} };
     api.post.mockImplementation(async () => { response = summary(signed); return { data: { ...response, revision: signed } }; });
     await field(w, 'version-attestation').setValue(true); await field(w, 'sign-version').trigger('submit'); await flushPromises();
