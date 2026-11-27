@@ -156,6 +156,7 @@
           :agency-id="intakePlanWork?.agencyId || chartAgencyIdForSave"
           :client-id="effectiveClientId"
           :source-intake-note-id="intakePlanWork?.sourceIntakeNoteId || null"
+          :signed-intake-href="signedPlanIntakeHref"
           :initial-text="pastedPlanText"
           :plan-id="planDraftEditorId"
           :mode="planImportReviewMode"
@@ -226,6 +227,7 @@
             <strong>Initial treatment plan</strong>
           </div>
           <p>{{ intakePlanWork.clientName }} · Intake date {{ intakePlanWork.date }}</p>
+          <a v-if="signedPlanIntakeHref" :href="signedPlanIntakeHref" target="_blank" rel="noopener" class="na-btn-outline">View signed intake (new tab)</a>
           <p v-if="loadingIntakePlan" role="status">Loading the signed intake…</p>
           <p v-if="approvalError" class="na-delete-err" role="alert">{{ approvalError }}</p>
           <template v-if="intakePlanWork.treatmentPlanPrepared && intakePlanWork.treatmentPlanId">
@@ -1603,7 +1605,8 @@
       @saved="onStandaloneDraftSaved"
     />
     <NoteAidTreatmentPlanStandaloneModal
-      :open="showTreatmentPlanWriterModal && !showTreatmentPlanWorkspace && !intakePlanWork"
+      v-if="showTreatmentPlanWriterModal && !effectiveClientId && !showTreatmentPlanWorkspace && !intakePlanWork"
+      :open="true"
       :agency-id="noteAidAgencyId || currentAgencyId"
       :clients="standaloneModalClients"
       @close="showTreatmentPlanWriterModal = false"
@@ -2247,6 +2250,12 @@ async function onStandalonePlanApplied() {
 }
 const workQueueItems = useNoteAidWorkQueue(() => authStore.user?.id);
 const intakePlanWork = computed(() => workQueueItems.value.find(item => item.sourceIntakeNoteId && item.id === activeWorkQueueItemId.value) || null);
+const signedPlanIntakeHref = computed(() => {
+  const item = intakePlanWork.value;
+  return item?.agencyId ? router.resolve({ path: route.path, query: {
+    agencyId: item.agencyId, noteId: item.sourceIntakeNoteId
+  } }).href : '';
+});
 const unlinkedWorkItem = ref(null);
 const removingWorkItem = ref(false);
 const loadingIntakePlan = ref(false);
@@ -4574,6 +4583,7 @@ function cancelAidPicker() {
 
 async function closeNoteWorkspace() {
   const closingIntakePlan = !!intakePlanWork.value;
+  showTreatmentPlanWriterModal.value = false;
   showActualSessionPicker.value = false;
   unlinkedWorkItem.value = null;
   showPlanImportReview.value = false;
@@ -4750,7 +4760,8 @@ function onLibrarySelect({ aid, categoryId }) {
   if (aid?.standaloneModal === 'treatment_plan') {
     selectedAidId.value = '';
     showAidPicker.value = false;
-    showTreatmentPlanWriterModal.value = true;
+    if (effectiveClientId.value) void openTreatmentPlanUpdater();
+    else showTreatmentPlanWriterModal.value = true;
     return;
   }
   selectedAidId.value = aid?.id || '';
@@ -8825,6 +8836,8 @@ async function onLibrarySidebarSelect(row) {
 async function activateWorkQueueItem(item) {
   closeSupervisorReview();
   if (!item) return;
+  showTreatmentPlanWriterModal.value = false;
+  showPlanImportReview.value = false;
   if (item.draftOnly && item.rawDraft) { await loadDraftIntoWorkspace(item.rawDraft); return; }
   showActualSessionPicker.value = false;
   unlinkedWorkItem.value = null;
@@ -9199,28 +9212,32 @@ async function openIntakePlanWork(item) {
   loadingIntakePlan.value = true;
   approvalError.value = '';
   try {
-    const { data } = await api.get(`/medical-billing/notes/${item.sourceIntakeNoteId}`, {
-      params: { agencyId: item.agencyId }, skipGlobalLoading: true
-    });
-    if (request !== intakePlanLoadSequence || activeWorkQueueItemId.value !== item.id) return;
-    const note = data?.note;
-    if (!note?.providerSignedAt || Number(note.clientId) !== Number(item.clientId) || Number(note.agencyId) !== Number(item.agencyId)) {
-      throw new Error('The signed intake is unavailable for this treatment plan.');
+    let initialPlan = null;
+    if (!item.treatmentPlanId) {
+      const { data } = await api.get(`/medical-billing/notes/${item.sourceIntakeNoteId}`, {
+        params: { agencyId: item.agencyId }, skipGlobalLoading: true
+      });
+      if (request !== intakePlanLoadSequence || activeWorkQueueItemId.value !== item.id) return;
+      const note = data?.note;
+      if (!note?.providerSignedAt || Number(note.clientId) !== Number(item.clientId) || Number(note.agencyId) !== Number(item.agencyId)) {
+        throw new Error('The signed intake is unavailable for this treatment plan.');
+      }
+      const chart = note.structuredChart || note.metadata?.structuredChart || {};
+      const sections = extractSections(note.outputJson);
+      const diagnoses = (Array.isArray(chart.diagnoses) && chart.diagnoses.length ? chart.diagnoses : intakeDiagnoses(sections)).map(diagnosis => ({
+        ...diagnosis, icd10_code: diagnosis.icd10_code || diagnosis.code || diagnosis.icd10Code,
+        is_primary: diagnosis.is_primary ?? diagnosis.isPrimary
+      }));
+      const seed = generatedTreatmentPlan(sections, {
+        effectiveDate: toWorkQueueDateOnly(note.dateOfService || item.date),
+        diagnoses, diagnosticJustification: chart.diagnosticJustification || diagnoses.find(dx => dx.is_primary)?.justification || ''
+      });
+      initialPlan = {
+        ...seed, aiGenerated: seed.goals.length > 0 && Boolean(note.metadata?.aiGenerated || note.metadata?.model || note.metadata?.toolId) && !note.metadata?.manualSections,
+        title: 'Initial treatment plan', sourceToolId: 'note_aid_intake_generated'
+      };
     }
-    const chart = note.structuredChart || note.metadata?.structuredChart || {};
-    const sections = extractSections(note.outputJson);
-    const diagnoses = (Array.isArray(chart.diagnoses) && chart.diagnoses.length ? chart.diagnoses : intakeDiagnoses(sections)).map(diagnosis => ({
-      ...diagnosis, icd10_code: diagnosis.icd10_code || diagnosis.code || diagnosis.icd10Code,
-      is_primary: diagnosis.is_primary ?? diagnosis.isPrimary
-    }));
-    const seed = generatedTreatmentPlan(sections, {
-      effectiveDate: toWorkQueueDateOnly(note.dateOfService || item.date),
-      diagnoses, diagnosticJustification: chart.diagnosticJustification || diagnoses.find(dx => dx.is_primary)?.justification || ''
-    });
-    planDraftInitialPlan.value = item.treatmentPlanId ? null : {
-      ...seed, aiGenerated: seed.goals.length > 0 && Boolean(note.metadata?.aiGenerated || note.metadata?.model || note.metadata?.toolId) && !note.metadata?.manualSections,
-      title: 'Initial treatment plan', sourceToolId: 'note_aid_intake_generated'
-    };
+    planDraftInitialPlan.value = initialPlan;
     planDraftEditorId.value = item.treatmentPlanId || null;
     planDraftEditorMode.value = item.treatmentPlanId ? 'draft' : 'generated';
     planUpdaterRenewalReason.value = '';
@@ -9400,6 +9417,7 @@ const openTreatmentPlanUpdater = async ({
   progressExcerpt = '',
   preserveSession = false
 } = {}) => {
+  showTreatmentPlanWriterModal.value = false;
   // Treatment plan writer is sessionless and must never open as a billable progress note (90837).
   if (!preserveSession) {
     selectedServiceCode.value = '';
@@ -9452,8 +9470,7 @@ const openTreatmentPlanUpdater = async ({
     showPlanImportReview.value = true;
     return;
   }
-  selectedAidId.value = '';
-  showTreatmentPlanWriterModal.value = true;
+  approvalError.value = 'Open the client’s chart in its agency to continue with the treatment plan.';
 };
 
 const useIntakeToInformPlan = async () => {

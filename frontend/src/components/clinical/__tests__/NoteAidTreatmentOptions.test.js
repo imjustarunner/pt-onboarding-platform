@@ -103,3 +103,26 @@ it('accepts a generated goal, treats an edited baseline as provider review, and 
   expect(wrapper.emitted('saved')?.[0]?.[1]).toMatchObject({ approval: { providerApproved: true } });
   wrapper.unmount();
 });
+
+
+it('focuses the first missing field in reading order and keeps later issues visible', async () => {
+  vi.mocked(api.get).mockResolvedValue({ data: { all: [] } });
+  const wrapper = mount(PlanEditor, { attachTo: document.body, props: {
+    open: true, fullPage: true, agencyId: 7, clientId: 9, mode: 'generated',
+    initialPlan: {
+      effectiveDate: '2026-11-24', presentingProblem: 'Synthetic concern', dischargePlan: 'Synthetic discharge review.',
+      diagnoses: [{ icd10Code: 'F99', justification: 'Synthetic justification', isPrimary: true }],
+      goals: [
+        { goalText: 'First goal', objectives: [] },
+        { goalText: 'Second goal', durationMonths: 3, objectives: [{ objectiveText: 'Practice a routine.' }] }
+      ]
+    }
+  } });
+  try {
+    await flushPromises();
+    await wrapper.findAll('button').find(button => button.text() === 'Sign treatment plan').trigger('click');
+    expect(document.activeElement).toBe(wrapper.get('select[aria-label="Duration for goal 1"]').element);
+    expect(wrapper.get('[role="alert"]').text()).toContain('Select or enter the prescribed frequency.');
+    expect(api.post).not.toHaveBeenCalled();
+  } finally { wrapper.unmount(); }
+});

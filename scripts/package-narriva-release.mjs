@@ -7,6 +7,11 @@ import { fileURLToPath } from 'node:url';
 import { discoverBackendFrontendRuntimeImports, checkBackendRuntimeSharedImports } from './check-backend-runtime-shared-imports.mjs';
 
 export const MIGRATIONS = ['1846_narriva_plan_provider_signoffs.sql', '1847_narriva_platform_generator_settings.sql', '1848_itsco_provider_account_conversions.sql'];
+const CLINICAL_MIGRATIONS = ['035_treatment_objective_target_dates.sql', '039_preserve_imported_treatment_frequency.sql'];
+const migrationFiles = [
+  ...MIGRATIONS.map(name => `database/migrations/${name}`),
+  ...CLINICAL_MIGRATIONS.map(name => `database/clinical_migrations/${name}`)
+];
 const token = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 const run = (command, args, cwd) => {
   const result = spawnSync(command, args, { cwd, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
@@ -26,7 +31,7 @@ export function validateReleaseOptions(options) {
 export function releaseDockerfiles(options) {
   const o = validateReleaseOptions(options);
   return {
-    backend: `FROM ${o.backendBase}\nLABEL org.opencontainers.image.revision="${o.sourceCommit}"\nENV APP_BUILD_ID="${o.buildId}"\nCOPY backend/src/ /app/src/\nCOPY frontend/ /frontend/\nRUN printf '%s\\n' '{"type":"module"}' > /frontend/package.json\n${MIGRATIONS.map(name => `COPY database/migrations/${name} /app/database/migrations/${name}`).join('\n')}\n`,
+    backend: `FROM ${o.backendBase}\nLABEL org.opencontainers.image.revision="${o.sourceCommit}"\nENV APP_BUILD_ID="${o.buildId}"\nCOPY backend/src/ /app/src/\nCOPY frontend/ /frontend/\nRUN printf '%s\\n' '{"type":"module"}' > /frontend/package.json\n${migrationFiles.map(file => `COPY ${file} /app/${file}`).join('\n')}\n`,
     frontend: `FROM ${o.frontendBase}\nLABEL org.opencontainers.image.revision="${o.sourceCommit}"\nRUN rm -rf /usr/share/nginx/html\nCOPY frontend/dist/ /usr/share/nginx/html/\nCOPY frontend/nginx.conf /etc/nginx/conf.d/default.conf\nCOPY frontend/dist/itsco-public.nginx.conf /etc/nginx/conf.d/itsco-public.conf\nCOPY frontend/dist/tenant-legal-locations.conf /etc/nginx/tenant-legal-locations.conf\nRUN rm /usr/share/nginx/html/itsco-public.nginx.conf /usr/share/nginx/html/tenant-legal-locations.conf && nginx -t\n`
   };
 }
@@ -97,11 +102,11 @@ export async function packageRelease(raw) {
     const installed = await fsp.readFile(path.join(root, file), 'utf8');
     if (installed.trim() !== run('git', ['show', `${o.baseCommit}:${file}`], root)) throw new Error('Backend dependencies changed relative to the pinned base commit; a full backend image build is required.');
   }
-  const dirty = run('git', ['status', '--porcelain', '--untracked-files=all', '--', 'backend/src', 'frontend/src', 'frontend/nginx.conf', 'database/migrations'], root).split('\n').filter(Boolean);
+  const dirty = run('git', ['status', '--porcelain', '--untracked-files=all', '--', 'backend/src', 'frontend/src', 'frontend/nginx.conf', 'database/migrations', 'database/clinical_migrations'], root).split('\n').filter(Boolean);
   if (dirty.length && !o.allowDirty) throw new Error('Release source has uncommitted changes. Commit the validated tree or explicitly use --allow-dirty with manifest provenance.');
   const shared = discoverBackendFrontendRuntimeImports(root).map(file => path.relative(root, file).split(path.sep).join('/'));
   checkBackendRuntimeSharedImports(root);
-  const backendFiles = [...releaseFiles(root, 'backend/src', { excludeRuntimeTests: true }), ...MIGRATIONS.map(name => `database/migrations/${name}`), ...shared].sort();
+  const backendFiles = [...releaseFiles(root, 'backend/src', { excludeRuntimeTests: true }), ...migrationFiles, ...shared].sort();
   const frontendFiles = [...releaseFiles(root, 'frontend/dist'), 'frontend/nginx.conf'].sort();
   for (const file of ['index.html', 'itsco-public.nginx.conf', 'tenant-legal-locations.conf']) if (!fs.existsSync(path.join(root, 'frontend/dist', file))) throw new Error(`Required frontend output missing: ${file}`);
   const fingerprints = { backend: await fingerprint(root, backendFiles), frontend: await fingerprint(root, frontendFiles) };
@@ -118,7 +123,7 @@ export async function packageRelease(raw) {
     await fsp.writeFile(path.join(out, `${component}.cloudbuild.json`), JSON.stringify(cloudBuildConfiguration(o, component), null, 2) + '\n');
     contexts[component] = { archive: path.basename(archive), archiveBytes: (await fsp.stat(archive)).size, archiveSha256: await digestFile(archive), ...fingerprints[component] };
   }
-  const manifest = { schemaVersion: 1, sourceCommit: o.sourceCommit, baseCommit: o.baseCommit, buildId: o.buildId, sourceDirty: dirty.length > 0, changedSourcePaths: dirty, backendBase: o.backendBase, frontendBase: o.frontendBase, backendImage: o.backendImage, frontendImage: o.frontendImage, builderServiceAccount: o.builder, sharedRuntimeImports: shared.length, migrations: MIGRATIONS, contexts };
+  const manifest = { schemaVersion: 1, sourceCommit: o.sourceCommit, baseCommit: o.baseCommit, buildId: o.buildId, sourceDirty: dirty.length > 0, changedSourcePaths: dirty, backendBase: o.backendBase, frontendBase: o.frontendBase, backendImage: o.backendImage, frontendImage: o.frontendImage, builderServiceAccount: o.builder, sharedRuntimeImports: shared.length, migrations: MIGRATIONS, clinicalMigrations: CLINICAL_MIGRATIONS, contexts };
   await fsp.writeFile(path.join(out, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
   console.log(JSON.stringify({ outputDirectory: out, buildId: o.buildId, contexts, sharedRuntimeImports: shared.length }));
   return { outputDirectory: out, manifest };

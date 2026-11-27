@@ -12,6 +12,7 @@
           </p>
         </div>
         <div class="na-plan-navigation">
+          <a v-if="signedIntakeHref" :href="signedIntakeHref" target="_blank" rel="noopener" class="na-btn-outline">View signed intake (new tab)</a>
           <button v-if="returnToChart" type="button" class="na-btn-outline" :disabled="saving" @click="emit('return-to-chart')">Back to client chart</button>
           <button type="button" class="na-link-btn" :disabled="saving" @click="emit('close')">{{ inPage ? (intakeDate ? 'Back to My Work' : 'Back') : 'Close' }}</button>
         </div>
@@ -102,6 +103,7 @@
             :agency-id="agencyId"
             :date-of-service="model.effectiveDate"
             :filter-results="isNewDiagnosis"
+            :input-id="sectionId('diagnosis-search')"
             label="Add diagnosis"
             @select="addChartDiagnosis"
           />
@@ -152,7 +154,7 @@
               <button type="button" class="na-btn-outline na-btn-outline--sm" :disabled="!bulkDurationMonths" @click="applyDurationToAll">
                 Push to all goals
               </button>
-              <button type="button" class="na-btn-outline" @click="addGoal">Add goal</button>
+              <button :id="sectionId('add-goal')" type="button" class="na-btn-outline" @click="addGoal">Add goal</button>
               <button v-if="planAuthoring && !manualOnly" type="button" class="na-plan-art" aria-label="Add goal with Narriva" :disabled="suggestingPlan || saving" @click="startPlanAction('add_goal')"><img :src="addGoalArt" alt="" /></button>
             </div>
           </div>
@@ -469,6 +471,7 @@ const props = defineProps({
   mode: { type: String, default: 'import' },
   initialPlan: { type: Object, default: null },
   sourceIntakeNoteId: { type: Number, default: null },
+  signedIntakeHref: { type: String, default: '' },
   renewalReason: { type: String, default: '' },
   progressExcerpt: { type: String, default: '' }
 });
@@ -488,7 +491,7 @@ const sectionId = section => `${planHeadingId}-${section}`;
 function jumpToSection(section, field = section) {
   const target = document.getElementById(sectionId(field)) || document.getElementById(sectionId(section));
   target?.focus({ preventScroll: true });
-  target?.scrollIntoView?.({ block: 'start' });
+  target?.scrollIntoView?.({ block: field === section ? 'start' : 'center', behavior: 'instant' });
 }
 let editorKey = 0;
 const diagnosisQuery = ref('');
@@ -1339,26 +1342,26 @@ const finalizationIssues = computed(() => {
   const add = (section, message, field = section) => issues.push({ section, message, field });
   if (!draft.effectiveDate) add('overview', 'Choose an effective date.', 'effective-date');
   if (planAuthoring.value && !draft.presentingProblem.trim()) add('overview', 'Enter the presenting problem.', 'presenting-problem');
-  if (planAuthoring.value && !draft.diagnoses.length) add('diagnoses', 'Select a diagnosis or documented reason for the encounter.');
+  if (planAuthoring.value && !draft.diagnoses.length) add('diagnoses', 'Select a diagnosis or documented reason for the encounter.', 'diagnosis-search');
   if (inPage.value) for (const diagnosis of draft.diagnoses) {
     if (!diagnosis.justification.trim()) add('diagnoses', `Enter clinical justification for ${diagnosis.icd10Code}.`, `dx-${diagnosis.icd10Code}`);
   }
-  if (!draft.goals.length) add('goals', 'Add a treatment goal.');
+  if (!draft.goals.length) add('goals', 'Add a treatment goal.', 'add-goal');
   for (const [gi, goal] of draft.goals.entries()) {
     const row = model.value.goals[gi];
     const field = `goal-${row.editorKey}`;
     if (!goal.goalText.trim()) add('goals', `Enter the title for goal ${gi+1}.`, `${field}-text`);
-    if (!goal.objectives.length) add('goals', `Add an objective to goal ${gi+1}.`, `${field}-add`);
-    if (goalsMissingDuration.value.includes(gi + 1)) add('goals', `Choose a duration for goal ${gi+1}.`, `${field}-duration`);
     if (goal.reviewStatus === 'pending') add('goals', `Accept, edit, or remove goal ${gi+1}.`, `${field}-accept`);
+    if (goalsMissingDuration.value.includes(gi + 1)) add('goals', `Choose a duration for goal ${gi+1}.`, `${field}-duration`);
+    if (!goal.objectives.length) add('goals', `Add an objective to goal ${gi+1}.`, `${field}-add`);
     for (const [oi, objective] of goal.objectives.entries()) {
       const label = `Objective ${gi+1}.${oi+1}`;
       const target = `objective-${row.objectives[oi].editorKey}`;
       if (!objective.objectiveText.trim()) add('goals', `${label} needs a statement.`, `${target}-text`);
+      if (objective.reviewStatus === 'pending') add('goals', `Accept, edit, or remove ${label.toLowerCase()}.`, `${target}-accept`);
       if (planAuthoring.value && invalidObjectiveDate(objective, goal)) {
         add('goals', `${label} needs a target date on or after the effective date.`, `${target}-date`);
       }
-      if (objective.reviewStatus === 'pending') add('goals', `Accept, edit, or remove ${label.toLowerCase()}.`, `${target}-accept`);
       if (objective.skipScale) continue;
       if (!scoreEntered(objective.scaleCurrent)) add('goals', `${label} needs a baseline from 1 to 10.`, `${target}-baseline`);
       if (invalidTarget(objective)) add('goals', `${label} needs a target from 1 to 10 different from its baseline.`, `${target}-target`);
@@ -1385,9 +1388,10 @@ async function save({ finalize = true } = {}) {
   if (!model.value || saving.value || suggestingPlan.value || rewriteKey.value) return;
   attemptedFinalize.value = finalize;
   error.value = '';
-  if (finalize && finalizationIssues.value.length) {
+  const firstIssue = finalize ? finalizationIssues.value[0] : null;
+  if (firstIssue) {
     await nextTick();
-    jumpToSection(finalizationIssues.value[0].section, finalizationIssues.value[0].field);
+    jumpToSection(firstIssue.section, firstIssue.field);
     return;
   }
   saving.value = true;
