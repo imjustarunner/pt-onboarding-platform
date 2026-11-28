@@ -202,7 +202,8 @@ export const getMobileClinicalContext=async(req,res,next)=>{
    try { draftReview=await latestDraftReview(req.user,agencyId,draft.id,sessionId); }
    catch { reviewUnavailable=true; }
   }
-  res.json({agencyId,riskAssessmentRequired,reviewUnavailable,review:signedContext?.review || (draftReview ? {narriva:draftReview} : null),client:mobileClient(client),session:{id:sessionId,officeEventId,dateOfService,startTimeLocal:localStart.time,endTimeLocal:localEnd.time,durationMinutes,sourceTimezone:zone,serviceCode:session?.service_code||draft?.service_code||work?.serviceCode||meta.serviceCode||'',participants,locationLabel,serviceLocationId,billingOfficeLocationId,placeOfService,modality},
+  res.json({agencyId,riskAssessmentRequired,reviewUnavailable,review:signedContext?.review || (draftReview ? {narriva:draftReview} : null),client:mobileClient(client),session:{id:sessionId,officeEventId,dateOfService,
+   startAt:instant(start)?.toISOString()||null,endAt:instant(end)?.toISOString()||null,startTimeLocal:localStart.time,endTimeLocal:localEnd.time,durationMinutes,sourceTimezone:zone,serviceCode:session?.service_code||draft?.service_code||work?.serviceCode||meta.serviceCode||'',participants,locationLabel,serviceLocationId,billingOfficeLocationId,placeOfService,modality},
    draft:draft?{id:Number(draft.id),inputText:decryptNarrivaDraft(draft.input_text),outputJson:outputFromDraft(draft)}:null,
    note:signedContext?.note||null,
    credentialTier:care.credentialTier,treatmentPlan,requiresObjectiveRatings,clinicalContext,locationChoices,locationChoicesUnavailable,serviceCodes:care.canProvideCare?catalog.eligibleServiceCodes:[],preferences:{defaultMode,features:capabilities},alerts:[],recordingNarrative});

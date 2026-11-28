@@ -108,7 +108,7 @@
         @book-virtual="onBookVirtual"
         @join="onJoinEvent"
         @open-focus="openFocusFromSchedule"
-        @open-appointment="openTodayAppointment"
+        @open-schedule-item="scheduleItem = $event"
       />
       </DashboardOverviewSection>
       <DashboardOverviewSection v-if="availableCardKeys.includes('pay') && !hiddenCards.includes('pay')" v-show="!collapsedCards.includes('pay')"
@@ -205,6 +205,14 @@
       <button type="button" class="ov-tip-dismiss" aria-label="Dismiss tip" @click="showTip = false">×</button>
     </div>
 
+    <DashboardScheduleDialog
+      v-if="scheduleItem"
+      :key="scheduleItem.id"
+      :item="scheduleItem"
+      :provider-id="Number(authStore.user?.id)"
+      @close="scheduleItem = null"
+      @changed="refresh('schedule')"
+    />
     <FocusSessionModal
       v-if="focusBlock"
       :block="focusBlock"
@@ -217,7 +225,7 @@
 
 <script setup>
 import FundthredBalances from './FundthredBalances.vue';
-import { computed, onBeforeUnmount, onMounted, ref, toRef, watch } from 'vue';
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, toRef, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { useDashboardOverview } from '../../composables/useDashboardOverview';
@@ -267,6 +275,7 @@ const props = defineProps({
   enabled: { type: Boolean, default: true }
 });
 
+const DashboardScheduleDialog = defineAsyncComponent(() => import('./DashboardScheduleDialog.vue'));
 const router = useRouter();
 const route = useRoute();
 
@@ -285,6 +294,8 @@ const showTip = ref(true);
 const balancesOpen = ref(false);
 const focusCollapsed = ref(true);
 const focusBlock = ref(null);
+const scheduleItem = ref(null);
+watch(() => [authStore.user?.id, props.agencyId, props.enabled], () => { scheduleItem.value = null; });
 const focusDayBlocks = ref([]);
 const noteAidCountsLoading = ref(true);
 const noteAidCountsError = ref(false);
@@ -483,14 +494,6 @@ const quickActions = computed(() => {
 const navigate = (tab) => {
   emit('navigate', tab);
 };
-
-function openTodayAppointment(appointmentId) {
-  const slug = route.params.organizationSlug;
-  router.push({
-    path: slug ? `/${slug}/my-schedule` : '/my-schedule',
-    query: { scheduleAction: 'appointment', scheduleAppointmentId: String(appointmentId) }
-  });
-}
 
 const onBookSchedule = () => {
   emit('book-schedule');

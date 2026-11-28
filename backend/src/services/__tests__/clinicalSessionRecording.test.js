@@ -20,10 +20,85 @@ vi.mock('../phiDocumentAttachment.service.js',()=>({attachSignedPdfToClient:m.at
 vi.mock('../sessionAiPrivacy.service.js',()=>({requireSessionPrivacyConfiguration:m.privacy}));
 vi.mock('../speechTranscription.service.js',()=>({transcribeLongAudio:m.speech}));
 vi.mock('../sessionRecordingSummary.service.js',()=>({summarizeSessionRecording:m.summary}));
-import {consentProof,assertRecordingReady,resolveRecordingSession,controlSessionRecording,appendSessionRecordingAudio,signRecordingConsent,assignRecordingConsent,confirmRecordingSession,finishSessionRecording,getAuthorizedRecordingNarrative,assertLegacyClinicalCaptureDisabled} from '../clinicalSessionRecording.service.js';
+import {recordingWindowOpen,affirmativeRecordingStatement,recordVerbalConsent,consentProof,assertRecordingReady,resolveRecordingSession,controlSessionRecording,appendSessionRecordingAudio,signRecordingConsent,assignRecordingConsent,confirmRecordingSession,finishSessionRecording,getAuthorizedRecordingNarrative,assertLegacyClinicalCaptureDisabled} from '../clinicalSessionRecording.service.js';
 let row,participants,session,appointment;
 const user={id:7,role:'provider'},input={agencyId:2,clientId:10,clinicalSessionId:20,officeEventId:30};
-beforeEach(()=>{vi.clearAllMocks();row={id:100,agency_id:2,created_by_user_id:7,client_id:10,clinical_session_id:20,office_event_id:30,session_context_key:'office:30:client:10',status:'recording',capture_paused:0,recording_revision:2,confirmed_revision:2,confirmed_at:'2026-11-06'};session={id:20,agency_id:2,client_id:10,provider_user_id:7,office_event_id:30,appointment_id:40,encounter_status:'scheduled'};appointment={id:40,agencyId:2,providerUserId:7};participants=[{id:1,session_recording_id:100,participant_key:'client:10',client_id:10,participant_type:'client',name_encrypted:'encrypted:Client Name',required_signature:1,signed_at:'2026-11-06',document_hash:'hash',signature_encrypted:'encrypted:proof',signed_pdf_path:'waiver.pdf'},{id:2,participant_key:'appointment:2',participant_type:'adult',name_encrypted:'encrypted:Guardian',required_signature:1,signed_at:'2026-11-06',document_hash:'hash2',signature_encrypted:'encrypted:proof2',signed_pdf_path:'waiver2.pdf'}];m.care.mockResolvedValue({});m.clinicalScope.mockResolvedValue({});m.client.mockResolvedValue({id:10,agency_id:2,full_name:'Client Name',date_of_birth:'2014-01-01'});m.clinical.mockImplementation(async()=>session);m.appointment.mockImplementation(async()=>appointment);m.scheduled.mockResolvedValue([{id:1,clientId:10,role:'client'},{id:2,userId:90,displayName:'Guardian',role:'guardian'}]);m.recording.mockImplementation(async()=>row);m.onFile.mockResolvedValue(null);m.membership.mockResolvedValue([2]);m.guardians.mockResolvedValue([{guardian_user_id:90,access_enabled:1,is_active:1,status:'ACTIVE',relationship_type:'guardian',first_name:'Guardian'}]);m.scope.mockResolvedValue({scopes:['clinical_documents'],reviewRequired:false});m.privacy.mockReturnValue('test');m.speech.mockResolvedValue('Provider described coping practice.');m.summary.mockResolvedValue({narrative:'Detailed narrative',topics:[],techniques:[]});m.template.mockResolvedValue({id:8,is_active:1,version:1,document_type:'audio_recording_consent',agency_id:2});m.attach.mockResolvedValue({ok:true});m.savePdf.mockResolvedValue({path:'signed.pdf',hash:'signedhash'});m.execute.mockImplementation(async(sql,args)=>{if(sql.includes('GET_LOCK'))return [[{acquired:1}]];if(sql.includes('JOIN agencies'))return [[{user_id:7,feature_flags:JSON.stringify({narriva:{recording:true}})}]];if(sql.includes('FROM office_events'))return [[{id:30,booked_provider_id:7,client_id:10,office_agency_id:2}]];if(sql.includes('SELECT * FROM session_recordings'))return [[row]];if(sql.includes('FROM session_recording_participants'))return sql.includes('WHERE id=')?[[participants.find(p=>p.id===args[0])]]:[participants];if(sql.includes('SELECT id FROM session_recording_audio_chunks'))return [[]];if(sql.includes('SELECT transcript_encrypted'))return [[{transcript_encrypted:'encrypted:Full source including final risk and plan.'}]];return [{affectedRows:1,insertId:100}];});});
+beforeEach(()=>{vi.clearAllMocks();row={id:100,agency_id:2,created_by_user_id:7,client_id:10,clinical_session_id:20,office_event_id:30,session_context_key:'office:30:client:10',status:'recording',capture_paused:0,recording_revision:2,confirmed_revision:2,confirmed_at:'2026-11-06'};session={id:20,agency_id:2,client_id:10,provider_user_id:7,office_event_id:30,appointment_id:40,encounter_status:'scheduled'};appointment={id:40,agencyId:2,providerUserId:7,startAt:new Date(Date.now()-60000),endAt:new Date(Date.now()+60000)};participants=[{id:1,session_recording_id:100,participant_key:'client:10',client_id:10,participant_type:'client',name_encrypted:'encrypted:Client Name',required_signature:1,signed_at:'2026-11-06',document_hash:'hash',signature_encrypted:'encrypted:proof',signed_pdf_path:'waiver.pdf'},{id:2,participant_key:'appointment:2',participant_type:'adult',name_encrypted:'encrypted:Guardian',required_signature:1,signed_at:'2026-11-06',document_hash:'hash2',signature_encrypted:'encrypted:proof2',signed_pdf_path:'waiver2.pdf'}];m.care.mockResolvedValue({});m.clinicalScope.mockResolvedValue({});m.client.mockResolvedValue({id:10,agency_id:2,full_name:'Client Name',date_of_birth:'2014-01-01'});m.clinical.mockImplementation(async()=>session);m.appointment.mockImplementation(async()=>appointment);m.scheduled.mockResolvedValue([{id:1,clientId:10,role:'client'},{id:2,userId:90,displayName:'Guardian',role:'guardian'}]);m.recording.mockImplementation(async()=>row);m.onFile.mockResolvedValue(null);m.membership.mockResolvedValue([2]);m.guardians.mockResolvedValue([{guardian_user_id:90,access_enabled:1,is_active:1,status:'ACTIVE',relationship_type:'guardian',first_name:'Guardian'}]);m.scope.mockResolvedValue({scopes:['clinical_documents'],reviewRequired:false});m.privacy.mockReturnValue('test');m.speech.mockResolvedValue('Provider described coping practice.');m.summary.mockResolvedValue({narrative:'Detailed narrative',topics:[],techniques:[]});m.template.mockResolvedValue({id:8,is_active:1,version:1,document_type:'audio_recording_consent',agency_id:2});m.attach.mockResolvedValue({ok:true});m.savePdf.mockResolvedValue({path:'signed.pdf',hash:'signedhash'});m.execute.mockImplementation(async(sql,args)=>{if(sql.includes('GET_LOCK'))return [[{acquired:1}]];if(sql.includes('JOIN agencies'))return [[{user_id:7,feature_flags:JSON.stringify({narriva:{recording:true}})}]];if(sql.includes('FROM office_events'))return [[{id:30,booked_provider_id:7,client_id:10,office_agency_id:2}]];if(sql.includes('SELECT * FROM session_recordings'))return [[row]];if(sql.includes('FROM session_recording_participants'))return sql.includes('WHERE id=')?[[participants.find(p=>p.id===args[0])]]:[participants];if(sql.includes('SELECT id FROM session_recording_audio_chunks'))return [[]];if(sql.includes('SELECT transcript_encrypted'))return [[{transcript_encrypted:'encrypted:Full source including final risk and plan.'}]];return [{affectedRows:1,insertId:100}];});});
+describe('recording window and spoken consent', () => {
+  it('opens only during the appointment and permits a short drain for the last chunk', () => {
+    const startAt = new Date('2026-11-28T15:00:00Z');
+    const endAt = new Date('2026-11-28T16:00:00Z');
+    expect(recordingWindowOpen({startAt,endAt}, +startAt - 1)).toBe(false);
+    expect(recordingWindowOpen({startAt,endAt}, +startAt)).toBe(true);
+    expect(recordingWindowOpen({startAt,endAt}, +endAt)).toBe(false);
+    expect(recordingWindowOpen({startAt,endAt}, +endAt + 1, true)).toBe(true);
+    expect(recordingWindowOpen({startAt,endAt}, +endAt + 30000, true)).toBe(false);
+  });
+  it('blocks capture after the appointment ends', async () => {
+    appointment.endAt = new Date(Date.now()-1000);
+    await expect(controlSessionRecording(user,100,{action:'start'})).rejects.toMatchObject({status:409});
+    expect(m.speech).not.toHaveBeenCalled();
+  });
+  it('requires enabled spoken consent and its stored evidence', () => {
+    const spoken = {...participants[0], signed_at:null, verbally_consented_at:'2026-11-28'};
+    expect(consentProof(spoken)).toBe(false);
+    expect(consentProof(spoken,null,true)).toBe(true);
+    expect(consentProof({...spoken,signature_encrypted:null},null,true)).toBe(false);
+    expect(affirmativeRecordingStatement('I consent to being recorded.')).toBe(true);
+    expect(affirmativeRecordingStatement('I do not consent to being recorded.')).toBe(false);
+  });
+});
+describe('spoken authorization evidence', () => {
+  function prepareSpoken() {
+    const document = {title:'Audio waiver',version:1};
+    participants[0] = {
+      ...participants[0], document_template_id:8, signed_at:null, signature_encrypted:null,
+      document_hash:JSON.stringify(document), document_encrypted:'encrypted:'+JSON.stringify(document)
+    };
+    row.status = 'setup';
+    row.capture_paused = 1;
+    const original = m.execute.getMockImplementation();
+    m.execute.mockImplementation(async (sql,args) => {
+      if (sql.includes('JOIN agencies')) return [[{
+        user_id:7,feature_flags:JSON.stringify({narriva:{recording:true,verbalRecordingConsent:true}})
+      }]];
+      if (sql.includes('SELECT status,capture_paused,recording_revision')) return [[row]];
+      return original(sql,args);
+    });
+    m.speech.mockResolvedValue('I consent to recording this session.');
+    return {
+      documentHash:participants[0].document_hash,
+      spokenPermission:'true',authorityConfirmed:'true',statementConfirmed:'true',signerUserId:'90'
+    };
+  }
+  const audio = {buffer:Buffer.from('synthetic recorded consent'),mimetype:'audio/wav'};
+  it('retains the recording, verified guardian, and chart copy without a signature date', async () => {
+    await expect(recordVerbalConsent(user,100,1,prepareSpoken(),audio)).resolves.toEqual({recorded:true});
+    const [sql,args] = m.execute.mock.calls.find(([query]) => query.includes('SET verbally_consented_at='));
+    expect(sql).not.toContain('SET signed_at=');
+    expect(args[1]).toContain('"verifiedByUserId":7');
+    expect(args[1]).toContain(audio.buffer.toString('base64'));
+    expect(args[3]).toBe(90);
+    expect(m.attach).toHaveBeenCalledWith(expect.objectContaining({
+      clientId:10, auditMetadata:expect.objectContaining({consentMethod:'spoken',participantId:1})
+    }));
+    expect(m.commit).toHaveBeenCalled();
+  });
+  it('rejects negative consent without saving any audio evidence', async () => {
+    const input = prepareSpoken();
+    m.speech.mockResolvedValue('I do not agree to recording this session.');
+    await expect(recordVerbalConsent(user,100,1,input,audio)).rejects.toMatchObject({status:400});
+    expect(m.savePdf).not.toHaveBeenCalled();
+    expect(m.attach).not.toHaveBeenCalled();
+  });
+  it('requires the chart copy to save before confirming verbal consent', async () => {
+    const input = prepareSpoken();
+    m.attach.mockResolvedValue({ok:false});
+    await expect(recordVerbalConsent(user,100,1,input,audio)).rejects.toMatchObject({status:503});
+    expect(m.commit).not.toHaveBeenCalled();
+    expect(m.rollback).toHaveBeenCalled();
+  });
+});
 describe('executed consent and session confirmation',()=>{
  it('never accepts a signed flag without actual document evidence',()=>{expect(consentProof({signed_at:'yes'})).toBe(false);expect(consentProof(participants[0])).toBe(true);expect(consentProof({...participants[0],revoked_at:'now'})).toBe(false);});
  it('does not let a revoked reusable waiver authorize a copied participant signature',()=>expect(consentProof({...participants[0],legacy_consent_id:9})).toBe(false));

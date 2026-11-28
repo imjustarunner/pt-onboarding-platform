@@ -19,6 +19,10 @@ export default {
     'src/services/__tests__/scheduling.notificationCustomizations.test.js',
     'src/services/__tests__/sessionReminderPolicyRebuild.test.js',
     'src/services/__tests__/sessionNotificationWorker.test.js',
+    'src/services/__tests__/qaSessionNotificationWorker.test.js',
+    'src/services/__tests__/qaNotificationQueueScope.test.js',
+    'src/services/__tests__/schoolAppointmentNotifications.test.js',
+    'src/services/__tests__/scheduling.scheduleNoticeBuffer.test.js',
     'src/services/__tests__/smsConsentVerbalGate.test.js',
     'src/services/__tests__/sessionReminderDefaults.test.js',
     'src/services/__tests__/sessionCommunicationTimeline.test.js',
@@ -36,6 +40,9 @@ export default {
     'src/services/__tests__/passwordRecovery.flow.test.js',
     'src/services/__tests__/passwordRecovery.service.test.js',
     'src/services/__tests__/appointmentStaffTools.test.js',
+    'src/services/__tests__/staffAppointmentConfirmation.test.js',
+    'src/services/__tests__/clinicalSessionRecording.test.js',
+    'src/services/mobile/__tests__/scheduling.test.js',
     'src/services/__tests__/sessionNotification.service.test.js',
     'src/services/__tests__/sessionNotification.affiliatedRecipients.test.js'
   ] }

@@ -3,7 +3,15 @@ import { canRunServerBackgroundTick } from './serverBackgroundJobsPolicy.js';
 import { processDueSessionNotifications } from './sessionNotification.service.js';
 import { processDueAppointmentNoShows } from './appointmentNoShowReview.service.js';
 
-export function createSessionNotificationWorker({db=pool,canRun=canRunServerBackgroundTick,process=processDueSessionNotifications,processNoShows=processDueAppointmentNoShows}={}) {
+async function processDueScheduleNotices(options) {
+  const {appointmentScheduleNotices} = await import('./appointmentScheduleNotice.service.js');
+  return appointmentScheduleNotices.processDue(options);
+}
+
+export function createSessionNotificationWorker({
+  db=pool,canRun=canRunServerBackgroundTick,process=processDueSessionNotifications,
+  processNoShows=processDueAppointmentNoShows,processScheduleNotices=processDueScheduleNotices
+}={}) {
   return async () => {
     // A local API, preview revision, or retired revision cannot dispatch live mail.
     if(!await canRun())return {skipped:true,reason:'not_current_production_revision'};
@@ -17,7 +25,12 @@ export function createSessionNotificationWorker({db=pool,canRun=canRunServerBack
       let noShowReviews;
       try { noShowReviews=await processNoShows({limit:20}); }
       catch { noShowReviews={failed:1,coverage:'incomplete',code:'NO_SHOW_SOURCE_UNAVAILABLE'}; }
-      return {...await process({limit:50,includeRelatedQueues:false}),noShowReviews};
+      // Deliver due booking and schedule-change notices before their reminders.
+      // A failure in this queue must not stop reminders for other appointments.
+      let scheduleUpdates;
+      try { scheduleUpdates = await processScheduleNotices({limit:20}); }
+      catch { scheduleUpdates = {failed:1,coverage:'incomplete',code:'SCHEDULE_NOTICE_SOURCE_UNAVAILABLE'}; }
+      return {...await process({limit:50,includeRelatedQueues:false}),noShowReviews,scheduleUpdates};
     } finally {try{if(acquired)await conn.execute("SELECT RELEASE_LOCK('session_notifications:production')");}finally{conn.release();}}
   };
 }

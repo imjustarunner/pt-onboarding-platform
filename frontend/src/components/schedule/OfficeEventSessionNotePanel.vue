@@ -6,7 +6,7 @@
       <button type="button" class="oesn-hipaa-dismiss" @click="hipaaBannerVisible = false">Dismiss</button>
     </div>
 
-    <div class="oesn-session-tools"><strong>Session Narrative</strong><button type="button" class="oesn-record-session" :disabled="!agencyId || !clientId || (!officeEventId && !clinicalSessionId) || loadingDraft || activeDraftState?.loadFailed" @click="recorderOpen = !recorderOpen">{{ recorderOpen ? 'Close session recorder' : 'Record session' }}</button></div>
+    <div class="oesn-session-tools"><strong>Session Narrative</strong><button type="button" v-if="recordingAvailable || recorderOpen" class="oesn-record-session" :disabled="!agencyId || !clientId || (!officeEventId && !clinicalSessionId) || loadingDraft || activeDraftState?.loadFailed" @click="recorderOpen = !recorderOpen">{{ recorderOpen ? 'Close session recorder' : 'Transcribe Full Session' }}</button></div>
     <ClinicalSessionRecordingPanel direct-launch v-if="recorderOpen" :key="`${agencyId}:${clientId}:${officeEventId}:${clinicalSessionId}`" :agency-id="agencyId" :client-id="clientId" :office-event-id="officeEventId" :clinical-session-id="clinicalSessionId" @narrative-ready="receiveRecordedNarrative" @close="recorderOpen = false" />
     <section v-if="pendingNarrative" class="oesn-narrative-choice" role="status"><strong>Your Session Narrative is ready.</strong><p>You already have session text. Choose how to use the recording’s reviewed narrative.</p><button type="button" @click="applyRecordedNarrative('append')" :disabled="String(inputText || '').length + pendingNarrative.text.length + 2 > 12000">Append to current text</button><button type="button" @click="applyRecordedNarrative('replace')">Replace current text</button><button type="button" @click="pendingNarrative = null">Keep current text</button></section>
 
@@ -15,6 +15,7 @@
       <button type="button" class="oesn-reveal" @click="revealPhi">Reveal session notes</button>
     </div>
     <template v-else>
+      <ClinicalDictationButton v-if="!recorderOpen" v-model="inputText" :agency-id="agencyId" :disabled="loadingDraft || !!activeDraftState?.loadFailed" />
       <textarea
         v-model="inputText"
         :disabled="loadingDraft || activeDraftState?.loadFailed"
@@ -60,6 +61,7 @@
 </template>
 
 <script setup>
+import ClinicalDictationButton from '../clinical/ClinicalDictationButton.vue';
 import ClinicalActionButton from '../clinical/ClinicalActionButton.vue';
 import ClinicalWorkspaceFrame from '../clinicalWorkspace/ClinicalWorkspaceFrame.vue';
 import SessionSupportingMaterials from '../clinical/SessionSupportingMaterials.vue';
@@ -81,6 +83,7 @@ const props = defineProps({
   officeEventId: { type: [Number, String], default: 0 },
   clinicalSessionId: { type: [Number, String], default: 0 },
   dateOfService: { type: String, default: '' },
+  recordingAvailable: { type: Boolean, default: true },
   serviceCode: { type: String, default: '' },
   latestPlan: { type: Object, default: null },
   initials: { type: String, default: '' }
@@ -93,6 +96,9 @@ const route = useRoute();
 const inputText = defineModel('inputText', { type: String, default: '' });
 const recorderOpen=ref(false);
 const pendingNarrative=ref(null);
+function openSessionRecorder() {
+  if (props.recordingAvailable) recorderOpen.value = true;
+}
 
 const includeInteractiveComplexity = ref(false);
 const openingWorkspace = ref(false);
@@ -304,7 +310,7 @@ async function saveNarrative() {
   try { await savePendingDraft(); } catch { /* persistDraft keeps the recoverable error beside the text */ }
   finally { savingDraft.value = false; }
 }
-defineExpose({ savePendingDraft });
+defineExpose({ savePendingDraft, openSessionRecorder });
 
 async function openInNoteAid() {
   if (openingWorkspace.value) return;

@@ -57,11 +57,11 @@ beforeEach(() => {
       standard_reminder_json: { enabled: true, required: true, channels: ['sms', 'email'], message: 'Reply N to cancel at the office' } }]];
     if (sql.includes('FROM client_session_notification_preferences')) return [preferences];
     if (sql.includes('FROM family_notification_choices')) return [[]];
+    if (sql.includes('SELECT r.* FROM appointment_reminders')) return [due];
     if (sql.includes('FROM appointment_schedule_notices')) return [[]];
     if (sql.includes('SELECT DISTINCT a.id FROM appointments')) return [[]];
     if (sql.includes('FROM clients c LEFT JOIN client_statuses')) return [[client]];
     if (sql.includes('SELECT c.id,c.date_of_birth FROM clients')) return [[{id:4,date_of_birth:'2015-01-01'}]];
-    if (sql.includes('SELECT r.* FROM appointment_reminders')) return [due];
     if (sql.includes('FROM appointment_change_notification_queue')) return [[]];
     if (sql.includes('FROM appointment_cancellation_deliveries')) return [[]];
     if (sql.includes("FROM appointment_reminders") && sql.includes("status='sent'")) return [[]];

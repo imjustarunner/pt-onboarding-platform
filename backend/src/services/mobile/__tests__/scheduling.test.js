@@ -19,9 +19,9 @@ beforeEach(()=>{
   updateAppointmentHandler:vi.fn(async(_req,res)=>res.json({ok:true,appointment:{id:60,agencyId:2,providerUserId:7}})),
   cancelAppointmentHandler:vi.fn(async(_req,res)=>res.json({ok:true,appointment:{id:60,agencyId:2,providerUserId:7}}))
  };
- dependencies={db:{execute:vi.fn(async()=>[[{id:12,full_name:'Fictional Client',initials:'full identity would be unsafe'}]])},access:vi.fn(async()=>({surface:'staff',user:{id:7,role:'provider'}})),agencies:vi.fn(async()=>({agencies:[{id:2,name:'Agency'}]})),agencyAccess:vi.fn(async()=>({role:'provider',permissions:{}})),applyAccess:(user,profile)=>({...user,role:profile.role}),scope:vi.fn((_agency,work)=>work()),findAppointment:vi.fn(async()=>({id:60,agencyId:2,providerUserId:7})),locations:vi.fn(async()=>[{id:4,name:'Office',place_of_service:'11'}]),handlers};
+ dependencies={db:{execute:vi.fn(async()=>[[{id:12,full_name:'Fictional Client',initials:'full identity would be unsafe'}]])},access:vi.fn(async()=>({surface:'staff',user:{id:7,role:'provider'}})),agencies:vi.fn(async()=>({agencies:[{id:2,name:'Agency'}]})),agencyAccess:vi.fn(async()=>({role:'provider',permissions:{}})),applyAccess:(user,profile)=>({...user,role:profile.role}),scope:vi.fn((_agency,work)=>work()),findAppointment:vi.fn(async()=>({id:60,agencyId:2,providerUserId:7})),locations:vi.fn(async()=>[{id:4,name:'Office',place_of_service:'11'}]),serviceSetting:vi.fn(async()=>({isSchool:false})),recordConfirmation:vi.fn(async()=>({ok:true,status:'client_confirmed'})),handlers};
  req={quickView:{userId:7,agencyId:2,mobileDeviceSessionId:4,credentialVersion:8},body:{agencyId:2,participants:[{role:'client',clientId:12}],tenantServiceId:9},query:{},params:{},mobileScheduleOperation:'create'};
- res={status:vi.fn(function(code){this.statusCode=code;return this;}),json:vi.fn()};next=vi.fn();
+ res={set:vi.fn(),status:vi.fn(function(code){this.statusCode=code;return this;}),json:vi.fn()};next=vi.fn();
 });
 const run=()=>createMobileScheduling(dependencies)(req,res,next);
 describe('primary mobile scheduling adapter',()=>{
@@ -32,6 +32,22 @@ describe('primary mobile scheduling adapter',()=>{
  it('preserves conflicts and partial-booking details for explicit recovery instead of pretending success',async()=>{handlers.createAppointmentHandler.mockImplementation(async(_req,res)=>res.status(409).json({error:{code:'BOOKING_INCOMPLETE',message:'Review the created occurrence'},createdAppointmentIds:[60]}));await run();expect(res.status).toHaveBeenCalledWith(409);expect(res.json).toHaveBeenCalledWith({error:{code:'BOOKING_INCOMPLETE',message:'Review the created occurrence'},createdAppointmentIds:[60]});});
  it('offers only main-schedule-authorized clients with a matching agency relationship and masked names',async()=>{req.mobileScheduleOperation='options';await run();const result=res.json.mock.calls[0][0];expect(result.clients).toEqual([{id:12,maskedName:'Fic* Cli*'}]);expect(dependencies.db.execute.mock.calls[0][0]).toContain('client_agency_assignments');expect(dependencies.db.execute.mock.calls[0][0]).not.toMatch(/first_name|last_name/);expect(dependencies.db.execute.mock.calls[0][1]).toEqual([2,2,12]);expect(result.locations).toEqual([{id:4,name:'Office',placeOfService:'11',schoolOrganizationId:null}]);});
  it('binds direct appointment actions to canonical agency and requires a cancellation reason',async()=>{req.mobileScheduleOperation='update';req.params={appointmentId:60};req.body.agencyId=3;await run();expect(res.status).toHaveBeenCalledWith(403);expect(handlers.updateAppointmentHandler).not.toHaveBeenCalled();req.body={};req.mobileScheduleOperation='cancel';await run();expect(res.status).toHaveBeenCalledWith(400);expect(handlers.cancelAppointmentHandler).not.toHaveBeenCalled();req.body.reason='Synthetic test cancellation';await run();expect(handlers.cancelAppointmentHandler.mock.calls[0][0].body).toMatchObject({status:'canceled_by_provider',reason:'Synthetic test cancellation',followUpAction:'keep_next'});});
+ it('records only an explicitly confirmed own appointment and rejects school RSVPs', async () => {
+  req.mobileScheduleOperation = 'staff-confirmation';
+  req.params = {appointmentId:60};
+  req.body = {};
+  await run();
+  expect(res.status).toHaveBeenCalledWith(400);
+  expect(dependencies.recordConfirmation).not.toHaveBeenCalled();
+  req.body.clientConfirmedWithStaff = true;
+  dependencies.serviceSetting.mockResolvedValueOnce({isSchool:true});
+  await run();
+  expect(res.status).toHaveBeenCalledWith(409);
+  expect(dependencies.recordConfirmation).not.toHaveBeenCalled();
+  await run();
+  expect(dependencies.recordConfirmation).toHaveBeenCalledWith(expect.objectContaining({id:60}),7);
+  expect(res.json).toHaveBeenLastCalledWith({ok:true,status:'client_confirmed'});
+ });
  it('does not return full chart identity from canonical appointment details',async()=>{req.mobileScheduleOperation='detail';req.params={appointmentId:60};req.body={};await run();expect(JSON.stringify(res.json.mock.calls)).not.toContain('NEVER RETURN');expect(res.json.mock.calls[0][0].appointment.participants[0]).toEqual({role:'client',clientId:12,isBillingResponsible:false,receivesReminders:true});});
 });
 

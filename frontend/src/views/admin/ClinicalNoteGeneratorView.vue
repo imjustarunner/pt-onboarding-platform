@@ -1057,6 +1057,8 @@
             </ul>
           </div>
           <p v-else-if="phiNameHits.length" class="na-phi-warn" role="alert">Possible identifying name detected. Replace it with the person’s role before generating.</p>
+          <ClinicalDictationButton v-if="!chartNoteReadOnly" v-model="inputText" :agency-id="noteAidAgencyId || currentAgencyId"
+            :disabled="generating" :limit="isTerminationAid ? 1500000 : 12000" />
           <textarea ref="narrativeInput" v-model="inputText" aria-label="Session Narrative" class="na-textarea" rows="8" :maxlength="isTerminationAid ? 1500000 : 12000" :placeholder="isTreatmentSummaryAid ? 'Add clinically relevant participation, impressions and history using roles instead of names.' : 'Describe what occurred, interventions used, the response, progress, and the next plan…'" />
           <p v-if="narrivaRecordingError" role="alert" class="error">{{ narrivaRecordingError }}</p><div v-if="narrivaRecordingText" class="narriva-privacy-hint"><p>A reviewed recording narrative is ready for this encounter.</p><button type="button" class="na-btn-outline" @click="applyNarrivaRecording(true)">Append recording narrative</button><button type="button" class="na-btn-outline" @click="applyNarrivaRecording(false)">Replace with recording narrative</button></div>
 
@@ -1226,6 +1228,8 @@
                   rows="6"
                 />
                 <pre v-else>{{ panelText(panel) }}</pre>
+                <ClinicalDictationButton v-if="sectionEditing[panel.id] && !chartNoteReadOnly" compact
+                  v-model="sectionOverrides[panel.id]" :agency-id="noteAidAgencyId || currentAgencyId" :disabled="generating" />
                 <div v-if="skipAiAid && panel.id === 'Interventions' && csProposedInterventions.length" class="na-plan-fields">
                   <strong>Select interventions used</strong>
                   <label v-for="name in csProposedInterventions" :key="name">
@@ -1645,6 +1649,7 @@ import NarrivaSessionConfirmations from '../../components/clinical/NarrivaSessio
 import { planObjectiveReview, objectiveReviewMessage } from '../../utils/narrivaObjectiveReview.js';
 import NoteAidObjectiveRatings from '../../components/clinical/NoteAidObjectiveRatings.vue';
 import NoteAidClientContextPanel from '../../components/clinical/NoteAidClientContextPanel.vue';
+import ClinicalDictationButton from '../../components/clinical/ClinicalDictationButton.vue';
 import NoteAidCsNoteBuildPanel from '../../components/clinical/NoteAidCsNoteBuildPanel.vue';
 import NarrivaModeChooser from '../../components/clinical/NarrivaModeChooser.vue';
 import ServiceInformation from '../../components/notes/ServiceInformation.vue';

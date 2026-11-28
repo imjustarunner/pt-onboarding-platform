@@ -9,7 +9,7 @@ import {excludeSupportClinicalContent} from '../middleware/supportContentAccess.
 import {clinicalWorkspaceLimiter,noteAidLimiter} from '../middleware/rateLimiter.middleware.js';
 import {requireClinicalChart,requireClinicalNoteSigning} from '../middleware/medicalBilling.middleware.js';
 import {requireMobileClinicalSession,scopedMobileClinicalHandler as scoped,getMobileClinicalContext,getMobileClientSummary,resolveMobileClientContact,sendMobileClientContact,getMobileNotesToSign,bootstrapMobileClinicalSession} from '../controllers/mobileClinical.controller.js';
-import {createClinicalNoteDraft,patchClinicalNoteDraft,generateClinicalNote} from '../controllers/clinicalNoteGenerator.controller.js';
+import {createClinicalNoteDraft,patchClinicalNoteDraft,generateClinicalNote,transcribeClinicianDictation} from '../controllers/clinicalNoteGenerator.controller.js';
 import {createSessionNote} from '../controllers/clinicalData.controller.js';
 import {getClinicalNoteById,createClinicalNoteAddendum,signClinicalNote,cosignClinicalNote,createObjectiveRating,upsertDiagnosis} from '../controllers/medicalBilling.controller.js';
 import * as narriva from '../controllers/narriva.controller.js';
@@ -24,6 +24,8 @@ const router=express.Router();
 // absent: this router accepts only the verified primary-device scoped session.
 router.use(requireMobileClinicalSession,clinicalWorkspaceLimiter);
 router.get('/context',requireClinicalChart,getMobileClinicalContext);
+router.post('/dictation',excludeSupportClinicalContent,requireClinicalChart,noteAidLimiter,
+  recording.clinicalSessionAudioUpload.single('audio'),scoped(transcribeClinicianDictation));
 router.post('/diagnosis-search',requireClinicalChart,scoped(searchDiagnosisCatalog));
 const clinicalClientAccess = [excludeSupportClinicalContent,requireClinicalChart];
 const clientScope = {clientParam:'clientId',requireClient:true};
@@ -96,6 +98,8 @@ router.post('/recording/session/:recordingId/participants',scoped(recording.upda
 router.post('/recording/session/:recordingId/consent',scoped(recording.prepareSessionRecordingConsent,{recordingParam:'recordingId',requireClient:true}));
 router.get('/recording/session/:recordingId/consent/:participantId/pdf',scoped(recording.getSessionRecordingConsentPdf,{recordingParam:'recordingId',requireClient:true}));
 router.post('/recording/session/:recordingId/consent/:participantId/sign',scoped(recording.signSessionRecordingConsent,{recordingParam:'recordingId',requireClient:true}));
+router.post('/recording/session/:recordingId/consent/:participantId/verbal',recording.clinicalSessionAudioUpload.single('audio'),
+  scoped(recording.captureRecordedVerbalConsent,{recordingParam:'recordingId',requireClient:true}));
 router.post('/recording/session/:recordingId/consent/:participantId/assign',scoped(recording.assignSessionRecordingConsent,{recordingParam:'recordingId',requireClient:true}));
 router.post('/recording/session/:recordingId/consent/:participantId/withdraw',scoped(recording.withdrawSessionRecordingConsent,{recordingParam:'recordingId',requireClient:true}));
 router.post('/recording/session/:recordingId/confirm',scoped(recording.confirmClinicalSessionRecording,{recordingParam:'recordingId',requireClient:true}));

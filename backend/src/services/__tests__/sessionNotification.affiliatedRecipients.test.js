@@ -168,3 +168,16 @@ it('never redirects app notifications to a legacy guardian when no current relat
  m.contacts.mockResolvedValue([]);m.family.mockResolvedValue({hasRelationships:false,recipients:[]});m.guardians.mockResolvedValue([]);
  expect((await buildDeliveryPlan(104,{manual:true})).deliveries).toEqual([]);
 });
+
+it('leaves the reminder pending if a notice is queued between selection and sending', async () => {
+  const previous = m.execute.getMockImplementation();
+  m.execute.mockImplementation(async (sql, args) =>
+    sql.includes('SELECT id FROM appointment_schedule_notices') ? [[{ id: 23 }]] : previous(sql, args));
+  expect(await processDueSessionNotifications({ agencyId: 450, includeRelatedQueues: false }))
+    .toMatchObject({ sent: 0, skipped: 0, failed: 0 });
+  const selection = m.query.mock.calls.find(([sql]) => sql.includes('SELECT r.* FROM appointment_reminders'));
+  expect(selection[0]).toContain('NOT EXISTS');
+  expect(m.sendEmail).not.toHaveBeenCalled();
+  expect(m.execute.mock.calls.some(([sql]) =>
+    sql.includes('UPDATE appointment_reminders') && sql.includes('skip_reason'))).toBe(false);
+});

@@ -18,6 +18,10 @@ export function renderRecordingAgreement(document, signatures = []) {
   const e = escapeAgreementHtml;
   const terms=String(document.text||'').replace(/^SUPERVISION AGREEMENT\s*\n/,'').split(/\n{2,}/).filter(Boolean).map(block=>{const lines=block.split('\n');if(/^[IVX]+\. /.test(lines[0]))return `<h2>${e(lines.shift())}</h2><p class="terms">${e(lines.join('\n'))}</p>`;return `<p class="terms">${e(block)}</p>`;}).join('');
   const color = /^#[a-f0-9]{6}$/i.test(document.color || '') ? document.color : '#126253';
+  const spoken = document.verbalEvidence;
+  const consentEvidence = spoken ? `<h2>Recorded verbal consent</h2><section class="signature"><strong>${e(spoken.signerName)} · ${e(spoken.relationship)}</strong>
+    <div>Recorded ${e(spoken.at)} · Staff verifier #${e(spoken.verifiedByUserId)}</div><p>${e(spoken.transcript)}</p>
+    <div class="meta">Audio fingerprint (SHA-256) ${e(spoken.audioHash)}</div></section>` : '';
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><style>
     @page{size:Letter;margin:20mm}body{font:11pt/1.55 Arial,sans-serif;color:#233342;margin:0}
     header{border-top:9px solid ${color};padding:24px 0 18px;border-bottom:1px solid #dce5e4}h1{font-size:27pt;line-height:1.15;color:${color};margin:10px 0}
@@ -27,9 +31,9 @@ export function renderRecordingAgreement(document, signatures = []) {
     </style></head><body><header><div class="agency">${e(document.agencyName)}</div><h1>${e(document.title)}</h1><div class="meta">Version ${e(document.version)} · Confidential agreement</div></header>
     <section class="parties">${(document.parties || []).map(p => `<div><strong>${e(p.role)}:</strong> ${e(p.name)}${p.credentials ? ` · ${e(p.credentials)}` : ''}${p.email ? `<br><span class="meta">${e(p.email)}</span>` : ''}</div>`).join('<br>')}</section>
     ${document.html ? `<section>${document.html}</section>` : `<section>${terms}</section>`}
-    <h2>Electronic signatures</h2><p>Signing confirms agreement to the document above. Either participant may pause transcription at any time.</p>
-    ${signatures.map(s => `<section class="signature"><strong>${e(s.role)} · ${e(s.name)}</strong><br>${s.image ? `<img src="${s.image}" alt="Signature">` : `<div class="typed">${e(s.typedName)}</div>`}<div class="meta">Signed ${e(s.signedAt)} · Electronic signature</div></section>`).join('') || '<p>Awaiting signatures.</p>'}
-    <footer>Document fingerprint (SHA-256): ${documentHash(document)}<br>Signatures are retained with this document and their signing dates.</footer></body></html>`;
+    ${spoken ? consentEvidence : `<h2>Electronic signatures</h2><p>Signing confirms agreement to the document above. Either participant may pause transcription at any time.</p>
+    ${signatures.map(s => `<section class="signature"><strong>${e(s.role)} · ${e(s.name)}</strong><br>${s.image ? `<img src="${s.image}" alt="Signature">` : `<div class="typed">${e(s.typedName)}</div>`}<div class="meta">Signed ${e(s.signedAt)} · Electronic signature</div></section>`).join('') || '<p>Awaiting signatures.</p>'}`}
+    <footer>Document fingerprint (SHA-256): ${documentHash(document)}<br>${spoken ? 'The spoken consent evidence is retained in the session recording record.' : 'Signatures are retained with this document and their signing dates.'}</footer></body></html>`;
 }
 export async function saveRecordingAgreementPdf(document, signatures, filename) {
   const html = renderRecordingAgreement(document, signatures);

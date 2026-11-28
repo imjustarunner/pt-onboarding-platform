@@ -87,7 +87,7 @@
       <div v-for="guardian in guardianAccounts" :key="`guardian-${guardian.guardian_user_id}`" class="aip-card">
         <span class="aip-ico aip-ico--amber" aria-hidden="true">👤</span>
         <div><div class="aip-k">{{ guardian.relationship_type === 'self' ? 'Client portal account' : 'Parent / guardian account' }}</div>
-          <button v-if="canOpenProvider" type="button" class="aip-link" @click="emit('open-provider', Number(guardian.guardian_user_id))">{{ [guardian.first_name,guardian.last_name].filter(Boolean).join(' ') || 'Open account' }}</button>
+          <button v-if="canOpenClient" type="button" class="aip-link" @click="emit('open-guardian', Number(guardian.guardian_user_id))">{{ [guardian.first_name,guardian.last_name].filter(Boolean).join(' ') || 'Open account' }}</button>
           <span v-else class="aip-v">{{ [guardian.first_name,guardian.last_name].filter(Boolean).join(' ') || 'Portal account' }}</span>
         </div>
       </div>
@@ -296,7 +296,7 @@ const props = defineProps({
   clinicalNoteId: { type: [Number, String], default: 0 }
 });
 
-const emit = defineEmits(['edit', 'open-provider', 'open-client', 'open-billing', 'open-clinical', 'open-note', 'join', 'allow-guests']);
+const emit = defineEmits(['edit', 'open-provider', 'open-client', 'open-guardian', 'open-billing', 'open-clinical', 'open-note', 'join', 'allow-guests']);
 const meetingLinkCopied = ref(false);
 const meetingLinkError = ref('');
 async function copyVideoLink() {

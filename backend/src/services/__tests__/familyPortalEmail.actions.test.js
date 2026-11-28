@@ -113,8 +113,8 @@ it('uses buttons instead of SMS reply instructions in tutoring email while retai
  expect(message.text).toContain('For help, reply to this email to contact Support.');expect(message.text).toContain('No sign-in is needed to respond.');
 });
 it('sends a confirmed client a friendly reminder without another confirm button',async()=>{
- const message=await buildAppointmentEmail({appointment:{...appt,status:'client_confirmed'},clientId:22,to:email,actionUrl:'https://example.test/respond/opaque'});
- expect(message.text).toContain('friendly reminder');expect(message.text).toContain('look forward');expect(message.text).not.toContain('Confirm appointment');expect(message.text).not.toContain('Confirm directly');expect(message.text).toContain('Cancel appointment');
+ const message=await buildAppointmentEmail({appointment:{...appt,status:'client_confirmed'},kind:'confirmation',clientId:22,to:email,actionUrl:'https://example.test/respond/opaque'});
+ expect(message.subject).toContain('Appointment reminder');expect(message.text).toContain('friendly reminder');expect(message.text).toContain('look forward');expect(message.text).not.toContain('Confirm appointment');expect(message.text).not.toContain('Confirm directly');expect(message.text).toContain('Cancel appointment');
 });
 
 it('allows a subsequent cancellation after confirmation while keeping each completed response idempotent',async()=>{row.status='completed';row.chosen_action='confirm';row.result_message='Confirmed';appt.status='confirmed';m.reply.mockResolvedValue({ackMessage:'Cancellation received.'});expect(await submitAppointmentEmailAction(token,'cancel')).toBe('Cancellation received.');row.chosen_action='cancel';expect(await submitAppointmentEmailAction(token,'cancel')).toBe('Cancellation received.');expect(m.reply).toHaveBeenCalledTimes(1);});
@@ -132,4 +132,10 @@ it('offers RSVP in routine clinical email even when a confirmation request was n
    expect(content.html).toContain(`?action=${action}`);
    expect(content.text).toContain(`?action=${action}`);
  }
+});
+
+it('does not issue a link or send another email after a decline',async()=>{
+ const appointment={...appt,cancellationRecommendationJson:{clientReply:'cancel_blocked'}};
+ expect(await sendAppointmentEmail({appointment,clientId:22,to:email})).toEqual({skipped:true,reason:'appointment_declined'});
+ expect(m.send).not.toHaveBeenCalled();
 });

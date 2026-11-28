@@ -8,7 +8,7 @@ import { computed, ref, reactive, watch, onScopeDispose } from 'vue';
 import api from '../services/api';
 import { buildRecentSubmissionActivityItems } from '../utils/submitSubmissionHistory';
 import { shouldShowOnProviderDashboardEvents, companyEventDisplayWindow } from '../utils/companyEventStaffing';
-import { formatViewerTimeRangeMs, formatSchoolEventWhen, schoolEventDisplayTimezone } from '../utils/timezones.js';
+import { formatViewerTimeRangeMs, formatSchoolEventWhen, schoolEventDisplayTimezone, isoToZonedDatetimeLocal } from '../utils/timezones.js';
 import { parseScheduleUtcInstant } from '../utils/scheduleEventInstants.js';
 import { notificationDestination } from '../utils/notificationActions.js';
 
@@ -139,12 +139,19 @@ export function useDashboardOverview(opts = {}) {
         id: `office-${e.id || startMs}`,
         kind: 'office',
         appointmentId: Number(e.appointmentId) || null,
+        dateYmd: ymd,
+        roomReservation: !e.isClientSession && !e.borrowedAway && !e.officeGapBlocked
+          && Number(e.providerId) === viewerId && Number(e.buildingId) && Number(e.id)
+          && ['reserved', 'occupied'].includes(String(e.roomOccupancy || '').toLowerCase())
+          ? { officeId: Number(e.buildingId), eventId: Number(e.id),
+            date: isoToZonedDatetimeLocal(e.startAt, e.buildingTimezone || 'America/Denver').slice(0, 10) }
+          : null,
         title: e.isClientSession ? e.title : room || 'Office reservation',
         subtitle: e.isClientSession ? ['Client session',room].filter(Boolean).join(' · ') : e.displayStatus || 'Office reservation',
         startMs,
         endMs,
         timeLabel: formatTimeRange(startMs, endMs),
-        status: statusForWindow(startMs, endMs, now)
+        status: e.appointmentStatus || statusForWindow(startMs, endMs, now)
       });
     }
 
@@ -169,6 +176,7 @@ export function useDashboardOverview(opts = {}) {
       items.push({
         id: `sched-${e.kind || 'evt'}-${e.id || startMs}`,
         eventId: Number(e.id || 0) || null,
+        dateYmd: ymd,
         appointmentId: Number(e.appointmentId) || null,
         kind: String(e.kind || 'event').toLowerCase(),
         eventKind,

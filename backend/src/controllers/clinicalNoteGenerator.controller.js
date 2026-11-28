@@ -45,7 +45,7 @@ import {
   grantedServiceCodesForProvider,
   loadCredentialOverrides
 } from '../services/billingRules.service.js';
-import { callPrivateSessionText, createSessionPrivacyContext } from '../services/sessionAiPrivacy.service.js';
+import { callPrivateSessionText, createSessionPrivacyContext, requireSessionPrivacyConfiguration } from '../services/sessionAiPrivacy.service.js';
 import { encounterTimingInstruction, buildPromptForTool, generateClinicalText } from '../services/clinicalNoteWriter.service.js';
 import { assertNarrivaPreGeneration, loadDirectNarrivaWriterContext } from '../services/narrivaReview.service.js';
 import { providerConversionPending,providerHasGroupPasswordAccess,rolloutForPractice } from '../services/clientSessionBookingRollout.service.js';
@@ -1240,6 +1240,28 @@ export const deleteClinicalNoteDrafts = async (req, res, next) => {
     next(e);
   }
 };
+
+export async function transcribeClinicianDictation(req, res, next) {
+  try {
+    const agencyId = safeInt(req.body?.agencyId);
+    if (!agencyId) return res.status(400).json({ error: { message: 'Choose the note’s agency.' } });
+    if (!(await requireUserHasAgencyAccess(req, res, agencyId))) return;
+    if (!(await requireClinicalNoteGeneratorEnabled(req, res, agencyId))) return;
+    await requireStaffCareEligibility(req.user.id, agencyId);
+    requireSessionPrivacyConfiguration();
+    const audio = req.file;
+    if (!audio?.buffer?.length || audio.buffer.length > 10 * 1024 * 1024
+      || !/^audio\/(webm|ogg|wav|mp4)(;.*)?$/i.test(audio.mimetype || '')) {
+      return res.status(400).json({ error: { message: 'Record a supported dictation up to 10 MB.' } });
+    }
+    const text = await transcribeLongAudio({ buffer: audio.buffer, mimeType: audio.mimetype, userId: req.user.id });
+    await logNoteAidChartEvent(req, { agencyId, action: 'clinician_dictation_transcribed' });
+    res.set('Cache-Control', 'no-store').json({ text: String(text || '').trim() });
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: { message: error.message } });
+    next(error);
+  }
+}
 
 export const transcribeClinicalNoteAudio = async (req, res) => res.status(410).json({error:{code:'SESSION_RECORDING_REQUIRED',message:'Recording has moved to the session. Open Record Session and complete the required recording waivers.'}});
 
