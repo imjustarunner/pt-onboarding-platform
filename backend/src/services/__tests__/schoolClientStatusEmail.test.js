@@ -34,17 +34,17 @@ beforeEach(()=>{
  });
 });
 it('queues one saved assignment, not a second notice for repeated saves or scheduling the same provider',async()=>{
- await queueSchoolClientStatusEmails(pool,{clientId:1,assignmentChanged:true});await queueSchoolClientStatusEmails(pool,{clientId:1,assignmentChanged:true});
+ await queueSchoolClientStatusEmails(pool,{clientId:1,assignmentSchoolId:3});await queueSchoolClientStatusEmails(pool,{clientId:1,assignmentSchoolId:3});
  client.client_status_key='scheduled';await queueSchoolClientStatusEmails(pool,{clientId:1});
  expect(m.execute.mock.calls.filter(([sql])=>sql.startsWith('INSERT INTO school_client_status_emails'))).toHaveLength(1);
  expect(m.send).not.toHaveBeenCalled();expect(m.commit).toHaveBeenCalledTimes(3);
 });
 it('writes the outbox on the supplied assignment transaction, allowing assignment rollback to roll back the notice',async()=>{
- const transaction={execute:vi.fn(m.execute)};await queueSchoolClientStatusEmails(transaction,{clientId:1,assignmentChanged:true});
+ const transaction={execute:vi.fn(m.execute)};await queueSchoolClientStatusEmails(transaction,{clientId:1,assignmentSchoolId:3});
  expect(transaction.execute).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO school_client_status_emails'),expect.any(Array));expect(m.commit).not.toHaveBeenCalled();expect(m.send).not.toHaveBeenCalled();
 });
 it('queues only school/provider work, never a family outbox, for a new staff assignment',async()=>{
- await queueSchoolClientStatusEmails(pool,{clientId:1,assignmentChanged:true,actorUserId:555});
+ await queueSchoolClientStatusEmails(pool,{clientId:1,assignmentSchoolId:3,actorUserId:555});
  expect(m.execute.mock.calls.some(([sql])=>sql.includes('school_family_status_emails'))).toBe(false);
  expect(m.execute.mock.calls.filter(([sql])=>sql.startsWith('INSERT INTO school_client_status_emails'))).toHaveLength(1);
 });
@@ -126,11 +126,11 @@ it.each(['being_seen','scheduled','ready_to_schedule'])('does not announce an ex
  expect(m.execute.mock.calls.some(([sql])=>sql.startsWith('INSERT INTO school_client_status_emails'))).toBe(false);
  expect(prior.revision).toBe(1);
  // A repeat save or unchanged assignment does not turn that baseline into an email.
- await queueSchoolClientStatusEmails(pool,{clientId:1,assignmentChanged:true});
+ await queueSchoolClientStatusEmails(pool,{clientId:1,assignmentSchoolId:3});
  expect(m.execute.mock.calls.some(([sql])=>sql.startsWith('INSERT INTO school_client_status_emails'))).toBe(false);
  // An actual provider change still sends its new assignment.
  providers=[{id:9,email:'new@itsco.health'}];
- await queueSchoolClientStatusEmails(pool,{clientId:1,assignmentChanged:true});
+ await queueSchoolClientStatusEmails(pool,{clientId:1,assignmentSchoolId:3});
  expect(m.execute.mock.calls.filter(([sql])=>sql.startsWith('INSERT INTO school_client_status_emails'))).toHaveLength(1);
 });
 it('continues queueing actual waitlist transitions without an assignment event',async()=>{
@@ -143,4 +143,16 @@ it('does not replace a stale queued assignment with an announcement discovered b
  await sendPendingSchoolClientStatusEmails();
  expect(m.send).not.toHaveBeenCalled();
  expect(m.execute.mock.calls.some(([sql])=>sql.startsWith('INSERT INTO school_client_status_emails'))).toBe(false);
+});
+
+it('only queues an assignment notice for the school selected in the assignment',async()=>{
+ const execute=m.execute.getMockImplementation();
+ m.execute.mockImplementation(async(sql,args)=>{
+  if(sql.startsWith('SELECT DISTINCT a.id'))return [[{id:4},{id:3}]];
+  if(sql.startsWith('SELECT state_hash'))return [[{revision:0,state_hash:''}]];
+  return execute(sql,args);
+ });
+ await queueSchoolClientStatusEmails(pool,{clientId:1,assignmentSchoolId:3});
+ const writes=m.execute.mock.calls.filter(([sql])=>sql.startsWith('INSERT INTO school_client_status_emails'));
+ expect(writes.map(([,args])=>args[1])).toEqual([3]);
 });

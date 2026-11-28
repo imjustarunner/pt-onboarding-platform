@@ -23,10 +23,12 @@ async function loadClient(database, clientId) {
   return client;
 }
 async function loadProviders(database,client,schoolId) {
-  const [rows]=await database.execute(`SELECT DISTINCT u.* FROM users u JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=? AND ua.is_active=1
-    WHERE u.is_active=1 AND (EXISTS(SELECT 1 FROM client_provider_assignments a WHERE a.client_id=? AND a.organization_id=? AND a.provider_user_id=u.id AND a.is_active=1)
-      OR (u.id=? AND ?=? AND NOT EXISTS(SELECT 1 FROM client_provider_assignments a WHERE a.client_id=? AND a.is_active=1))) ORDER BY u.id`,
-    [client.agency_id,client.id,schoolId,client.provider_id||null,schoolId,client.organization_id,client.id]);
+  const [rows]=await database.execute(`SELECT DISTINCT u.* FROM users u
+    JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=? AND ua.is_active=1
+    JOIN client_provider_assignments a ON a.provider_user_id=u.id AND a.client_id=? AND a.organization_id=? AND a.is_active=1
+    JOIN client_organization_assignments coa ON coa.client_id=a.client_id AND coa.organization_id=a.organization_id AND coa.is_active=1
+    WHERE u.is_active=1 AND COALESCE(u.is_archived,0)=0 AND u.terminated_at IS NULL ORDER BY u.id`,
+    [client.agency_id,client.id,schoolId]);
   return rows;
 }
 async function currentWaitlistActivation(database,client,statusChangeId,actorUserId) {
@@ -46,7 +48,7 @@ async function currentWaitlistActivation(database,client,statusChangeId,actorUse
 /** Assignment hooks explicitly opt in to assignment notices. Lifecycle updates
  * reconcile/cancel stale state and may notify waitlist changes, but never announce
  * an existing provider as newly assigned. Use the same transaction as assignment. */
-export async function queueSchoolClientStatusEmails(database=pool,{clientId,waitlistReason=null,assignmentChanged=false,statusChangeId=null,actorUserId=null}={}) {
+export async function queueSchoolClientStatusEmails(database=pool,{clientId,waitlistReason=null,assignmentSchoolId=null,statusChangeId=null,actorUserId=null}={}) {
   const owned=database===pool;
   const db=owned?await pool.getConnection():database;
   try {
@@ -73,7 +75,7 @@ export async function queueSchoolClientStatusEmails(database=pool,{clientId,wait
       await db.execute('UPDATE school_client_status_email_states SET state_hash=?,revision=? WHERE client_id=? AND school_organization_id=?',[hash,revision,clientId,school.id]);
       await db.execute("UPDATE school_client_status_emails SET delivery_status='obsolete' WHERE client_id=? AND school_organization_id=? AND delivery_status='pending'",[clientId,school.id]);
       // A lifecycle/date save establishes the baseline but cannot invent an assignment event.
-      if(state.kind && (state.kind!=='assigned' || assignmentChanged || activation)) {
+      if(state.kind && (state.kind!=='assigned' || Number(assignmentSchoolId)===Number(school.id) || activation)) {
         await db.execute('INSERT INTO school_client_status_emails(agency_id,school_organization_id,client_id,revision,state_hash,state_json) VALUES(?,?,?,?,?,?)',[client.agency_id,school.id,clientId,revision,hash,JSON.stringify({...state,...(activation?{statusChangeId:Number(statusChangeId)}:{})})]);
       }
     }

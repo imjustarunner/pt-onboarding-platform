@@ -1,13 +1,13 @@
 import { DatabaseSync } from 'node:sqlite';
 import {beforeEach,it,expect,vi} from 'vitest';
-const m=vi.hoisted(()=>({execute:vi.fn(),membership:vi.fn(),audit:vi.fn(),connection:vi.fn(),begin:vi.fn(),school:vi.fn()}));
+const m=vi.hoisted(()=>({execute:vi.fn(),membership:vi.fn(),audit:vi.fn(),connection:vi.fn(),begin:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute,getConnection:m.connection}}));
 vi.mock('../../services/enrollmentAgencyAccess.service.js',()=>({assertEnrollmentAgencyMembership:m.membership}));
 vi.mock('../../services/auditEvent.service.js',()=>({logAuditEvent:m.audit}));
 vi.mock('../../services/clientChartImportProgress.service.js',()=>({beginClientChartImport:m.begin}));
 vi.mock('../../services/officeBillingSites.service.js',()=>({ensureSchoolServiceLocation:vi.fn()}));
 vi.mock('../../services/clientServiceEnrollment.service.js',()=>({ensureClientService:vi.fn()}));
-vi.mock('../../services/clientImportSchoolSetup.service.js',()=>({resolveClientImportSchool:m.school,syncClientImportSchoolSetup:vi.fn()}));
+vi.mock('../../services/clientImportSchoolSetup.service.js',()=>({syncClientImportSchoolSetup:vi.fn()}));
 import {getClientImportCandidates,mergeClientRecordsImport} from '../clientImportCandidates.controller.js';
 const request=()=>({user:{id:7,role:'support'},get:()=> '6',body:{fullName:'Example Child',dateOfBirth:'2015-01-01',email:'parent@example.test',phone:'303-555-0101',addressStreet:'1 Test St',addressZip:'80202'}});
 function response(){return {set:vi.fn().mockReturnThis(),json:vi.fn()};}
@@ -38,15 +38,16 @@ function mockChart(overrides={}) {
  m.connection.mockResolvedValue(db);
  return db;
 }
-it('begins import on the existing chart and keeps its school affiliation',async()=>{
- const db=mockChart();m.school.mockResolvedValue({id:42});
+it('begins import on an existing school chart without applying a different school from a stale importer',async()=>{
+ const db=mockChart();
  const res=response(),next=vi.fn();
- await mergeClientRecordsImport(proposedMerge(),res,next);
+ await mergeClientRecordsImport(proposedMerge({schoolOrganizationId:99}),res,next);
  expect(next).not.toHaveBeenCalled();
  expect(db.execute.mock.calls[0][0]).toContain('WHERE c.id=? AND c.agency_id=?');
  expect(m.begin).toHaveBeenCalledWith({clientId:1,agencyId:6},[],7,{db});
  expect(res.json).toHaveBeenCalledWith({id:1,agency_id:6,organization_id:42,client_type:'school'});
  expect(db.commit).toHaveBeenCalledOnce();
+ expect(db.execute).toHaveBeenCalledTimes(1);
 });
 it.each([
  [{records_import_status:'complete'},{}], [{compliance_archived_at:'2026-11-24 00:00:00'},{}], [{status:'ARCHIVED'},{}],

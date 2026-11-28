@@ -160,3 +160,40 @@ it('labels a coverage hold as Billing follow-up and jumps to insurance on the sa
   expect(view.findAll('button').find(button=>button.text()==='Finish client import').element.disabled).toBe(false);
  }finally{view.unmount();}
 });
+
+it('requires a school selection and starts the next school client without the previous school or provider',async()=>{
+ const post=m.post.getMockImplementation();
+ m.post.mockImplementation(async(url,body,...args)=>{
+  if(url==='/clients')return {data:{id:12,agency_id:2,organization_id:5,client_type:'school'}};
+  if(url.endsWith('/chart-import/school-setup'))return {data:{schoolSetup:{schoolOrganizationId:5,providerIds:[9]}}};
+  return post(url,body,...args);
+ });
+ const get=m.get.getMockImplementation();
+ m.get.mockImplementation(async(url,...args)=>url.endsWith('/provider-assignments')
+  ?{data:[{organization_id:5,provider_user_id:9,is_primary:1}]}:get(url,...args));
+ const w=mountModal();
+ await flushPromises();
+ const service=()=>w.findAll('.cr-context select')[1];
+ const school=()=>w.findAll('.cr-context select')[2];
+ const provider=()=>w.findAll('.cr-context select')[3];
+ const submit=()=>w.findAll('button').find(b=>b.text().includes('Create chart and'));
+ await service().setValue('school');
+ await w.get('textarea[data-section=demographics]').setValue('Legal Name\nSynthetic Client');
+ await w.findAll('button').find(b=>b.text()==='Read patient info').trigger('click');
+ await flushPromises();
+ await confirmPatientContactOwner(w);
+ expect(school().element.value).toBe('');
+ expect(submit().element.disabled).toBe(true);
+ await school().setValue('5');
+ await provider().setValue('9');
+ await submit().trigger('click');
+ await flushPromises();
+ expect(m.post).toHaveBeenCalledWith('/clients',expect.objectContaining({client_type:'school',organization_id:5,schoolSelectionConfirmed:true,provider_id:null}),expect.anything());
+ await w.get('[data-finish]').trigger('click');
+ await flushPromises();
+ await w.findAll('button').find(b=>b.text().startsWith('Add next client')).trigger('click');
+ await flushPromises();
+ expect(school().element.value).toBe('');
+ expect(provider().element.selectedOptions[0].textContent).toBe('Save unassigned');
+ w.unmount();
+});

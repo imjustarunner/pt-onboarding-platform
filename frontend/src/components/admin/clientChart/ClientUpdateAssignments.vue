@@ -23,7 +23,24 @@
       </form>
       <section v-for="bucket in buckets" :key="bucket.type" class="assignment-affiliations" :aria-label="bucket.label">
         <h5>{{ bucket.label }} ({{ rowsFor(bucket.type).length }})</h5>
-        <ul v-if="rowsFor(bucket.type).length"><li v-for="row in rowsFor(bucket.type)" :key="row.organization_id">{{ row.organization_name || row.name }} <span v-if="Number(row.is_primary)===1">· Primary</span></li></ul>
+        <ul v-if="rowsFor(bucket.type).length" class="assignment-school-list">
+          <li v-for="row in rowsFor(bucket.type)" :key="row.organization_id">
+            <span>{{ row.organization_name || row.name }}{{ Number(row.is_primary)===1 ? ' · Primary' : '' }}</span>
+            <button v-if="bucket.type==='school' && canEditSchools" type="button"
+              :aria-label="'Remove '+(row.organization_name || row.name)" :disabled="busy" @click="selectSchoolRemoval(row)">Remove school</button>
+          </li>
+        </ul>
+        <form v-if="bucket.type==='school' && schoolToRemove" class="school-removal" @submit.prevent="removeSchool">
+          <p>Remove {{ schoolToRemove.organization_name || schoolToRemove.name }} and its roster assignments from this chart?</p>
+          <label v-if="removingPrimarySchool">Primary school after removal
+            <select v-model="replacementSchoolId" :disabled="busy">
+              <option value="">No primary school</option>
+              <option v-for="school in replacementSchools" :key="school.organization_id" :value="String(school.organization_id)">{{ school.organization_name || school.name }}</option>
+            </select>
+          </label>
+          <button type="submit" :disabled="busy">Confirm removal</button>
+          <button type="button" :disabled="busy" @click="schoolToRemove=null">Cancel</button>
+        </form>
         <p v-else>No {{ bucket.label.toLowerCase() }} linked for this agency.</p>
         <form @submit.prevent="addAffiliation(bucket.type)"><label>Add {{ bucket.singular }}<select v-model="additions[bucket.type]" :disabled="busy"><option value="">Select…</option><option v-for="org in availableFor(bucket.type)" :key="org.id" :value="String(org.id)">{{ org.name }}</option></select></label><label class="assignment-check"><input v-model="makePrimary[bucket.type]" type="checkbox" :disabled="busy" /> Make primary</label><button type="submit" :disabled="busy || !additions[bucket.type]">Add {{ bucket.singular }}</button></form>
       </section>
@@ -44,7 +61,7 @@ import { assignmentOfficesForAgency, primaryAssignmentProvider, providerOfficeDe
 import { finishClientCreation } from '../../../utils/clientCreationOutcome.js';
 import ClientServiceEnrollments from '../ClientServiceEnrollments.vue';
 const props=defineProps({clientId:{type:[Number,String],required:true},agencyId:{type:[Number,String],required:true},initialAssignment:{type:Object,default:()=>({})}});
-const emit=defineEmits(['updated','busy','ready']);const auth=useAuthStore();
+const emit=defineEmits(['updated','busy','ready','school-removed']);const auth=useAuthStore();
 const delegatedImport=inject('transitionClientImportOperator',ref(false));
 const client=ref(null),memberships=ref([]),affiliations=ref([]),catalog=ref([]),offices=ref([]),locations=ref([]),services=ref([]);
 const loading=ref(false),loaded=ref(false),saving=ref(false),suggesting=ref(false),servicesBusy=ref(false),servicesError=ref(''),error=ref(''),hint=ref(''),section=ref(null),servicesPanel=ref(null);
@@ -58,7 +75,12 @@ const isSchool=computed(()=>client.value?.organization_type==='school'
   || rowsFor('school').some(row=>Number(row.is_primary)===1));
 const schoolSetupApplies=computed(()=>isSchool.value || props.initialAssignment.school===true);
 const schoolLocationLabel=ref(''),schoolSetupPending=ref(false);
+const schoolToRemove=ref(null),replacementSchoolId=ref('');
+const removingPrimarySchool=computed(()=>Number(schoolToRemove.value?.is_primary)===1
+  || Number(schoolToRemove.value?.organization_id)===Number(client.value?.organization_id));
+const replacementSchools=computed(()=>rowsFor('school').filter(row=>row.organization_id!==schoolToRemove.value?.organization_id));
 const canSyncSchool=computed(()=>['super_admin','admin','support'].includes(auth.user?.role)||delegatedImport.value);
+const canEditSchools=computed(()=>canSyncSchool.value||auth.user?.role==='staff');
 const providerId=computed(()=>primaryAssignmentProvider(client.value,services.value)||Number(props.initialAssignment.providerId||0));
 const agencyName=computed(()=>memberships.value.find(row=>Number(row.agency_id)===Number(props.agencyId))?.agency_name || client.value?.agency_name || `Agency #${props.agencyId}`);
 const scopedAffiliations=computed(()=>affiliations.value.filter(row=>catalog.value.some(org=>Number(org.id)===Number(row.organization_id))));
@@ -117,6 +139,31 @@ async function saveDefaults(){if(busy.value)return false;const own=generation,ci
 async function addAffiliation(type){if(busy.value||!additions[type])return;const own=generation,cid=props.clientId,aid=props.agencyId;saving.value=true;error.value='';try{
  await api.post(`/clients/${cid}/affiliations`,{agency_id:Number(aid),organization_id:Number(additions[type]),is_primary:makePrimary[type]},request());if(own!==generation)return;const response=await api.get(`/clients/${cid}/affiliations`,request());if(own!==generation)return;affiliations.value=rows(response);additions[type]='';makePrimary[type]=false;emit('updated');
  }catch(e){if(own===generation)error.value=e.response?.data?.error?.message||'Affiliation could not be saved.';}finally{if(own===generation)saving.value=false;}}
+function selectSchoolRemoval(row) {
+ if(dirty.value || servicesPanel.value?.hasWorkingDraft?.()){
+  error.value='Save or reset your assignment changes before removing the school.';return;
+ }
+ error.value='';schoolToRemove.value=row;replacementSchoolId.value='';
+}
+async function removeSchool(){
+ if(busy.value||!schoolToRemove.value)return;
+ const own=generation;
+ const organizationId=Number(schoolToRemove.value.organization_id);
+ const wasPrimary=removingPrimarySchool.value;
+ saving.value=true;error.value='';
+ try{
+  const {data}=await api.delete(`/clients/${props.clientId}/affiliations/${organizationId}`,{
+   ...request(),params:{importAgencyId:Number(props.agencyId),replacementSchoolId:Number(replacementSchoolId.value)}
+  });
+  if(own!==generation)return;
+  schoolToRemove.value=null;
+  emit('school-removed',{...data,wasPrimary});
+  await load();
+  if(loaded.value)await servicesPanel.value?.refresh?.();
+  emit('updated');
+ }catch(e){if(own===generation)error.value=e.response?.data?.error?.message||'The school could not be removed.';}
+ finally{if(own===generation)saving.value=false;}
+}
 function workingDraftText(){
  const services=pendingServiceDraft||(servicesPanel.value?.hasWorkingDraft?.()?servicesPanel.value.workingDraft():null);
  return dirty.value || services || schoolSetupPending.value
@@ -143,7 +190,7 @@ async function syncSchoolDefaults(own,{notify=true}={}){
   if(own!==generation)return;
   schoolSetupPending.value=false;
   const setup=data?.schoolSetup;
-  if(!setup)return;
+  if(!setup){schoolLocationLabel.value='';return;}
   schoolLocationLabel.value=setup.serviceLocation?.name ? `${setup.serviceLocation.name} (POS 03)` : '';
   if(!savedSchoolDefaultsManually){
    saved.value={...saved.value,pos:setup.placeOfService,serviceLocationId:String(setup.serviceLocation.id)};
@@ -195,5 +242,5 @@ watch(()=>[props.clientId,props.agencyId],load,{immediate:true});
 onBeforeUnmount(()=>{assignmentDrafts.detach();generation++;providerRequest++;emit('busy',false);});
 </script>
 <style scoped>
-.update-assignments{margin:20px 0;padding:18px;border:1px solid #cbdbe7;border-radius:12px;background:#f5fbfa;color:#19374f}.assignment-services{border:0;padding:0;margin:0;min-width:0}.update-assignments h3{margin:0 0 8px}.update-assignments h4,.update-assignments h5{margin:18px 0 10px}.update-assignments p{font-size:13px;line-height:1.5}.assignment-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.update-assignments label{display:grid;gap:6px;font-size:13px}.update-assignments select{width:100%;padding:10px;border:1px solid #b9ccd8;border-radius:8px;background:white;font:inherit}.update-assignments button{padding:9px 13px;border:1px solid #a9c2d4;border-radius:7px;background:white;color:#173c65;cursor:pointer}.update-assignments button:disabled{opacity:.5;cursor:default}.assignment-actions,.assignment-affiliations form{display:flex;gap:10px;align-items:end;flex-wrap:wrap;margin-top:12px}.assignment-affiliations{border-top:1px solid #cee2dd;margin-top:18px}.assignment-check{display:flex!important;align-items:center;margin:10px}.update-assignments [role=alert]{color:#a12828}@media(max-width:750px){.assignment-fields{grid-template-columns:1fr}}
+.update-assignments{margin:20px 0;padding:18px;border:1px solid #cbdbe7;border-radius:12px;background:#f5fbfa;color:#19374f}.assignment-services{border:0;padding:0;margin:0;min-width:0}.update-assignments h3{margin:0 0 8px}.update-assignments h4,.update-assignments h5{margin:18px 0 10px}.update-assignments p{font-size:13px;line-height:1.5}.assignment-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.update-assignments label{display:grid;gap:6px;font-size:13px}.update-assignments select{width:100%;padding:10px;border:1px solid #b9ccd8;border-radius:8px;background:white;font:inherit}.update-assignments button{padding:9px 13px;border:1px solid #a9c2d4;border-radius:7px;background:white;color:#173c65;cursor:pointer}.update-assignments button:disabled{opacity:.5;cursor:default}.assignment-actions,.assignment-affiliations form{display:flex;gap:10px;align-items:end;flex-wrap:wrap;margin-top:12px}.assignment-school-list{list-style:none;padding:0}.assignment-school-list li{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:6px 0}.school-removal{padding:12px;background:#fff8eb;border:1px solid #d8b780;border-radius:8px}.assignment-affiliations{border-top:1px solid #cee2dd;margin-top:18px}.assignment-check{display:flex!important;align-items:center;margin:10px}.update-assignments [role=alert]{color:#a12828}@media(max-width:750px){.assignment-fields{grid-template-columns:1fr}}
 </style>

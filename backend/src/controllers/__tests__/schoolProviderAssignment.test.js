@@ -1,5 +1,5 @@
 import {it,expect,vi,beforeEach} from 'vitest';
-const h=vi.hoisted(()=>({execute:vi.fn(),beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn(),access:vi.fn(),adjust:vi.fn(),coverage:vi.fn(),scope:vi.fn(),reactivate:vi.fn()}));
+const h=vi.hoisted(()=>({execute:vi.fn(),beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn(),access:vi.fn(),adjust:vi.fn(),coverage:vi.fn(),scope:vi.fn(),reactivate:vi.fn(),audit:vi.fn()}));
 vi.mock('../../services/clientReactivation.service.js',()=>({reactivateClientForActivity:h.reactivate}));
 vi.mock('../../services/clientAssignmentScope.service.js',()=>({assertAssignableProvider:h.scope}));
 vi.mock('../../services/clientCoverageAdmission.service.js',()=>({assertNewProviderCoverageAdmission:h.coverage}));
@@ -12,7 +12,9 @@ vi.mock('../../models/Notification.model.js',()=>({default:{create:vi.fn(async()
 vi.mock('../../services/notificationDispatcher.service.js',()=>({default:{dispatchForNotification:vi.fn(async()=>{})}}));
 vi.mock('../../services/clientOnboardingTask.service.js',()=>({createClientOnboardingTaskForProvider:vi.fn(async()=>{})}));
 vi.mock('../../services/smartDisclosure.service.js',()=>({syncDisclosureRequiredForProviderAssign:vi.fn(async()=>{})}));
-import {upsertClientProviderAssignment} from '../client.controller.js';
+vi.mock('../../services/auditEvent.service.js',()=>({logAuditEvent:h.audit}));
+import Agency from '../../models/Agency.model.js';
+import {upsertClientProviderAssignment,removeClientAffiliation} from '../client.controller.js';
 let rows,req,res,next;
 beforeEach(()=>{
  vi.clearAllMocks();rows=[{id:2588,is_active:0,is_primary:0,service_day:'Tuesday'}];
@@ -83,4 +85,49 @@ it('moves an unknown-day assignment to a weekday without refunding a nonexistent
  rows=[{id:2588,is_active:1,is_primary:1,service_day:null}];await upsertClientProviderAssignment(req,res,next);
  expect(next).not.toHaveBeenCalled();expect(h.adjust).toHaveBeenCalledTimes(1);
  expect(h.execute.mock.calls.some(([s,a])=>s.includes('SET service_day')&&a[0]==='Tuesday'&&a.at(-1)===2588)).toBe(true);
+});
+
+it('removes only the selected school and promotes its explicit replacement in the same transaction',async()=>{
+ req.get=()=> '2';
+ req.params.organizationId='237';
+ req.query={importAgencyId:'2',replacementSchoolId:'238'};
+ Agency.findById.mockResolvedValueOnce({organization_type:'school'});
+ h.execute.mockImplementation(async(sql)=>{
+  if(sql.includes('FROM clients c WHERE'))return [[{agency_id:2,organization_id:237,status_key:'current'}]];
+  if(sql.includes('FROM organization_affiliations'))return [[{id:1}]];
+  if(sql.includes('SELECT is_primary, is_active FROM client_organization_assignments'))return [[{is_primary:1,is_active:1}]];
+  if(sql.includes('SELECT a.id FROM client_organization_assignments'))return [[{id:238}]];
+  if(sql.includes('SELECT a.provider_user_id'))return [[{provider_user_id:88,service_day:'Monday'}]];
+  if(sql.includes('SELECT id, provider_user_id, service_day'))return [[{id:20,provider_user_id:99,service_day:'Tuesday'}]];
+  return [{affectedRows:1}];
+ });
+ await removeClientAffiliation(req,res,next);
+ expect(next).not.toHaveBeenCalled();
+ expect(res.json).toHaveBeenCalledWith({ok:true,organizationId:238});
+ expect(h.adjust).toHaveBeenCalledWith(h,{providerUserId:99,schoolId:237,dayOfWeek:'Tuesday',delta:1});
+ expect(h.execute).toHaveBeenCalledWith(expect.stringContaining('UPDATE clients SET organization_id'),[238,88,'Monday',501,2152,2]);
+ expect(h.execute).toHaveBeenCalledWith(expect.stringContaining("delivery_status='obsolete'"),[2152,237]);
+ expect(h.execute).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO client_status_history'),[2152,501,'237','238',expect.any(String)]);
+ expect(h.commit).toHaveBeenCalledOnce();
+ expect(h.audit).toHaveBeenCalledWith(req,expect.objectContaining({actionType:'client_import_school_affiliation_removed',agencyId:2,targetId:2152}));
+});
+
+it('does not leave the removed school provider on the chart when its primary school is different',async()=>{
+ req.get=()=> '2';
+ req.params.organizationId='237';
+ req.query={importAgencyId:'2'};
+ Agency.findById.mockResolvedValueOnce({organization_type:'school'});
+ h.execute.mockImplementation(async(sql)=>{
+  if(sql.includes('FROM clients c WHERE'))return [[{agency_id:2,organization_id:238,provider_id:99,status_key:'waitlist'}]];
+  if(sql.includes('FROM organization_affiliations'))return [[{id:1}]];
+  if(sql.includes('SELECT is_primary, is_active FROM client_organization_assignments'))return [[{is_primary:0,is_active:1}]];
+  if(sql.includes('SELECT a.provider_user_id'))return [[]];
+  if(sql.includes('SELECT id, provider_user_id, service_day'))return [[{id:20,provider_user_id:99,service_day:'Tuesday'}]];
+  return [{affectedRows:1}];
+ });
+ await removeClientAffiliation(req,res,next);
+ expect(next).not.toHaveBeenCalled();
+ expect(h.adjust).not.toHaveBeenCalled();
+ expect(h.execute).toHaveBeenCalledWith(expect.stringContaining('UPDATE clients SET organization_id'),[238,null,null,501,2152,2]);
+ expect(res.json).toHaveBeenCalledWith({ok:true,organizationId:238});
 });
