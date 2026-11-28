@@ -219,11 +219,11 @@ it('keeps the original hour when crossing the gap into a preview beside a later 
   expect(s.calendarStackItems.map(b => b.eventId)).toEqual([1, 2]);
 });
 
-it('starts legacy schedules in a full week with side-by-side items at either entry point', async () => {
+it('keeps an explicit parent week with legacy layout defaults at either entry point', async () => {
   m.prefs = {spanMode:'day',scheduleSideBySide:false,hideWeekend:true};
   for (const path of ['/dashboard','/itsco/my-schedule']) {
     m.route.path=path;
-    const s=await mount({mode:'self',compactPageChrome:true});
+    const s=await mount({mode:'self',compactPageChrome:true,spanMode:'week'});
     expect(s.scheduleSpanMode).toBe('week');
     expect(s.focusedDays).toEqual([]);
     expect(s.hideWeekend).toBe(false);
@@ -231,10 +231,10 @@ it('starts legacy schedules in a full week with side-by-side items at either ent
     wrapper.unmount();
   }
 });
-it('keeps post-rollout layout choices but always starts a new visit on the week', async () => {
+it('keeps saved agenda and post-rollout layout choices without an explicit parent view', async () => {
   m.prefs={layoutDefaultsVersion:2,spanMode:'agenda',scheduleSideBySide:false,hideWeekend:true};
   const s=await mount({mode:'self'});
-  expect(s.scheduleSpanMode).toBe('week');
+  expect(s.scheduleSpanMode).toBe('agenda');
   expect(s.scheduleSideBySide).toBe(false);
   expect(s.hideWeekend).toBe(true);
   s.setScheduleSpanMode('day');await nextTick();

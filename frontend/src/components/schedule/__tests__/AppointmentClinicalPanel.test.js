@@ -2,7 +2,7 @@ import { expect, it } from 'vitest';
 import { mount } from '@vue/test-utils';
 import Panel from '../AppointmentClinicalPanel.vue';
 
-it('shows chart context and directs documentation to the single Session note source', async () => {
+it('shows chart context and directs documentation to Note Workspace', async () => {
   const wrapper = mount(Panel, { props: {
     clinicalSessionId: 167,
     diagnoses: [{ id: 1, icd10_code: 'F41.9', description: 'Synthetic example' }],
@@ -13,8 +13,8 @@ it('shows chart context and directs documentation to the single Session note sou
   expect(wrapper.text()).toContain('Identify two skills');
   expect(wrapper.find('textarea').exists()).toBe(false);
   expect(wrapper.find('select').exists()).toBe(false);
-  await wrapper.findAll('button').find(button => button.text() === 'Open Session note').trigger('click');
-  expect(wrapper.emitted('open-session-note')).toHaveLength(1);
+  await wrapper.get('button[aria-label="Open Note Workspace"]').trigger('click');
+  expect(wrapper.emitted('open-note')).toHaveLength(1);
   await wrapper.findAll('button').find(button => button.text() === 'Open treatment plan').trigger('click');
   expect(wrapper.emitted('open-treatment-plan')).toHaveLength(1);
   expect(wrapper.emitted('open-billing')).toBeUndefined();
@@ -25,7 +25,7 @@ it('retains the canonical full-note action and handles an empty chart', async ()
   const wrapper = mount(Panel, { props: { clinicalSessionId: 167, clinicalNoteId: 10 } });
   expect(wrapper.text()).toContain('No treatment plan on file');
   expect(wrapper.text()).toContain('No active diagnoses');
-  await wrapper.findAll('button').find(button => button.text() === 'Review in Note Workspace').trigger('click');
+  await wrapper.get('button[aria-label="Open Note Workspace"]').trigger('click');
   expect(wrapper.emitted('open-note')).toHaveLength(1);
   wrapper.unmount();
 });
