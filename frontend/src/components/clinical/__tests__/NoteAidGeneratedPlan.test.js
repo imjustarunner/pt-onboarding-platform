@@ -143,7 +143,7 @@ it('updates only the requested objective and persists its reviewed state when th
   expect(state.model.goals[1].objectives[0]).toMatchObject({objectiveText:'Use assertive language',scaleCurrent:4,interventions:[]});
   await button('Accept objective').trigger('click');
   await button('Save draft').trigger('click');await flushPromises();
-  expect(api.put).toHaveBeenCalledWith('/medical-billing/treatment-plans/44/chart-draft',expect.objectContaining({revision:0,draft:expect.objectContaining({goals:expect.arrayContaining([expect.objectContaining({objectives:[expect.objectContaining({reviewStatus:'accepted'})]})])})}));
+  expect(api.put).toHaveBeenCalledWith('/medical-billing/treatment-plans/44/chart-draft',expect.objectContaining({revision:0,draft:expect.objectContaining({goals:expect.arrayContaining([expect.objectContaining({objectives:[expect.objectContaining({reviewStatus:'accepted'})]})])})}),{skipGlobalLoading:true});
   expect(wrapper.text()).toContain('Draft saved.');
   expect(api.post).toHaveBeenCalledOnce();
   const saved=api.put.mock.calls[0][1].draft;
@@ -223,6 +223,6 @@ it('opens the full page with separate diagnoses, objective controls and care pla
       ],
       goals: [expect.objectContaining({ objectives: [expect.objectContaining({ interventions: ['Skills rehearsal'] })] })]
     })
-  }));
+  }), { skipGlobalLoading: true });
   wrapper.unmount();
 });

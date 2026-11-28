@@ -13,7 +13,7 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('school/provider status
   const options={host:process.env.SCHEDULING_TEST_MYSQL_HOST||'127.0.0.1',port:Number(process.env.SCHEDULING_TEST_MYSQL_PORT),user:process.env.SCHEDULING_TEST_MYSQL_USER||'root',password:process.env.SCHEDULING_TEST_MYSQL_PASSWORD||'',timezone:'+00:00'};
   admin=await mysql.createConnection(options);await admin.query(`CREATE DATABASE ${schema}`);pool=mysql.createPool({...options,database:schema,connectionLimit:8});m.getConnection.mockImplementation(()=>pool.getConnection());m.execute.mockImplementation((...args)=>pool.execute(...args));
   for(const sql of [
-   'CREATE TABLE users(id INT PRIMARY KEY,is_active TINYINT,is_archived TINYINT,role VARCHAR(40))',
+   'CREATE TABLE users(id INT PRIMARY KEY,is_active TINYINT,is_archived TINYINT,role VARCHAR(40),terminated_at DATETIME NULL)',
    'CREATE TABLE user_agencies(user_id INT,agency_id INT,is_active TINYINT)',
    'CREATE TABLE agencies(id INT PRIMARY KEY,organization_type VARCHAR(20),is_active TINYINT)',
    'CREATE TABLE clients(id INT PRIMARY KEY,agency_id INT,organization_id INT,provider_id INT,client_status_id INT,status VARCHAR(30))',
@@ -28,14 +28,20 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('school/provider status
   }
  });
  beforeEach(async()=>{
-  for(const table of ['school_client_status_emails','school_client_status_email_states','school_family_status_emails','client_status_history','clients','client_provider_assignments','user_agencies','users','client_statuses','agencies'])await pool.query(`DELETE FROM ${table}`);
-  await pool.query("INSERT INTO users VALUES(555,1,0,'staff'),(5,1,0,'provider')");await pool.query('INSERT INTO user_agencies VALUES(555,2,1),(5,2,1)');
+  for(const table of ['school_client_status_emails','school_client_status_email_states','school_family_status_emails','client_status_history','clients','client_provider_assignments','client_organization_assignments','user_agencies','users','client_statuses','agencies'])await pool.query(`DELETE FROM ${table}`);
+  await pool.query("INSERT INTO users(id,is_active,is_archived,role) VALUES(555,1,0,'staff'),(5,1,0,'provider')");await pool.query('INSERT INTO user_agencies VALUES(555,2,1),(5,2,1)');
   await pool.query("INSERT INTO agencies VALUES(3,'school',1)");await pool.query("INSERT INTO client_statuses VALUES(10,2,'waitlist'),(11,2,'ready_to_schedule'),(12,2,'scheduled')");
   await pool.query("INSERT INTO clients VALUES(1,2,3,5,11,'ACTIVE')");await pool.query('INSERT INTO client_provider_assignments VALUES(1,3,5,1)');
+  await pool.query('INSERT INTO client_organization_assignments VALUES(1,3,1)');
   await pool.query("INSERT INTO client_status_history VALUES(91,1,555,'client_status_id','10','11',UTC_TIMESTAMP())");
  });
  afterAll(async()=>{await pool?.end();if(admin){await admin.query(`DROP DATABASE ${schema}`);await admin.end();}});
  const queue=input=>queueSchoolClientStatusEmails(undefined,{clientId:1,actorUserId:555,...input});
+ it.each(['assignment','affiliation'])('does not queue an assignment notice with an inactive %s',async kind=>{
+  await pool.query(`UPDATE ${kind==='assignment'?'client_provider_assignments':'client_organization_assignments'} SET is_active=0`);
+  await queue({assignmentSchoolId:3});
+  expect((await pool.query('SELECT id FROM school_client_status_emails'))[0]).toHaveLength(0);
+ });
  it('emits one school/provider notice after a baseline was reconciled before activation, with no family work',async()=>{
   await queue({});expect((await pool.query('SELECT id FROM school_client_status_emails'))[0]).toHaveLength(0);
   await queue({statusChangeId:91});await queue({statusChangeId:91});

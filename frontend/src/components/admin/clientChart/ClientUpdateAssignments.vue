@@ -30,6 +30,7 @@
               :aria-label="'Remove '+(row.organization_name || row.name)" :disabled="busy" @click="selectSchoolRemoval(row)">Remove school</button>
           </li>
         </ul>
+        <p v-else>No {{ bucket.label.toLowerCase() }} linked for this agency.</p>
         <form v-if="bucket.type==='school' && schoolToRemove" class="school-removal" @submit.prevent="removeSchool">
           <p>Remove {{ schoolToRemove.organization_name || schoolToRemove.name }} and its roster assignments from this chart?</p>
           <label v-if="removingPrimarySchool">Primary school after removal
@@ -41,7 +42,6 @@
           <button type="submit" :disabled="busy">Confirm removal</button>
           <button type="button" :disabled="busy" @click="schoolToRemove=null">Cancel</button>
         </form>
-        <p v-else>No {{ bucket.label.toLowerCase() }} linked for this agency.</p>
         <form @submit.prevent="addAffiliation(bucket.type)"><label>Add {{ bucket.singular }}<select v-model="additions[bucket.type]" :disabled="busy"><option value="">Select…</option><option v-for="org in availableFor(bucket.type)" :key="org.id" :value="String(org.id)">{{ org.name }}</option></select></label><label class="assignment-check"><input v-model="makePrimary[bucket.type]" type="checkbox" :disabled="busy" /> Make primary</label><button type="submit" :disabled="busy || !additions[bucket.type]">Add {{ bucket.singular }}</button></form>
       </section>
     </template>
