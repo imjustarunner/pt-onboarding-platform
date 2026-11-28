@@ -21,32 +21,59 @@ import {guardianContextAllowsAppointment} from './clientServiceEnrollment.servic
 import {tutoringInvitationAllowed} from '../utils/tutoringGuestPermissions.js';
 
 const hash = text => crypto.createHash('sha256').update(String(text)).digest('hex');
-const emailHash = email => hash(String(email || '').trim().toLowerCase());
+const normalizeEmail = email => String(email || '').trim().toLowerCase();
+const emailHash = email => hash(normalizeEmail(email));
 const fail = (message,status=410) => Object.assign(new Error(message),{status});
 const date = value => value instanceof Date ? value : new Date(utcMysqlToIso(value) || value);
 export const appointmentEmailActions = school => school ? ['cancel'] : ['confirm','cancel','reschedule'];
 export const actionLabels = {confirm:'Confirm appointment',cancel:'Cancel appointment',reschedule:'Request a new time',absence:'My child will miss school'};
 
-export async function createAppointmentEmailLink({appointment,clientId,to,context}) {
+export async function createAppointmentEmailLink({appointment,clientId,to,context,guardianUserId,isSchool = false}) {
   if (!appointment?.id || !clientId || !to) throw fail('An appointment and its recipient are required.',400);
   const [[participant]] = await pool.execute('SELECT id FROM appointment_participants WHERE appointment_id=? AND client_id=?',[appointment.id,clientId]);
   if (!participant) throw fail('Appointment unavailable.',404);
   const [guardians] = await pool.execute(`SELECT u.id,u.email,cg.relationship_type,cg.permissions_json,c.date_of_birth FROM users u
     JOIN client_guardians cg ON cg.guardian_user_id=u.id JOIN clients c ON c.id=cg.client_id
-    WHERE cg.client_id=? AND cg.access_enabled=1 AND LOWER(TRIM(u.email))=LOWER(TRIM(?)) AND u.is_active=1
+    WHERE cg.client_id=? AND c.agency_id=? AND cg.access_enabled=1 AND NULLIF(TRIM(u.email),'') IS NOT NULL AND u.is_active=1
       AND COALESCE(u.is_archived,0)=0 AND u.terminated_at IS NULL
       AND (u.status_expires_at IS NULL OR u.status_expires_at>UTC_TIMESTAMP())
       AND c.guardian_portal_enabled=1 AND c.status NOT IN ('ARCHIVED','INACTIVE','TERMINATED')
       AND NOT EXISTS (SELECT 1 FROM dependent_portal_access d WHERE d.client_id=cg.client_id AND d.user_id=u.id AND d.revoked_at IS NOT NULL)
-    LIMIT 2`,[clientId,to]);
-  // Affiliated contacts receive an informational email, not authority to change a booking.
-  const guardian = guardians.length === 1 ? guardians[0] : null;
-  if (!appointmentEmailAccessAllowed(guardian)) return null;
+    ORDER BY CASE
+      WHEN cg.relationship_type='self' THEN 0
+      WHEN JSON_UNQUOTE(JSON_EXTRACT(c.onboarding_docs_json,'$.paperProcessing.guardian1Id'))=CAST(u.id AS CHAR) THEN 1
+      ELSE 2 END, cg.created_at, u.id`,[clientId,appointment.agencyId]);
+  const destination = normalizeEmail(to);
+  const matches = guardians.filter(guardian => normalizeEmail(guardian.email) === destination);
+  const recipient = matches.length === 1 ? matches[0] : null;
+  if (!appointmentEmailAccessAllowed(recipient) || (guardianUserId && Number(guardianUserId) !== Number(recipient.id))) return null;
+
+  // Evaluate the same order for every delivery, regardless of who is emailed first.
+  // A contact-only recipient or a shared address cannot acquire response authority.
+  const { loadClientConsent, getClientPreferences } = await import('./sessionNotification.service.js');
+  const tutoring = ['learning','tutoring'].includes(String(appointment.businessType || appointment.business_type || '').toLowerCase());
+  let selected;
+  for (const guardian of guardians) {
+    if (!appointmentEmailAccessAllowed(guardian)) continue;
+    const email = normalizeEmail(guardian.email);
+    if (guardians.filter(other => normalizeEmail(other.email) === email).length !== 1) continue;
+    const consent = await loadClientConsent(clientId, appointment.agencyId, guardian.id);
+    if (!consent.email || normalizeEmail(consent.emailAddress) !== email) continue;
+    const prefs = await getClientPreferences(appointment.agencyId, clientId, guardian.id, consent);
+    if (prefs.channels?.email === false) continue;
+    if (isSchool) {
+      if (await isSchoolSessionEmailOptedOut({agencyId:appointment.agencyId,clientId,to:email})) continue;
+    } else if (prefs.optionalRemindersEnabled === false || prefs.confirmationRequestsEnabled === false) continue;
+    if (tutoring && !await allowsTutoringEmailResponse(appointment,clientId,guardian.id)) continue;
+    selected = guardian;
+    break;
+  }
+  if (selected !== recipient) return null;
   const token=crypto.randomBytes(32).toString('hex'),start=date(appointment.startAt),end=date(appointment.endAt);
   const expires=new Date(Math.min(+end,Date.now()+30*86400000));
   if (!Number.isFinite(+expires) || +expires<=Date.now()) throw fail('This appointment has ended.');
   await pool.execute(`INSERT INTO appointment_email_actions(token_hash,appointment_id,agency_id,client_id,guardian_user_id,recipient_hash,appointment_start,appointment_end,expires_at)
-    VALUES(?,?,?,?,?,?,?,?,?)`,[hash(token),appointment.id,appointment.agencyId,clientId,guardian.id,emailHash(to),dateToMysqlUtcDateTime(start),dateToMysqlUtcDateTime(end),dateToMysqlUtcDateTime(expires)]);
+    VALUES(?,?,?,?,?,?,?,?,?)`,[hash(token),appointment.id,appointment.agencyId,clientId,recipient.id,emailHash(to),dateToMysqlUtcDateTime(start),dateToMysqlUtcDateTime(end),dateToMysqlUtcDateTime(expires)]);
   // Backend-rendered form: no login and no changes on GET/link prefetch.
   context ||= await clientEmailContext({agencyId:appointment.agencyId,clientId,...(['learning','tutoring'].includes(String(appointment.businessType||appointment.business_type||'').toLowerCase())?{learning:true}: {})});
   return appointmentResponseUrl(token,context);
@@ -63,12 +90,24 @@ function appointmentEmailAccessAllowed(access) {
       (access.relationship_type !== 'self' && isDobAdultLocked(access.date_of_birth)));
 }
 
+async function allowsTutoringEmailResponse(appointment,clientId,userId) {
+  try {
+    const current = await authorizedAppointmentClient(userId,clientId,{
+      agencyId:appointment.agencyId,serviceId:appointment.learningContext?.serviceEnrollmentId
+    });
+    return tutoringInvitationAllowed(current,appointment,guardianContextAllowsAppointment);
+  } catch (error) {
+    if ([403,404].includes(error.status)) return false;
+    throw error;
+  }
+}
+
 export async function scheduledOfficeAppointmentLinks(input) {
   const { appointment, clientId, to } = input;
   if (!['scheduled','confirmed','client_confirmed'].includes(appointment.status) || +date(appointment.endAt) <= Date.now()) return null;
   if (['learning','tutoring'].includes(String(appointment.businessType || appointment.business_type || '').toLowerCase())) return null;
   const setting = await resolveAppointmentServiceSetting(appointment);
-  const actionUrl = await createAppointmentEmailLink(input);
+  const actionUrl = await createAppointmentEmailLink({...input,isSchool:setting.isSchool});
   if (!actionUrl) return null;
   const allowed = appointmentEmailActions(setting.isSchool).filter(action => action !== 'confirm' || sessionRsvpState(appointment) !== 'confirmed');
   return { links: allowed.map(action => ({
@@ -95,8 +134,7 @@ export async function appointmentEmailActionContext(token,db=pool) {
   const [[participant]]=await db.execute('SELECT id FROM appointment_participants WHERE appointment_id=? AND client_id=?',[appt.id,row.client_id]);
   if(!participant) throw fail('This appointment link is no longer available.');
   if(['learning','tutoring'].includes(appt.businessType)){
-    const current=await authorizedAppointmentClient(row.guardian_user_id,row.client_id,{agencyId:row.agency_id,serviceId:appt.learningContext?.serviceEnrollmentId});
-    if(!tutoringInvitationAllowed(current,appt,guardianContextAllowsAppointment))throw fail('This appointment link no longer has access. Please contact your team.',403);
+    if(!await allowsTutoringEmailResponse(appt,row.client_id,row.guardian_user_id))throw fail('This appointment link no longer has access. Please contact your team.',403);
   }
   const setting=await resolveAppointmentServiceSetting(appt);
   const context=await clientEmailContext({agencyId:row.agency_id,clientId:row.client_id,...(['learning','tutoring'].includes(String(appt.businessType||appt.business_type||'').toLowerCase())?{learning:true}: {})});
@@ -136,19 +174,20 @@ export async function submitAppointmentEmailAction(token,action) {
   } finally {try {if(locked)await db.execute('SELECT RELEASE_LOCK(?)',[lock]);} finally {db.release();}}
 }
 
-export async function buildAppointmentEmail({appointment,clientId,to,kind='reminder',actionUrl,schoolOptOut,message=''}) {
+export async function buildAppointmentEmail({appointment,clientId,to,guardianUserId,kind='reminder',actionUrl,schoolOptOut,message=''}) {
   const context=await clientEmailContext({agencyId:appointment.agencyId,clientId,...(['learning','tutoring'].includes(String(appointment.businessType||appointment.business_type||'').toLowerCase())?{learning:true}: {})});
   const setting=await resolveAppointmentServiceSetting(appointment);
   if(setting.isSchool && schoolOptOut===undefined) schoolOptOut=await createSchoolSessionEmailOptOutLink({agencyId:appointment.agencyId,clientId,to});
   const optOut=setting.isSchool && schoolOptOut ? schoolSessionEmailOptOutContent(schoolOptOut.url) : {text:'',html:''};
-  if(actionUrl===undefined) actionUrl=await createAppointmentEmailLink({appointment,clientId,to,context});
+  if(actionUrl===undefined) actionUrl=await createAppointmentEmailLink({appointment,clientId,to,context,guardianUserId,isSchool:setting.isSchool});
   const when=formatAppointmentTime(appointment),name=context.tenant.name;
   const rsvp = sessionRsvpState(appointment);
   const ask = rsvp === 'unanswered';
   const confirmed = rsvp === 'confirmed';
-  const subject=setting.isSchool?`${name}: School session notice`:`${name}: ${ask && kind.startsWith('confirmation')?'Please confirm your appointment':'Appointment reminder'}`;
+  const subject=setting.isSchool?`${name}: School session notice`:`${name}: ${ask && actionUrl && kind.startsWith('confirmation')?'Please confirm your appointment':'Appointment reminder'}`;
   const tutorName=context.learning?await appointmentEmailTutorName(appointment):'';
-  const emailMessage=String(message).replace(/\s*Reply Y to confirm, N to cancel, R to request a reschedule\./gi,'').trim();
+  const emailMessage=String(message).replace(/\s*Reply Y to confirm, N to cancel, R to request a reschedule\./gi,'').trim()
+    .replace(/^Please confirm your appointment\b/i, ask && actionUrl ? 'Please confirm your appointment' : 'Reminder for your appointment');
   const intro=setting.isSchool?`${schoolAppointmentReminderText} Scheduled session: ${when}.`:(emailMessage || `${confirmed?'A friendly reminder: your':'Your'} ${context.learning?'tutoring session':'appointment'} with ${name} is scheduled for ${when}.${confirmed?' We look forward to seeing you.':''}`)+(tutorName?` Your tutor: ${tutorName}.`:'');
   const actions=appointmentEmailActions(setting.isSchool).filter(action=>action!=='confirm'||ask);
   const links=actionUrl?actions.map(action=>({label:setting.isSchool?'Cancel school session':actionLabels[action],url:`${actionUrl}?action=${action}`})):setting.isSchool?[]:[{label:'Open your portal',url:context.url(`guardian?panel=appointments&clientId=${clientId}`)}];

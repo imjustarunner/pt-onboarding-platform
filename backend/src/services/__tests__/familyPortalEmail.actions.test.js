@@ -1,7 +1,8 @@
 import {beforeEach,it,expect,vi} from 'vitest';
 import crypto from 'node:crypto';
 import {standardizeEmailButtons} from '../../utils/emailActionButton.js';
-const m=vi.hoisted(()=>({execute:vi.fn(),connection:vi.fn(),appointment:vi.fn(),reply:vi.fn(),setting:vi.fn(),context:vi.fn(),send:vi.fn()}));
+const m=vi.hoisted(()=>({execute:vi.fn(),connection:vi.fn(),appointment:vi.fn(),reply:vi.fn(),setting:vi.fn(),context:vi.fn(),send:vi.fn(),
+ consent:vi.fn(),preferences:vi.fn(),authorize:vi.fn(),serviceAllows:vi.fn()}));
 vi.mock('../appointmentJoinEmail.service.js',()=>({appointmentJoinEmail:vi.fn(async({appointment,clientId,context})=>{
  if(!['learning','tutoring'].includes(appointment.businessType)||!['VIRTUAL','TELEHEALTH'].includes(appointment.modality))return null;
  const url=context.url(`tutoring-session/appointment/${appointment.id}?clientId=${clientId}&agencyId=${appointment.agencyId}`);return {url,text:`Join tutoring session: ${url}`,html:`<a href="${url}">Join tutoring session</a>`};
@@ -11,19 +12,30 @@ vi.mock('../../models/Appointment.model.js',()=>({default:{findById:m.appointmen
 vi.mock('../appointmentReply.service.js',()=>({applyAppointmentReply:m.reply}));
 vi.mock('../appointmentServiceSetting.service.js',()=>({resolveAppointmentServiceSetting:m.setting,formatAppointmentTime:()=> 'Wednesday at 2 PM'}));
 vi.mock('../clientPortalEmail.service.js',()=>({clientEmailContext:m.context,sendClientPortalEmail:m.send}));
-import {appointmentEmailActionContext,submitAppointmentEmailAction,buildAppointmentEmail,sendAppointmentEmail} from '../appointmentEmailActions.service.js';
+vi.mock('../sessionNotification.service.js',()=>({loadClientConsent:m.consent,getClientPreferences:m.preferences}));
+vi.mock('../guardianAppointments.service.js',()=>({authorizedAppointmentClient:m.authorize}));
+vi.mock('../clientServiceEnrollment.service.js',()=>({guardianContextAllowsAppointment:m.serviceAllows}));
+import {appointmentEmailActionContext,submitAppointmentEmailAction,buildAppointmentEmail,sendAppointmentEmail,
+ scheduledOfficeAppointmentLinks} from '../appointmentEmailActions.service.js';
 const token='a'.repeat(64),email='guardian@example.test';
 const hash=v=>crypto.createHash('sha256').update(v).digest('hex');
-let row,appt,access,db;
+const otherEmail='second@example.test';
+let row,appt,access,db,guardians;
 beforeEach(()=>{
  vi.resetAllMocks();
  appt={id:44,agencyId:2,startAt:'2030-01-02T20:00:00.000Z',endAt:'2030-01-02T21:00:00.000Z',status:'scheduled'};
  row={id:1,token_hash:hash(token),appointment_id:44,client_id:22,agency_id:2,guardian_user_id:9,recipient_hash:hash(email),appointment_start:new Date(appt.startAt),appointment_end:new Date(appt.endAt),expires_at:new Date(appt.endAt),status:'ready'};
  access={email,permissions_json:{}};
+ guardians=[{id:9,email,permissions_json:{}},{id:10,email:otherEmail,permissions_json:{}}];
+ m.consent.mockImplementation(async (_clientId,_agencyId,id)=>({email:true,emailAddress:guardians.find(g=>g.id===id)?.email}));
+ m.preferences.mockResolvedValue({channels:{email:true},optionalRemindersEnabled:true,confirmationRequestsEnabled:true});
+ m.authorize.mockResolvedValue({permissions_json:{}});
+ m.serviceAllows.mockReturnValue(true);
  m.execute.mockImplementation(async(sql,args)=>{
   if(sql.includes('GET_LOCK'))return [[{acquired:1}]];
   if(sql.includes('FROM appointment_email_actions'))return [[...(args[0]===hash(token)?[row]:[])]];
   if(sql.includes('SELECT u.email'))return [[...(access?[access]:[])]];
+  if(sql.includes('SELECT u.id,u.email,cg.relationship_type'))return [guardians];
   if(sql.includes('FROM appointment_participants'))return [[{id:11}]];
   if(sql.startsWith('SELECT'))return [[]];
   if(sql.includes("status='completed'")){row.status='completed';row.result_message=args[0];}
@@ -138,4 +150,65 @@ it('does not issue a link or send another email after a decline',async()=>{
  const appointment={...appt,cancellationRecommendationJson:{clientReply:'cancel_blocked'}};
  expect(await sendAppointmentEmail({appointment,clientId:22,to:email})).toEqual({skipped:true,reason:'appointment_declined'});
  expect(m.send).not.toHaveBeenCalled();
+});
+
+it('sends both guardians reminders with response buttons only for the primary recipient',async()=>{
+ const input={appointment:appt,clientId:22,kind:'confirmation',message:'Please confirm your appointment tomorrow. Reply Y to confirm, N to cancel, R to request a reschedule.'};
+ await sendAppointmentEmail({...input,to:otherEmail,guardianUserId:10});
+ await sendAppointmentEmail({...input,to:' Guardian@Example.Test ',guardianUserId:9});
+ expect(m.send).toHaveBeenCalledTimes(2);
+ const [[secondary],[primary]]=m.send.mock.calls;
+ expect(secondary.subject).toBe('ITSCO: Appointment reminder');
+ expect(secondary.text).not.toMatch(/please confirm|reply Y|\?action=/i);
+ expect(primary.subject).toBe('ITSCO: Please confirm your appointment');
+ for (const action of ['confirm','cancel','reschedule']) expect(primary.html).toContain(`?action=${action}`);
+ const inserts=m.execute.mock.calls.filter(([sql])=>sql.startsWith('INSERT INTO appointment_email_actions'));
+ expect(inserts).toHaveLength(1);
+ expect(inserts[0][1].slice(1,6)).toEqual([44,2,22,9,hash(email)]);
+ expect(m.execute).toHaveBeenCalledWith(expect.stringContaining("$.paperProcessing.guardian1Id"),[22,2]);
+});
+
+it.each(['email consent','email channel','reminders','confirmation requests','billing only','alternate email','tutoring service'])(
+ 'uses the other eligible guardian when the primary cannot respond because of %s',async reason=>{
+  if(reason==='email consent')m.consent.mockResolvedValueOnce({email:false,emailAddress:email});
+  if(reason==='email channel')m.preferences.mockResolvedValueOnce({channels:{email:false}});
+  if(reason==='reminders')m.preferences.mockResolvedValueOnce({optionalRemindersEnabled:false});
+  if(reason==='confirmation requests')m.preferences.mockResolvedValueOnce({confirmationRequestsEnabled:false});
+  if(reason==='billing only')guardians[0].permissions_json={billingOnly:true};
+  if(reason==='alternate email')m.consent.mockResolvedValueOnce({email:true,emailAddress:'alternate@example.test'});
+  if(reason==='tutoring service'){
+   appt.businessType='tutoring';appt.learningContext={serviceEnrollmentId:123};
+   m.serviceAllows.mockReturnValueOnce(false);
+  }
+  const content=await buildAppointmentEmail({appointment:appt,clientId:22,to:otherEmail,guardianUserId:10});
+  expect(content.html).toContain('?action=confirm');
+  expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO appointment_email_actions'),
+    expect.arrayContaining([44,2,22,10,hash(otherEmail)]));
+  if(reason==='tutoring service')expect(m.authorize).toHaveBeenCalledWith(10,22,{agencyId:2,serviceId:123});
+ });
+
+it('keeps booking email responses off shared addresses, contacts and mismatched identities',async()=>{
+ const input={appointment:appt,clientId:22,to:email};
+ expect(await scheduledOfficeAppointmentLinks({...input,to:'contact@example.test'})).toBeNull();
+ expect(await scheduledOfficeAppointmentLinks({...input,guardianUserId:10})).toBeNull();
+ guardians[1].email=email;
+ expect(await scheduledOfficeAppointmentLinks(input)).toBeNull();
+ expect(m.execute.mock.calls.some(([sql])=>sql.startsWith('INSERT INTO appointment_email_actions'))).toBe(false);
+});
+
+it('selects the remaining school email recipient when the primary opted out of school notices',async()=>{
+ m.setting.mockResolvedValue({isSchool:true});
+ const execute=m.execute.getMockImplementation();
+ m.execute.mockImplementation((sql,args)=>sql.includes('FROM school_session_email_preferences')
+  ? Promise.resolve(m.preferences.mock.calls.length===1?[[{disabled_at:new Date()}]]:[[]])
+  : execute(sql,args));
+ const response=await scheduledOfficeAppointmentLinks({appointment:appt,clientId:22,to:otherEmail,guardianUserId:10});
+ expect(response.links).toEqual([{label:'Cancel school session',url:expect.stringContaining('?action=cancel')}]);
+});
+
+it('still sends a reminder when no linked recipient can respond',async()=>{
+ m.consent.mockResolvedValue({email:false});
+ await sendAppointmentEmail({appointment:appt,clientId:22,to:email,kind:'confirmation'});
+ expect(m.send).toHaveBeenCalledWith(expect.objectContaining({subject:'ITSCO: Appointment reminder'}));
+ expect(m.send.mock.calls[0][0].html).not.toContain('?action=');
 });
