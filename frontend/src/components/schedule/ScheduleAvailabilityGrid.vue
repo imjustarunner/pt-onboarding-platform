@@ -2139,6 +2139,7 @@
           :show-booking-notice="isSessionBookingRequestType && !isScheduleEventEditMode && !isAppointmentEditMode"
           :appointment-start-ms="editorAppointmentStartMs"
           :appointment-time-zone="scheduleMeetingTimeZone()"
+          :nlu-video-choice="editorNluVideoChoice"
           :external-meetings-enabled="editorExternalMeetingsEnabled"
           :external-meeting-url="editorExternalMeetingUrl"
           :include-google-dial-in="editorIncludeGoogleDialIn"
@@ -15155,6 +15156,13 @@ const editorVideoRoomMode = ref('unique_session');
 const editorExternalMeetingUrl=ref('');
 const editorIncludeGoogleDialIn=ref(false),editorGoogleDialInStatus=ref('');
 const bookingMeetingPolicy=ref(null);
+const editorNluVideoChoice=computed(()=>{
+ if(!editorIsLearning.value)return false;
+ const id=Number(editorAgencyId.value||effectiveAgencyId.value);
+ const agency=[agencyStore.currentAgency,...(agencyStore.userAgencies||[]),...(selfScheduleAgencyOptions.value||[])].find(row=>Number(row?.id)===id);
+ const slug=String(agency?.slug||agency?.portal_url||agency?.portalUrl||'').toLowerCase();
+ return ['nlu','nextlevelup','nextleveluplcc','next-level-up'].includes(slug)||(id===453&&slug==='nlu-qa-demo')||(id===454&&slug==='nlu-qa-learning');
+});
 const editorExternalMeetingsEnabled=computed(()=>{
  const id=Number(editorAgencyId.value||effectiveAgencyId.value);
  const agency=[agencyStore.currentAgency,...(agencyStore.userAgencies||[]),...(selfScheduleAgencyOptions.value||[])].find(row=>Number(row?.id)===id);
@@ -17436,7 +17444,7 @@ function openAppointmentEditor({ mode = 'create', kind = '', id = 0, defaults = 
   editorAppointmentBaseline.value=null;
   editorAudioOnly.value = false;
   editorSettingChosen.value = false;
-  editorVideoRoomMode.value = editorIsLearning.value ? String(defaults.videoRoomMode || (mode === 'create' && editorExternalMeetingsEnabled.value && editorModality.value === 'TELEHEALTH' ? 'external' : 'unique_session')) : mode === 'create' ? 'google_meet' : 'unique_session';
+  editorVideoRoomMode.value = editorIsLearning.value ? String(defaults.videoRoomMode || (!editorNluVideoChoice.value && mode === 'create' && editorExternalMeetingsEnabled.value && editorModality.value === 'TELEHEALTH' ? 'external' : 'unique_session')) : mode === 'create' ? 'google_meet' : 'unique_session';
   editorExternalMeetingUrl.value=String(defaults.externalMeetingUrl||'');
   editorIncludeGoogleDialIn.value=defaults.includeGoogleDialIn ?? (mode === 'create' && !editorIsLearning.value);editorGoogleDialInStatus.value='';
   editorNotificationMode.value = String(defaults.notificationMode || 'default');
@@ -20156,7 +20164,12 @@ const loadVirtualSessionClients = async (agencyIdOverride = null) => {
   }
 };
 watch([editorAgencyId,editorPracticeCategory],()=>{if(showRequestModal.value&&editorIsClinical.value&&!editorHydratingAppointment.value&&!isAppointmentEditMode.value&&!isScheduleEventEditMode.value){virtualSessionSelectedClientIds.value=[];void loadVirtualSessionClients();}});
-watch([showRequestModal,editorAgencyId,editorModality,editorExternalMeetingsEnabled,editorIsLearning],()=>{if(showRequestModal.value&&!isAppointmentEditMode.value&&!isScheduleEventEditMode.value){editorVideoRoomMode.value=editorIsLearning.value&&editorExternalMeetingsEnabled.value&&editorModality.value==='TELEHEALTH'?'external':editorIsLearning.value?'unique_session':'google_meet';editorExternalMeetingUrl.value='';}});
+watch([showRequestModal,editorAgencyId,editorModality,editorExternalMeetingsEnabled,editorIsLearning],(values,previous)=>{
+ if(!showRequestModal.value||isAppointmentEditMode.value||isScheduleEventEditMode.value)return;
+ // NLU's transport is an independent choice; format/policy loading must not reset it.
+ if(editorNluVideoChoice.value&&previous&&values[0]===previous[0]&&values[1]===previous[1]&&values[4]===previous[4])return;
+ editorVideoRoomMode.value=editorIsLearning.value&&!editorNluVideoChoice.value&&editorExternalMeetingsEnabled.value&&editorModality.value==='TELEHEALTH'?'external':editorIsLearning.value?'unique_session':'google_meet';editorExternalMeetingUrl.value='';
+});
 
 
 const getBusyConflictFromSummary = (summaryPayload, ranges = []) => {
@@ -23437,6 +23450,18 @@ const finishVirtualSessionVideoLinks = async () => {
   }
   for (const appointment of videoAppointments) {
     if (booking.videoRooms[appointment.id]) continue;
+    if (booking.nluVideoChoice && appointment.videoRoomMode === 'google_meet' && (booking.learning || ['learning', 'tutoring'].includes(appointment.businessType))) {
+      // Read the saved meeting first: booking staff may verify readiness, while
+      // only the assigned tutor receives the private host link.
+      const { data: saved } = await api.get(`/appointments/${appointment.id}`, { skipGlobalLoading: true });
+      const data = saved?.appointment?.googleMeetReady
+        ? { meetingReady: true, meetUrl: saved.appointment.googleMeetUrl || '' }
+        : await openCounselingFromAppointment({ agencyId: booking.agencyId, appointmentId: appointment.id });
+      if (!data?.meetingReady && !data?.meetUrl) throw new Error('The appointment is saved. Its Google Meet link is not ready; retry this appointment’s link without booking again.');
+      booking.videoRooms[appointment.id] = { session: { publicId: `google-meet-appointment:${appointment.id}` }, shareUrl: data.meetUrl || '' };
+      booking.googleMeetReady = true;
+      continue;
+    }
     if (booking.learning || ['learning', 'tutoring'].includes(appointment.businessType)) {
       const external = appointment.videoRoomMode === 'external' || booking.externalMeeting;
       booking.videoRooms[appointment.id] = { session: { publicId: `${external ? 'external' : 'tutoring'}-appointment:${appointment.id}` },
@@ -23564,7 +23589,7 @@ const completePlatformVirtualSessionBooking = async ({
   }
 
   if (alsoBookOffice && officeId && !editorHistoricalBooking.value && !officeBookingValid.value) throw new Error('Choose a valid office booking window.');
-  const bookingSnapshot = { audioOnly: editorAudioOnly.value, agencyId, providerId: uid, clientLabel, title: titleWithNotes, learning: editorIsLearning.value, externalMeeting: editorIsLearning.value && editorVideoRoomMode.value === 'external', timeZone: scheduleMeetingTimeZone(),
+  const bookingSnapshot = { audioOnly: editorAudioOnly.value, agencyId, providerId: uid, clientLabel, title: titleWithNotes, learning: editorIsLearning.value, nluVideoChoice:editorNluVideoChoice.value, externalMeeting: editorIsLearning.value && editorVideoRoomMode.value === 'external', timeZone: scheduleMeetingTimeZone(),
     whenLabel: `${dateYmd} · ${pad2(hour)}:${pad2(startMinute)}–${pad2(endHour)}:${pad2(endMinute)} (${scheduleMeetingTimeZone()})`,
     guardianUserId: firstGuardianUserId, skipVideo: editorBookingVideoMode.value === 'none',
     historical: editorHistoricalBooking.value, videoRooms: {}, officeRequestError: '', partial: false, uncertain: false };
@@ -24331,7 +24356,7 @@ const submitRequest = async () => {
           const appointment = savedAppointments[0];
           virtualSessionBookingResult.value = {
             agencyId, appointments: savedAppointments, historical: true, linked: true, noVideo: true,
-            timeZone, learning: editorIsLearning.value, title: titleParts[0], clientLabel,
+            timeZone, learning: editorIsLearning.value, nluVideoChoice:editorNluVideoChoice.value, title: titleParts[0], clientLabel,
             whenLabel: toZonedDatetimeLocalValue(appointment.startAt, timeZone).slice(0, 10) + ' · ' + clockRangeLabel(appointment.startAt, appointment.endAt)
           };
         } else closeModal();

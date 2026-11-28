@@ -248,7 +248,7 @@ const props = defineProps({
   learning: { type: Boolean, default: false },
   bookSessionLayout: { type: Boolean, default: false },
   videoRoomMode: { type: String, default: 'unique_session' },
-  externalMeetingsEnabled:Boolean,externalMeetingUrl:{type:String,default:''},serviceCodeMessage:{type:String,default:''},
+  nluVideoChoice:Boolean,externalMeetingsEnabled:Boolean,externalMeetingUrl:{type:String,default:''},serviceCodeMessage:{type:String,default:''},
   includeGoogleDialIn:Boolean,googleDialInStatus:{type:String,default:''},
   historicalBooking: Boolean,
   seriesStarted: Boolean,
@@ -396,7 +396,7 @@ const headerProps = computed(() => ({
     ? props.recurrenceFrequencyOptions
     : undefined,
   videoRoomMode: props.videoRoomMode,
-  externalMeetingsEnabled:props.externalMeetingsEnabled,externalMeetingUrl:props.externalMeetingUrl,serviceCodeMessage:props.serviceCodeMessage,
+  nluVideoChoice:props.nluVideoChoice,externalMeetingsEnabled:props.externalMeetingsEnabled,externalMeetingUrl:props.externalMeetingUrl,serviceCodeMessage:props.serviceCodeMessage,
   includeGoogleDialIn:props.includeGoogleDialIn,googleDialInStatus:props.googleDialInStatus,
   historicalBooking: props.historicalBooking,
   seriesStarted: props.seriesStarted,

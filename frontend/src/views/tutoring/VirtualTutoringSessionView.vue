@@ -1,5 +1,31 @@
 <template>
- <template v-if="state?.sessionHubV2">
+ <main v-if="offPlatform" class="tutoring-room external-session">
+  <header><img v-if="logo" :src="logo" alt=""><div><span class="brand-name">{{brand}}</span><h1>Session Hub</h1><p>{{state.title}} · Appointment #{{state.appointmentId}} · {{scheduleLabel}} · {{statusLabel}}</p></div><router-link :to="backPath">Back to {{state.host?'my schedule':'my portal'}}</router-link></header>
+  <p v-if="error" role="alert">{{error}} <button @click="refresh">Try again</button></p>
+  <AppointmentNoShowStatus v-if="state.host" :appointment-id="Number(state.appointmentId)" :resolved-attendance="ended&&!!state.startedAt" :time-zone="state.timeZone" @undone="refresh" @changed="refresh" />
+  <section class="session-note" aria-label="External tutoring meeting">
+   <h2>{{state.videoRoomMode==='google_meet'?'Google Meet':'External meeting'}}</h2>
+   <p>Video opens in a separate tab. Your session notes stay with this appointment.</p>
+   <a v-if="externalMeetingUrl&&state.available&&!closed" class="external-join" :href="externalMeetingUrl" target="_blank" rel="noopener noreferrer">{{state.videoRoomMode==='google_meet'?'Join Google Meet':'Open meeting'}}</a>
+   <p v-else-if="closed">This session is closed. Its saved record remains available.</p>
+   <p v-else-if="!state.available">{{windowMessage}}</p>
+   <p v-else role="status">The meeting link is not ready. The assigned tutor can retry it from the appointment.</p>
+   <template v-if="state.host&&!closed">
+    <button v-if="canDeclareNoShow" type="button" @click="openNoShow">Mark no-show</button>
+    <p>Opening the link does not record attendance. Record the start when your student is present and tutoring begins.</p>
+    <label v-if="!state.startedAt" class="external-attendance"><input type="checkbox" v-model="externalAttended"> My student is present and our tutoring session has begun.</label>
+    <button v-if="!state.startedAt" :disabled="busy||!state.available||!externalAttended||(state.videoRoomMode==='google_meet'&&!externalMeetingUrl)" @click="startExternal">Record session start</button>
+    <button v-else :disabled="busy" @click="confirmingEnd=true">Finish session record</button>
+   </template>
+   <p v-if="state.startedAt">Session record started {{formatTime(state.startedAt)}}.</p>
+   <p v-if="state.endedAt">Session record ended {{formatTime(state.endedAt)}}.</p>
+  </section>
+  <TutoringSessionNoteEditor v-if="state.host" :key="appointmentId" :appointment-id="appointmentId" :params="params()" :request="request" :ended="ended&&!!state.startedAt" :goals="allGoals" @shared="noteVersion++" />
+  <section v-else-if="state.familySummary" class="session-note"><h2>Session summary</h2><h3>Worked on</h3><p>{{state.familySummary.summary.workedOn}}</p><h3>How it went</h3><p>{{state.familySummary.summary.howItWent}}</p><h3>Practice at home</h3><p>{{state.familySummary.summary.homePractice}}</p></section>
+  <section v-if="confirmingEnd" role="dialog" aria-modal="true" aria-label="Finish external tutoring session record"><h2>Finish appointment #{{state.appointmentId}}?</h2><p>Finish the session record after tutoring has ended. Close the Google Meet or external call separately.</p><button :disabled="busy" @click="finish">Finish session record</button><button :disabled="busy" @click="confirmingEnd=false">Keep record open</button></section>
+  <AppointmentChangeWizard v-if="state.host" :change="appointmentChange" @completed="refresh" />
+ </main>
+ <template v-else-if="state?.sessionHubV2">
  <TutoringSessionHub :state="state" :video="video" :connected="connected" :closed="closed" :in-person="inPerson" :busy="busy" :wants-join="wantsJoin" :guest="!!guestSessionId" :brand="brand" :logo="logo" :back-path="backPath" :error="error||reconnectError" :window-message="windowMessage" :link-notice="linkNotice" :manual-join-link="manualJoinLink" :join-recipients="joinRecipients" :selected-recipient="selectedRecipient" @select-recipient="selectedRecipient=$event;manualJoinLink='';linkNotice=''" :goals="allGoals" :learning-context="learningContext" :request="request" :workspace-request="workspaceRequest" :rate-activity="state.host?rateActivity:undefined" :generate-question="state.host?generateQuestion:undefined" :read-material="readMaterial" :renew-video="renewVideo" @join="join" @start="startInPerson" @end="confirmingEnd=true" @leave="leave" @admit="admit" @refresh="refresh" @connected="onMediaConnected" @disconnected="reconnect" @copy-link="copyJoinLink" @revoke-link="revokeLink">
   <template #attendance><AppointmentNoShowStatus v-if="state.host" :appointment-id="Number(state.appointmentId)" :resolved-attendance="ended&&!!state.startedAt" :time-zone="state.timeZone" @undone="refresh" @changed="refresh" /></template>
   <template #learning><p v-if="contextError" role="alert">{{contextError}}</p><section v-for="entry in learningContext?.subjects||[]" :key="entry.subject.id"><h3>{{entry.subject.subject_label}}</h3><p>{{entry.activePlan?.title||'Learning plan awaiting review'}}</p><p v-for="goal in entry.goals||[]" :key="goal.id">{{goal.title}}</p></section><p v-if="!state.host">Your tutor chooses practice for your learning goals. Only reviewed work is shared here.</p></template>
@@ -110,6 +136,11 @@ const waitingForAdmittedConnection=computed(()=>admitted.value.some(visit=>{
  const seconds=Date.now()-Date.parse(/(Z|[+-]\d\d:\d\d)$/.test(value)?value:value+'Z');
  return seconds>=0&&seconds<45000&&!visit.mediaDurationSeconds;
 }));
+const externalAttended=ref(false);
+const offPlatform=computed(()=>['google_meet','external'].includes(state.value?.videoRoomMode));
+const externalMeetingUrl=computed(()=>{
+ try{const url=new URL(state.value?.meetingUrl);if(url.protocol!=='https:'||url.username||url.password)return '';if(state.value?.videoRoomMode==='google_meet'&&!/^https:\/\/meet\.google\.com\/[a-z]{3}-[a-z]{4}-[a-z]{3}$/.test(url.href))return '';return url.href;}catch{return '';}
+});
 const ended=computed(()=>state.value?.status==='ended'||state.value?.status==='completed'||['ending','ended'].includes(state.value?.roomState));
 const closed=computed(()=>ended.value||state.value?.closed===true||!!state.value?.unavailableReason);
 const statusLabel=computed(()=>state.value?.displayStatus||(ended.value?'Ended':state.value?.status==='live'||state.value?.status==='in_progress'?'In progress':'Scheduled'));
@@ -156,7 +187,7 @@ function previouslyJoined() {
  try { const key = joinMarker(); return key && sessionStorage.getItem(key) === '1'; }
  catch { return false; }
 }
-async function refresh(){if(stopped||(!appointmentId&&!props.guestSessionId)||(!props.guestSessionId&&!canPollWorkspace()))return;if(polling){refreshQueued=true;return;}const key=contextKey();polling=true;try{if(wantsJoin.value&&!state.value?.host)await request('/presence','post');state.value=await request('');error.value='';if(closed.value || (video.value && !state.value.host && state.value.visit?.status !== 'admitted')){clearPresence();rememberJoin(false);video.value=null;connected.value=false;wantsJoin.value=false;}else if(!wantsJoin.value && previouslyJoined() && state.value.available &&
+async function refresh(){if(stopped||(!appointmentId&&!props.guestSessionId)||(!props.guestSessionId&&!canPollWorkspace()))return;if(polling){refreshQueued=true;return;}const key=contextKey();polling=true;try{if(wantsJoin.value&&!state.value?.host)await request('/presence','post');state.value=await request('');error.value='';if(offPlatform.value || closed.value || (video.value && !state.value.host && state.value.visit?.status !== 'admitted')){clearPresence();rememberJoin(false);video.value=null;connected.value=false;wantsJoin.value=false;}else if(!wantsJoin.value && previouslyJoined() && state.value.available &&
  (state.value.host ? state.value.roomState==='active' : state.value.visit?.status==='admitted')){
  wantsJoin.value=true;
  try { await renewVideo(); } catch(e){wantsJoin.value=false;rememberJoin(false);throw e;}
@@ -165,7 +196,8 @@ async function refresh(){if(stopped||(!appointmentId&&!props.guestSessionId)||(!
  if(state.value.host&&!learningContext.value){try{learningContext.value=await request('/learning-context');contextError.value='';}catch{contextError.value='Learning context could not be loaded. Retry from this appointment.';}}
  }catch(e){if(e.stale||key!==contextKey())return;if([401,403,404,410].includes(e.response?.status)){clearPresence();state.value=null;learningContext.value=null;video.value=null;connected.value=false;wantsJoin.value=false;}error.value=e.response?.data?.error?.message||e.message;}finally{polling=false;if(refreshQueued){refreshQueued=false;void refresh();}}}
 async function action(fn){if(busy.value)return;const key=contextKey();busy.value=true;error.value='';try{await fn();}catch(e){if(!e.stale&&key===contextKey())error.value=e.response?.data?.error?.message||e.message;}finally{if(key===contextKey())busy.value=false;}}
-async function join(){await action(async()=>{const data=await request('/join','post');wantsJoin.value=true;rememberJoin(true);if(data.token)video.value=data;await refresh();});}
+async function join(){if(offPlatform.value)return;await action(async()=>{const data=await request('/join','post');wantsJoin.value=true;rememberJoin(true);if(data.token)video.value=data;await refresh();});}
+async function startExternal(){await action(async()=>{await request('/start-external','post',{attended:externalAttended.value});externalAttended.value=false;await refresh();});}
 async function startInPerson(){await action(async()=>{await request('/start-in-person','post');await refresh();});}
 async function admit(id){await action(async()=>{await request(`/admit/${id}`,'post');await refresh();});}
 let tokenRequest = null;
@@ -219,8 +251,8 @@ async function copyJoinLink(){
  try{let data=await request('/join-link'+(selectedRecipient.value?'?recipientUserId='+Number(selectedRecipient.value):''));if(data.recipients){joinRecipients.value=data.recipients;if(data.recipients.length===1){selectedRecipient.value=String(data.recipients[0].id);data=await request('/join-link?recipientUserId='+Number(selectedRecipient.value));}else{linkNotice.value=data.recipients.length?'Choose the invited family member, then copy their session link.':'No family member currently has permission to join this appointment.';return;}}const {url}=data;manualJoinLink.value='';try{await navigator.clipboard.writeText(url);linkNotice.value='Appointment link copied.';}catch{manualJoinLink.value=url;linkNotice.value='Select and copy the appointment link.';}}
  catch(e){if(!e.stale)linkNotice.value='The appointment link could not be loaded. Try again.';}
 }
-onMounted(async()=>{try{if(!appointmentId&&route.params.sessionId){const {data}=await api.get(`/learning-class-sessions/sessions/${Number(route.params.sessionId)}`);appointmentId=Number(data.appointmentId);}if(!appointmentId&&!props.guestSessionId)throw new Error('Open this session from its booked appointment. Ask Support to review any older unlinked visit.');await refresh();if(state.value?.host&&(inPerson.value||state.value.sessionHubV2)&&!closed.value&&!state.value.sessionId){await request('/prepare','post');await refresh();}if(props.guestSessionId&&state.value?.available&&!closed.value)await join();timer=setInterval(refresh,5000);}catch(e){error.value=e.response?.data?.error?.message||e.message;}finally{loading.value=false;}});
-watch(()=>[route.params.appointmentId,route.query.clientId,route.query.serviceId,route.query.agencyId],()=>{clearPresence();reconnectError.value='';mediaPaused=false;appointmentId=Number(route.params.appointmentId);manualJoinLink.value='';linkNotice.value='';materials.value=[];focused.value=false;state.value=null;learningContext.value=null;contextError.value='';video.value=null;connected.value=false;wantsJoin.value=false;busy.value=false;error.value='';void refresh();});
+onMounted(async()=>{try{if(!appointmentId&&route.params.sessionId){const {data}=await api.get(`/learning-class-sessions/sessions/${Number(route.params.sessionId)}`);appointmentId=Number(data.appointmentId);}if(!appointmentId&&!props.guestSessionId)throw new Error('Open this session from its booked appointment. Ask Support to review any older unlinked visit.');await refresh();if(state.value?.host&&(inPerson.value||state.value.sessionHubV2||offPlatform.value)&&!closed.value&&!state.value.sessionId){await request('/prepare','post');await refresh();}if(props.guestSessionId&&state.value?.available&&!closed.value&&!offPlatform.value)await join();timer=setInterval(refresh,5000);}catch(e){error.value=e.response?.data?.error?.message||e.message;}finally{loading.value=false;}});
+watch(()=>[route.params.appointmentId,route.query.clientId,route.query.serviceId,route.query.agencyId],()=>{clearPresence();reconnectError.value='';mediaPaused=false;externalAttended.value=false;appointmentId=Number(route.params.appointmentId);manualJoinLink.value='';linkNotice.value='';materials.value=[];focused.value=false;state.value=null;learningContext.value=null;contextError.value='';video.value=null;connected.value=false;wantsJoin.value=false;busy.value=false;error.value='';void refresh();});
 useSessionPolling(refresh);
 onBeforeUnmount(()=>{clearPresence();stopped=true;clearInterval(timer);});
 </script>
@@ -234,3 +266,5 @@ onBeforeUnmount(()=>{clearPresence();stopped=true;clearInterval(timer);});
 </style>
 
 <style scoped>.hub-end-confirm{position:fixed;z-index:10001;top:25%;left:50%;transform:translateX(-50%);max-width:500px;width:85%;padding:24px;border-radius:14px;background:white;box-shadow:0 0 0 100vmax #0008;color:#193453}.hub-end-confirm button{padding:10px;margin:6px;border:1px solid #bfd2de;border-radius:7px;background:white;color:#193453}</style>
+
+<style scoped>.external-session{max-width:1100px;margin:auto}.external-join{display:inline-block;background:#147d73;color:white;border-radius:8px;padding:12px 22px;margin:12px 0;text-decoration:none;font-weight:650}.external-session .external-attendance{display:flex;align-items:flex-start;gap:8px}.external-attendance input{flex:none;margin:3px 0 0}</style>

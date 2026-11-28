@@ -86,6 +86,13 @@ export async function savedStaffAppointmentMeet(appointment, db = pool) {
   return meetingCode(row?.private_meet_url) ? row.private_meet_url : null;
 }
 
+// Schedule managers can check readiness without receiving the tutor's host link.
+export async function staffAppointmentMeetDetails(appointment, viewerUserId, db = pool) {
+  const url = await savedStaffAppointmentMeet(appointment, db);
+  return { googleMeetReady: !!url,
+    ...(Number(viewerUserId) === Number(appointment.providerUserId) ? { googleMeetUrl: url } : {}) };
+}
+
 export async function readStaffAppointmentMeetConference(appointment, meetLink) {
   const code = meetingCode(meetLink);
   if (!code) return { status: 'not_verified', phones: [] };

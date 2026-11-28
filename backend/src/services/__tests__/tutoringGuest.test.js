@@ -1,5 +1,6 @@
 import {beforeEach,it,expect,vi} from 'vitest';
 import crypto from 'node:crypto';
+vi.mock('../staffAppointmentMeet.service.js',()=>({savedStaffAppointmentMeet:vi.fn(async()=>null)}));
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()}}));
 vi.mock('../../models/Appointment.model.js',()=>({default:{findById:vi.fn(),listParticipants:vi.fn()}}));
 vi.mock('../../models/Agency.model.js',()=>({default:{findById:vi.fn()}}));
@@ -17,9 +18,10 @@ import Agency from '../../models/Agency.model.js';
 import User from '../../models/User.model.js';
 import {authorizedAppointmentClient} from '../guardianAppointments.service.js';
 import {clinicalAudit} from '../clinicalSessionAudit.service.js';
+import {savedStaffAppointmentMeet} from '../staffAppointmentMeet.service.js';
 import {issueTutoringGuestLink,exchangeTutoringGuest,tutoringGuestAccess,tutoringGuestBookingHash,revalidateTutoringGuestVisit,tutoringGuestReminderBody,sweepTutoringGuestAccess} from '../tutoringGuest.service.js';
 const token='a'.repeat(43),id='11111111-2222-4333-8444-555555555555';
-const appointment={id:481,agencyId:453,providerUserId:1496,status:'scheduled',startAt:'2099-11-21 18:00:00',endAt:'2099-11-21 19:00:00',modality:'VIRTUAL',learningContext:{serviceEnrollmentId:1038}};
+const appointment={id:481,agencyId:453,businessType:'tutoring',providerUserId:1496,status:'scheduled',startAt:'2099-11-21 18:00:00',endAt:'2099-11-21 19:00:00',modality:'VIRTUAL',learningContext:{serviceEnrollmentId:1038}};
 let grant;
 beforeEach(()=>{vi.clearAllMocks();grant={id:'grant-1',grant_id:'grant-1',appointment_id:481,agency_id:453,client_id:2547,recipient_user_id:1759,booking_hash:tutoringGuestBookingHash(appointment)};Appointment.findById.mockResolvedValue(appointment);Appointment.listParticipants.mockResolvedValue([{clientId:2547}]);Agency.findById.mockResolvedValue({id:453,feature_flags:{tutoringSessionHubV2:true}});User.findById.mockResolvedValue({id:1759,is_active:1,is_archived:0,first_name:'Morgan',last_name:'QA'});authorizedAppointmentClient.mockResolvedValue({full_name:'Parker QA',permissions_json:{canViewAppointments:true},service:{id:1038}});pool.execute.mockImplementation(async(sql)=>sql.startsWith('SELECT')?[[grant]]:[{affectedRows:1}]);});
 it('does not introduce invitation capabilities in organizations without the rollout flag',async()=>{Agency.findById.mockResolvedValue({id:6,feature_flags:{}});expect(await issueTutoringGuestLink(appointment,2547,1759)).toBeNull();expect(pool.execute).not.toHaveBeenCalled();});
@@ -57,4 +59,20 @@ it('records background invitation expiry with exact agency, client, appointment 
  await sweepTutoringGuestAccess();
  expect(clinicalAudit).toHaveBeenCalledWith({kind:'tutoring',sessionId:600,agencyId:453,actor:'system:tutoring-guest-access',role:'system'},'tutoring_guest_access_ended',{appointmentId:481,clientId:2547,guestSessionId:id});
  expect(pool.execute.mock.calls.some(([sql])=>sql.includes('g.agency_id,g.client_id,v.session_id'))).toBe(true);
+});
+
+it('sends the saved Google Meet link to an eligible family without minting a native guest grant, even with Hub rollout disabled',async()=>{
+ const google={...appointment,videoRoomMode:'google_meet'};
+ Agency.findById.mockResolvedValue({id:453,slug:'nlu-qa-demo',feature_flags:{qaSandbox:{syntheticOnly:true,program:'tutoring'}}});
+ savedStaffAppointmentMeet.mockResolvedValue('https://meet.google.com/abc-defg-hij');
+ expect(await issueTutoringGuestLink(google,2547,1759)).toBe('https://meet.google.com/abc-defg-hij');
+ expect(authorizedAppointmentClient).toHaveBeenCalledWith(1759,2547,{agencyId:453,serviceId:1038});
+ expect(pool.execute).not.toHaveBeenCalled();
+});
+it('does not send a Meet link to a restricted family or reopen a previous native guest invitation',async()=>{
+ const google={...appointment,videoRoomMode:'google_meet'};
+ authorizedAppointmentClient.mockResolvedValue({permissions_json:{billingOnly:true}});
+ await expect(issueTutoringGuestLink(google,2547,1759)).rejects.toHaveProperty('status',403);
+ Appointment.findById.mockResolvedValue(google);
+ await expect(exchangeTutoringGuest({},token)).rejects.toHaveProperty('status',410);
 });

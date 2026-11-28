@@ -1,3 +1,4 @@
+vi.mock('../../models/Agency.model.js',()=>({default:{findById:vi.fn(async id=>({id,slug:Number(id)===6?'nlu':'other'}))}}));
 import {it,expect,vi} from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()},onTableWrite:vi.fn()}));
 import {appointmentJoinEmail,appointmentGoogleConference} from '../appointmentJoinEmail.service.js';
@@ -19,15 +20,17 @@ it('omits room links and telephone credentials for contacts, disabled relationsh
   expect(await appointmentJoinEmail({appointment:{...appointment,includeGoogleDialIn:true},clientId:22,to:'other@example.test',context},d)).toBeNull();expect(d.conference).not.toHaveBeenCalled();
  }
 });
-it('includes phone instructions only after opt-in and verified Google availability',async()=>{
- const d=fixture();d.db.execute.mockImplementation(async sql=>sql.includes('google_meet_link')?[[{google_meet_link:'https://meet.google.com/abc-defg-hij'}]]:[[{id:9}]]);
+it('includes verified phone instructions for the selected Google Meet only, never a stale calendar room for native tutoring',async()=>{
+ const d=fixture();d.db.execute.mockImplementation(async sql=>sql.includes('private_meet_url')?[[{private_meet_url:'https://meet.google.com/abc-defg-hij'}]]:sql.includes('google_meet_link')?[[{google_meet_link:'https://meet.google.com/klm-nopq-rst'}]]:[[{id:9}]]);
  d.conference.mockResolvedValue({status:'available',phones:[{number:'+15555550100',pin:'123456789',telephoneUrl:'tel:+15555550100'}]});
- const google={...appointment,videoRoomMode:'unique_session',externalMeetingUrl:null,providerScheduleEventId:55};
- const input={appointment:google,clientId:22,to:'guardian@example.test',context};
- expect((await appointmentJoinEmail(input,d)).text).not.toContain('PIN');expect(d.conference).not.toHaveBeenCalled();
- const result=await appointmentJoinEmail({...input,appointment:{...google,includeGoogleDialIn:true}},d);
+ const native={...appointment,videoRoomMode:'unique_session',externalMeetingUrl:null,providerScheduleEventId:55,includeGoogleDialIn:true};
+ const input={appointment:native,clientId:22,to:'guardian@example.test',context};
+ const nativeResult=await appointmentJoinEmail(input,d);
+ expect(nativeResult.url).toContain('/tutoring/appointment/1');expect(nativeResult.text).not.toContain('PIN');expect(d.conference).not.toHaveBeenCalled();
+ const google={...native,videoRoomMode:'google_meet'};
+ const result=await appointmentJoinEmail({...input,appointment:google},d);
  expect(result.url).toBe('https://meet.google.com/abc-defg-hij');expect(result.text).toContain('Google Meet PIN: 123456789');
- d.conference.mockResolvedValue({status:'not_verified',phones:[]});expect((await appointmentJoinEmail({...input,appointment:{...google,includeGoogleDialIn:true}},d)).text).not.toContain('PIN');
+ d.conference.mockResolvedValue({status:'not_verified',phones:[]});expect((await appointmentJoinEmail({...input,appointment:google},d)).text).not.toContain('PIN');
 });
 it('never includes joining details for canceled or in-person appointments',async()=>{
  for(const changed of [{status:'canceled_by_provider'},{modality:'IN_PERSON'}]){const d=fixture();expect(await appointmentJoinEmail({appointment:{...appointment,...changed},clientId:22,to:'guardian@example.test',context},d)).toBeNull();expect(d.db.execute).not.toHaveBeenCalled();}
@@ -75,4 +78,25 @@ it('delivers a private Meet URL only to an authorized recipient and never falls 
  expect(d.db.execute.mock.calls.some(([sql])=>sql.includes('private_meet_url'))).toBe(false);
  expect(await guardianAppointmentJoin(google,client,d.db)).toBeNull();
  expect(d.db.execute.mock.calls.some(([sql])=>sql.includes('counseling_sessions'))).toBe(false);
+});
+
+it('uses the same private Meet destination in tutoring emails and the family portal without a native invitation fallback',async()=>{
+ const d=fixture(),meet='https://meet.google.com/abc-defg-hij';
+ const google={...appointment,videoRoomMode:'google_meet',externalMeetingUrl:null};
+ d.db.execute.mockImplementation(async sql=>sql.includes('private_meet_url')?[[{private_meet_url:meet}]]:[[{id:9}]]);
+ const message=await appointmentJoinEmail({appointment:google,clientId:22,to:'guardian@example.test',context},d);
+ expect(message).toMatchObject({url:meet,label:'Join tutoring session'});
+ expect(await guardianAppointmentJoin({...google,googleMeetLink:meet},client,d.db,{includeFutureDestination:true})).toBe(meet);
+ expect(d.guestLink).not.toHaveBeenCalled();
+ expect(message.html).not.toContain('tutoring/invite');
+});
+
+it('preserves another agency’s system-created Google calendar join and phone instructions',async()=>{
+ const d=fixture(),google='https://meet.google.com/klm-nopq-rst';
+ d.db.execute.mockImplementation(async sql=>sql.includes('google_meet_link')?[[{google_meet_link:google}]]:[[{id:9}]]);
+ d.conference.mockResolvedValue({status:'available',phones:[{number:'+15555550100',pin:'123456789',telephoneUrl:'tel:+15555550100'}]});
+ const a={...appointment,agencyId:2,videoRoomMode:'unique_session',externalMeetingUrl:null,providerScheduleEventId:55,includeGoogleDialIn:true};
+ const result=await appointmentJoinEmail({appointment:a,clientId:22,to:'guardian@example.test',context},d);
+ expect(result.url).toBe(google);expect(result.text).toContain('Google Meet PIN: 123456789');
+ expect(d.guestLink).not.toHaveBeenCalled();
 });

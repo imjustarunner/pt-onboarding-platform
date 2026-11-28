@@ -1,3 +1,4 @@
+import { nluTutoringVideoChoice } from './nluTutoringVideoChoice.service.js';
 import {parseUtcDate} from '../utils/officeEventDateTime.util.js';
 // Only expose a real room attached to this appointment. Never construct a
 // learning-room route from a canonical appointment ID.
@@ -25,7 +26,9 @@ export async function guardianAppointmentJoin(row,client,db,{includeFutureDestin
   if(client.portal_access?.limited)return null;
   if((client.services||[]).some(s=>Number(s.provider_user_id)===Number(row.providerUserId)&&(Number(s.is_active)!==1||s.portal_limited)&&serviceMatchesAppointment(s,{...row,agencyId:row.agencyId||client.agency_id})))return null;
   if(row.videoRoomMode==='external')return guardianVirtualJoin(row);
-  const google=guardianVirtualJoin(row);
+  // A stale calendar conference must not override an explicit Session Hub choice.
+  const nativeNlu=learning&&row.videoRoomMode!=='google_meet'&&await nluTutoringVideoChoice({...row,agencyId:row.agencyId||client.agency_id,businessType:learning?'tutoring':row.businessType});
+  const google=nativeNlu?null:guardianVirtualJoin(row);
   if (google || row.videoRoomMode === 'google_meet') return google;
   if(!learning){
     if(!db?.execute||!['VIRTUAL','ONLINE','VIDEO','TELEHEALTH'].includes(String(row.modality).toUpperCase())||!['scheduled','confirmed','client_confirmed','in_progress'].includes(row.status))return null;

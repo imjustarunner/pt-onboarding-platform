@@ -1,3 +1,4 @@
+import { nluTutoringVideoChoice } from './nluTutoringVideoChoice.service.js';
 import crypto from 'node:crypto';
 import pool from '../config/database.js';
 import Appointment from '../models/Appointment.model.js';
@@ -7,6 +8,7 @@ import {authorizedAppointmentClient} from './guardianAppointments.service.js';
 import {guardianContextAllowsAppointment} from './clientServiceEnrollment.service.js';
 import {bookedTutoringWindow} from './bookedTutoringRoom.service.js';
 import {maybeEncryptNotePayload,maybeDecryptNotePayload} from './clinicalNoteCrypto.service.js';
+import {savedStaffAppointmentMeet} from './staffAppointmentMeet.service.js';
 import {tutoringSessionHubEnabled} from '../utils/tutoringSessionHubPolicy.js';
 import {buildPublicAppUrl} from '../utils/publicPortalUrl.js';
 import {clinicalAudit} from './clinicalSessionAudit.service.js';
@@ -19,10 +21,13 @@ export const tutoringGuestBookingHash=a=>hash(JSON.stringify([a.id,a.agencyId,a.
 const stopped=new Set(['completed','ended','no_show','no_show_pending','late_canceled','rescheduled','voided','draft','canceled','cancelled','canceled_by_client','canceled_by_guardian','canceled_by_provider','canceled_by_organization']);
 export async function issueTutoringGuestLink(appointment,clientId,recipientUserId,db=pool) {
  const agency=await Agency.findById(appointment.agencyId);
- if(!tutoringSessionHubEnabled(agency))return null;
+ const nluMeet=appointment.videoRoomMode==='google_meet'&&await nluTutoringVideoChoice(appointment);
+ if(!nluMeet&&!tutoringSessionHubEnabled(agency))return null;
  if(stopped.has(appointment.status)||['none','external'].includes(appointment.videoRoomMode)||!['VIRTUAL','TELEHEALTH','VIDEO','ONLINE'].includes(appointment.modality))return null;
  const access=await authorizedAppointmentClient(recipientUserId,clientId,{agencyId:appointment.agencyId,serviceId:appointment.learningContext?.serviceEnrollmentId});
  if(!tutoringInvitationAllowed(access,appointment,guardianContextAllowsAppointment))throw fail(403,'This tutoring invitation is unavailable.');
+ // Google Meet uses its saved appointment-specific link, never a native guest grant.
+ if(nluMeet)return savedStaffAppointmentMeet(appointment,db);
  const bookingHash=tutoringGuestBookingHash(appointment);
  let [[grant]]=await db.execute('SELECT id,token_envelope FROM tutoring_guest_grants WHERE appointment_id=? AND recipient_user_id=? AND booking_hash=? AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1',[appointment.id,recipientUserId,bookingHash]);
  let token;
@@ -43,7 +48,7 @@ export async function tutoringGuestReminderBody({appointment,clientId,recipientU
 async function grantContext(req,grant) {
  const appointment=await Appointment.findById(grant.appointment_id);
  const agency=appointment&&await Agency.findById(appointment.agencyId);
- if(!appointment||!tutoringSessionHubEnabled(agency)||grant.revoked_at||Number(grant.agency_id)!==Number(appointment.agencyId)||grant.booking_hash!==tutoringGuestBookingHash(appointment)||stopped.has(appointment.status))throw fail(410,'This session link has ended or changed. Ask your tutor for the current appointment link.');
+ if(!appointment||(['google_meet','external','none'].includes(appointment.videoRoomMode)&&await nluTutoringVideoChoice(appointment))||!tutoringSessionHubEnabled(agency)||grant.revoked_at||Number(grant.agency_id)!==Number(appointment.agencyId)||grant.booking_hash!==tutoringGuestBookingHash(appointment)||stopped.has(appointment.status))throw fail(410,'This session link has ended or changed. Ask your tutor for the current appointment link.');
  const window=bookedTutoringWindow(appointment);
  if(Date.now()>Date.parse(window.closesAt))throw fail(410,'This session link has expired.');
  const person=await User.findById(grant.recipient_user_id);

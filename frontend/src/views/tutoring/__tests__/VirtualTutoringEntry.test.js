@@ -42,3 +42,34 @@ it('takes tenant branding from the booked appointment rather than a previous org
 it('clears the prior appointment and private note when renewed authorization is denied',async()=>{const w=await render();expect(w.text()).toContain('Appointment #359');m.request.mockRejectedValue({response:{status:403,data:{error:{message:'This appointment belongs to a different tutoring team.'}}}});await w.vm.refresh();await flushPromises();expect(w.text()).not.toContain('Appointment #359');expect(w.find('textarea').exists()).toBe(false);expect(w.text()).toContain('different tutoring team');});
 
 it('opens a guest room without requesting staff cancellation recovery or a normal login',async()=>{m.route.params={organizationSlug:'nlu-qa-demo'};m.state={...m.state,host:false,visit:{id:9,status:'waiting'},sessionHubV2:true};wrapper=mount(Entry,{props:{guestSessionId:'11111111-2222-4333-8444-555555555555'},global:{stubs:{TutoringSessionHub:{template:'<div>Family waiting room</div>'},RouterLink:{template:'<a><slot/></a>'},TherapySessionWorkspace:Workspace}}});await flushPromises();expect(m.get).not.toHaveBeenCalled();expect(m.request.mock.calls.some(([c])=>c.url.includes('/tutoring-guest/')&&c.url.endsWith('/join'))).toBe(true);expect(wrapper.text()).toContain('waiting room');});
+
+it('opens Meet alongside the exact Session Hub record and records no native attendance merely from its link',async()=>{
+ m.state={...m.state,videoRoomMode:'google_meet',meetingUrl:'https://meet.google.com/abc-defg-hij'};
+ const w=await render();
+ expect(w.get('header h1').text()).toBe('Session Hub');expect(w.get('a.external-join').attributes('href')).toBe(m.state.meetingUrl);
+ expect(w.findComponent(Workspace).exists()).toBe(false);expect(w.text()).not.toContain('Waiting room');
+ expect(m.request.mock.calls.some(([c])=>c.url.endsWith('/join')||c.url.endsWith('/token')||c.url.endsWith('/start-external'))).toBe(false);
+ const start=w.findAll('button').find(b=>b.text()==='Record session start');expect(start.attributes('disabled')).toBeDefined();
+ await w.get('input[type=checkbox]').setValue(true);await start.trigger('click');await flushPromises();
+ expect(m.request).toHaveBeenCalledWith(expect.objectContaining({url:'/tutoring-sessions/359/start-external',method:'post',data:{attended:true}}));
+});
+it('keeps family Meet entry free of tutor attendance and private-note controls',async()=>{
+ m.state={...m.state,host:false,videoRoomMode:'google_meet',meetingUrl:'https://meet.google.com/abc-defg-hij'};
+ const w=await render();expect(w.find('a.external-join').exists()).toBe(true);expect(w.find('textarea').exists()).toBe(false);expect(w.text()).not.toContain('Record session start');
+ expect(m.request.mock.calls.some(([c])=>c.method==='post')).toBe(false);
+});
+it.each([{available:false},{status:'completed',endedAt:'2026-11-17T19:00:00Z'},{meetingUrl:'https://unsafe.example.test/meet'}])('does not open an unavailable or invalid Meet destination',async changed=>{
+ m.state={...m.state,videoRoomMode:'google_meet',meetingUrl:'https://meet.google.com/abc-defg-hij',...changed};
+ const w=await render();expect(w.find('a.external-join').exists()).toBe(false);expect(w.findComponent(Workspace).exists()).toBe(false);
+});
+it('finishes the external session record with explicit confirmation rather than claiming to end the Meet call',async()=>{
+ m.state={...m.state,videoRoomMode:'google_meet',meetingUrl:'https://meet.google.com/abc-defg-hij',startedAt:'2026-11-17T18:05:00Z'};
+ const w=await render();await w.findAll('button').find(b=>b.text()==='Finish session record').trigger('click');
+ expect(w.get('[role=dialog]').text()).toContain('Close the Google Meet or external call separately');
+ expect(m.request.mock.calls.some(([c])=>c.url.endsWith('/end'))).toBe(false);
+});
+it('keeps attendance disabled when the chosen Meet room is not ready, even after the attendance checkbox is selected',async()=>{
+ m.state={...m.state,videoRoomMode:'google_meet',meetingUrl:null};const w=await render();await w.get('input[type=checkbox]').setValue(true);
+ expect(w.findAll('button').find(b=>b.text()==='Record session start').attributes('disabled')).toBeDefined();
+ expect(w.text()).toContain('The meeting link is not ready');
+});
