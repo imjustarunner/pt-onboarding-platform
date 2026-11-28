@@ -35,25 +35,7 @@
           <span class="oesn-switch-thumb" />
         </span>
       </label>
-      <button
-        type="button"
-        class="oesn-open-aid"
-        :disabled="!agencyId || !clientId"
-        @click="openInNoteAid"
-      >
-        Open in Note Workspace
-      </button>
-      <button
-        type="button"
-        class="oesn-generate"
-        :disabled="generating || !String(inputText || '').trim() || !agencyId || !clientId"
-        @click="generateNote"
-      >
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
-          <path d="M12 2l1.2 6.3L19 12l-5.8 3.7L12 22l-1.2-6.3L5 12l5.8-3.7L12 2z"/>
-        </svg>
-        {{ generating ? 'Generating…' : 'Generate Note' }}
-      </button>
+      <ClinicalActionButton action="workspace" class="oesn-open-aid" :disabled="!agencyId || !clientId || loadingDraft || !!activeDraftState?.loadFailed || openingWorkspace" :busy="openingWorkspace" @click="openInNoteAid" />
     </div>
     <p v-if="errorMsg" class="oesn-error" role="alert">{{ errorMsg }}</p>
     <p class="oesn-hint">Write the Session Narrative above or record this actual session after participant waivers and consent are confirmed. Use the reviewed narrative explicitly; existing edits are preserved. Do not enter identifying information into narrative text.</p>
@@ -69,7 +51,8 @@
       :date-of-service="dateOfService"
       :kiosk-share-enabled="!!Number(latestPlan?.kiosk_share_enabled || 0)"
       :client-name="clientName"
-      :disabled="generating"
+      :disabled="loadingDraft || !!activeDraftState?.loadFailed || openingWorkspace"
+      :session-ratings="sessionRatings"
       @update:ratings="sessionRatings = $event"
     />
   </div>
@@ -77,6 +60,7 @@
 </template>
 
 <script setup>
+import ClinicalActionButton from '../clinical/ClinicalActionButton.vue';
 import ClinicalWorkspaceFrame from '../clinicalWorkspace/ClinicalWorkspaceFrame.vue';
 import SessionSupportingMaterials from '../clinical/SessionSupportingMaterials.vue';
 import ClinicalWorkArchiveControl from '../clinical/ClinicalWorkArchiveControl.vue';
@@ -86,11 +70,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import NoteAidObjectiveRatings from '../clinical/NoteAidObjectiveRatings.vue';
-import {
-  activePlanGoals,
-  buildObjectiveRatingsContextText,
-  buildTreatmentPlanContextText
-} from '../../utils/noteAidTreatmentHelpers.js';
+import { activePlanGoals } from '../../utils/noteAidTreatmentHelpers.js';
 import { buildNoteAidQuery, navigateToNoteAid, noteAidPath } from '../../utils/noteAidLaunch.js';
 
 const props = defineProps({
@@ -115,7 +95,7 @@ const recorderOpen=ref(false);
 const pendingNarrative=ref(null);
 
 const includeInteractiveComplexity = ref(false);
-const generating = ref(false);
+const openingWorkspace = ref(false);
 const draftId = ref(null);
 const statusMsg = ref('');
 const attendanceNotice = ref('');
@@ -179,7 +159,7 @@ async function loadExistingDraft(state) {
   if (!agencyId || !clientId) return;
   try {
     const res = await api.get('/clinical-notes/recent', {
-      params: { agencyId, clientIds: clientId, days: 120 }, skipGlobalLoading: true
+      params: { agencyId, encounterClientId: clientId, clinicalSessionId, officeEventId }, skipGlobalLoading: true
     });
     if (state !== activeDraftState) return;
     const drafts = (Array.isArray(res.data?.drafts) ? res.data.drafts : [])
@@ -192,6 +172,12 @@ async function loadExistingDraft(state) {
     state.id = hit.id;
     draftId.value = hit.id;
     try { state.outputJson = typeof hit.output_json === 'string' ? JSON.parse(hit.output_json) : hit.output_json; } catch { state.outputJson = null; }
+    state.ratings = Array.isArray(state.outputJson?.meta?.objectiveRatings) ? state.outputJson.meta.objectiveRatings : [];
+    sessionRatings.value = state.ratings;
+    includeInteractiveComplexity.value = state.outputJson?.meta?.includeInteractiveComplexity === true;
+    state.complexity = includeInteractiveComplexity.value;
+    state.recordingId = state.outputJson?.meta?.sessionRecordingId || null;
+    state.savedContent = draftContentKey(state);
     state.lastSavedInput = String(hit.input_text || '');
     state.text = state.lastSavedInput;
     inputText.value = state.text;
@@ -204,7 +190,7 @@ async function loadExistingDraft(state) {
   }
 }
 
-async function loadRatings() {
+async function loadRatings(state) {
   const agencyId = Number(props.agencyId || 0);
   const clientId = Number(props.clientId || 0);
   if (!agencyId || !clientId) return;
@@ -213,26 +199,42 @@ async function loadRatings() {
       params: { agencyId },
       skipGlobalLoading: true
     });
+    if (state !== activeDraftState) return;
     previousRatings.value = Array.isArray(res.data?.ratings) ? res.data.ratings : [];
   } catch {
-    previousRatings.value = [];
+    if (state === activeDraftState) previousRatings.value = [];
   }
 }
 
-async function persistDraft({ allowEmpty = false, state = activeDraftState } = {}) {
+function draftContentKey(state) {
+  return JSON.stringify([state.ratings, state.complexity, state.recordingId]);
+}
+
+function hasUnsavedDraft(state) {
+  return state.text !== state.lastSavedInput || draftContentKey(state) !== state.savedContent;
+}
+
+async function persistDraft({ state = activeDraftState } = {}) {
   if (!state || state.loadFailed || !state.context.agencyId || !state.context.clientId) {
     throw new Error('This session’s draft is not ready. Reopen the appointment and retry.');
   }
-  const text = state.text;
-  if (!text.trim() && !state.id && !allowEmpty) return;
+  const { text, ratings, complexity, recordingId } = state;
+  const contentKey = draftContentKey(state);
   const request = async () => {
-    if (state.id && text === state.lastSavedInput) return;
-    const payload = { ...state.context, inputText: text };
-    // Never replace a generated note's sections when updating its source text.
-    if (!state.id) payload.outputJson = { meta: { quickNote: true,...(state.recordingId?{sessionRecordingId:state.recordingId}:{}) } };
-    else if (state.outputJson && typeof state.outputJson === 'object') {
-      payload.outputJson = { ...state.outputJson, meta: { ...state.outputJson.meta, quickNote: true,...(state.recordingId?{sessionRecordingId:state.recordingId}:{}) } };
-    }
+    if (text === state.lastSavedInput && contentKey === state.savedContent) return;
+    const payload = { ...state.context };
+    if (text !== state.lastSavedInput || !state.id) payload.inputText = text;
+    const output = state.outputJson || {};
+    payload.outputJson = {
+      ...output,
+      meta: {
+        ...output.meta,
+        ...(!state.id ? { quickNote: true } : {}),
+        objectiveRatings: ratings,
+        includeInteractiveComplexity: complexity,
+        ...(recordingId ? { sessionRecordingId: recordingId } : {})
+      }
+    };
     if (text.trim() && text !== state.lastSavedInput) payload.attendanceIntent = 'authored_session_draft';
     let attendance;
     if (!state.id) {
@@ -241,14 +243,24 @@ async function persistDraft({ allowEmpty = false, state = activeDraftState } = {
       state.id = res?.data?.draft?.id || null;
       if (!state.id) throw new Error('The session draft was not saved. Please retry.');
     } else {
-      const res = await api.patch(`/clinical-notes/drafts/${state.id}`, payload, { skipGlobalLoading: true });
+      const { outputJson, ...encounterUpdate } = payload;
+      const res = await api.patch(`/clinical-notes/drafts/${state.id}`, {
+        ...encounterUpdate,
+        appointmentNoteDetails: {
+          objectiveRatings: outputJson.meta.objectiveRatings,
+          includeInteractiveComplexity: outputJson.meta.includeInteractiveComplexity,
+          ...(recordingId ? { sessionRecordingId: recordingId } : {})
+        }
+      }, { skipGlobalLoading: true });
       attendance = res?.data?.attendance;
     }
     state.lastSavedInput = text;
+    state.savedContent = contentKey;
+    state.outputJson = payload.outputJson;
     if (state === activeDraftState) {
       draftId.value = state.id;
       hasSavedPhi.value = !!text.trim();
-      if (text.trim()) revealed.value = true;
+      if (payload.attendanceIntent) revealed.value = true;
       statusMsg.value = 'Draft saved.';
       if (payload.attendanceIntent) { attendanceNotice.value = noteDraftAttendanceNotice(attendance); window.dispatchEvent(new Event('session-attendance-changed')); }
       errorMsg.value = '';
@@ -269,7 +281,7 @@ async function persistDraft({ allowEmpty = false, state = activeDraftState } = {
 
 function flushPendingDraft(state = activeDraftState) {
   clearTimeout(saveTimer);
-  if (state && !state.loadFailed && state.text !== state.lastSavedInput) {
+  if (state && !state.loadFailed && hasUnsavedDraft(state)) {
     return persistDraft({ state }).catch(() => {});
   }
 }
@@ -277,9 +289,13 @@ function flushPendingDraft(state = activeDraftState) {
 async function savePendingDraft() {
   clearTimeout(saveTimer);
   const state = activeDraftState;
-  if (!state || loadingDraft.value) return;
+  if (!state) return;
+  await state.loading;
+  if (state !== activeDraftState) return;
+  if (state.loadFailed) throw new Error('Could not load the saved appointment draft. Reopen this appointment to retry.');
   await state.saving.catch(() => {});
-  if (state.text !== state.lastSavedInput) await persistDraft({ state });
+  if (hasUnsavedDraft(state)) await persistDraft({ state });
+  return state.id;
 }
 const savingDraft = ref(false);
 async function saveNarrative() {
@@ -290,36 +306,12 @@ async function saveNarrative() {
 }
 defineExpose({ savePendingDraft });
 
-async function persistRatings() {
-  const agencyId = Number(props.agencyId || 0);
-  const clientId = Number(props.clientId || 0);
-  const ratings = sessionRatings.value || [];
-  if (!agencyId || !clientId || !ratings.length) return;
-  for (const r of ratings) {
-    try {
-      await api.post(`/medical-billing/objectives/${r.objectiveId}/ratings`, {
-        agencyId,
-        clientId,
-        disposition: r.disposition || 'rated',
-        scaleValue: r.scaleValue,
-        scaleTarget: r.scaleTarget,
-        previousScaleValue: r.previousScaleValue,
-        raterKind: r.raterKind || 'clinician',
-        raterLabel: r.raterLabel || null,
-        draftId: draftId.value || null,
-        dateOfService: String(props.dateOfService || '').slice(0, 10) || null
-      }, { skipGlobalLoading: true });
-    } catch {
-      // non-blocking
-    }
-  }
-}
-
 async function openInNoteAid() {
+  if (openingWorkspace.value) return;
+  openingWorkspace.value = true;
   errorMsg.value = '';
   try {
-    clearTimeout(saveTimer);
-    if (String(inputText.value || '').trim()) await persistDraft();
+    await savePendingDraft();
     const ctx = {
       agencyId: Number(props.agencyId || 0),
       practiceCategory: props.practiceCategory,
@@ -342,47 +334,8 @@ async function openInNoteAid() {
     }
   } catch (e) {
     errorMsg.value = e?.response?.data?.error?.message || e?.message || 'Could not open Note Workspace';
-  }
-}
-
-async function generateNote() {
-  const agencyId = Number(props.agencyId || 0);
-  const clientId = Number(props.clientId || 0);
-  const text = String(inputText.value || '').trim();
-  if (!agencyId || !text) return;
-  generating.value = true;
-  errorMsg.value = '';
-  statusMsg.value = '';
-  try {
-    await persistDraft();
-    const fd = new FormData();
-    fd.append('agencyId', String(agencyId));
-    if (clientId) fd.append('clientId', String(clientId));
-    if (props.serviceCode) fd.append('serviceCode', String(props.serviceCode));
-    if (props.dateOfService) fd.append('dateOfService', String(props.dateOfService).slice(0, 10));
-    if (props.officeEventId) fd.append('officeEventId', String(props.officeEventId));
-    if (props.clinicalSessionId) fd.append('clinicalSessionId', String(props.clinicalSessionId));
-    if (props.initials) fd.append('initials', String(props.initials));
-    if (draftId.value) fd.append('draftId', String(draftId.value));
-    fd.append('includeInteractiveComplexity', String(!!includeInteractiveComplexity.value));
-    fd.append('inputText', text);
-    const planCtx = buildTreatmentPlanContextText(props.latestPlan, '');
-    if (planCtx) fd.append('treatmentPlanContext', planCtx);
-    const ratingsCtx = buildObjectiveRatingsContextText(sessionRatings.value);
-    if (ratingsCtx) fd.append('objectiveRatingsContext', ratingsCtx);
-    const res = await api.post('/clinical-notes/generate', fd, { skipGlobalLoading: true });
-    if (res.data?.draft?.id) {
-      draftId.value = res.data.draft.id;
-      activeDraftState.id = res.data.draft.id;
-      const generated = res.data.draft.output_json ?? res.data.outputJson;
-      try { activeDraftState.outputJson = typeof generated === 'string' ? JSON.parse(generated) : generated; } catch { /* preserve the prior output */ }
-    }
-    await persistRatings();
-    statusMsg.value = 'Note generated. Open Note Workspace to copy SOAP sections or keep documenting here.';
-  } catch (e) {
-    errorMsg.value = e?.response?.data?.error?.message || 'Failed to generate note';
   } finally {
-    generating.value = false;
+    openingWorkspace.value = false;
   }
 }
 
@@ -404,9 +357,11 @@ function applyRecordedNarrative(mode) {
   activeDraftState.recordingId=pending.recordingId;inputText.value=next;revealed.value=true;pendingNarrative.value=null;recorderOpen.value=false;errorMsg.value='';statusMsg.value='Reviewed recording narrative added to this session. Review the text before generating the note.';
 }
 
-watch(inputText, () => {
+watch([inputText, sessionRatings, includeInteractiveComplexity], () => {
   if (loadingDraft.value || !activeDraftState) return;
   activeDraftState.text = String(inputText.value || '');
+  activeDraftState.ratings = sessionRatings.value;
+  activeDraftState.complexity = includeInteractiveComplexity.value;
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => { persistDraft().catch(() => {}); }, 700);
 }, { flush: 'sync' });
@@ -416,20 +371,25 @@ watch(
   async () => {
     flushPendingDraft();
     loadingDraft.value = true;
-    const state = { token:Symbol(), context: sessionContext(), id: null, text: '', lastSavedInput: '', saving: Promise.resolve(), loadFailed: false };
+    const state = { token: Symbol(), context: sessionContext(), id: null, text: '', lastSavedInput: '', ratings: [], complexity: false, recordingId: null, saving: Promise.resolve(), loadFailed: false };
+    state.savedContent = draftContentKey(state);
     activeDraftState = state;
     recorderOpen.value=false;pendingNarrative.value=null;
     draftId.value = null;
     inputText.value = '';
+    sessionRatings.value = [];
+    previousRatings.value = [];
+    includeInteractiveComplexity.value = false;
     hasSavedPhi.value = false;
     revealed.value = false;
     statusMsg.value = '';
     errorMsg.value = '';
     hipaaBannerVisible.value = true;
     attendanceNotice.value = '';
-    await loadExistingDraft(state);
+    state.loading = loadExistingDraft(state);
+    await state.loading;
     if (state === activeDraftState) loadingDraft.value = false;
-    loadRatings();
+    void loadRatings(state);
   },
   { immediate: true }
 );
@@ -571,34 +531,16 @@ onBeforeUnmount(() => {
   transition: transform 0.15s ease;
 }
 .oesn-switch.on .oesn-switch-thumb { transform: translateX(16px); }
-.oesn-open-aid,
-.oesn-save-draft,
-.oesn-generate {
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+.oesn-save-draft {
+  border: 1px solid #0f766e;
   border-radius: 999px;
+  background: #fff;
+  color: #0f766e;
   padding: 9px 14px;
   font-weight: 700;
   cursor: pointer;
 }
-.oesn-open-aid, .oesn-save-draft {
-  border: 1px solid #0f766e;
-  background: #fff;
-  color: #0f766e;
-  margin-left: 0;
-}
-.oesn-generate {
-  border: 0;
-  background: #0f172a;
-  color: #fff;
-}
-.oesn-generate:disabled,
-.oesn-open-aid:disabled, .oesn-save-draft:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
+.oesn-save-draft:disabled { opacity: .55; cursor: not-allowed; }
 .oesn-hint {
   margin: 8px 0 0;
   font-size: 0.8rem;

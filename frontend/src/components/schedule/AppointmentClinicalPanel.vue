@@ -5,8 +5,8 @@
         <header class="acp-card-head">
           <span class="acp-card-title">Clinical overview</span>
         </header>
-        <p class="acp-hint muted">Review this client’s diagnoses and current treatment plan here. Write or dictate this appointment’s source text in Session note, then review and sign the linked draft in Note Workspace.</p>
-        <button type="button" class="btn btn-secondary btn-sm" :disabled="disabled" @click="emit('open-session-note')">Open Session note</button>
+        <p class="acp-hint muted">Review this client’s diagnoses and treatment plan, or open the appointment’s note.</p>
+        <ClinicalActionButton action="workspace" :disabled="disabled" @click="emit('open-note')" />
       </section>
 
       <section class="acp-card">
@@ -57,24 +57,11 @@
 
     </div>
 
-    <div v-if="clinicalNoteId" class="acp-note-bar">
-      <div>
-        <strong>Review this session’s note</strong>
-        <span class="muted">This is the formatted note created from Session note. Review and sign it in Note Workspace.</span>
-      </div>
-      <button
-        type="button"
-        class="btn btn-primary btn-sm"
-        :disabled="!clinicalNoteId && !clinicalSessionId"
-        @click="emit('open-note')"
-      >
-        Review in Note Workspace
-      </button>
-    </div>
   </div>
 </template>
 
 <script setup>
+import ClinicalActionButton from '../clinical/ClinicalActionButton.vue';
 import { computed } from 'vue';
 
 const props = defineProps({
@@ -86,7 +73,7 @@ const props = defineProps({
   disabled: { type: Boolean, default: false }
 });
 
-const emit = defineEmits(['open-session-note', 'open-treatment-plan', 'open-note']);
+const emit = defineEmits(['open-treatment-plan', 'open-note']);
 
 const goals = computed(() => Array.isArray(props.latestPlan?.goals) ? props.latestPlan.goals : []);
 const planMeta = computed(() => {

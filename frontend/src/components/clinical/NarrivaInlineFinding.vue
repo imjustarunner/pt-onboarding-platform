@@ -49,7 +49,7 @@
       <label>{{ finding.id?.includes(':conflicting_') ? 'Clarify the two reports' : answerLabel }}<textarea v-model="answer" rows="3" :placeholder="answerHint" maxlength="4000" /></label>
       <button type="submit" :disabled="disabled || !answer.trim()">Use confirmed details</button>
     </template>
-    <p v-if="saved" role="status">Updated here. Recheck the confirmed content when you finish the other prompts.</p>
+    <p v-if="saved && !compact" role="status">Updated here. Recheck the confirmed content when you finish the other prompts.</p>
   </form>
 </template>
 <script setup>
@@ -58,7 +58,7 @@ import { computed, ref, watch } from 'vue';
 import ClinicalLocationPicker from './ClinicalLocationPicker.vue';
 import ClinicalDiagnosisSearch from './ClinicalDiagnosisSearch.vue';
 import { sessionDiagnosisEntryMode, canSelectSessionDiagnosis } from '../../utils/narrivaClinicalContext.js';
-const props = defineProps({ finding: { type: Object, required: true }, checkId: String, context: { type: Object, default: () => ({}) }, locationChoices: { type: Array, default: () => [] }, serviceChoices: { type: Array, default: () => [] }, diagnosisSearch: Function, disabled: Boolean });
+const props = defineProps({ finding: { type: Object, required: true }, checkId: String, context: { type: Object, default: () => ({}) }, locationChoices: { type: Array, default: () => [] }, serviceChoices: { type: Array, default: () => [] }, diagnosisSearch: Function, disabled: Boolean, compact: Boolean });
 const emit = defineEmits(['apply']);
 const answer = ref(''), saved = ref(false), consent = ref(false);
 const participants = ref('Client Only'), participantsDetail = ref('');

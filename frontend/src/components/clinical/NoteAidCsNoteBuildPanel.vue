@@ -23,11 +23,10 @@
       <div class="csnb-row">
         <label>
           Scheduled / recorded start
-          <input v-model="model.startTime" type="time" class="csnb-input" />
+          <input v-model="model.startTime" type="time" class="csnb-input" @input="model.startConfirmed = false" />
         </label>
         <div class="csnb-actions">
           <button type="button" class="csnb-btn" :class="{ primary: model.startConfirmed }" @click="model.startConfirmed = true">Confirm</button>
-          <button type="button" class="csnb-btn" @click="model.startConfirmed = false">Change</button>
         </div>
       </div>
     </article>
@@ -37,8 +36,8 @@
       <h3><span>2</span> Confirm End Time</h3>
       <div class="csnb-row">
         <label>
-          Actual end
-          <input v-model="model.endTime" type="time" class="csnb-input" />
+          Scheduled / recorded end
+          <input v-model="model.endTime" type="time" class="csnb-input" @input="model.endConfirmed = false" />
         </label>
         <div class="csnb-stat">
           Total contact time
@@ -46,7 +45,6 @@
         </div>
         <div class="csnb-actions">
           <button type="button" class="csnb-btn" :class="{ primary: model.endConfirmed }" @click="model.endConfirmed = true">Confirm</button>
-          <button type="button" class="csnb-btn" @click="model.endConfirmed = false">Change</button>
         </div>
       </div>
     </article>
@@ -61,18 +59,17 @@
           type="button"
           class="csnb-chip"
           :class="{ on: model.participantsMode === opt }"
-          @click="model.participantsMode = opt"
+          @click="model.participantsMode = opt; model.participantsConfirmed = false"
         >
           {{ opt }}
         </button>
       </div>
       <label v-if="model.participantsMode !== 'Client Only'" class="csnb-block">
         Who participated?
-        <input v-model="model.participantsDetail" class="csnb-input" placeholder="e.g., MOC, FOC, school staff…" />
+        <input v-model="model.participantsDetail" @input="model.participantsConfirmed = false" class="csnb-input" placeholder="e.g., MOC, FOC, school staff…" />
       </label>
       <div class="csnb-actions">
         <button type="button" class="csnb-btn primary" @click="model.participantsConfirmed = true">Confirm</button>
-        <button type="button" class="csnb-btn" @click="model.participantsConfirmed = false">Change</button>
       </div>
     </article>
 
@@ -147,7 +144,7 @@
     </article>
 
     <!-- 7 Response -->
-    <article class="csnb-step" :class="{ done: !!model.clientResponse }">
+    <article v-if="clientPresent" class="csnb-step" :class="{ done: !!model.clientResponse }">
       <h3><span>7</span> How did the client respond to the interventions?</h3>
       <div class="csnb-chips">
         <button
@@ -244,45 +241,18 @@
     <p v-else class="csnb-hint">Mental status / risk step skipped for this service code.</p>
 
     <!-- 10 Treatment plan progress -->
-    <article class="csnb-step" :class="{ done: goalsProgressDone }">
+    <article v-if="goals.length" class="csnb-step" :class="{ done: objectivesComplete }" data-note-section="Treatment plan">
       <h3><span>10</span> Treatment Plan Progress</h3>
       <p v-if="!goals.length" class="csnb-hint">No active treatment-plan goals on file — progress ratings skipped.</p>
-      <div v-for="g in goals" :key="g.id" class="csnb-goal">
-        <strong>G{{ g.goal_index }} · {{ g.goal_text }}</strong>
-        <div class="csnb-row">
-          <label>
-            Progress rating
-            <select
-              class="csnb-input"
-              :value="model.goalProgress[g.id]?.rating || ''"
-              @change="setGoalRating(g, $event.target.value)"
-            >
-              <option value="">Select…</option>
-              <option v-for="r in progressRatings" :key="r" :value="r">{{ r }}</option>
-            </select>
-          </label>
-          <label class="csnb-grow">
-            Say more (optional)
-            <input
-              class="csnb-input"
-              :value="model.goalProgress[g.id]?.note || ''"
-              placeholder="Brief explanation…"
-              @input="setGoalNote(g, $event.target.value)"
-            />
-          </label>
-        </div>
-        <div v-for="o in g.objectives || []" :key="o.id" class="csnb-obj">
-          <span>O{{ o.objective_index }}: {{ o.objective_text }}</span>
-          <select
-            class="csnb-input csnb-input--sm"
-            :value="objectiveRating(g.id, o.id)"
-            @change="setObjectiveRating(g, o, $event.target.value)"
-          >
-            <option value="">Select…</option>
-            <option v-for="r in progressRatings" :key="r" :value="r">{{ r }}</option>
-          </select>
-        </div>
-      </div>
+      <NoteAidObjectiveRatings
+        :goals="goals"
+        :previous-ratings="previousRatings"
+        :session-ratings="sessionRatings"
+        :date-of-service="dateOfService"
+        :disabled="previewOnly"
+        collapsible-objectives
+        @update:ratings="emit('update:ratings', $event)"
+      />
     </article>
 
     <!-- 11 Telehealth -->
@@ -333,6 +303,8 @@
 </template>
 
 <script setup>
+import NoteAidObjectiveRatings from './NoteAidObjectiveRatings.vue';
+import { planObjectiveReview } from '../../utils/narrivaObjectiveReview.js';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import api from '../../services/api.js';
 import NoteAidMseHistoryPicker from './NoteAidMseHistoryPicker.vue';
@@ -345,13 +317,15 @@ import {
   CS_DEFAULT_SYMPTOMS,
   CS_INTERVENTION_USE_OPTIONS,
   CS_MSE_FIELDS,
-  CS_PROGRESS_RATINGS,
   createEmptyCsNoteBuildState,
   csContactMinutes,
   csNoteBuildCompletionCount
 } from '../../utils/csNoteBuild.js';
 
 const props = defineProps({
+  previousRatings: { type: Array, default: () => [] },
+  sessionRatings: { type: Array, default: () => [] },
+  dateOfService: { type: String, default: '' },
   modelValue: { type: Object, default: null },
   mseHistory: { type:Array, default:()=>[] },
   goals: { type: Array, default: () => [] },
@@ -360,13 +334,14 @@ const props = defineProps({
   isTelehealth: { type: Boolean, default: false },
   proposingPlan: { type: Boolean, default: false },
   skipMse: { type: Boolean, default: false },
+  clientPresent: { type: Boolean, default: true },
   agencyId: { type: [Number, String], default: null },
   currentUserRole: { type: String, default: '' },
   previewOnly: Boolean,
   previewStep: { type: Number, default: 1 }
 });
 
-const emit = defineEmits(['update:modelValue', 'propose-plan']);
+const emit = defineEmits(['update:modelValue', 'update:ratings', 'propose-plan']);
 
 const model = reactive(props.previewOnly ? {...createEmptyCsNoteBuildState(),participantsMode:''} : props.modelValue ? { ...createEmptyCsNoteBuildState(), ...props.modelValue, mse: { ...createEmptyCsNoteBuildState().mse, ...(props.modelValue.mse || {}) } } : createEmptyCsNoteBuildState());
 
@@ -412,7 +387,6 @@ const participantOptions = ['Client Only', 'Client + Family', 'Client + Other', 
 const useOptions = CS_INTERVENTION_USE_OPTIONS;
 const responseOptions = CS_CLIENT_RESPONSE_OPTIONS;
 const affectAreas = CS_AFFECT_AREAS;
-const progressRatings = CS_PROGRESS_RATINGS;
 const mseFields = CS_MSE_FIELDS;
 function setMseNormal() {
   if(props.previewOnly)return;
@@ -537,68 +511,15 @@ const symptomChoices = computed(() =>
 
 const contactMinutes = computed(() => csContactMinutes(model.startTime, model.endTime));
 
-const goalIds = computed(() => (props.goals || []).map((g) => g.id).filter(Boolean));
-
+const objectivesComplete = computed(() => !planObjectiveReview(props.goals, props.sessionRatings).missing.length);
 const completion = computed(() =>
   csNoteBuildCompletionCount(model, {
     isTelehealth: props.isTelehealth,
-    goalIds: goalIds.value,
-    skipMse: props.skipMse
+    objectivesComplete: objectivesComplete.value,
+    skipMse: props.skipMse,
+    clientPresent: props.clientPresent
   })
 );
-
-const goalsProgressDone = computed(() => {
-  if (!goalIds.value.length) return true;
-  return goalIds.value.every((id) => !!model.goalProgress?.[id]?.rating);
-});
-
-function ensureGoal(g) {
-  if (!model.goalProgress[g.id]) {
-    model.goalProgress[g.id] = {
-      goalText: g.goal_text || '',
-      rating: '',
-      note: '',
-      objectives: []
-    };
-  }
-  return model.goalProgress[g.id];
-}
-
-function setGoalRating(g, rating) {
-  if (props.previewOnly) return;
-  const row = ensureGoal(g);
-  row.rating = rating;
-  row.goalText = g.goal_text || row.goalText;
-}
-
-function setGoalNote(g, note) {
-  if (props.previewOnly) return;
-  const row = ensureGoal(g);
-  row.note = note;
-  row.goalText = g.goal_text || row.goalText;
-}
-
-function objectiveRating(goalId, objectiveId) {
-  const row = model.goalProgress[goalId];
-  const hit = (row?.objectives || []).find((o) => String(o.objectiveId) === String(objectiveId));
-  return hit?.rating || '';
-}
-
-function setObjectiveRating(g, o, rating) {
-  if (props.previewOnly) return;
-  const row = ensureGoal(g);
-  if (!Array.isArray(row.objectives)) row.objectives = [];
-  const idx = row.objectives.findIndex((x) => String(x.objectiveId) === String(o.id));
-  const payload = {
-    objectiveId: o.id,
-    objectiveIndex: o.objective_index,
-    objectiveText: o.objective_text,
-    rating,
-    note: ''
-  };
-  if (idx >= 0) row.objectives[idx] = { ...row.objectives[idx], ...payload };
-  else row.objectives.push(payload);
-}
 
 function proposePlan() {
   if (props.previewOnly) return;

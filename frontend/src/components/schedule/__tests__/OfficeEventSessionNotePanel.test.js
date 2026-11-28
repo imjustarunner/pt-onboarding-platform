@@ -5,7 +5,7 @@ const mocks = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn(), p
 vi.mock('../../../services/api', () => ({ default: mocks }));
 vi.mock('vue-router', () => ({ useRouter: () => ({ push: mocks.push }), useRoute: () => ({ params: { organizationSlug: 'itsco' } }) }));
 vi.mock('../../clinicalWorkspace/ClinicalWorkspaceFrame.vue', () => ({ default: { template: '<div><slot /></div>' } }));
-vi.mock('../../clinical/NoteAidObjectiveRatings.vue', () => ({ default: { template: '<div />' } }));
+vi.mock('../../clinical/NoteAidObjectiveRatings.vue', () => ({ default: { name: 'NoteAidObjectiveRatings', props: ['sessionRatings'], template: '<div />' } }));
 const wrappers = [];
 async function open(props = {}) {
   const wrapper = shallowMount(Panel, { props: { agencyId: 2, clientId: 17, clinicalSessionId: 101, officeEventId: 201, dateOfService: '2026-10-21', serviceCode: '90837', practiceCategory: 'mental_health', ...props }, global: { renderStubDefaultSlot: true } });
@@ -32,7 +32,7 @@ describe('scheduled quick notes and Note Workspace handoff', () => {
   });
   it('autosaves authored source text with exact session context and opens that draft in the tenant workspace', async () => {
     const w = await open(); await w.find('textarea').setValue('Client practiced coping skills and described progress.'); await vi.advanceTimersByTimeAsync(700);
-    expect(mocks.post).toHaveBeenCalledWith('/clinical-notes/drafts', expect.objectContaining({ agencyId: 2, clientId: 17, clinicalSessionId: 101, officeEventId: 201, inputText: 'Client practiced coping skills and described progress.', attendanceIntent: 'authored_session_draft', outputJson: { meta: { quickNote: true } } }), expect.anything());
+    expect(mocks.post).toHaveBeenCalledWith('/clinical-notes/drafts', expect.objectContaining({ agencyId: 2, clientId: 17, clinicalSessionId: 101, officeEventId: 201, inputText: 'Client practiced coping skills and described progress.', attendanceIntent: 'authored_session_draft', outputJson: { meta: { quickNote: true, objectiveRatings: [], includeInteractiveComplexity: false } } }), expect.anything());
     await w.find('.oesn-open-aid').trigger('click'); await flushPromises();
     expect(mocks.push).toHaveBeenCalledWith({ path: '/itsco/note-aid', query: expect.objectContaining({ draftId: '55', agencyId: '2', clientId: '17', clinicalSessionId: '101', officeEventId: '201', launchIntent: 'progress_note' }) });
     expect(mocks.post.mock.calls.filter(c => c[0] === '/clinical-notes/drafts')).toHaveLength(1);
@@ -80,16 +80,22 @@ describe('scheduled quick notes and Note Workspace handoff', () => {
     // The adjacent clinical tab shares this model even while the note panel is redacted.
     await w.setProps({ inputText: 'Updated session source' });
     await vi.advanceTimersByTimeAsync(700);
-    expect(mocks.patch).toHaveBeenCalledWith('/clinical-notes/drafts/91', expect.objectContaining({ inputText: 'Updated session source', outputJson: { ...output, meta: { ...output.meta, quickNote: true } }, attendanceIntent: 'authored_session_draft' }), expect.anything());
+    expect(mocks.patch).toHaveBeenCalledWith('/clinical-notes/drafts/91', expect.objectContaining({ inputText: 'Updated session source', appointmentNoteDetails: { objectiveRatings: [], includeInteractiveComplexity: false }, attendanceIntent: 'authored_session_draft' }), expect.anything());
   });
-  it('passes the same saved source and linked session to generation', async () => {
-    const w = await open(); await w.find('textarea').setValue('Session details for the draft');
-    await w.find('.oesn-generate').trigger('click'); await flushPromises();
-    const request = mocks.post.mock.calls.find(c => c[0] === '/clinical-notes/generate');
-    expect(request[1].get('inputText')).toBe('Session details for the draft');
-    expect(request[1].get('draftId')).toBe('55');
-    expect(request[1].get('clinicalSessionId')).toBe('101');
-    expect(request[1].get('clientId')).toBe('17');
+  it('saves and restores rating-only work without generating or marking attendance', async () => {
+    const plan = { goals: [{ id: 1, objectives: [{ id: 5, objective_text: 'Practice a grounding skill' }] }] };
+    const w = await open({ latestPlan: plan });
+    const ratings = [{ objectiveId: 5, scaleValue: 6, disposition: 'rated', raterKind: 'clinician' }];
+    w.getComponent({ name: 'NoteAidObjectiveRatings' }).vm.$emit('update:ratings', ratings);
+    await flushPromises();
+    await w.vm.savePendingDraft();
+    const saved = mocks.post.mock.calls.find(([path]) => path === '/clinical-notes/drafts')[1];
+    expect(saved).not.toHaveProperty('attendanceIntent');
+    expect(saved.outputJson.meta.objectiveRatings).toEqual(ratings);
+    expect(mocks.post.mock.calls.some(([path]) => path.endsWith('/generate'))).toBe(false);
+    mocks.get.mockResolvedValue({ data: { drafts: [{ id: 55, client_id: 17, clinical_session_id: 101, output_json: saved.outputJson }] } });
+    const reopened = await open({ latestPlan: plan });
+    expect(reopened.getComponent({ name: 'NoteAidObjectiveRatings' }).props('sessionRatings')).toEqual(ratings);
   });
   it('allows the schedule to await the pending save and keeps it open on failure', async () => {
     const w = await open(); await w.find('textarea').setValue('Do not discard on close');
@@ -99,7 +105,7 @@ describe('scheduled quick notes and Note Workspace handoff', () => {
   });
   it('does not overwrite new-session input with a late old-session response', async () => {
     let resolveOld;
-    mocks.get.mockImplementation((path, options) => path === '/clinical-notes/recent' && options.params.clientIds === 17
+    mocks.get.mockImplementation((path, options) => path === '/clinical-notes/recent' && options.params.encounterClientId === 17
       ? new Promise(resolve => { resolveOld = resolve; }) : Promise.resolve({ data: { drafts: [], ratings: [] } }));
     const w = await open(); await w.setProps({ clinicalSessionId: 102, officeEventId: 202, clientId: 18 }); await flushPromises();
     await w.find('textarea').setValue('Second client note');
@@ -126,7 +132,7 @@ describe('consented recording in the actual session',()=>{
  const recorder=w=>w.findComponent({name:'ClinicalSessionRecordingPanel'});
  const narrative={narrative:'Recorded interventions, response and plan.',recordingId:501,clinicalSessionId:101,officeEventId:201};
  it('replaces browser dictation with the actual session consent recorder',async()=>{const w=await open();expect(w.find('.oesn-speak-btn').exists()).toBe(false);await w.find('.oesn-record-session').trigger('click');expect(recorder(w).props()).toMatchObject({agencyId:2,clientId:17,clinicalSessionId:101,officeEventId:201});expect(w.text()).not.toContain('Record dictation');});
- it('inserts only the recording narrative explicitly selected by the clinician',async()=>{const w=await open();await w.find('.oesn-record-session').trigger('click');expect(w.find('textarea').element.value).toBe('');recorder(w).vm.$emit('narrative-ready',narrative);await flushPromises();expect(w.find('textarea').element.value).toBe(narrative.narrative);await vi.advanceTimersByTimeAsync(700);expect(mocks.post).toHaveBeenCalledWith('/clinical-notes/drafts',expect.objectContaining({inputText:narrative.narrative,outputJson:{meta:{quickNote:true,sessionRecordingId:501}}}),expect.anything());});
+ it('inserts only the recording narrative explicitly selected by the clinician',async()=>{const w=await open();await w.find('.oesn-record-session').trigger('click');expect(w.find('textarea').element.value).toBe('');recorder(w).vm.$emit('narrative-ready',narrative);await flushPromises();expect(w.find('textarea').element.value).toBe(narrative.narrative);await vi.advanceTimersByTimeAsync(700);expect(mocks.post).toHaveBeenCalledWith('/clinical-notes/drafts',expect.objectContaining({inputText:narrative.narrative,outputJson:{meta:{quickNote:true,sessionRecordingId:501,objectiveRatings:[],includeInteractiveComplexity:false}}}),expect.anything());});
  it('offers append or replace without overwriting existing authored text',async()=>{const w=await open();await w.find('textarea').setValue('Original clinician text.');await w.find('.oesn-record-session').trigger('click');recorder(w).vm.$emit('narrative-ready',narrative);await flushPromises();expect(w.find('textarea').element.value).toBe('Original clinician text.');expect(w.find('.oesn-narrative-choice').exists()).toBe(true);await w.find('.oesn-narrative-choice button').trigger('click');expect(w.find('textarea').element.value).toBe('Original clinician text.\n\n'+narrative.narrative);});
  it('requires renewed replacement confirmation if the clinician edited text after the choice opened',async()=>{const w=await open();await w.find('textarea').setValue('First text');await w.find('.oesn-record-session').trigger('click');recorder(w).vm.$emit('narrative-ready',narrative);await flushPromises();await w.find('textarea').setValue('Newer edits that must survive');const replace=w.findAll('.oesn-narrative-choice button')[1];await replace.trigger('click');expect(w.find('textarea').element.value).toBe('Newer edits that must survive');expect(w.text()).toContain('text changed');await replace.trigger('click');expect(w.find('textarea').element.value).toBe(narrative.narrative);});
  it('does not insert a late narrative from another appointment',async()=>{const w=await open();await w.find('.oesn-record-session').trigger('click');recorder(w).vm.$emit('narrative-ready',{...narrative,officeEventId:999});await flushPromises();expect(w.find('textarea').element.value).toBe('');expect(w.text()).toContain('recorded session changed');});

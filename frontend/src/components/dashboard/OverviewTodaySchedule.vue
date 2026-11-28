@@ -17,8 +17,8 @@
     </div>
 
     <DashboardCardStatus v-if="loading || error" :loading="loading" :error="error" label="Loading today’s schedule…" @retry="$emit('retry')" />
-    <div v-else-if="!items.length" class="ov-empty ov-empty--cta">
-      <p class="ov-empty-title">No appointments scheduled for today.</p>
+    <div v-else-if="!upcomingItems.length" class="ov-empty ov-empty--cta">
+      <p class="ov-empty-title">No upcoming appointments today.</p>
       <p class="ov-empty-invite">Book a session — office or virtual — to get something on the calendar.</p>
       <div class="ov-cta-row">
         <button type="button" class="ov-cta ov-cta--primary" data-tour="dash-overview-book" @click="$emit('book')">
@@ -37,7 +37,7 @@
     </div>
     <ul v-else class="ov-timeline">
       <li
-        v-for="item in items"
+        v-for="item in upcomingItems"
         :key="item.id"
         class="ov-timeline-row"
         :class="[
@@ -108,9 +108,9 @@
     </ul>
 
     <footer class="ov-card-foot">
-      <span v-if="!loading && !error">{{ items.length }} appointment{{ items.length === 1 ? '' : 's' }} today</span>
+      <span v-if="!loading && !error">{{ upcomingItems.length }} appointment{{ upcomingItems.length === 1 ? '' : 's' }} left today</span>
       <!-- Footer CTAs only when the timeline has items; empty state already shows Book / Book virtual. -->
-      <div v-if="items.length" class="ov-foot-actions">
+      <div v-if="upcomingItems.length" class="ov-foot-actions">
         <button type="button" class="ov-link" data-tour="dash-overview-book-foot" @click="$emit('book')">Book</button>
         <button
           v-if="showVirtualBook"
@@ -127,11 +127,12 @@
 </template>
 
 <script setup>
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import DashboardCardStatus from './DashboardCardStatus.vue';
 import { useBrandingStore } from '../../store/branding';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 
-defineProps({
+const props = defineProps({
   error: { type: String, default: '' },
   items: { type: Array, default: () => [] },
   loading: { type: Boolean, default: false },
@@ -141,6 +142,23 @@ defineProps({
 const emit = defineEmits(['retry', 'navigate', 'book', 'book-virtual', 'join', 'open-focus', 'open-appointment']);
 
 const brandingStore = useBrandingStore();
+const now = ref(Date.now());
+let clockTimer;
+function refreshClock() { now.value = Date.now(); }
+onMounted(() => {
+  clockTimer = setInterval(refreshClock, 15000);
+  document.addEventListener('visibilitychange', refreshClock);
+});
+onUnmounted(() => {
+  clearInterval(clockTimer);
+  document.removeEventListener('visibilitychange', refreshClock);
+});
+
+const terminalStatuses = new Set(['completed', 'ended', 'canceled', 'cancelled', 'no_show', 'no_show_pending', 'late_canceled']);
+const upcomingItems = computed(() => props.items.filter(item =>
+  !terminalStatuses.has(String(item.status || '').toLowerCase())
+  && (item.endMs != null ? item.endMs > now.value : item.startMs != null && item.startMs > now.value)
+).map(item => ({ ...item, status: item.startMs != null && item.startMs <= now.value ? 'in_progress' : 'upcoming' })));
 
 const itemLogo = (item) => {
   const apiLogo = String(item?.schoolLogoUrl || '').trim();
