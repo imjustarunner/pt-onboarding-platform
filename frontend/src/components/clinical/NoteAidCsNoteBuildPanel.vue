@@ -83,6 +83,7 @@
         maxlength="2000"
         placeholder="Brief description of session focus (type or paste dictation)…"
       />
+      <ClinicalDictationButton v-if="!previewOnly" compact v-model="model.sessionFocus" :agency-id="agencyId" :limit="2000" />
       <span class="csnb-count">{{ String(model.sessionFocus || '').length }} / 2000</span>
     </article>
 
@@ -141,6 +142,7 @@
         Say more…
         <textarea v-model="model.interventionUseMore" class="csnb-textarea" rows="3" placeholder="How interventions were applied today…" />
       </label>
+      <ClinicalDictationButton v-if="!previewOnly" compact v-model="model.interventionUseMore" :agency-id="agencyId" />
     </article>
 
     <!-- 7 Response -->
@@ -162,6 +164,7 @@
         Say more…
         <textarea v-model="model.clientResponseMore" class="csnb-textarea" rows="3" placeholder="Progress, difficulty, benefit, participation…" />
       </label>
+      <ClinicalDictationButton v-if="!previewOnly" compact v-model="model.clientResponseMore" :agency-id="agencyId" />
     </article>
 
     <!-- 8 Medical necessity -->
@@ -194,6 +197,7 @@
             rows="8"
             placeholder="Explain clinical rationale and medical necessity…"
           />
+      <ClinicalDictationButton v-if="!previewOnly" compact v-model="model.medicalNecessityNarrative" :agency-id="agencyId" />
         </div>
       </div>
     </article>
@@ -237,6 +241,7 @@
         Risk details (expand when indicated)
         <textarea v-model="model.riskDetails" class="csnb-textarea" rows="3" />
       </label>
+      <ClinicalDictationButton v-if="!previewOnly && model.riskLevel !== 'Low Risk'" compact v-model="model.riskDetails" :agency-id="agencyId" />
     </article>
     <p v-else class="csnb-hint">Mental status / risk step skipped for this service code.</p>
 
@@ -264,6 +269,7 @@
         rows="3"
         placeholder="Confirm consent to participate via telehealth, client identity, and private location…"
       />
+      <ClinicalDictationButton v-if="!previewOnly" compact v-model="model.telehealthVerification" :agency-id="agencyId" />
     </article>
     <article v-else class="csnb-step done">
       <h3><span>11</span> Telehealth Verification</h3>
@@ -284,6 +290,7 @@
         <div>
           <h4>Your plan</h4>
           <textarea v-model="model.planEdited" class="csnb-textarea" rows="6" placeholder="Edit or accept the proposed plan…" />
+      <ClinicalDictationButton v-if="!previewOnly" compact v-model="model.planEdited" :agency-id="agencyId" />
           <div class="csnb-actions">
             <button type="button" class="csnb-btn" @click="model.planEdited = model.planProposed">Use proposed</button>
             <button type="button" class="csnb-btn primary" @click="acceptPlan">Accept plan</button>
@@ -303,6 +310,7 @@
 </template>
 
 <script setup>
+import ClinicalDictationButton from './ClinicalDictationButton.vue';
 import NoteAidObjectiveRatings from './NoteAidObjectiveRatings.vue';
 import { planObjectiveReview } from '../../utils/narrivaObjectiveReview.js';
 import { computed, onMounted, reactive, ref, watch } from 'vue';

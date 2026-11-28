@@ -11,7 +11,11 @@ it('keeps one Service row, shows the weekday and unconfirmed RSVP, and omits a s
  const w=mount(Panel,{props});await flushPromises();const labels=w.findAll('.aip-k').map(item=>item.text());expect(labels).toContain('Service');expect(labels).not.toContain('Type');expect(labels).not.toContain('Agency');expect(w.text()).toContain('Sunday, November 29');expect(w.text()).toContain('99051');expect(w.findAll('.aip-badge').map(item=>item.text())).toEqual(['Unconfirmed']);w.unmount();
 });
 it('opens the existing guardian account through the authorized account action',async()=>{
- const w=mount(Panel,{props});await flushPromises();await w.findAll('button').find(button=>button.text()==='Parent Example').trigger('click');expect(w.emitted('open-provider')).toEqual([[31]]);w.unmount();
+ const w = mount(Panel, { props: { ...props, canOpenProvider: false, canOpenClient: true } });
+ await flushPromises();
+ await w.findAll('button').find(button => button.text() === 'Parent Example').trigger('click');
+ expect(w.emitted('open-guardian')).toEqual([[31]]);
+ w.unmount();
 });
 it('shows the Agency row only for multiple active affiliations',async()=>{
  api.get.mockImplementation(async url=>({data:url.endsWith('guardians')?[parent]:[{agency_id:2,agency_name:'Example practice'},{agency_id:3,agency_name:'Second practice'}]}));const w=mount(Panel,{props});await flushPromises();expect(w.findAll('.aip-k').map(item=>item.text())).toContain('Agency');expect(w.text()).toContain('Second practice');w.unmount();

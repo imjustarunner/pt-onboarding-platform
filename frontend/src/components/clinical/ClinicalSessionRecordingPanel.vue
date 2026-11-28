@@ -1,23 +1,24 @@
 <template>
   <section class="session-capture" aria-label="Session recording">
-    <header><div><h2>Session recording</h2><p>Capture this session, then review its Session Narrative before using it in a note.</p></div><button type="button" @click="$emit('close')" aria-label="Close session recording" :disabled="capturing || busy">×</button></header>
+    <header><div><h2>Transcribe Full Session</h2><p>Capture this session, then review its Session Narrative before using it in a note.</p></div><button type="button" @click="$emit('close')" aria-label="Close session recording" :disabled="capturing || busy">×</button></header>
     <p class="privacy">Recording is optional. Audio is sent through the approved private transcription service and deleted after transcription. Transcript and narrative are encrypted. Spoken identifiers may be heard by that approved processor; Narriva receives privacy-screened text.</p>
     <p v-if="error" role="alert">{{ error }}</p><p v-if="hint" role="status">{{ hint }}</p>
     <p v-if="loading" role="status">Checking this session’s recording permissions…</p>
     <template v-else-if="state">
+      <p v-if="!captureOpen" class="notice">Session audio capture is available during the scheduled visit. Previously captured audio can still be processed.</p>
       <p v-if="!state.configured" class="notice">Secure transcription is not configured for this workspace. Recording stays off; you can continue the appointment and write the note manually.</p>
-      <button v-if="!recording" type="button" @click="setup" :disabled="busy || !state.configured">Set up recording for this session</button>
+      <button v-if="!recording" type="button" @click="setup" :disabled="busy || !state.configured || !captureOpen">Set up recording for this session</button>
       <template v-else>
-        <section v-if="directLaunch && allConsented && !state.ready && !state.participantReviewNeeded && state.configured && ['setup','recording'].includes(recording.status)" class="record-confirm">
-          <strong>Signed waivers on file</strong><p>{{ state.participants.map(p=>p.name).join(' · ') }}</p>
+        <section v-if="captureOpen && directLaunch && allConsented && !state.ready && !state.participantReviewNeeded && state.configured && ['setup','recording'].includes(recording.status)" class="record-confirm">
+          <strong>Recording consent on file</strong><p>{{ state.participants.map(p=>p.name).join(' · ') }}</p>
           <p>By starting, I confirm that everyone who will be audible is listed, I reviewed their consent authority, and I agree to record my participation.</p>
           <button type="button" :disabled="busy" @click="confirm(true)">Confirm participants and record</button>
         </section>
         <details :open="!directLaunch || !allConsented || state.participantReviewNeeded" class="recording-permissions">
           <summary>Participants and recording consent</summary>
-        <p v-if="state.participantReviewNeeded" role="alert">The appointment participants changed. <button type="button" @click="setup" :disabled="busy">Refresh required participant waivers</button></p><h3>Participant waivers</h3><p>Every recorded adult needs their own waiver. An authorized signer must consent for each recorded minor. Scheduled participants are included automatically.</p>
+        <p v-if="state.participantReviewNeeded" role="alert">The appointment participants changed. <button type="button" @click="setup" :disabled="busy">Refresh required participant waivers</button></p><h3>Participant waivers</h3><p>Every recorded adult must agree. An authorized signer must consent for each recorded minor. Scheduled participants are included automatically.</p>
         <article v-for="participant in state.participants" :key="participant.id" class="participant">
-          <div><strong>{{ participant.name }}</strong><small>{{ participant.requiresGuardian ? 'Authorized signer required' : 'Participant waiver' }}</small><span :class="['consent-state', { signed: participant.consented }]">{{ participant.consented ? 'Signed waiver on file' : participant.taskPending ? 'Awaiting portal signature' : 'Signature needed' }}</span></div>
+          <div><strong>{{ participant.name }}</strong><small>{{ participant.requiresGuardian ? 'Authorized signer required' : 'Participant waiver' }}</small><span :class="['consent-state', { signed: participant.consented }]">{{ participant.consented ? participant.consentMethod === 'spoken' ? 'Recorded spoken consent' : 'Signed waiver on file' : participant.taskPending ? 'Awaiting portal signature' : 'Signature needed' }}</span></div>
           <div class="participant-actions">
             <button v-if="participant.consented" type="button" @click="withdraw(participant)" :disabled="busy || capturing">Withdraw waiver</button>
             <template v-else><button type="button" @click="openWaiver(participant)" :disabled="busy || capturing || !templateId">Sign here / assign in portal</button></template>
@@ -39,10 +40,15 @@
             <label class="check"><input v-model="authorityConfirmed" type="checkbox" required>Clinician: I verified the actual signer’s identity, presence and authority to consent for this participant.</label>
             <button :disabled="busy || !signatureData || !accepted || !authorityConfirmed || (selectedParticipant?.clientId && relationship !== 'self' && !guardianSignerUserId)">Sign and save to client documents</button>
           </form>
+          <button v-if="spokenAvailable" type="button" :disabled="busy" @click="spokenOpen = !spokenOpen">
+            {{ spokenOpen ? 'Close spoken consent' : 'Use spoken consent' }}
+          </button>
+          <ClinicalVerbalConsent v-if="spokenAvailable && spokenOpen" :needs-guardian="selectedParticipant?.requiresGuardian"
+            :guardian-id="relationship === 'self' ? null : guardianSignerUserId" :busy="busy" @save="saveSpokenConsent" />
         </div>
         <fieldset v-if="!capturing && (!directLaunch || !state.ready)"><legend>Approve recording for this session</legend><label class="check"><input v-model="allParticipantsListed" type="checkbox">Every person who will be audible is listed above; no other person will be recorded.</label><label class="check"><input v-model="authorityReviewed" type="checkbox">I reviewed the waivers and consent authority for these participants.</label><label class="check"><input v-model="providerAgrees" type="checkbox">I consent to recording my own participation and will pause if attendance or consent changes.</label><button type="button" @click="confirm()" :disabled="busy || !allConsented || !allParticipantsListed || !authorityReviewed || !providerAgrees || !state.configured">{{ directLaunch ? 'Confirm and start recording' : 'Confirm session consent' }}</button><span v-if="recording.confirmed" class="consent-state signed">This session is confirmed</span></fieldset>
         </details>
-        <div class="capture-controls"><strong role="status">{{ capturing ? '● Recording this session' : recording.paused ? 'Recording paused' : recording.status==='recording' ? 'Recording on another device' : 'Recording off' }}</strong><button v-if="!capturing && (recording.status === 'setup' || recording.status === 'recording' && recording.paused)" type="button" @click="start" :disabled="busy || !state.ready">{{ recording.status === 'setup' ? 'Start recording' : 'Resume recording' }}</button><button v-if="capturing || recording.status==='recording' && !recording.paused" type="button" @click="pause" :disabled="busy">Pause recording</button><button v-if="recording.status !== 'completed'" type="button" @click="finish" :disabled="busy || recording.status === 'setup'">Stop and prepare Session Narrative</button></div>
+        <div class="capture-controls"><strong role="status">{{ capturing ? '● Recording this session' : recording.paused ? 'Recording paused' : recording.status==='recording' ? 'Recording on another device' : 'Recording off' }}</strong><button v-if="captureOpen && !capturing && (recording.status === 'setup' || recording.status === 'recording' && recording.paused)" type="button" @click="start" :disabled="busy || !state.ready">{{ recording.status === 'setup' ? 'Start recording' : 'Resume recording' }}</button><button v-if="capturing || recording.status==='recording' && !recording.paused" type="button" @click="pause" :disabled="busy">Pause recording</button><button v-if="recording.status !== 'completed'" type="button" @click="finish" :disabled="busy || recording.status === 'setup'">Stop and prepare Session Narrative</button></div>
         <div v-if="narrative" class="narrative-review"><label>Session Narrative<textarea v-model="narrative" rows="12" @input="narrativeEdited = true" /></label><p>Review attribution, risk, interventions, responses and follow-up. Narriva does not add facts that were absent from the session.</p><button type="button" @click="useNarrative" :disabled="busy">Use this Session Narrative in the note</button></div>
       </template>
     </template>
@@ -50,6 +56,8 @@
 </template>
 <script setup>
 import {computed,onMounted,onBeforeUnmount,ref,nextTick} from 'vue';
+import { parseScheduleUtcInstant } from '../../utils/scheduleEventInstants';
+import ClinicalVerbalConsent from './ClinicalVerbalConsent.vue';
 import AdaptiveSignatureCapture from '../adaptive-intake/AdaptiveSignatureCapture.vue';
 import {meetingAudioWav} from '../../utils/meetingAudio';
 const props=defineProps({directLaunch:Boolean,agencyId:[Number,String],clientId:[Number,String],clinicalSessionId:[Number,String],officeEventId:[Number,String],baseUrl:{type:String,default:'/session-recordings/session'},apiClient:{type:Object,default:null}});
@@ -60,9 +68,12 @@ const recording=computed(()=>state.value?.recording),allConsented=computed(()=>s
 const context=()=>({agencyId:Number(props.agencyId),clientId:Number(props.clientId),...(props.clinicalSessionId?{clinicalSessionId:Number(props.clinicalSessionId)}:{}),...(props.officeEventId?{officeEventId:Number(props.officeEventId)}:{})});
 const waiverPanel=ref(null);
 const templateId=ref(''),additionalName=ref(''),additionalType=ref('adult'),agreement=ref(null),selectedParticipant=ref(null),agreementPdf=ref(''),signerUserId=ref(''),guardianSignerUserId=ref(''),signerName=ref(''),relationship=ref('self'),accepted=ref(false),signatureData=ref(''),authorityConfirmed=ref(false),allParticipantsListed=ref(false),authorityReviewed=ref(false),providerAgrees=ref(false),capturing=ref(false),narrative=ref(''),narrativeEdited=ref(false);
+const captureOpen = computed(() => state.value?.captureOpen !== false);
+const spokenOpen = ref(false);
+const spokenAvailable = computed(() => state.value?.verbalAllowed && captureOpen.value && !selectedParticipant.value?.taskPending);
 const guardianChoices=computed(()=>(selectedParticipant.value?.signers||[]).filter(s=>s.relationship!=='self'));
 function selectGuardian(){signerName.value=guardianChoices.value.find(s=>Number(s.userId)===Number(guardianSignerUserId.value))?.name||'';}
-let poller,stream,recorder,segmentTimer,segmentDone,queued=Promise.resolve(),queuedCount=0,disposed=false,discard=false;
+let poller,stream,recorder,segmentTimer,sessionEndTimer,segmentDone,queued=Promise.resolve(),queuedCount=0,disposed=false,discard=false;
 const requestOptions={skipGlobalLoading:true,skipAuthRedirect:true};
 function endpoint(suffix=''){return `${props.baseUrl}/${recording.value.id}${suffix}`;}
 function message(e){return e.response?.data?.error?.message||e.message||'Unable to complete session recording.';}
@@ -72,19 +83,39 @@ async function setup(){await action(async()=>{const {data}=await api.value.post(
 function resetConfirmation(){allParticipantsListed.value=false;authorityReviewed.value=false;providerAgrees.value=false;}
 async function addParticipant(){await action(async()=>{await api.value.post(endpoint('/participants'),{name:additionalName.value,type:additionalType.value},requestOptions);additionalName.value='';resetConfirmation();await load();});}
 async function remove(p){await action(async()=>{await api.value.post(endpoint('/participants'),{removeParticipantId:p.id},requestOptions);resetConfirmation();await load();});}
-function closeWaiver(){agreement.value=null;selectedParticipant.value=null;if(agreementPdf.value)URL.revokeObjectURL(agreementPdf.value);agreementPdf.value='';signatureData.value='';}
+function closeWaiver(){spokenOpen.value=false;agreement.value=null;selectedParticipant.value=null;if(agreementPdf.value)URL.revokeObjectURL(agreementPdf.value);agreementPdf.value='';signatureData.value='';}
 async function openWaiver(p,fromShortcut=false){await action(async()=>{closeWaiver();const {data}=await api.value.post(endpoint('/consent'),{participantId:p.id,templateId:Number(templateId.value),...(fromShortcut?{unassignedOnly:true}:{})},requestOptions);selectedParticipant.value={...p,signers:data.signers||p.signers||[]};agreement.value=data;signerName.value='';relationship.value=p.requiresGuardian?'parent':'self';accepted.value=false;authorityConfirmed.value=false;signerUserId.value='';guardianSignerUserId.value='';if(data.templateType==='pdf'){const result=await api.value.get(endpoint(`/consent/${p.id}/pdf`),{...requestOptions,responseType:'blob'});agreementPdf.value=URL.createObjectURL(result.data);}resetConfirmation();await load();});}
 async function signHere(){await action(async()=>{await api.value.post(endpoint(`/consent/${selectedParticipant.value.id}/sign`),{documentHash:agreement.value.documentHash,signerName:signerName.value,signerUserId:guardianSignerUserId.value?Number(guardianSignerUserId.value):null,relationship:relationship.value,accepted:accepted.value,signatureData:signatureData.value,presentedByClinician:true,signerPresent:true,authorityConfirmed:authorityConfirmed.value},requestOptions);closeWaiver();await load();});}
+async function saveSpokenConsent({ audio, language }) {
+  await action(async () => {
+    const body = new FormData();
+    body.append('audio', await meetingAudioWav(audio), 'recording-consent.wav');
+    body.append('language', language);
+    body.append('documentHash', agreement.value.documentHash);
+    if (relationship.value !== 'self' && guardianSignerUserId.value) body.append('signerUserId', String(guardianSignerUserId.value));
+    body.append('spokenPermission', 'true');
+    body.append('authorityConfirmed', 'true');
+    body.append('statementConfirmed', 'true');
+    await api.value.post(endpoint(`/consent/${selectedParticipant.value.id}/verbal`), body, requestOptions);
+    closeWaiver();
+    await load();
+  });
+}
 async function assignPortal(){await action(async()=>{await api.value.post(endpoint(`/consent/${selectedParticipant.value.id}/assign`),{signerUserId:Number(signerUserId.value)},requestOptions);closeWaiver();hint.value='Waiver assigned to the authorized portal recipient. Recording stays off until it is signed and this session is confirmed.';await load();});}
 async function withdraw(p){await action(async()=>{await stopCapture(true);await api.value.post(endpoint(`/consent/${p.id}/withdraw`),{},requestOptions);resetConfirmation();await load();});}
 async function confirm(listConfirmed=false){await action(async()=>{await api.value.post(endpoint('/confirm'),{allParticipantsListed:listConfirmed || allParticipantsListed.value,consentAuthorityReviewed:listConfirmed || authorityReviewed.value,providerAgreesToRecording:listConfirmed || providerAgrees.value},requestOptions);await load();if(props.directLaunch && state.value?.ready && !disposed)await start();});}
-function beginSegment(){if(disposed||!capturing.value||!stream)return;const type=['audio/webm;codecs=opus','audio/mp4','audio/ogg;codecs=opus'].find(t=>MediaRecorder.isTypeSupported(t));const active=new MediaRecorder(stream,type?{mimeType:type}:undefined),parts=[],revision=recording.value.revision,chunkKey=crypto.randomUUID();recorder=active;discard=false;segmentDone=new Promise(resolve=>{active.ondataavailable=e=>{if(e.data?.size)parts.push(e.data);};active.onstop=()=>{const drop=discard;recorder=null;const blob=new Blob(parts,{type:active.mimeType||type});if(!drop&&blob.size){queuedCount++;queued=queued.then(async()=>{const body=new FormData();body.append('audio',await meetingAudioWav(blob),'segment.wav');body.append('revision',String(revision));body.append('chunkKey',chunkKey);try{await api.value.post(endpoint('/audio'),body,{...requestOptions,timeout:120000});}catch(e){error.value=message(e);await stopCapture(true);void api.value.post(endpoint('/control'),{action:'pause'},requestOptions).catch(()=>{});}finally{queuedCount--;}});}resolve();if(capturing.value&&queuedCount>=3){capturing.value=false;stream?.getTracks().forEach(t=>t.stop());stream=null;hint.value='Recording paused while saved audio is processed. Resume explicitly after processing finishes.';void queued.then(async()=>{await api.value.post(endpoint('/control'),{action:'pause'},requestOptions);await load();}).catch(e=>error.value=message(e));}else if(capturing.value)beginSegment();};active.onerror=()=>{error.value='Microphone recording was interrupted. Reopen recording and confirm consent before resuming.';void pause();};});active.start();segmentTimer=setTimeout(()=>{if(active.state==='recording')active.stop();},10000);}
-async function stopCapture(drop=false){capturing.value=false;discard=drop;clearTimeout(segmentTimer);if(recorder?.state==='recording'){const done=segmentDone;recorder.stop();await done;}stream?.getTracks().forEach(t=>t.stop());stream=null;}
-async function start(){await action(async()=>{if(!navigator.mediaDevices?.getUserMedia||typeof MediaRecorder==='undefined')throw new Error('This device cannot capture session audio. Use a supported signed app or browser.');await api.value.post(endpoint('/control'),{action:recording.value.status==='setup'?'start':'resume'},requestOptions);await load();try{
+function beginSegment(){if(disposed||!capturing.value||!stream)return;const type=['audio/webm;codecs=opus','audio/mp4','audio/ogg;codecs=opus'].find(t=>MediaRecorder.isTypeSupported(t));const active=new MediaRecorder(stream,type?{mimeType:type}:undefined),parts=[],revision=recording.value.revision,chunkKey=crypto.randomUUID();recorder=active;discard=false;segmentDone=new Promise(resolve=>{active.ondataavailable=e=>{if(e.data?.size)parts.push(e.data);};active.onstop=()=>{const drop=discard;recorder=null;const blob=new Blob(parts,{type:active.mimeType||type});if(!drop&&blob.size){queuedCount++;queued=queued.then(async()=>{try{const body=new FormData();body.append('audio',await meetingAudioWav(blob),'segment.wav');body.append('revision',String(revision));body.append('chunkKey',chunkKey);await api.value.post(endpoint('/audio'),body,{...requestOptions,timeout:120000});}catch(e){error.value=message(e);await stopCapture(true);void api.value.post(endpoint('/control'),{action:'pause'},requestOptions).catch(()=>{});}finally{queuedCount--;}});}resolve();if(capturing.value&&queuedCount>=3){capturing.value=false;stream?.getTracks().forEach(t=>t.stop());stream=null;hint.value='Recording paused while saved audio is processed. Resume explicitly after processing finishes.';void queued.then(async()=>{await api.value.post(endpoint('/control'),{action:'pause'},requestOptions);await load();}).catch(e=>error.value=message(e));}else if(capturing.value)beginSegment();};active.onerror=()=>{error.value='Microphone recording was interrupted. Reopen recording and confirm consent before resuming.';void pause();};});active.start();segmentTimer=setTimeout(()=>{if(active.state==='recording')active.stop();},10000);}
+async function stopCapture(drop=false){capturing.value=false;discard=drop;clearTimeout(segmentTimer);clearTimeout(sessionEndTimer);if(recorder?.state==='recording'){const done=segmentDone;recorder.stop();await done;}stream?.getTracks().forEach(t=>t.stop());stream=null;}
+async function start(){if (!captureOpen.value) return;await action(async()=>{if(!navigator.mediaDevices?.getUserMedia||typeof MediaRecorder==='undefined')throw new Error('This device cannot capture session audio. Use a supported signed app or browser.');await api.value.post(endpoint('/control'),{action:recording.value.status==='setup'?'start':'resume'},requestOptions);await load();try{
  if(disposed || document.visibilityState==='hidden' || !state.value?.ready || error.value)throw new Error('Recording permissions changed. Reopen the recorder.');
  const microphone=await navigator.mediaDevices.getUserMedia({audio:true});
- if(disposed || document.visibilityState==='hidden'){microphone.getTracks().forEach(track=>track.stop());throw new Error('Return to this session to record.');}
- stream=microphone;capturing.value=true;beginSegment();hint.value='Recording is on. Keep this app open. Pause whenever someone enters or consent changes.';}catch(e){await stopCapture(true);await api.value.post(endpoint('/control'),{action:'pause'},requestOptions);throw e;}});}
+ const end=parseScheduleUtcInstant(state.value?.context?.endAt);
+ if(disposed || document.visibilityState==='hidden' || (end && +end <= Date.now())){microphone.getTracks().forEach(track=>track.stop());throw new Error('Return to an active session to record.');}
+ stream=microphone;capturing.value=true;beginSegment();
+ if (end) sessionEndTimer=setTimeout(() => {
+   void stopCapture(false).then(() => { hint.value='The appointment ended. Finish the transcript to review the Session Narrative.'; });
+ }, Math.max(0, +end-Date.now()));
+ hint.value='Recording is on. Keep this app open. Pause whenever someone enters or consent changes.';}catch(e){await stopCapture(true);await api.value.post(endpoint('/control'),{action:'pause'},requestOptions);throw e;}});}
 async function pause(){await action(async()=>{await stopCapture(false);await queued;await api.value.post(endpoint('/control'),{action:'pause'},requestOptions);await load();});}
 async function finish(){await action(async()=>{await stopCapture(false);await queued;const {data}=await api.value.post(endpoint('/finish'),{}, {...requestOptions,timeout:300000});narrative.value=data.narrative;narrativeEdited.value=false;await load();});}
 function useNarrative(){emit('narrative-ready',{narrative:narrative.value,recordingId:recording.value.id,clinicalSessionId:state.value.context.clinicalSessionId,officeEventId:state.value.context.officeEventId});}
@@ -93,7 +124,7 @@ async function launchRecorder(){
  if(!state.value?.configured || disposed)return;
  if(!recording.value || state.value.participantReviewNeeded)await setup();
  if(disposed || error.value || !recording.value || ['completed','processing'].includes(recording.value.status))return;
- if(state.value.ready){
+ if(state.value.ready && captureOpen.value){
   if(recording.value.status==='recording' && !recording.value.paused){hint.value='Session audio is already recording on another device.';return;}
   await start();return;
  }

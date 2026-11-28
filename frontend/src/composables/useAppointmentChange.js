@@ -156,7 +156,7 @@ export function useAppointmentChange({identity,recoverOperations=true}={}) {
     step.value = 1;
   }
 
-  async function openWizard({ appointmentId: id, initialEventType = '', context: ctx = {} } = {}) {
+  async function openWizard({ appointmentId: id, initialEventType = '', initialOfficeDisposition = 'keep', context: ctx = {} } = {}) {
     appointmentId.value = Number(id || 0) || null;
     Object.assign(context, {
       businessType:ctx.businessType||'',
@@ -169,7 +169,7 @@ export function useAppointmentChange({identity,recoverOperations=true}={}) {
       payerLabel: ctx.payerLabel || ''
     });
     resetFacts();
-    if (initialEventType === 'no_show') facts.eventType = initialEventType;
+    if (['no_show', 'canceled', 'rescheduled'].includes(initialEventType)) facts.eventType = initialEventType;
     open.value = true;
     loading.value = true;
     try {
@@ -190,6 +190,10 @@ export function useAppointmentChange({identity,recoverOperations=true}={}) {
       error.value = e.response?.data?.error?.message || 'Could not load the saved appointment change. Reopen to try again.';
     } finally { loading.value = false; }
     await loadCancellationOptions();
+    if (!workflow.value && facts.eventType === 'canceled' && initialOfficeDisposition === 'release'
+        && cancellationOptions.value?.officeReservationAvailable) {
+      facts.officeReservationDisposition = 'release';
+    }
   }
 
   function closeWizard() {

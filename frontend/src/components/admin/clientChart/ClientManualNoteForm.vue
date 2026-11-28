@@ -79,6 +79,7 @@
       />
     </label>
 
+    <ClinicalDictationButton v-model="form.details" :agency-id="agencyId" :disabled="saving" />
     <p v-if="error" class="cmnf-error">{{ error }}</p>
 
     <div class="cmnf-actions">
@@ -93,6 +94,7 @@
 <script setup>
 import { computed, reactive, ref } from 'vue';
 import api from '../../../services/api.js';
+import ClinicalDictationButton from '../../clinical/ClinicalDictationButton.vue';
 
 const props = defineProps({
   clientId: { type: [Number, String], required: true },

@@ -143,9 +143,10 @@ export async function buildAppointmentEmail({appointment,clientId,to,kind='remin
   const optOut=setting.isSchool && schoolOptOut ? schoolSessionEmailOptOutContent(schoolOptOut.url) : {text:'',html:''};
   if(actionUrl===undefined) actionUrl=await createAppointmentEmailLink({appointment,clientId,to,context});
   const when=formatAppointmentTime(appointment),name=context.tenant.name;
-  const subject=setting.isSchool?`${name}: School session notice`:`${name}: ${kind.startsWith('confirmation')?'Please confirm your appointment':'Appointment reminder'}`;
-  const confirmed = sessionRsvpState(appointment) === 'confirmed';
-  const ask = !confirmed;
+  const rsvp = sessionRsvpState(appointment);
+  const ask = rsvp === 'unanswered';
+  const confirmed = rsvp === 'confirmed';
+  const subject=setting.isSchool?`${name}: School session notice`:`${name}: ${ask && kind.startsWith('confirmation')?'Please confirm your appointment':'Appointment reminder'}`;
   const tutorName=context.learning?await appointmentEmailTutorName(appointment):'';
   const emailMessage=String(message).replace(/\s*Reply Y to confirm, N to cancel, R to request a reschedule\./gi,'').trim();
   const intro=setting.isSchool?`${schoolAppointmentReminderText} Scheduled session: ${when}.`:(emailMessage || `${confirmed?'A friendly reminder: your':'Your'} ${context.learning?'tutoring session':'appointment'} with ${name} is scheduled for ${when}.${confirmed?' We look forward to seeing you.':''}`)+(tutorName?` Your tutor: ${tutorName}.`:'');
@@ -162,6 +163,7 @@ export async function buildAppointmentEmail({appointment,clientId,to,kind='remin
 }
 
 export async function sendAppointmentEmail(input) {
+  if (sessionRsvpState(input.appointment) === 'declined') return {skipped:true,reason:'appointment_declined'};
   if(await serviceNotificationBlocked({appointment:input.appointment,clientId:input.clientId}))return {skipped:true,reason:'service_ended_notifications_disabled'};
   const setting=await resolveAppointmentServiceSetting(input.appointment);
   if(setting.isSchool && await isSchoolSessionEmailOptedOut({agencyId:input.appointment.agencyId,clientId:input.clientId,to:input.to})) return {skipped:true,reason:'school_session_email_opted_out'};

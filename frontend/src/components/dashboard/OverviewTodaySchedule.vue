@@ -45,14 +45,14 @@
           item.featured ? 'is-featured-visit' : '',
           item.preslot ? 'is-preslot' : '',
           isFocusTimeItem(item) ? 'is-focus-time' : '',
-          item.appointmentId ? 'is-openable' : ''
+          isOpenable(item) ? 'is-openable' : ''
         ]"
-        :role="isFocusTimeItem(item) || item.appointmentId ? 'button' : undefined"
-        :tabindex="isFocusTimeItem(item) || item.appointmentId ? 0 : undefined"
-        :title="isFocusTimeItem(item) ? 'Open Focus Session' : item.appointmentId ? 'Open appointment' : undefined"
+        :role="isOpenable(item) ? 'button' : undefined"
+        :tabindex="isOpenable(item) ? 0 : undefined"
+        :title="isFocusTimeItem(item) ? 'Open Focus Session' : isOpenable(item) ? 'Open schedule details' : undefined"
         @click="onRowClick(item)"
-        @keydown.enter.prevent="onRowClick(item)"
-        @keydown.space.prevent="onRowClick(item)"
+        @keydown.enter.self.prevent="onRowClick(item)"
+        @keydown.space.self.prevent="onRowClick(item)"
       >
         <div class="ov-timeline-rail" aria-hidden="true">
           <span class="ov-timeline-dot" />
@@ -86,6 +86,7 @@
           </div>
         </div>
         <div class="ov-timeline-actions">
+          <span v-if="item.status === 'upcoming' && rsvpLabel(item)" class="ov-rsvp">{{ rsvpLabel(item) }}</span>
           <button
             v-if="isFocusTimeItem(item)"
             type="button"
@@ -106,6 +107,15 @@
         </div>
       </li>
     </ul>
+
+    <details v-if="!loading && !error && earlierAppointments.length" class="ov-earlier">
+      <summary>Earlier appointments ({{ earlierAppointments.length }})</summary>
+      <ul>
+        <li v-for="item in earlierAppointments" :key="item.id">
+          <button type="button" class="ov-link" @click="onRowClick(item)">{{ item.timeLabel }} · {{ item.title }}</button>
+        </li>
+      </ul>
+    </details>
 
     <footer class="ov-card-foot">
       <span v-if="!loading && !error">{{ upcomingItems.length }} appointment{{ upcomingItems.length === 1 ? '' : 's' }} left today</span>
@@ -139,7 +149,7 @@ const props = defineProps({
   /** When true, show Book virtual (calendar telehealth booking) CTA. */
   showVirtualBook: { type: Boolean, default: false }
 });
-const emit = defineEmits(['retry', 'navigate', 'book', 'book-virtual', 'join', 'open-focus', 'open-appointment']);
+const emit = defineEmits(['retry', 'navigate', 'book', 'book-virtual', 'join', 'open-focus', 'open-schedule-item']);
 
 const brandingStore = useBrandingStore();
 const now = ref(Date.now());
@@ -154,11 +164,25 @@ onUnmounted(() => {
   document.removeEventListener('visibilitychange', refreshClock);
 });
 
-const terminalStatuses = new Set(['completed', 'ended', 'canceled', 'cancelled', 'no_show', 'no_show_pending', 'late_canceled']);
-const upcomingItems = computed(() => props.items.filter(item =>
-  !terminalStatuses.has(String(item.status || '').toLowerCase())
-  && (item.endMs != null ? item.endMs > now.value : item.startMs != null && item.startMs > now.value)
-).map(item => ({ ...item, status: item.startMs != null && item.startMs <= now.value ? 'in_progress' : 'upcoming' })));
+const inactiveStatuses = new Set(['completed', 'ended', 'no_show', 'no_show_pending', 'late_canceled', 'rescheduled', 'voided']);
+const isUpcoming = item => {
+  const status = String(item.status || '').toLowerCase();
+  return !inactiveStatuses.has(status) && !/^cancell?ed/.test(status)
+    && (item.endMs != null ? item.endMs > now.value : item.startMs != null && item.startMs > now.value);
+};
+const upcomingItems = computed(() => props.items.filter(isUpcoming).map(item => ({
+  ...item,
+  ...(item.appointmentId ? { bookingStatus: item.status } : {}),
+  status: item.startMs != null && item.startMs <= now.value ? 'in_progress' : 'upcoming'
+})));
+const earlierAppointments = computed(() => props.items.filter(item => item.appointmentId && !isUpcoming(item)));
+
+function rsvpLabel(item) {
+  return ({
+    client_confirmed: 'RSVP confirmed', confirmed: 'Confirmed',
+    cancellation_requested: 'Cancellation requested', reschedule_requested: 'New time requested'
+  })[item.bookingStatus] || '';
+}
 
 const itemLogo = (item) => {
   const apiLogo = String(item?.schoolLogoUrl || '').trim();
@@ -187,9 +211,11 @@ const isFocusTimeItem = (item) => {
   return title === 'focus time' || title.includes('focus time');
 };
 
+const isOpenable = item => isFocusTimeItem(item) || !!(item.appointmentId || item.roomReservation);
+
 const onRowClick = (item) => {
   if (isFocusTimeItem(item)) emit('open-focus', item);
-  else if (item.appointmentId) emit('open-appointment', item.appointmentId);
+  else if (isOpenable(item)) emit('open-schedule-item', item);
 };
 
 const statusLabel = (s) => {
@@ -205,6 +231,12 @@ const statusLabel = (s) => {
 
 <style scoped>
 .is-openable { cursor: pointer; }
+.is-openable:focus-visible { outline: 2px solid var(--primary, #274c80); outline-offset: -2px; }
+.ov-earlier { padding: 12px 0; border-top: 1px solid var(--border-color, #e5e7eb); font-size: 13px; }
+.ov-earlier summary { cursor: pointer; font-weight: 600; }
+.ov-earlier ul { display: grid; gap: 6px; padding-left: 18px; margin-bottom: 0; }
+.ov-earlier button { text-align: left; }
+.ov-rsvp { color: #185a49; font-size: 12px; font-weight: 600; }
 .ov-card {
   background: #fff;
   border: 1px solid #e5e7eb;

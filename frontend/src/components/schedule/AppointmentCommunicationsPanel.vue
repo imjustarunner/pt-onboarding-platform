@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
 import OfferedTimeDialog from './OfferedTimeDialog.vue';
-const props = defineProps({ appointmentId: { type: Number, required: true }, clientId: {type:Number,default:0} });
+const props = defineProps({ appointmentId: { type: Number, required: true }, clientId: {type:Number,default:0}, inlineOfferHistory: Boolean });
 const rows = ref([]); const loading = ref(false); const busy = ref(0); const error = ref(''); const notice = ref(''); let request = 0;
 const comments = ref([]), commentsError = ref(''), filter = ref('all');
 const typeFilter = ref('all');
@@ -123,7 +123,7 @@ watch(() => [props.appointmentId,props.clientId], () => { rows.value = [];commen
     <button type="button" :disabled="offersLoading" @click="loadOffers">{{ offersLoading ? 'Loading invitations…' : 'Replacement invitations' }}</button>
     <p v-if="offerSlots && !offerSlots.length">No replacement invitations are linked to this session.</p>
     <ul v-if="offerSlots?.length"><li v-for="slot in offerSlots" :key="slot.replacementSlotId"><button type="button" @click="selectedOffer = slot">{{ when(slot.startAt) }} — recipients and delivery history</button></li></ul>
-    <OfferedTimeDialog v-if="selectedOffer" :item="selectedOffer" history-only @close="selectedOffer = null" />
+    <OfferedTimeDialog v-if="selectedOffer" :item="selectedOffer" history-only :inline="inlineOfferHistory" @close="selectedOffer = null" />
     <p v-if="!loading && !communications.length && !error">No appointment communications have been recorded yet.</p>
     <p v-else-if="!loading && !visibleCommunications.length && !error">No entries match these filters.</p>
     <ol>

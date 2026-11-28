@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch, onBeforeUnmount } from 'vue';
+import { computed, ref, watch, onBeforeUnmount, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import ClinicalSessionRecordingPanel from '../components/clinical/ClinicalSessionRecordingPanel.vue';
 import { mobileClinicalClient } from './clinicalTransport.js';
@@ -9,11 +9,19 @@ const route=useRoute(),router=useRouter(),context=ref(null),loading=ref(false),e
 const client=computed(()=>mobileClinicalClient(props.apiBase,props.sessionToken));
 const selection=computed(()=>Object.fromEntries(['workId','clinicalSessionId','officeEventId','clientId','draftId','noteId','recordingId'].filter(key=>route.query[key]).map(key=>[key,route.query[key]])));
 const recorderOpen = ref(false);
+const now = ref(Date.now());
+let clock;
 const recordingEnabled = computed(() => context.value?.preferences?.features?.recording === true);
+const recordingWindow = computed(() => {
+  const start = Date.parse(context.value?.session?.startAt);
+  const end = Date.parse(context.value?.session?.endAt);
+  return start <= now.value && end > now.value;
+});
+onMounted(() => { clock = setInterval(() => { now.value = Date.now(); }, 1000); });
 function back(){backInMobile(router,{path:'/mobile/workspace',query:{view:'calendar'}});}
 function openWriter(data={}){router.push({path:'/mobile/workspace',query:{...selection.value,view:'clinical',...(data.recordingId?{recordingId:String(data.recordingId)}:{}),...(data.clinicalSessionId?{clinicalSessionId:String(data.clinicalSessionId)}:{})}});}
 async function load(){const current=++generation;recorderOpen.value=false;context.value=null;loading.value=true;error.value='';try{const {data}=await client.value.get('/context',{params:selection.value});if(current===generation)context.value=data;}catch(e){if(current===generation)error.value=e.response?.data?.error?.message || 'This session is unavailable.';}finally{if(current===generation)loading.value=false;}}
-onBeforeUnmount(()=>{generation++;context.value=null;});
+onBeforeUnmount(()=>{clearInterval(clock);generation++;context.value=null;});
 watch(()=>JSON.stringify(selection.value),load,{immediate:true});
 </script>
 <template>
@@ -36,7 +44,7 @@ watch(()=>JSON.stringify(selection.value),load,{immediate:true});
           </svg>
           <span>Open note</span><span class="mcs-arrow" aria-hidden="true">→</span>
         </button>
-        <button v-if="context.session?.id || context.session?.officeEventId" type="button" class="mcs-action audio" :disabled="!recordingEnabled" @click="recorderOpen=true">
+        <button v-if="recordingEnabled && recordingWindow && (context.session?.id || context.session?.officeEventId)" type="button" class="mcs-action audio" @click="recorderOpen=true">
           <svg class="mcs-art" viewBox="0 0 60 60" aria-hidden="true">
             <rect x="16" y="4" width="28" height="51" rx="8" fill="#476571"/>
             <rect x="19" y="6" width="22" height="13" rx="5" fill="#c4d8dc"/>
@@ -45,7 +53,7 @@ watch(()=>JSON.stringify(selection.value),load,{immediate:true});
             <path d="M22 28h3l2-3 3 5 2-4 2 2h4" fill="none" stroke="#366d67" stroke-linejoin="round"/>
             <circle cx="30" cy="42" r="6" fill="#d8e4e6"/><circle cx="30" cy="42" r="3" fill="#526e78"/>
           </svg>
-          <span>{{ recordingEnabled ? 'Record session audio' : 'Session recorder' }}<small v-if="!recordingEnabled">Coming soon</small></span>
+          <span>Transcribe Full Session<small>Record with everyone’s consent</small></span>
           <span v-if="recordingEnabled" class="mcs-arrow" aria-hidden="true">→</span>
         </button>
       </div>
@@ -65,9 +73,9 @@ watch(()=>JSON.stringify(selection.value),load,{immediate:true});
 .mcs-art{width:56px;height:56px;display:block}
 .mcs-action .mcs-arrow{display:grid;place-items:center;width:28px;height:28px;border:1px solid currentColor;border-radius:50%;font-size:1rem}
 .note{color:#fff;background:linear-gradient(110deg,#163e59,#1e576a);border:1px solid #214c60;box-shadow:0 3px 8px #193e5319}
-.audio{color:#234955;background:#eff5f4;border:1px solid #c6d9d8}
+.audio{color:#fff;background:linear-gradient(130deg,#154d92,#0b254e);border:1px solid #2d5b9a;border-left:3px solid #efbe55}
 .mcs-action:disabled{opacity:1;cursor:default;color:#354e5b;background:#f3f6f7;border-color:#dae4e6}
-.audio small{display:block;font-size:.82rem;font-weight:450;line-height:1.4;margin-top:3px;color:#506671}
+.audio small{display:block;font-size:.82rem;font-weight:450;line-height:1.4;margin-top:3px;color:#e0e9f8}
 .mcs-action:enabled:hover{box-shadow:0 3px 12px #193e532e}
 .mcs-action:focus-visible{outline:3px solid #bd8300;outline-offset:2px}
 .mobile-clinical-session [role=alert]{color:#9b2c2c}

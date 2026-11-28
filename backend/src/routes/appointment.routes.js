@@ -3,6 +3,9 @@ import {previewProviderAccountConversion,captureProviderAccountConversion,prepar
 import { getClientSessionBookingAccess, getClientSessionBookingRollout, putClientSessionBookingRollout } from '../controllers/clientSessionBookingRollout.controller.js';
 import { getAppointmentStaffTools, saveAppointmentStaffAlert, listAppointmentStaffAlerts, openAppointmentLearningWorkspace } from '../controllers/appointmentStaffTools.controller.js';
 import Appointment from '../models/Appointment.model.js';
+import appointmentStaffTools from '../services/appointmentStaffTools.service.js';
+import { resolveAppointmentServiceSetting } from '../services/appointmentServiceSetting.service.js';
+import { recordStaffAppointmentConfirmation } from '../services/staffAppointmentConfirmation.service.js';
 import { rescheduleContext, rescheduleOptions, rescheduleAppointment } from '../controllers/appointmentReschedule.controller.js';
 import { options as replacementOptions, release as releaseReplacementSlot, custom as customReplacementSlot, openingWindow as replacementOpeningWindow, requestOffice as requestReplacementOffice, details as replacementSlotDetails, history as replacementHistory } from '../controllers/appointmentReplacementOffer.controller.js';
 import { hasSchedulingBillingAccess, stripSchedulingFinancials } from '../services/schedulingBillingAccess.service.js';
@@ -94,6 +97,22 @@ router.post('/', createAppointmentHandler);
 router.get('/:id/guardian-requests', guardianAppointments.providerList);
 router.post('/:id/guardian-requests/:requestId/decline', guardianAppointments.providerDecline);
 router.get('/:id', getAppointment);
+router.post('/:id/staff-confirmation', async (req, res, next) => {
+  try {
+    const appointment = await appointmentStaffTools.authorizeEdit(req.user, Number(req.params.id));
+    await assertAppointmentChangeAccess(req, appointment);
+    res.set('Cache-Control', 'no-store');
+    if (req.body?.clientConfirmedWithStaff !== true) {
+      return res.status(400).json({ error: { message: 'Verify that the client confirmed the appointment with you.' } });
+    }
+    if ((await resolveAppointmentServiceSetting(appointment)).isSchool) {
+      return res.status(409).json({ error: { message: 'School visits do not require a family RSVP.' } });
+    }
+    res.json(await recordStaffAppointmentConfirmation(appointment, req.user.id));
+  } catch (error) {
+    next(error);
+  }
+});
 router.get('/:id/office-reservations', async (req,res,next) => {
   try { res.set('Cache-Control','no-store'); res.json(await officeReservations.get(req.user,Number(req.params.id))); }
   catch(error) { if(error.status)return res.status(error.status).json({error:{message:error.message}}); next(error); }

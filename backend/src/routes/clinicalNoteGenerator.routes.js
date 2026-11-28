@@ -1,3 +1,4 @@
+import { clinicalSessionAudioUpload } from '../controllers/clinicalSessionRecording.controller.js';
 import { requireClinicalChart } from '../middleware/medicalBilling.middleware.js';
 import * as confidential from '../controllers/confidentialClinicalEntries.controller.js';
 import { getClinicalAppointmentAlerts, acknowledgeClinicalAppointmentAlert } from '../controllers/clinicalAppointmentAlerts.controller.js';
@@ -27,6 +28,7 @@ import {
   archiveClinicalNoteDraft,
   deleteClinicalNoteDrafts,
   transcribeClinicalNoteAudio,
+  transcribeClinicianDictation,
   generateClinicalNote,
   generateInteractiveComplexitySentence,
   getTerminationOutcomeStats,
@@ -77,6 +79,8 @@ router.post('/quick-copy/transcribe', apiLimiter, transcribeUpload.single('audio
 
 // Operational contact notes stay available above this clinical-content boundary.
 router.use(excludeSupportClinicalContent);
+router.post('/dictation', noteAidLimiter, excludeFamilyClinicalWorkspace, clinicalSessionAudioUpload.single('audio'),
+  requireClinicalChart, transcribeClinicianDictation);
 router.get('/clients/:clientId/confidential-entries', clinicalWorkspaceLimiter, excludeFamilyClinicalWorkspace, requireClinicalChart, confidential.listEntries);
 router.get('/clients/:clientId/confidential-entries/:entryId', clinicalWorkspaceLimiter, excludeFamilyClinicalWorkspace, requireClinicalChart, confidential.readEntry);
 router.post('/clients/:clientId/confidential-entries', clinicalWorkspaceLimiter, excludeFamilyClinicalWorkspace, requireClinicalChart, confidential.createEntry);

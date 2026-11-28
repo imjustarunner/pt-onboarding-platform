@@ -8,4 +8,5 @@ router.post('/appointments',operation('create'));
 router.get('/appointments/:appointmentId',operation('detail'));
 router.patch('/appointments/:appointmentId',operation('update'));
 router.post('/appointments/:appointmentId/cancel',operation('cancel'));
+router.post('/appointments/:appointmentId/staff-confirmation',operation('staff-confirmation'));
 export default router;

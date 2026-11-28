@@ -34,6 +34,7 @@ router.post('/session/:recordingId/participants', apiLimiter, session.updateSess
 router.post('/session/:recordingId/consent', apiLimiter, session.prepareSessionRecordingConsent);
 router.get('/session/:recordingId/consent/:participantId/pdf', apiLimiter, session.getSessionRecordingConsentPdf);
 router.post('/session/:recordingId/consent/:participantId/sign', apiLimiter, session.signSessionRecordingConsent);
+router.post('/session/:recordingId/consent/:participantId/verbal', apiLimiter, session.clinicalSessionAudioUpload.single('audio'), session.captureRecordedVerbalConsent);
 router.post('/session/:recordingId/consent/:participantId/assign', apiLimiter, session.assignSessionRecordingConsent);
 router.post('/session/:recordingId/consent/:participantId/withdraw', apiLimiter, session.withdrawSessionRecordingConsent);
 router.post('/session/:recordingId/confirm', apiLimiter, session.confirmClinicalSessionRecording);

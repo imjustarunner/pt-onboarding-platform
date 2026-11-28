@@ -1,3 +1,4 @@
+import {parseUtcDate} from '../utils/officeEventDateTime.util.js';
 import {createHash,randomUUID} from 'node:crypto';
 import sanitizeHtml from 'sanitize-html';
 import pool from '../config/database.js';
@@ -29,9 +30,19 @@ const name=client=>client.full_name||[client.first_name,client.last_name].filter
 // Only the completed-narrative reader below can use this private mode. Request
 // flags never change capture or consent authorization.
 const COMPLETED_NARRATIVE_READ=Symbol('completed narrative read');
-export function consentProof(participant,onFile=null) {
+const SESSION_AUDIO_DRAIN_MS = 30_000;
+export function recordingWindowOpen({ startAt, endAt }, now = Date.now(), drain = false) {
+  const start = parseUtcDate(startAt);
+  const end = parseUtcDate(endAt);
+  return !!start && !!end && +start <= now && now < +end + (drain ? SESSION_AUDIO_DRAIN_MS : 0);
+}
+
+export function consentProof(participant,onFile=null,verbalAllowed=false) {
   if(participant.revoked_at)return false;
   if(participant.legacy_consent_id&&!onFile)return false;
+  if (participant.verbally_consented_at) {
+    return !!(onFile || verbalAllowed && participant.document_hash && participant.signature_encrypted && participant.signed_pdf_path);
+  }
   return !!(onFile || (participant.signed_at&&participant.document_hash&&participant.signature_encrypted&&participant.signed_pdf_path));
 }
 export function assertRecordingReady(recording,participants) {
@@ -54,7 +65,8 @@ async function resolveRecordingContext(user,input,accessMode=null) {
   await requireStaffCareEligibility(userId,agencyId);
   const [[membership]]=await pool.execute('SELECT ua.user_id,a.feature_flags FROM user_agencies ua JOIN agencies a ON a.id=ua.agency_id WHERE ua.user_id=? AND ua.agency_id=? AND COALESCE(ua.is_active,1)=1 AND a.is_active=1',[userId,agencyId]);
   if(!membership)throw fail('An active relationship with this workspace is required.',403);
-  if(accessMode!==COMPLETED_NARRATIVE_READ&&parse(parse(membership.feature_flags)?.narriva)?.recording!==true)throw fail('Session recording is disabled for this workspace.',403);
+  const recordingPolicy = parse(parse(membership.feature_flags)?.narriva) ?? {};
+  if(accessMode!==COMPLETED_NARRATIVE_READ&&recordingPolicy.recording!==true)throw fail('Session recording is disabled for this workspace.',403);
   const client=await Client.findById(clientId,{includeSensitive:true});
   if(!client||!(await listClientAgencyMembershipIds(clientId)).includes(agencyId))throw fail('Client not found in this workspace.',404);
   let clinical=null,office=null,appointment=null;
@@ -83,7 +95,9 @@ async function resolveRecordingContext(user,input,accessMode=null) {
   }
   return {agencyId,clientId,userId,key,client,clinical,office,appointment,required,
     serviceCode:clinical?.service_code||appointment?.serviceCode||office?.service_code||null,
-    startAt:clinical?.scheduled_start_at||office?.start_at||appointment?.startAt||null};
+    startAt: appointment?.startAt || clinical?.scheduled_start_at || office?.start_at || null,
+    endAt: appointment?.endAt || clinical?.scheduled_end_at || office?.end_at || null,
+    verbalAllowed: recordingPolicy.verbalRecordingConsent === true};
 }
 async function templatesFor(agencyId){const [rows]=await pool.execute("SELECT id,name,version,template_type FROM document_templates WHERE (agency_id=? OR agency_id IS NULL) AND document_type='audio_recording_consent' AND is_active=1 ORDER BY name",[agencyId]);return rows;}
 async function verifiedSigners(context,clientId=context.clientId) {
@@ -157,8 +171,8 @@ async function currentParticipants(recording,context,{syncPortal=true}={}) {
     let onFile=null;
     if(row.client_id&&!row.revoked_at)onFile=await currentOnFileConsent(context,row.client_id);
     // A known scheduled participant cannot silently disappear while capture continues.
-    row.consented=consentProof(row,onFile);
-    if(row.document_template_id&&row.signed_at){const currentTemplate=await DocumentTemplate.findById(row.document_template_id);const signedVersion=parse(decrypt(row.document_encrypted)).version;if(!currentTemplate?.is_active||Number(currentTemplate.version||1)!==Number(signedVersion))row.consented=false;}
+    row.consented=consentProof(row,onFile,context.verbalAllowed);
+    if(row.document_template_id&&(row.signed_at||row.verbally_consented_at)){const currentTemplate=await DocumentTemplate.findById(row.document_template_id);const signedVersion=parse(decrypt(row.document_encrypted)).version;if(!currentTemplate?.is_active||Number(currentTemplate.version||1)!==Number(signedVersion))row.consented=false;}
     if((row.signed_document_id||row.signer_user_id)&&!(await verifiedSigners(context,row.client_id||context.clientId)).some(s=>s.userId===Number(row.signer_user_id)))row.consented=false;
     row.effectiveConsentId=onFile?.id||row.legacy_consent_id||null;
     row.displayName=decrypt(row.name_encrypted);
@@ -167,7 +181,7 @@ async function currentParticipants(recording,context,{syncPortal=true}={}) {
   }
   return rows;
 }
-function publicParticipant(row){return {id:Number(row.id),key:row.participant_key,clientId:row.client_id||null,type:row.participant_type,name:row.displayName,required:!!row.required_signature,consented:row.consented,signedAt:row.signed_at||null,taskPending:!!row.task_id&&!row.consented,canRemove:row.participant_key.startsWith('additional:'),requiresGuardian:!!row.requiresGuardian,signers:row.signers||[]};}
+function publicParticipant(row){return {id:Number(row.id),key:row.participant_key,clientId:row.client_id||null,type:row.participant_type,name:row.displayName,required:!!row.required_signature,consented:row.consented,signedAt:row.signed_at||null,consentMethod:row.verbally_consented_at?'spoken':'signed',taskPending:!!row.task_id&&!row.consented,canRemove:row.participant_key.startsWith('additional:'),requiresGuardian:!!row.requiresGuardian,signers:row.signers||[]};}
 export async function sessionRecordingState(user,input) {
   const context=await resolveRecordingSession(user,input);
   const [rows]=await pool.execute('SELECT id FROM session_recordings WHERE agency_id=? AND created_by_user_id=? AND session_context_key=?',[context.agencyId,context.userId,context.key]);
@@ -180,7 +194,8 @@ export async function sessionRecordingState(user,input) {
     if(missing&&(!recording.capture_paused||recording.confirmed_at)){await invalidate(recording.id);recording=await SessionRecording.findById(recording.id);}
   }
   let configured=true;try{requireSessionPrivacyConfiguration();if(!(process.env.CLINICAL_AUDIO_BUCKET||process.env.PTONBOARDFILES))configured=false;}catch{configured=false;}
-  return {context:{agencyId:context.agencyId,clientId:context.clientId,clinicalSessionId:context.clinical?.id||null,officeEventId:context.office?.id||null,serviceCode:context.serviceCode,startAt:context.startAt},
+  return {context:{agencyId:context.agencyId,clientId:context.clientId,clinicalSessionId:context.clinical?.id||null,officeEventId:context.office?.id||null,serviceCode:context.serviceCode,startAt:context.startAt,endAt:context.endAt},
+    captureOpen: recordingWindowOpen(context), verbalAllowed: context.verbalAllowed,
     recording:recording?{id:recording.id,status:recording.status,paused:!!recording.capture_paused,revision:Number(recording.recording_revision),confirmed:recording.confirmed_at&&Number(recording.confirmed_revision)===Number(recording.recording_revision),narrative:decrypt(recording.summary_text)}:null,
     participantReviewNeeded,participants:participants.map(publicParticipant),signers:await verifiedSigners(context),templates:await templatesFor(context.agencyId),configured,
     ready:!participantReviewNeeded&&configured&&!!recording&&participants.length>0&&participants.every(p=>p.consented)&&!!recording.confirmed_at&&Number(recording.confirmed_revision)===Number(recording.recording_revision)};
@@ -212,10 +227,10 @@ export async function prepareRecordingConsent(user,recordingId,input) {
   const template=await DocumentTemplate.findById(id(input.templateId));
   if(!template||!template.is_active||template.document_type!=='audio_recording_consent'||(template.agency_id&&Number(template.agency_id)!==context.agencyId))throw fail('Choose a current recording waiver for this workspace.',400);
   const [[agency]]=await pool.execute('SELECT name FROM agencies WHERE id=?',[context.agencyId]);
-  const document={title:template.name,version:template.version||1,templateId:template.id,templateType:template.template_type,agencyName:agency.name,parties:[{role:'Recorded participant',name:decrypt(participant.name_encrypted)}],text:'Recording is optional. The signed waiver below applies to this participant.'};
+  const document={title:template.name,color:'#133561',version:template.version||1,templateId:template.id,templateType:template.template_type,agencyName:agency.name,parties:[{role:'Recorded participant',name:decrypt(participant.name_encrypted)}],text:'Recording is optional. The signed waiver below applies to this participant.'};
   if(template.template_type==='pdf'){document.templatePath=template.file_path;document.templateHash=createHash('sha256').update(await StorageService.readObject(template.file_path)).digest('hex');}
   else{document.html=sanitizeHtml(template.html_content||'',{allowedTags:sanitizeHtml.defaults.allowedTags.concat(['h1','h2'])});if(!document.html.trim())throw fail('Choose a complete recording waiver; this template is empty.',400);}
-  const [prepared]=await pool.execute(`UPDATE session_recording_participants SET document_template_id=?,document_hash=?,document_encrypted=?,signature_encrypted=NULL,signed_at=NULL,signed_pdf_path=NULL,revoked_at=NULL,task_id=NULL,signed_document_id=NULL,signer_user_id=NULL WHERE id=? ${input.unassignedOnly===true?'AND task_id IS NULL AND signed_at IS NULL AND revoked_at IS NULL':''}`,[template.id,documentHash(document),maybeEncryptNotePayload(JSON.stringify(document)),participant.id]);
+  const [prepared]=await pool.execute(`UPDATE session_recording_participants SET document_template_id=?,document_hash=?,document_encrypted=?,signature_encrypted=NULL,signed_at=NULL,verbally_consented_at=NULL,signed_pdf_path=NULL,revoked_at=NULL,task_id=NULL,signed_document_id=NULL,signer_user_id=NULL WHERE id=? ${input.unassignedOnly===true?'AND task_id IS NULL AND signed_at IS NULL AND revoked_at IS NULL':''}`,[template.id,documentHash(document),maybeEncryptNotePayload(JSON.stringify(document)),participant.id]);
   if(input.unassignedOnly===true && !prepared.affectedRows)throw fail('The waiver status changed. Review the current participant permissions.');await invalidate(recording.id);
   return {participantId:Number(participant.id),documentHash:documentHash(document),html:renderRecordingAgreement(document),templateType:document.templateType,signers:participant.client_id?await verifiedSigners(context,participant.client_id):[]};
 }
@@ -283,6 +298,7 @@ export async function controlSessionRecording(user,recordingId,input) {
   const {recording,context}=await recordingForUser(user,recordingId);
   if(!['start','pause','resume','stop'].includes(input.action))throw fail('Choose start, pause, resume or stop.',400);
   if(['start','resume'].includes(input.action)){
+    if (!recordingWindowOpen(context)) throw fail('Recording is available during the scheduled session.');
     requireSessionPrivacyConfiguration();const participants=await currentParticipants(recording,context);
     if(context.required.some(p=>!participants.some(r=>r.participant_key===p.key)))throw fail('The appointment participants changed. Refresh required waivers and confirm this session.');
     assertRecordingReady({...recording,status:'recording',capture_paused:0},participants);
@@ -297,15 +313,85 @@ export async function controlSessionRecording(user,recordingId,input) {
   }
   return {action:input.action};
 }
+export async function recordVerbalConsent(user,recordingId,participantId,input,file) {
+  const {recording,context}=await recordingForUser(user,recordingId);
+  if (!context.verbalAllowed || !recordingWindowOpen(context)) throw fail('Recorded verbal consent is unavailable for this session.',403);
+  const participant=await participantFor(recording,participantId);
+  const document=parse(decrypt(participant.document_encrypted));
+  const template=await DocumentTemplate.findById(participant.document_template_id);
+  if (!participant.document_hash || participant.document_hash!==input.documentHash || documentHash(document)!==participant.document_hash
+      || !template?.is_active || Number(template.version||1)!==Number(document.version)) throw fail('Review the current waiver first.');
+  if (input.spokenPermission!=='true' || input.authorityConfirmed!=='true' || input.statementConfirmed!=='true') {
+    throw fail('Confirm the signer reviewed the waiver, agreed before the microphone opened, and spoke their consent.',400);
+  }
+  if (!file?.buffer?.length || file.buffer.length>1024*1024 || !/^audio\/(webm|ogg|wav|mp4)(;.*)?$/i.test(file.mimetype||'')) {
+    throw fail('Record a short, supported consent clip up to 1 MB.',400);
+  }
+  const subject=participant.client_id?await Client.findById(participant.client_id,{includeSensitive:true}):null;
+  const age=subject?.date_of_birth?ageOn(subject.date_of_birth):null;
+  if (participant.client_id && age===null || participant.participant_type==='minor' && !subject) throw fail('Verify this client’s age and consent authority first.',403);
+  let relationship='self', signerName=decrypt(participant.name_encrypted), signerUserId=null;
+  if (subject && (age<18 || input.signerUserId)) {
+    const signer=(await verifiedSigners(context,subject.id)).find(s=>s.userId===id(input.signerUserId)&&s.relationship!=='self');
+    if (!signer || signer.userId===context.userId) throw fail('Select a verified guardian or representative with consent authority.',403);
+    relationship=signer.relationship;signerName=signer.name;signerUserId=signer.userId;
+  }
+  if (participant.revoked_at || participant.signed_at || participant.verbally_consented_at || participant.task_id
+       || recording.status==='processing' || recording.status==='completed' || recording.status==='recording'&&!recording.capture_paused) {
+    throw fail('Review the existing consent and pause session capture before collecting a new authorization.');
+  }
+  requireSessionPrivacyConfiguration();
+  const language = input.language === 'es-US' ? 'es-US' : 'en-US';
+  const transcript=String(await transcribeLongAudio({buffer:file.buffer,mimeType:file.mimetype,userId:context.userId,languageCode:language})).trim();
+  if (!affirmativeRecordingStatement(transcript)) throw fail('A clear spoken agreement was not detected. Try again or sign the waiver.',400);
+  const at=new Date().toISOString(), audioHash=createHash('sha256').update(file.buffer).digest('hex');
+  const evidence={method:'spoken',at,signerName,signerUserId,relationship,language,verifiedByUserId:context.userId,documentHash:participant.document_hash,audioHash,transcript};
+  const pdf=await saveRecordingAgreementPdf({...document,verbalEvidence:evidence},[],`recording-verbal-consent-${randomUUID()}.pdf`);
+  const db=await pool.getConnection();
+  try {
+    await db.beginTransaction();
+    const [[current]]=await db.execute('SELECT status,capture_paused,recording_revision FROM session_recordings WHERE id=? FOR UPDATE',[recording.id]);
+    if (!current || Number(current.recording_revision)!==Number(recording.recording_revision)
+        || current.status==='recording'&&!current.capture_paused || !recordingWindowOpen(context)) throw fail('Recording consent or the session changed. Reopen the waiver.');
+    const [saved]=await db.execute(`UPDATE session_recording_participants SET verbally_consented_at=UTC_TIMESTAMP(), signed_pdf_path=?,
+      signature_encrypted=?,signer_relationship=?,signer_user_id=? WHERE id=? AND document_hash=? AND signed_at IS NULL
+      AND verbally_consented_at IS NULL AND task_id IS NULL AND revoked_at IS NULL`,[
+      pdf.path,maybeEncryptNotePayload(JSON.stringify({...evidence,audioMimeType:file.mimetype,audio:file.buffer.toString('base64')})),
+      relationship,signerUserId,participant.id,participant.document_hash]);
+    if (!saved.affectedRows) throw fail('The consent changed. Review the current waiver.');
+    const attached=await attachSignedPdfToClient({clientId:participant.client_id||context.clientId,storagePath:pdf.path,
+      originalName:'recording-verbal-consent.pdf',documentTitle:'Recorded verbal consent for this session',
+      documentType:'audio_recording_consent',mimeType:'application/pdf',uploadedByUserId:context.userId,
+      agencyIdOverride:context.agencyId,callerLabel:'session_recording_verbal_consent',
+      auditMetadata:{source:'session_recording',consentMethod:'spoken',recordingId:recording.id,participantId:participant.id,audioHash}});
+    if (!attached?.ok) throw fail('Could not save the consent to the chart. Recording remains off.',503);
+    await db.execute('UPDATE session_recordings SET capture_paused=1,recording_revision=recording_revision+1,confirmed_revision=NULL,confirmed_at=NULL WHERE id=?',[recording.id]);
+    await db.commit();
+  } catch(error) {
+    await db.rollback();
+    throw error;
+  } finally {
+    db.release();
+  }
+  return { recorded:true };
+}
+
+export function affirmativeRecordingStatement(text) {
+  const words=String(text||'').normalize('NFKC').toLowerCase().replace(/[^\p{L} ]+/gu,' ').replace(/\s+/g,' ').trim();
+  return /^(yes )?i (agree|consent) to (recording (this|the) session|have (this|the) session recorded|being recorded)( thank you)?$/.test(words)
+    || /^(sí )?acepto que se grabe (esta|la) sesión$/.test(words);
+}
+
 export async function withdrawRecordingConsent(user,recordingId,participantId) {
   const {recording}=await recordingForUser(user,recordingId),p=await participantFor(recording,participantId);
-  if(p.client_id)await pool.execute('UPDATE session_recording_consents SET revoked_at=UTC_TIMESTAMP() WHERE agency_id=? AND client_id=? AND revoked_at IS NULL',[recording.agency_id,p.client_id]);
+  if(p.client_id && !p.verbally_consented_at)await pool.execute('UPDATE session_recording_consents SET revoked_at=UTC_TIMESTAMP() WHERE agency_id=? AND client_id=? AND revoked_at IS NULL',[recording.agency_id,p.client_id]);
   await pool.execute('UPDATE session_recording_participants SET revoked_at=UTC_TIMESTAMP() WHERE id=?',[p.id]);await invalidate(recording.id);return {withdrawn:true};
 }
 export async function appendSessionRecordingAudio(user,recordingId,input,file) {
   if(!file?.buffer?.length||file.buffer.length>10*1024*1024||!/^audio\/(webm|ogg|wav|mpeg|mp4)(;.*)?$/i.test(file.mimetype||'')||!/^[-\w]{8,80}$/.test(input.chunkKey||''))throw fail('Send a supported audio segment up to 10 MB with its unique segment id.',400);
   const loaded=await recordingForUser(user,recordingId),recording=loaded.recording;let context=loaded.context;const revision=Number(input.revision);
   const ensure=async(db=pool)=>{const [[current]]=await db.execute('SELECT * FROM session_recordings WHERE id=?',[recording.id]);if(Number(current.recording_revision)!==revision)throw fail('Recording was paused or its consent changed.');const participants=await currentParticipants(current,context,{syncPortal:false});assertRecordingReady(current,participants);if(context.required.some(p=>!participants.some(r=>r.participant_key===p.key)))throw fail('The recorded participants changed. Reconfirm this session.');return current;};
+  if (!recordingWindowOpen(context, Date.now(), true)) throw fail('The appointment recording window has ended.');
   await ensure();const [old]=await pool.execute('SELECT id FROM session_recording_audio_chunks WHERE session_recording_id=? AND chunk_key=?',[recording.id,input.chunkKey]);if(old.length)return {saved:true,duplicate:true};
   const text=await transcribeLongAudio({buffer:file.buffer,mimeType:file.mimetype,userId:context.userId,enableSpeakerDiarization:true});
   // Session ownership and appointment participants may have changed during STT.

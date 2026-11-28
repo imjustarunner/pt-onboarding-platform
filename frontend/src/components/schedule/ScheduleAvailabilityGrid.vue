@@ -1142,7 +1142,7 @@
                 </button>
               </div>
               <div v-if="item.videoVisit" class="sched-agenda__meta"><span class="schedule-video-badge">Video</span> <button v-if="canJoinScheduleVideo(item)" type="button" class="btn btn-secondary btn-sm" @click.stop="joinScheduleVideo(item, agendaDayName, item.hour)">Join video</button></div>
-              <div v-if="item.isOfficeBlock" class="sched-agenda__meta">{{ item.officeOccupancyLabel || item.officeStatusLabel }}<RoomReservationQuickActions :context="item.roomQuickContext" :status="item.officeStatus" :pending="roomUsagePending" @change="updateRoomCardOccupancy" /></div>
+              <div v-if="item.isOfficeBlock" class="sched-agenda__meta">{{ item.officeOccupancyLabel || item.officeStatusLabel }}<RoomReservationQuickActions :context="pastRoomContext(item.roomQuickContext) ? null : item.roomQuickContext" :status="item.officeStatus" :pending="roomUsagePending" @change="updateRoomCardOccupancy" /></div>
               <div v-else-if="item.kind === 'peerbusy'" class="sched-agenda__meta muted">Peer busy</div>
               <div v-else-if="item.schedulingNoteSnippet" class="sched-agenda__meta muted">{{ item.schedulingNoteSnippet }}</div>
               <template v-else-if="isFallCheckinBookedBlock(item)">
@@ -1183,7 +1183,7 @@
             :key="`mday-${d}`"
             type="button"
             class="sched-day-timeline__chip"
-            :class="{ on: mobileTimelineDay === d, today: isTodayDay(d) }"
+            :class="{ on: mobileTimelineDay === d, today: isTodayDay(d), 'sched-head-past': isPastScheduleDay(d) }"
             @click="focusedDays = [d]; setScheduleSpanMode('day')"
           >
             <span class="sched-day-timeline__dow">{{ d.slice(0, 3) }}</span>
@@ -1289,7 +1289,7 @@
                 </div>
               </button>
               <ProviderCopayAttendance v-if="showAttendanceForBlock(b)" compact :agency-id="b.agencyId" :appointment-id="b.appointmentId" />
-              <RoomReservationQuickActions :context="b.roomQuickContext" :status="b.officeStatus" :pending="roomUsagePending" @change="updateRoomCardOccupancy" />
+              <RoomReservationQuickActions :context="pastRoomContext(b.roomQuickContext) ? null : b.roomQuickContext" :status="b.officeStatus" :pending="roomUsagePending" @change="updateRoomCardOccupancy" />
               <button v-if="canJoinScheduleVideo(b)" class="btn btn-secondary btn-sm" type="button" @click.stop="joinScheduleVideo(b, mobileTimelineDay, h)">Join video</button>
               <ScheduleQuickRsvp v-if="showQuickRsvp(b)" :event="b" @saved="onQuickRsvpSaved" />
               <SecureSessionCommentButton v-if="b.appointmentId && canUseSessionComments(authStore.user?.role)" class="sched-day-comment-shortcut" icon-only :appointment-id="b.appointmentId" :client-id="parseClientIdFromScheduleEvent(b)" />
@@ -1345,7 +1345,7 @@
           v-for="d in visibleDays"
           :key="d"
           class="sched-head-cell sched-head-cell-day"
-          :class="{ 'sched-head-today': isTodayDay(d), 'sched-head-focused': focusedDaySet.has(d) }"
+          :class="{ 'sched-head-today': isTodayDay(d), 'sched-head-past': isPastScheduleDay(d), 'sched-head-focused': focusedDaySet.has(d) }"
           role="button"
           tabindex="0"
           :title="focusedDaySet.has(d) ? `Focused day: ${d} (click to remove)` : `Click to focus ${d}; Cmd/Ctrl-click to multi-select days`"
@@ -1365,7 +1365,7 @@
 
         <template v-if="true">
           <div class="sched-all-day-label">All Day</div>
-          <div v-for="d in visibleDays" :key="`all-day-${d}`" class="sched-all-day-cell" :class="{ 'sched-cell-today': isTodayDay(d) }">
+          <div v-for="d in visibleDays" :key="`all-day-${d}`" class="sched-all-day-cell" :class="{ 'sched-cell-today': isTodayDay(d), 'sched-cell-past': isPastScheduleDay(d) }">
             <div v-if="schoolWeekdayIcons(d).length" class="school-weekday-icons">
               <button v-for="item in schoolWeekdayIcons(d)" :key="item.agencyId" type="button" class="school-weekday-icon" :class="`school-weekday-icon--${item.status}`"
                 :title="item.label" :aria-label="item.label" @click.stop="schoolWeekdayEditorAgency = item.agencyId"><SchoolAvailabilityIcon /></button>
@@ -1412,6 +1412,7 @@
               clickable: canBookFromGrid && slot.minute === 0,
               'sched-cell-quarter': slot.minute !== 0,
               'sched-cell-today': isTodayDay(d),
+              'sched-cell-past': isPastScheduleDay(d),
               'sched-cell-selected': isActionCellSelected(d, slot.hour) && slot.minute === 0,
               'sched-cell-drop-target': isAppointmentDropTarget(d, slot.hour, slot.minute),
               'sched-cell--quiet': isQuietHourCell(d, slot.hour, slot.minute)
@@ -1590,7 +1591,7 @@
                       </svg>
                       <span class="cell-block-office-status-text">{{ b.officeOccupancyLabel || b.officeStatusLabel }}</span>
                     </span>
-                    <RoomReservationQuickActions :context="b.roomQuickContext" :status="b.officeStatus" :pending="roomUsagePending" @change="updateRoomCardOccupancy" />
+                    <RoomReservationQuickActions :context="pastRoomContext(b.roomQuickContext) ? null : b.roomQuickContext" :status="b.officeStatus" :pending="roomUsagePending" @change="updateRoomCardOccupancy" />
                     <span v-if="b.officeEmpty && visibleDays.length === 1" class="cell-block-office-empty">No bookings</span>
                   </span>
                 </template>
@@ -1790,9 +1791,9 @@
               class="nr-forfeit-shortcut"
               :disabled="submitting || !!ownSlotForfeitAction.disabledReason"
               :title="officeCancellationHelp"
-              @click="updateSelectedRoomOccupancy('vacant')"
+              @click="pastRoomReservation ? forfeitFutureRoomReservation() : updateSelectedRoomOccupancy('vacant')"
             >
-              Cancel this date · Mark vacant
+              {{ pastRoomReservation ? 'Forfeit room reservation' : 'Cancel this date · Mark vacant' }}
             </button>
             <button
               v-if="isPickScheduleEventMode || (isScheduleEventEditMode && stackDetailsItems.length > 1)"
@@ -1902,6 +1903,10 @@
             }"
           >
             <GuardianAppointmentRequests v-if="Number(editorAppointmentId || 0) > 0" :appointment-id="Number(editorAppointmentId)" />
+            <button v-if="editorMayRecordSession" type="button" class="schedule-record-launch" @click="openEditorSessionRecorder">
+              <strong>Transcribe Full Session</strong>
+              <small>Record and transcribe with everyone’s consent</small>
+            </button>
             <AppointmentScheduleCheck v-if="editorSavedSchedule?.id === Number(editorAppointmentId)" :appointment="editorSavedSchedule" :calendar-event="editorCalendarSchedule" :time-zone="bookingTimezoneIana" />
             <AppointmentInfoPanel
               :when-label="editorInfoWhenLabel"
@@ -1951,6 +1956,7 @@
               @edit="editorWorkspaceTab = 'edit'"
               @open-provider="openScheduleUserProfile"
               @open-client="openScheduleClientProfile"
+              @open-guardian="openScheduleGuardianProfile"
               @open-billing="editorWorkspaceTab = 'billing'"
               @open-clinical="editorWorkspaceTab = 'clinical'"
               @open-note="editorWorkspaceTab = 'note'"
@@ -2650,6 +2656,7 @@
               :date-of-service="editorDateYmd"
               :service-code="editorSessionServiceCode"
               :latest-plan="editorChartLatestPlan"
+              :recording-available="editorMayRecordSession"
               :initials="editorInfoClientName.split(/\s+/).filter(Boolean).map(part=>part[0]).join('').slice(0,16)"
               v-model:input-text="editorQuickNote"
               @archived="closeModal(); load({ forceRefresh: true })"
@@ -2850,21 +2857,21 @@
             <p v-if="selectedRoomUsage === 'vacant'">Reclaim this time before using the room. You can book a session at another location while the room is vacant.</p>
             <span>{{ roomReservationFrequencyLabel }}<template v-if="roomReservationUntil"> · Reserved until {{ formatEditorDisplayDate(roomReservationUntil) }}</template></span>
             <div class="nr-reservation-actions">
-              <button v-if="!editingRoomReservation" class="btn btn-primary btn-sm" type="button"
+              <button v-if="!pastRoomReservation && !editingRoomReservation" class="btn btn-primary btn-sm" type="button"
                 @click="editingRoomReservation = true">Edit room reservation</button>
-              <button v-else class="btn btn-secondary btn-sm" type="button" :disabled="bookingStripSaving"
+              <button v-else-if="editingRoomReservation" class="btn btn-secondary btn-sm" type="button" :disabled="bookingStripSaving"
                 @click="leaveRoomReservationEditor">Back to room actions</button>
-              <button v-if="!editingRoomReservation && roomReservationUntil && reservationExtensionAction" class="btn btn-secondary btn-sm" type="button"
+              <button v-if="!pastRoomReservation && !editingRoomReservation && roomReservationUntil && reservationExtensionAction" class="btn btn-secondary btn-sm" type="button"
                 :disabled="!!reservationExtensionAction.disabledReason"
                 @click="onQuickActionSelect(reservationExtensionAction)">Extend reservation</button>
               <template v-if="!editingRoomReservation && ownSlotForfeitAction">
                 <span v-if="roomUsagePending" role="status">Saving room status…</span>
-                <button v-if="selectedRoomUsage !== 'occupied'" class="btn btn-secondary btn-sm" type="button" :disabled="submitting || roomUsagePending"
+                <button v-if="!pastRoomReservation && selectedRoomUsage !== 'occupied'" class="btn btn-secondary btn-sm" type="button" :disabled="submitting || roomUsagePending"
                   @click="updateSelectedRoomOccupancy('occupied')">{{ selectedRoomUsage === 'vacant' ? 'Reclaim room' : 'Confirm room use' }}</button>
-                <button v-if="selectedRoomUsage !== 'vacant'" class="btn btn-secondary btn-sm" type="button" :disabled="submitting || roomUsagePending"
+                <button v-if="!pastRoomReservation && selectedRoomUsage !== 'vacant'" class="btn btn-secondary btn-sm" type="button" :disabled="submitting || roomUsagePending"
                   @click="updateSelectedRoomOccupancy('vacant')">Cancel this date · Mark vacant</button>
-                <button v-if="hasFutureForfeitSupport" class="btn btn-secondary btn-sm" type="button" :disabled="submitting || roomUsagePending"
-                  @click="forfeitFutureRoomReservation">Forfeit room now and forward</button>
+                <button v-if="pastRoomReservation || hasFutureForfeitSupport" :class="pastRoomReservation ? 'nr-forfeit-shortcut' : 'btn btn-secondary btn-sm'" type="button" :disabled="submitting || roomUsagePending"
+                  @click="forfeitFutureRoomReservation">{{ pastRoomReservation ? 'Forfeit room reservation' : 'Forfeit room now and forward' }}</button>
               </template>
             </div>
           </section>
@@ -8806,6 +8813,8 @@ const isTodayDay = (dayName) => {
   return ymd === todayLocalYmd.value;
 };
 
+const isPastScheduleDay = day => addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(day)) < todayLocalYmd.value;
+
 const dayNameForDateYmd = (dateYmd) => {
   const value = String(dateYmd || '').slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
@@ -14498,6 +14507,13 @@ const chooserCardActions = computed(() => visibleQuickActions.value.filter(
     && (!canEditBookingStrip.value || action.id !== 'extend_assignment')
 ));
 const roomUsageLabels = { assigned: 'Assigned available', occupied: 'Assigned available · Occupied', vacant: 'Assigned available · Vacant' };
+function pastRoomContext(room) {
+  if (!room) return false;
+  if (room.dateYmd && room.dateYmd < todayLocalYmd.value) return true;
+  const end = parseScheduleInstant(room.endAt);
+  return !!end && +end <= joinPromptNowMs.value;
+}
+const pastRoomReservation = computed(() => pastRoomContext(modalContext.value));
 const selectedRoomUsage = computed(() => ['occupied', 'vacant'].includes(modalContext.value?.roomOccupancy)
   ? modalContext.value.roomOccupancy : 'assigned');
 async function openBorrowedRoom(room) {
@@ -14526,7 +14542,7 @@ function matchesRoomOccurrence(event, context) {
   const start = parseGridEventDate(event.startAt);
   return !!start && localYmd(start) === context.dateYmd && start.getHours() === Number(context.hour);
 }
-async function changeSelectedRoomReservation(action, usage) {
+async function changeSelectedRoomReservation(action, usage, scope = 'future') {
   if (roomUsagePending.value || submitting.value) return;
   const pendingContexts = selectedActionContexts().filter(ctx => ctx?.officeLocationId && (ctx.officeEventId || ctx.standingAssignmentId));
   const contexts = [...new Map(pendingContexts.map(ctx => [ctx.officeEventId ? `event:${ctx.officeEventId}` : `assignment:${ctx.standingAssignmentId}:${ctx.dateYmd}`, ctx])).values()];
@@ -14545,7 +14561,7 @@ async function changeSelectedRoomReservation(action, usage) {
     for (const ctx of contexts) {
       const resource = ctx.officeEventId ? `events/${ctx.officeEventId}` : `assignments/${ctx.standingAssignmentId}`;
       await api.post(`/office-slots/${ctx.officeLocationId}/${resource}/${action}`, updatingUsage
-        ? { usage, date: ctx.dateYmd } : { acknowledged: true, scope: 'future', date: ctx.dateYmd }, { skipGlobalLoading: true });
+        ? { usage, date: ctx.dateYmd } : { acknowledged: true, scope, date: ctx.dateYmd }, { skipGlobalLoading: true });
     }
     if (!updatingUsage && modalContext.value === original) closeModal();
   } catch (error) {
@@ -14565,7 +14581,7 @@ async function changeSelectedRoomReservation(action, usage) {
   }
 }
 async function updateRoomCardOccupancy(context,usage) {
-  if(roomUsagePending.value || !context?.officeLocationId || !['vacant','occupied'].includes(usage))return;
+  if(roomUsagePending.value || !context?.officeLocationId || pastRoomContext(context) || !['vacant','occupied'].includes(usage))return;
   const resource=context.officeEventId ? `events/${context.officeEventId}` : context.standingAssignmentId ? `assignments/${context.standingAssignmentId}` : null;
   if(!resource)return;
   roomUsagePending.value=true;
@@ -14584,12 +14600,16 @@ async function updateRoomCardOccupancy(context,usage) {
   }
 }
 async function updateSelectedRoomOccupancy(usage) {
+  if (pastRoomReservation.value) return;
   if (usage === 'vacant' && !(await confirmScheduleAction('Mark this room time vacant?', 'Other staff can reserve this time on the selected date. Your recurring reservation is kept.', 'Mark vacant'))) return;
   await changeSelectedRoomReservation('occupancy', usage);
 }
 async function forfeitFutureRoomReservation() {
-  if (!(await confirmScheduleAction('Forfeit room now and forward?', 'This ends your room reservation beginning on the selected date. Resolve any attached appointments before forfeiting.', 'Forfeit reservation'))) return;
-  await changeSelectedRoomReservation('forfeit');
+  const future = hasFutureForfeitSupport.value;
+  const detail = future ? 'This ends your room reservation beginning on the selected date. Resolve any attached appointments first.'
+    : 'This releases the selected reservation. Resolve any attached appointments first.';
+  if (!(await confirmScheduleAction('Forfeit room reservation?', detail, 'Forfeit reservation'))) return;
+  await changeSelectedRoomReservation('forfeit', null, future ? 'future' : 'occurrence');
 }
 const primaryQuickActions = computed(() => {
   const state = String(modalContext.value?.slotState || '').toUpperCase();
@@ -16017,6 +16037,21 @@ const editorInfoClientId = computed(() => {
 });
 const editorClinicalContextReady = computed(() => Number(editorClinicalSessionId.value || 0) > 0
   && editorClinicalContextKey.value === `${Number(editorAppointmentId.value || 0)}:${Number(editorInfoClientId.value || 0)}`);
+const editorMayRecordSession = computed(() => {
+  const appointment = editorAppointmentBaseline.value;
+  const start = parseScheduleInstant(appointment?.startAt);
+  const end = parseScheduleInstant(appointment?.endAt);
+  return editorIsClinical.value && !editorIsLearning.value && editorClinicalContextReady.value
+    && Number(appointment?.providerUserId) === Number(authStore.user?.id)
+    && ['scheduled', 'confirmed', 'client_confirmed', 'checked_in'].includes(appointment?.status)
+    && !!start && !!end && +start <= joinPromptNowMs.value && +end > joinPromptNowMs.value;
+});
+async function openEditorSessionRecorder() {
+  if (!editorMayRecordSession.value) return;
+  editorWorkspaceTab.value = 'session';
+  await nextTick();
+  editorSessionNotePanel.value?.openSessionRecorder();
+}
 const editorOfficeEventId = computed(() => Number(isScheduleEventEditMode.value
   ? scheduleEventEditForm.value?.officeEventId || 0
   : modalContext.value?.officeEventId || 0));
@@ -16096,7 +16131,12 @@ const canOpenScheduleUserProfile = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
   return ['super_admin', 'superadmin', 'admin', 'agency_admin', 'backoffice_admin', 'hr'].includes(role);
 });
-const canOpenScheduleClientProfile = computed(() => canOpenScheduleUserProfile.value);
+const canOpenScheduleClientProfile = computed(() => {
+  if (canOpenScheduleUserProfile.value) return true;
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return ['provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant', 'staff', 'support'].includes(role)
+    && Number(authStore.user?.id) === Number(bookingTargetUserId.value || props.userId);
+});
 
 function openScheduleUserProfile(userId) {
   const id = Number(userId || 0);
@@ -16111,6 +16151,11 @@ function openScheduleClientProfile(clientId) {
   const slug = String(route.params.organizationSlug || '').trim();
   if (slug) router.push(`/${slug}/admin/clients/${id}`).catch(() => {});
   else router.push(`/admin/clients/${id}`).catch(() => {});
+}
+
+function openScheduleGuardianProfile(guardianId) {
+  if (!Number(guardianId) || !canOpenScheduleClientProfile.value) return;
+  router.push(scheduleOrgTo('/guardian-contacts/' + Number(guardianId))).catch(() => {});
 }
 
 function inferModalityFromEvent(target = {}) {
@@ -17119,7 +17164,7 @@ async function loadEditorReminders() {
         );
         if (editorStatus.value === editorStatusBaseline.value) editorStatus.value=String(appointment.attendanceStatus || appointment.status || 'scheduled');
         editorStatusBaseline.value=String(appointment.attendanceStatus || appointment.status || 'scheduled');
-        editorAppointmentBaseline.value={id:apptId,hydrated:true,serviceCode:String(appointment.serviceCode || appointment.billing?.serviceCode || ''),tenantServiceId:Number(appointment.tenantServiceId || 0),serviceLocationId:Number(appointment.serviceLocationId || 0),modality:String(appointment.modality || ''),audioOnly:appointment.audioOnly===true,googleMeetUrl:appointment.googleMeetUrl || '',providerUserId:appointment.providerUserId,status:appointment.status,endAt:appointment.endAt,videoRoomMode:appointment.videoRoomMode || 'unique_session',externalMeetingUrl:appointment.externalMeetingUrl || '',includeGoogleDialIn:appointment.includeGoogleDialIn===true,notificationMode:appointment.notificationMode || 'default',customReminders:JSON.stringify(appointment.customReminders || [])};
+        editorAppointmentBaseline.value={id:apptId,hydrated:true,serviceCode:String(appointment.serviceCode || appointment.billing?.serviceCode || ''),tenantServiceId:Number(appointment.tenantServiceId || 0),serviceLocationId:Number(appointment.serviceLocationId || 0),modality:String(appointment.modality || ''),audioOnly:appointment.audioOnly===true,googleMeetUrl:appointment.googleMeetUrl || '',providerUserId:appointment.providerUserId,status:appointment.status,startAt:appointment.startAt,endAt:appointment.endAt,videoRoomMode:appointment.videoRoomMode || 'unique_session',externalMeetingUrl:appointment.externalMeetingUrl || '',includeGoogleDialIn:appointment.includeGoogleDialIn===true,notificationMode:appointment.notificationMode || 'default',customReminders:JSON.stringify(appointment.customReminders || [])};
         if (!edited) {
           if (appointment.modality) {editorModality.value=String(appointment.modality);bookingModality.value=String(appointment.modality);}
           if (appointment.serviceCode || appointment.billing?.serviceCode) bookingServiceCode.value=String(appointment.serviceCode || appointment.billing.serviceCode);
@@ -20670,6 +20715,7 @@ const buildModalContext = ({ dayName, hour, roomId = 0, slot = null, dateYmd = n
     dayName: String(dayName),
     dateYmd: String(dateYmd || addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dayName))).slice(0, 10),
     hour: Number(hour),
+    endAt: slot?.endAt || top?.endAt || null,
     agencyId: Number(slot?.bookingAgencyId || slot?.agencyId || slot?._agencyId || top?.bookingAgencyId || top?.agencyId || top?._agencyId || 0) || null,
     officeEventId: Number(slot?.eventId || slot?.officeEventId || slot?.id || top?.id || 0) || null,
     officeLocationId: Number(
@@ -31355,6 +31401,13 @@ watch(editorClientSchoolLocationOptions, (schools, previous) => {
 .sched-cell--quiet {
   background: #f1f5f9;
 }
+.schedule-record-launch {
+  display: grid; text-align: start; gap: 3px; margin: 0 0 .75rem; padding: .75rem 1rem;
+  color: #fff; background: linear-gradient(135deg,#164d90,#0d2853); border: 1px solid #3066a3;
+  border-left: 3px solid #efbe55; border-radius: 10px; cursor: pointer;
+}
+.schedule-record-launch small { color: #e0e9f8; }
+.sched-head-past, .sched-cell-past { box-shadow: inset 0 0 0 100vw rgb(100 116 139 / 8%); }
 .sched-cell-today.sched-cell--quiet {
   background: color-mix(in srgb, var(--sched-today, #f5f3ff) 55%, #e2e8f0);
 }

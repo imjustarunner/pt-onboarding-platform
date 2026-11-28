@@ -817,7 +817,7 @@ async function sendContactSessionEmail({ contact, appointment, clientId }) {
 async function sendSessionEmail({to,agencyId,clientId,kind='reminder',appointment,text,reminderId=null,guardianUserId=null}) {
   const {sendAppointmentEmail}=await import('./appointmentEmailActions.service.js');
   const result=await sendAppointmentEmail({to,clientId,kind,appointment,message:text,reminderId,guardianUserId});
-  if(['school_session_email_opted_out','service_ended_notifications_disabled'].includes(result?.reason)) return result;
+  if(['school_session_email_opted_out','service_ended_notifications_disabled','appointment_declined'].includes(result?.reason)) return result;
   if(!result?.id || result.skipped || result.blocked || result.queued || result.pendingApproval) throw new Error('The appointment email was not confirmed as sent.');
   return result;
 }
@@ -875,6 +875,11 @@ export async function processDueSessionNotifications({ limit = 50, agencyId = nu
        JOIN agencies a ON a.id = r.agency_id AND a.is_active = 1 AND COALESCE(a.is_archived, 0) = 0
        WHERE r.status = 'pending' AND r.scheduled_for <= NOW()
          AND (? IS NULL OR r.agency_id = ?)
+         AND NOT EXISTS (
+           SELECT 1 FROM appointment_schedule_notices n
+           WHERE n.appointment_id = r.appointment_id AND n.agency_id = r.agency_id
+             AND n.status IN ('pending', 'sending')
+         )
        ORDER BY r.scheduled_for ASC
        LIMIT ?`,
       [agencyId, agencyId, Math.max(1, Math.min(200, Number(limit) || 50))]
@@ -963,11 +968,10 @@ export async function processDueSessionNotifications({ limit = 50, agencyId = nu
       }
     }
 
-    const [pendingUpdates] = await pool.execute("SELECT id FROM appointment_schedule_notices WHERE appointment_id=? AND status IN ('pending','sending') LIMIT 1", [appt.id]);
-    if (pendingUpdates.length) {
-      await pool.execute("UPDATE appointment_reminders SET status='skipped',skip_reason='schedule_update_pending' WHERE id=?",[row.id]);
-      results.skipped++; continue;
-    }
+    const [pendingUpdates] = await pool.execute("SELECT id FROM appointment_schedule_notices WHERE appointment_id=? AND agency_id=? AND status IN ('pending','sending') LIMIT 1", [appt.id, appt.agencyId]);
+    // A notice may have been queued after the due rows were selected. Leave
+    // this reminder pending so the next pass rechecks the live appointment.
+    if (pendingUpdates.length) continue;
     const participants = await Appointment.listParticipants(appt.id);
     const clientId = row.recipient_client_id || participants.find(p => p.clientId)?.clientId || null;
     if(!settingsByAgency.has(appt.agencyId))settingsByAgency.set(appt.agencyId,await getTenantSettings(appt.agencyId));

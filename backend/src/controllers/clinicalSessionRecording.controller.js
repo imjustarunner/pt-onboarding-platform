@@ -8,6 +8,7 @@ export const setupClinicalSessionRecording=handler(req=>recording.setupSessionRe
 export const updateSessionRecordingParticipants=handler(req=>recording.changeRecordingParticipants(req.user,req.params.recordingId,data(req)));
 export const prepareSessionRecordingConsent=handler(req=>recording.prepareRecordingConsent(req.user,req.params.recordingId,data(req)));
 export const signSessionRecordingConsent=handler(req=>recording.signRecordingConsent(req.user,req.params.recordingId,req.params.participantId,data(req),{ip:req.ip,userAgent:req.get('user-agent')}));
+export const captureRecordedVerbalConsent=handler(req=>recording.recordVerbalConsent(req.user,req.params.recordingId,req.params.participantId,data(req),req.file));
 export const assignSessionRecordingConsent=handler(req=>recording.assignRecordingConsent(req.user,req.params.recordingId,req.params.participantId,data(req)));
 export const withdrawSessionRecordingConsent=handler(req=>recording.withdrawRecordingConsent(req.user,req.params.recordingId,req.params.participantId));
 export const confirmClinicalSessionRecording=handler(req=>recording.confirmRecordingSession(req.user,req.params.recordingId,data(req)));
