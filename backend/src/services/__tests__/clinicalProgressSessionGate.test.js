@@ -38,4 +38,16 @@ describe('full-workspace progress-note session entry', () => {
       sourceTimezone:'America/Denver',scheduledStartAt:'2026-11-16T02:30:00.000Z',scheduledEndAt:'2026-11-16T03:30:00.000Z'});
     expect(clinicalServiceChangeSummary({...session,appointment_id:84})).toMatchObject({appointmentId:84});
   });
+  it('preserves the booked telehealth setting without guessing video or audio', () => {
+    const session = { id: 10, agency_id: 6, client_id: 22, place_of_service: '10',
+      metadata_json: JSON.stringify({ locationLabel: 'Online at home' }) };
+    expect(clinicalServiceChangeSummary(session)).toMatchObject({
+      modality: 'telehealth', placeOfService: '10', locationLabel: 'Online at home'
+    });
+    expect(clinicalServiceChangeSummary({
+      ...session, metadata_json: JSON.stringify({ scheduledAudioOnly: true })
+    })).toMatchObject({ modality: 'phone', locationLabel: 'Telehealth' });
+    expect(clinicalServiceChangeSummary({ id: 10, is_telehealth: null }).modality).toBe('');
+  });
+
 });

@@ -11,14 +11,14 @@
       <button type="submit" :disabled="disabled || participants !== 'Client Only' && !participantsDetail.trim()">Confirm participants</button>
     </template>
     <template v-else-if="kind === 'encounter'">
-      <div v-if="!deliveryConflict" class="narriva-inline-finding__grid">
+      <div v-if="!deliveryConflict && !compact" class="narriva-inline-finding__grid">
         <label v-if="!finding.id?.endsWith(':times')">Date of service<input v-model="date" type="date" /></label>
         <label>Start<input :value="start" @input="editTime('startTime', $event.target.value)" type="time" /></label>
         <label>End<input :value="end" @input="editTime('endTime', $event.target.value)" type="time" /></label>
         <label>Duration (minutes)<input :value="duration" @input="editTime('durationMinutes', $event.target.value)" type="number" min="1" max="600" /></label>
       </div>
-      <ClinicalLocationPicker v-if="!finding.id?.endsWith(':times')" v-model="location" :choices="locationChoices" :disabled="disabled" />
-      <button type="submit" :disabled="disabled || !date || (!finding.id?.endsWith(':times') && !location.locationLabel) || String(location.placeOfService) === '02' && !String(location.clientLocationDescription || '').trim()">Update session header</button>
+      <ClinicalLocationPicker v-if="!finding.id?.endsWith(':times')" v-model="location" :choices="locationChoices" :client-present="clientPresent" :disabled="disabled" />
+      <button type="submit" :disabled="disabled || !date || (!finding.id?.endsWith(':times') && !location.locationLabel) || clientPresent !== false && String(location.placeOfService) === '02' && !String(location.clientLocationDescription || '').trim()">Update session header</button>
     </template>
     <template v-else-if="kind === 'risk'">
       <p>Add a risk-assessment to-do to the generated note. Complete it before submitting the note.</p>
@@ -60,6 +60,7 @@ import ClinicalDiagnosisSearch from './ClinicalDiagnosisSearch.vue';
 import { sessionDiagnosisEntryMode, canSelectSessionDiagnosis } from '../../utils/narrivaClinicalContext.js';
 const props = defineProps({ finding: { type: Object, required: true }, checkId: String, context: { type: Object, default: () => ({}) }, locationChoices: { type: Array, default: () => [] }, serviceChoices: { type: Array, default: () => [] }, diagnosisSearch: Function, disabled: Boolean, compact: Boolean });
 const emit = defineEmits(['apply']);
+const clientPresent = computed(() => !/without client|client not present/i.test(props.context.participants || ''));
 const answer = ref(''), saved = ref(false), consent = ref(false);
 const participants = ref('Client Only'), participantsDetail = ref('');
 const date = ref(''), start = ref(''), end = ref(''), duration = ref(null), location = ref({});

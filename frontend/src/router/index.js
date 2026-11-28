@@ -2010,6 +2010,10 @@ const routes = [
   },
   // Slug-prefixed authenticated routes (branded portal)
   {
+    path: '/:organizationSlug/notes-to-sign',
+    redirect: to => ({ name: 'OrganizationNoteAid', params: to.params, query: { ...to.query, launchIntent: 'cosign' }, hash: to.hash })
+  },
+  {
     path: '/:organizationSlug/note-aid',
     name: 'OrganizationNoteAid',
     // Note Workspace now runs the Clinical Director Agent note generator.
@@ -4058,6 +4062,10 @@ const routes = [
     name: 'ReferralDirectory',
     component: () => import('../views/admin/ReferralDirectoryView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'provider', 'provider_plus', 'super_admin'] }
+  },
+  {
+    path: '/notes-to-sign',
+    redirect: to => ({ name: 'NoteAid', query: { ...to.query, launchIntent: 'cosign' }, hash: to.hash })
   },
   {
     path: '/note-aid',

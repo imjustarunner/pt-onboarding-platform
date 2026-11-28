@@ -60,6 +60,23 @@ it('retains a clinician’s explicit frequency and duration in the targeted obje
   })).rejects.toThrow('did not include the requested weekly frequency');
 });
 
+it('gives a targeted peer-relationship request priority over intake school themes', async () => {
+  const draft = { ...plan(), goals: [{ goalText: '', objectives: [{ objectiveText: '', skipScale: true }] }] };
+  const response = title => ({ text: JSON.stringify({
+    goals: [{ ref: '1', goalText: title }],
+    objectives: [{ ref: '1.1', objectiveText: 'Practice an agreed conversation skill each week.' }]
+  }) });
+  const generate = vi.fn(async () => response('Build supportive friendships'));
+  const options = { input: draft, revision: 'Add a peer relationships goal for Pat Synthetic.',
+    intakeEvidence: 'School attendance and academic performance are impacted.', action: 'add_goal', generate };
+  const result = await suggestNarrivaPlanDraft(options);
+  expect(result.goals[0].goalText).toBe('Build supportive friendships');
+  expect(generate.mock.calls[0][0].prompt).toContain('"revisionThemes":["peer relationships","relationships"]');
+  expect(generate.mock.calls[0][0].prompt).not.toContain('Pat Synthetic');
+  generate.mockResolvedValue(response('Improve school participation'));
+  await expect(suggestNarrivaPlanDraft(options)).rejects.toThrow('did not return a goal about peer relationships');
+});
+
 it('completes a third goal even when the writer omits that goal, without supplying a baseline or observer question', async () => {
   const draft = plan();
   draft.goals[0].objectives[0].kioskPromptOther = 'An old observer question';
@@ -95,6 +112,18 @@ it('queues an initial treatment plan from the signed encounter date and deduplic
   expect(queue.createIfMissingForUser).toHaveBeenCalledTimes(1);
   expect(intakePlanSource({...intake, provider_signed_at:null})).toBeNull();
   expect(intakePlanSource({...intake, metadata_json:{serviceCode:'H0031',dateOfService:'2026-09-12',narrivaContext:{assessmentKind:'additional'}}})).toBeNull();
+});
+
+it('uses the linked session date and service for a legacy signed intake', () => {
+  const intake = {
+    provider_signed_at: '2026-11-25',
+    service_code: '90791',
+    session_start_at: '2026-09-13 02:30:00',
+    session_timezone: 'America/Denver',
+    metadata_json: '{}'
+  };
+  expect(intakePlanSource(intake)).toMatchObject({ date: '2026-09-12' });
+  expect(intakePlanSource({ ...intake, metadata_json: { dateOfService: '2026-09-11' } })).toMatchObject({ date: '2026-09-11' });
 });
 
 it('sends only predefined themes from signed intake evidence to the treatment-plan writer', async () => {

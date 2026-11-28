@@ -1,15 +1,17 @@
 <script setup>
 import {computed} from 'vue';
-const props = defineProps({clientPresent:{type:Boolean,default:null},riskRequired:Boolean,location:{type:Object,default:()=>({})}});
-const remote = computed(() => ['02','10'].includes(String(props.location.placeOfService)) || /video|phone|virtual|telehealth|audio/i.test(props.location.modality || ''));
+import {isRemoteEncounter} from '../../utils/narrivaProgressContext.js';
+const props = defineProps({clientPresent:{type:Boolean,default:null},riskRequired:Boolean,consentOnly:Boolean,location:{type:Object,default:()=>({})}});
+const remote = computed(() => isRemoteEncounter(props.location));
+const inPerson = computed(() => !remote.value && (!!props.location.locationLabel || props.location.modality === 'in_person'));
 const site = computed(() => String(props.location.placeOfService) === '10' ? 'at home' : props.location.clientLocationDescription || '');
 const consent = defineModel('consent', { type: Boolean });
 const risk = defineModel('risk', { type: Boolean });
 </script>
 <template>
   <div class="narriva-session-confirmations">
-    <label><input v-model="consent" type="checkbox" /> {{ remote ? 'I confirmed consent for telehealth and verified that the participant had privacy' + (site ? ' (' + site + ')' : '') + '.' : 'I confirmed consent for in-person services and privacy at the session location.' }}</label>
-    <label v-if="clientPresent !== false"><input :checked="riskRequired || risk" :disabled="riskRequired" type="checkbox" @change="risk = $event.target.checked" /> {{ riskRequired ? 'Risk assessment required for this note' : 'Include a risk assessment' }}</label>
+    <label><input v-model="consent" type="checkbox" /> {{ remote ? 'I confirmed consent for telehealth and verified that the participant had privacy' + (site ? ' (' + site + ')' : '') + '.' : inPerson ? 'I confirmed consent for in-person services and privacy at the session location.' : 'I confirmed consent to participate and verified privacy for this session.' }}</label>
+    <label v-if="!consentOnly && clientPresent !== false"><input :checked="riskRequired || risk" :disabled="riskRequired" type="checkbox" @change="risk = $event.target.checked" /> {{ riskRequired ? 'Risk assessment required for this note' : 'Include a risk assessment' }}</label>
   </div>
 </template>
 <style scoped>

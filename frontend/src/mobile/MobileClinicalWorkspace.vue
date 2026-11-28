@@ -12,7 +12,7 @@ import ClinicalNoteNavigator from '../components/clinical/ClinicalNoteNavigator.
 import { noteSectionNavigationLabel } from '../utils/clinicalNoteNavigation.js';
 import ClinicalNoteChartPreview from '../components/clinical/ClinicalNoteChartPreview.vue';
 import ClinicalDiagnosisReviewPanel from '../components/clinical/ClinicalDiagnosisReviewPanel.vue';
-import { clinicalNoteRecordSections, initialAssessmentDocumentationApplies, intakeDocumentationStatement, intakeObjectiveFirst } from '../utils/clinicalNoteRecordSections.js';
+import { applyIntakeDocumentationReview, clinicalNoteRecordSections, initialAssessmentDocumentationApplies } from '../utils/clinicalNoteRecordSections.js';
 import { resolveNoteAidBillingCodes } from '../utils/noteAidBillingAddons.js';
 import NarrivaSessionConfirmations from '../components/clinical/NarrivaSessionConfirmations.vue';
 import { planObjectiveReview, formatObjectiveRatings, objectiveReviewMessage, objectiveDispositions } from '../utils/narrivaObjectiveReview.js';
@@ -241,8 +241,9 @@ const chartRecordSections=computed(()=>{
   });
   record=clinicalNoteRecordSections(record);
   if(initialIntakeDocumentation.value){
-    record=intakeObjectiveFirst(record,mode.value==='manual' && intakeDocumentationReviewed.value===true
-      ? intakeDocumentationStatement(!!context.value?.documentationPolicy?.supervisorUserId) : '');
+    record=applyIntakeDocumentationReview(record,{
+      reviewed:intakeDocumentationReviewed.value,supervised:!!context.value?.documentationPolicy?.supervisorUserId
+    });
   }
   return record;
 });
@@ -448,7 +449,9 @@ async function sign(){
 function finishAuthorSignature(result,note,recordSections) {
   clearTimeout(saveTimer);
   const signedDraftId=draftId.value;
-  notice.value='Note signed and saved to the chart.';
+  notice.value = result.needsSupervisorCosign
+    ? 'Note signed and submitted for supervisor co-signature.'
+    : 'Note signed and saved to the chart.';
   dirty.value=false;
   pendingAuthorSignature=null;
   discardClinicalRecovery(recoveryIdentity());
@@ -605,7 +608,7 @@ onBeforeUnmount(()=>{stashRecovery();disposed=true;generation++;clearTimeout(sav
         <ClinicalDiagnosisFields :date-of-service="encounter.dateOfService" :disabled="aidKind(encounterAid)!=='intake' || !['full','zr_only'].includes(clinicalContextDiagnosisMode)" :criteria-context="{agencyId,draftId,transport:api,ensureSaved:async()=>await save(true)}" :model-value="clinicalDiagnoses" @update:model-value="updateAssessment('diagnoses',$event)" />
         <ClinicalDiagnosisReviewPanel v-if="context.client?.id" embedded :client-id="context.client.id" :agency-id="agencyId" :transport="api" />
       </section>
-      <label v-if="initialIntakeDocumentation && !readOnly && !finalizedNarriva" class="mn-card mn-check"><input v-model="intakeDocumentationReviewed" type="checkbox" /> I reviewed the disclosure agreement, my education and supervision status, informed consent, and practice policies with the attending participants.</label>
+      <label v-if="initialIntakeDocumentation && !readOnly" class="mn-card mn-check"><input v-model="intakeDocumentationReviewed" type="checkbox" /> I reviewed the disclosure agreement, my education and supervision status, informed consent, and practice policies with the attending participants.</label>
       <section v-if="mode==='narriva' && !readOnly && !finalizedNarriva" id="mobile-session-narrative" class="mn-card"><h2>Session Narrative</h2><p class="mn-privacy">Please do not enter or speak names, dates of birth, contact details, or other identifiers here. Use Client, Provider, parent or guardian.</p><textarea v-model="narrative" aria-label="Session Narrative" rows="8" maxlength="150000" placeholder="Describe what occurred, the interventions, response, progress, and next plan…" /><NarrivaSessionConfirmations :client-present="clientPresent" :risk-required="requiredRisk" :location="encounter" v-model:consent="encounter.consentConfirmed" v-model:risk="riskIncluded" /><label v-if="allowComplexity" class="mn-check"><input v-model="encounter.interactiveComplexitySelected" type="checkbox" /> Interactive complexity (90785)</label><template v-if="recordingText && recordingText !== narrative"><p>A reviewed recording narrative is available for this encounter.</p><button type="button" @click="useRecording(true)">Append recording narrative</button><button type="button" @click="useRecording(false)">Replace with recording narrative</button></template></section>
       <ClinicalActionButton v-if="mode!=='manual' && !readOnly && !finalizedNarriva" action="generate" class="mn-generate" :busy="generating"
         :disabled="saving || blockingAlerts.length > 0" @click="generate" />
@@ -631,7 +634,7 @@ onBeforeUnmount(()=>{stashRecovery();disposed=true;generation++;clearTimeout(sav
         <label v-if="clientPresent !== false && (riskIncluded || requiredRisk)" class="mn-check"><input v-model="riskCompleted" :disabled="!riskDomainComplete" type="checkbox" /> I completed and reviewed this risk assessment.</label>
       </section>
       <label v-if="assessmentContext?.requiresDiagnosisConfirmation && !readOnly" class="mn-check"><input v-model="diagnosesConfirmed" type="checkbox" /> I reviewed and confirm the carried diagnoses and clinical justifications, including any updates.</label>
-      <section v-if="showProviderSign && !canCosign" class="mn-card mn-sign" data-note-section="Signature"><h2>Review &amp; sign</h2><label v-if="!encounter.consentConfirmed" class="mn-check"><input v-model="encounter.consentConfirmed" type="checkbox" /> I confirm consent to participate in this session.</label><ClinicalNoteChartPreview :sections="chartRecordSections" :encounter="Object.fromEntries(encounterSummary)" /><p v-if="assessmentPending">Complete the assessment above to sign.</p><p v-if="signing" role="status">Finishing your signature request…</p><p v-if="error" role="alert">{{error}}</p><label class="mn-check"><input v-model="accurate" type="checkbox" />I reviewed every section of this final note and approve it as accurate and complete.</label><label class="mn-check"><input v-model="necessary" type="checkbox" />I attest that this service was medically necessary.</label><p v-if="!context.session?.id">An authorized encounter must be linked before chart signing.</p><button class="mn-sign-submit" type="button" :disabled="signing || saving || manualBlocked || serviceChanged || !!serviceVerificationError || !encounter.consentConfirmed || clientPresent!==false && encounter.placeOfService==='02' && !encounter.clientLocationDescription.trim() || !accurate || !necessary || !hasContent || !context.session?.id || context.note?.canSignClinicalNote === false || blockingAlerts.length>0 || assessmentPending" @click="sign">{{ signing ? 'Signing & saving…' : 'Sign & save to chart' }}</button></section>
+      <section v-if="showProviderSign && !canCosign" class="mn-card mn-sign" data-note-section="Signature"><h2>Review &amp; sign</h2><NarrivaSessionConfirmations v-if="finalizedNarriva" consent-only :client-present="clientPresent" :location="encounter" v-model:consent="encounter.consentConfirmed" /><ClinicalNoteChartPreview :sections="chartRecordSections" :encounter="Object.fromEntries(encounterSummary)" /><p v-if="assessmentPending">Complete the assessment above to sign.</p><p v-if="signing" role="status">Finishing your signature request…</p><p v-if="error" role="alert">{{error}}</p><label class="mn-check"><input v-model="accurate" type="checkbox" />I reviewed every section of this final note and approve it as accurate and complete.</label><label class="mn-check"><input v-model="necessary" type="checkbox" />I attest that this service was medically necessary.</label><p v-if="!context.session?.id">An authorized encounter must be linked before chart signing.</p><button class="mn-sign-submit" type="button" :disabled="signing || saving || manualBlocked || serviceChanged || !!serviceVerificationError || !encounter.consentConfirmed || clientPresent!==false && encounter.placeOfService==='02' && !encounter.clientLocationDescription.trim() || !accurate || !necessary || !hasContent || !context.session?.id || context.note?.canSignClinicalNote === false || blockingAlerts.length>0 || assessmentPending" @click="sign">{{ signing ? 'Signing & saving…' : 'Sign & save to chart' }}</button></section>
       <SessionSupportingMaterials v-if="context.session?.id && !readOnly" :clinical-session-id="context.session.id" :transport="api" base-path="" />
       <ConfidentialClinicalEntries data-note-section="Confidential addendums" v-if="context.session?.id && context.client?.id && !readOnly" attached :agency-id="agencyId" :client-id="context.client.id" :session-id="context.session.id" :draft-id="draftId" :ensure-draft="async () => await save(true) && draftId" :transport="api" base-path="" />
       <InternalDiagnosticCriteriaReview v-if="readOnly || canCosign" :agency-id="agencyId" :client-id="context.client?.id" :note-id="context.note?.id || undefined" :transport="api" />

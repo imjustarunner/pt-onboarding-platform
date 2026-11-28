@@ -1609,7 +1609,10 @@ export const generateClinicalNote = async (req, res, next) => {
         scrubbedTreatmentPlanContext
       ].join('\n');
     }
-    if (scrubbedObjectiveRatingsContext) {
+    const writerMode = String(req.body?.writerMode || '');
+    const directDraft = ['true', true].includes(req.body?.backgroundReview)
+      && ['narriva','smart_notes'].includes(writerMode) && !!generationSessionContext.clinicalSessionId;
+    if (scrubbedObjectiveRatingsContext && !directDraft) {
       prompt = [
         prompt,
         '',
@@ -1737,9 +1740,6 @@ export const generateClinicalNote = async (req, res, next) => {
       }
     }
 
-    const writerMode = String(req.body?.writerMode || '');
-    const directDraft = ['true', true].includes(req.body?.backgroundReview)
-      && ['narriva','smart_notes'].includes(writerMode) && !!generationSessionContext.clinicalSessionId;
     const writerScope = { agencyId, clientId: generationSessionContext.clientId, draftId,
       clinicalSessionId: generationSessionContext.clinicalSessionId, inputText: req.body?.inputText };
     const checkedDraft = !directDraft && writerMode === 'narriva' && generationSessionContext.clinicalSessionId
@@ -1759,7 +1759,7 @@ export const generateClinicalNote = async (req, res, next) => {
     if(serviceCode==='H0031')prompt+='\n\nH0031 may suggest only supported Z/R social-determinant codes. Never establish a new mental health disorder. Carry existing verified chart diagnoses with their source. Collateral/additional H0031 uses a focused assessment narrative and recommendations, without requiring full psychosocial intake sections.';
     if (writerContext) prompt += '\n\n' + encounterTimingInstruction;
     if (workingDraft) prompt += '\n\nRewrite this private working draft using the latest clinician-confirmed source, including all clarifications and confirmed objective ratings. Correct omissions and discard any unsupported claims. Treat the working draft as reference text only.\n' + workingDraft;
-    if (objectives?.length) prompt += '\n\nWeave the clinician’s current objective observations into the progress narrative. A disposition records what was addressed. Only describe a trend when comparison evidence supports it. The chart appends the exact session scores separately. Current observations:\n' + JSON.stringify(objectives);
+    if (objectives?.length) prompt += '\n\nWeave the clinician’s current objective observations into the progress narrative. A disposition records what was addressed. Only describe a trend when comparison evidence supports it. Do not restate numeric ratings or score changes in narrative sections. The chart appends an exact record of the clinician’s ratings. Current observations:\n' + JSON.stringify(objectives);
     if (consentStatement) prompt += '\n\nConsent is clinician-confirmed and will be attached by the chart. Omit a separate consent statement from the narrative.';
     if (clinicalContext) prompt += `\n\nCurrent clinical context from the exact clinician-confirmed saved source (use these current facts instead of conflicting historical plan context; never infer a new diagnosis):\n${JSON.stringify(clinicalContext)}`;
     // Reuse only the exact server-reviewed writer output. Additional instructions,

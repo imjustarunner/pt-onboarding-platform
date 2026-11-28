@@ -34,7 +34,7 @@ const findings = computed(() => {
   return (props.review.checks || []).flatMap(check => check.findings || []).filter(finding =>
     !finding.bypassed && ((
       finding.action === 'risk_assessment' && finding.canBypass && !props.riskIncluded
-    ) || /^(service_code:(additional|client_absent|client_present)|encounter_consent:(location_mismatch|method_mismatch))$/.test(finding.id)));
+    ) || /^(service_code:(additional|client_absent|client_present)|encounter_consent:(location|method|method_location|client_location|location_mismatch|method_mismatch))$/.test(finding.id)));
 });
 async function dismiss(finding) {
   saving.value = true;

@@ -149,6 +149,48 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     } finally { wrapper.unmount(); }
   });
 
+  it('keeps consent and initial intake documentation editable after Narriva creates the draft', async () => {
+    const { wrapper, state } = await workspace('90791_intake_plan');
+    try {
+      state.selectedServiceCode = '90791';
+      state.noteWriterMode = 'narriva';
+      state.sessionClinicalSessionId = 192;
+      state.initials = 'SYN';
+      await flushPromises();
+      state.outputObj = { sections: { 'Objective Content': 'Clinician gathered the history.' }, meta: { generationReceipt: 'test' } };
+      await nextTick();
+
+      expect(wrapper.findAllComponents({ name: 'NarrivaSessionConfirmations' }).some(control => control.props('consentOnly'))).toBe(true);
+      expect(wrapper.text()).toContain('I reviewed the disclosure agreement');
+      expect(state.chartRecordSections['Consent for services']).toBeUndefined();
+      state.narrivaConsentConfirmed = true;
+      state.intakeDocumentationReviewed = true;
+      await nextTick();
+      expect(state.chartRecordSections['Consent for services']).toContain('consented to');
+      expect(state.chartRecordSections['Objective Content']).toContain('reviewed the disclosure agreement');
+      state.intakeDocumentationReviewed = false;
+      expect(state.chartRecordSections['Objective Content']).not.toContain('reviewed the disclosure agreement');
+    } finally { wrapper.unmount(); }
+  });
+
+  it('keeps the required risk assessment open when an edit makes the review stale', async () => {
+    const { wrapper, state } = await workspace();
+    try {
+      await flushPromises();
+      state.narrivaReview = { phase: 'pre_generation', status: 'failed', riskAssessmentRequired: true };
+      await nextTick();
+      expect(state.narrivaRiskRequired).toBe(true);
+      state.chartRiskAssessment = { ...state.chartRiskAssessment, riskLevel: 'moderate' };
+      await nextTick();
+      expect(state.narrivaReview.status).toBe('stale');
+      expect(state.narrivaRiskRequired).toBe(true);
+      state.narrivaReview = { phase: 'output', status: 'bypassed', riskAssessmentRequired: false,
+        checks: [{ id: 'risk_safety', status: 'bypassed', findings: [{ bypassed: true }] }] };
+      await nextTick();
+      expect(state.narrivaRiskRequired).toBe(false);
+    } finally { wrapper.unmount(); }
+  });
+
   it('opens the signed intake link in the read-only note viewer', async () => {
     vi.mocked(api.get).mockImplementation(async url => ({
       data: url === '/medical-billing/notes/171' ? { note: {
@@ -1479,7 +1521,7 @@ describe('ClinicalNoteGeneratorView smoke', () => {
       await state.approveNoteOutput({afterSign:'close'});
       expect(state.approvalError).toBe('');
       expect(attempts).toBe(2);
-      expect(state.approvalMessage).toContain('saved to clinical records');
+      expect(state.approvalMessage).toBe('Note signed and saved to the chart.');
       expect(state.draftId).toBeNull();
       await flushPromises();
       expect(retiredDraftWrites).toBe(0);

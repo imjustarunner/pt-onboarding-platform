@@ -525,10 +525,9 @@ async function saveTreatmentPlanRequest(req,res,next) {
     const sourceDraftPlanId = parseIntValue(req.body.sourceDraftPlanId);
     const sourceIntakeNoteId = finalizeRequested ? parseIntValue(req.body.sourceIntakeNoteId) : null;
     if (sourceIntakeNoteId) {
-      const { intakePlanSource } = await import('../services/intakeTreatmentPlanWork.service.js');
-      const source = await ClinicalNote.findById(sourceIntakeNoteId);
-      if (!intakePlanSource(source) || Number(source.agency_id) !== agencyId || Number(source.client_id) !== clientId
-          || Number(source.created_by_user_id) !== Number(req.user.id)) {
+      const { intakePlanSource, loadIntakePlanSourceNote } = await import('../services/intakeTreatmentPlanWork.service.js');
+      const source = await loadIntakePlanSourceNote({ noteId: sourceIntakeNoteId, agencyId, clientId, userId: req.user.id });
+      if (!intakePlanSource(source)) {
         return res.status(409).json({ error: { code: 'intake_not_finalized', message: 'Reopen the treatment plan from the signed intake in My Work.' } });
       }
     }
@@ -2082,6 +2081,12 @@ export const signClinicalNote = async (req, res, next) => {
     if (Number(note.created_by_user_id) !== Number(req.user.id)) {
       throw Object.assign(new Error('Only the note author can apply the provider signature'),{status:403});
     }
+    const intakeWorkSession = {
+      service_code: lockedSession?.service_code,
+      session_start_at: lockedSession?.scheduled_start_at,
+      session_timezone: lockedSession?.source_timezone,
+      session_service_date: parseObject(lockedSession?.metadata_json).serviceDate
+    };
     if (note.provider_signed_at) {
       await signingDb.commit();signingDb.release();signingDb=null;
       try { const {onSignedNoteCopay}=await import('../services/familyLedger/copayAttendance.js'); await onSignedNoteCopay({agencyId:note.agency_id,noteId:note.id,providerUserId:req.user.id}); } catch { console.warn('[signClinicalNote] Copay attendance needs billing review'); }
@@ -2089,10 +2094,10 @@ export const signClinicalNote = async (req, res, next) => {
       const retryMeta = typeof note.metadata_json === 'string' ? JSON.parse(note.metadata_json) : note.metadata_json;
       if (retryMeta?.source === H0002_SOURCE) await draftClaimAfterSignature(req, note);
       const terminationTodo = await completeNoteAidSigningWorkflow(note);
-      const intakePlanTodo = await createIntakePlanTodo(note);
+      const intakePlanTodo = await createIntakePlanTodo({ ...note, ...intakeWorkSession });
       await reviewSubmittedNote(req,note);
       const achievementTasks = await queueSignedObjectiveAchievements(note);
-      return res.json({ ok: true, noteId, signedAt: note.provider_signed_at, terminationTodo, intakePlanTodo, achievementTasks });
+      return res.json({ ok: true, noteId, signedAt: note.provider_signed_at, needsSupervisorCosign: retryMeta?.supervisorQueue?.status === 'awaiting_supervisor' && !note.supervisor_cosigned_at, terminationTodo, intakePlanTodo, achievementTasks });
     }
     const sourceMeta=parseObject(note.metadata_json);
     const sessionMeta = parseObject(lockedSession?.metadata_json);
@@ -2330,11 +2335,11 @@ export const signClinicalNote = async (req, res, next) => {
     }
     await completeH0002Screening({ ...note, metadata_json: meta }, signedAtIso);
     const terminationTodo = await completeNoteAidSigningWorkflow({ ...note, provider_signed_at: signedAtIso, metadata_json: meta });
-    const intakePlanTodo = await createIntakePlanTodo(persisted);
+    const intakePlanTodo = await createIntakePlanTodo({ ...persisted, ...intakeWorkSession });
     if (!nonBillable) await draftClaimAfterSignature(req, note);
     try { const {onSignedNoteCopay}=await import('../services/familyLedger/copayAttendance.js'); await onSignedNoteCopay({agencyId:note.agency_id,noteId:note.id,providerUserId:req.user.id}); } catch { console.warn('[signClinicalNote] Copay attendance needs billing review'); }
     await reviewSubmittedNote(req,persisted);
-    return res.json({ ok: true, noteId, contentHash: hash, signedAt: persisted.provider_signed_at, providerSignature:{actorUserId:req.user.id,signerLabel:signerLabel || `Account ${req.user.id}`,signedAt:persisted.provider_signed_at,revisionId:originalRevision.id,contentHash:originalRevision.content_hash,evidence:{ipAddressRecorded:!!meta.attestation.ipAddress,userAgentRecorded:!!meta.attestation.userAgent}}, revisionId: originalRevision.id, revisionContentHash: originalRevision.content_hash, queueSynchronizationPending: !queueSynchronized, terminationTodo, intakePlanTodo, achievementTasks });
+    return res.json({ ok: true, noteId, contentHash: hash, signedAt: persisted.provider_signed_at, needsSupervisorCosign: !!supervisor, providerSignature:{actorUserId:req.user.id,signerLabel:signerLabel || `Account ${req.user.id}`,signedAt:persisted.provider_signed_at,revisionId:originalRevision.id,contentHash:originalRevision.content_hash,evidence:{ipAddressRecorded:!!meta.attestation.ipAddress,userAgentRecorded:!!meta.attestation.userAgent}}, revisionId: originalRevision.id, revisionContentHash: originalRevision.content_hash, queueSynchronizationPending: !queueSynchronized, terminationTodo, intakePlanTodo, achievementTasks });
   } catch (e) {
     if (signingDb) { await signingDb.rollback(); signingDb.release(); signingDb=null; }
     next(e);

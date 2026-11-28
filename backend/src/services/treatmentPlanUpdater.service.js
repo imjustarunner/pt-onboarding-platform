@@ -43,7 +43,7 @@ Return JSON {"recommendation":"...","suggestedObjective":"optional revised objec
     goalText: g.goalText || g.goal_text || '', durationMonths: g.durationMonths || null,
     objectives: (g.objectives || []).filter((o) => !o.superseded_at && o.status !== 'superseded').map((o, oi) => {
       const suggestion = objectives.find((item) => item.ref === `${gi + 1}.${oi + 1}`) || {};
-      return { ...o, objectiveText: o.objectiveText || o.objective_text || '', scaleCurrent: o.scaleCurrent ?? o.scale_current, scaleTarget: o.scaleTarget ?? o.scale_target,
+      return { ...o, objectiveText: o.objectiveText || o.objective_text || '', scaleCurrent: o.scaleCurrent ?? o.scaleStart ?? o.scale_start ?? o.scale_current, scaleTarget: o.scaleTarget ?? o.scale_target,
         scaleDirection: o.scaleDirection || o.scale_direction, interventions: o.interventions || [],
         renewalRecommendation: suggestion.recommendation || '', suggestedObjective: suggestion.suggestedObjective || '', suggestedInterventions: Array.isArray(suggestion.interventions) ? suggestion.interventions : [],
         kioskPrompt: suggestion.clientQuestion || '', kioskPromptOther: suggestion.otherQuestion || '' };

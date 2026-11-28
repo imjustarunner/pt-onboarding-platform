@@ -61,5 +61,5 @@ function choose(value,place) {
 }
 </script>
 <style scoped>
-.clp{min-width:0;display:grid;gap:8px}.clp label{display:grid;gap:6px;font-size:13px;font-weight:600}.clp input,.clp select{font:inherit;font-weight:400;color:inherit;width:100%;min-width:0;box-sizing:border-box;padding:6px;border:1px solid #bacddd;border-radius:4px;background:white}.clp p{font-size:12px;margin:0;line-height:1.5}
+.clp{min-width:0;display:grid;grid-template-columns:minmax(0,1fr);gap:8px}.clp label{display:grid;grid-template-columns:minmax(0,1fr);min-width:0;gap:6px;font-size:13px;font-weight:600}.clp input,.clp select{font:inherit;font-weight:400;color:inherit;width:100%;min-width:0;box-sizing:border-box;padding:6px;border:1px solid #bacddd;border-radius:4px;background:white}.clp p{font-size:12px;margin:0;line-height:1.5}
 </style>

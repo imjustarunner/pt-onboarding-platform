@@ -302,7 +302,7 @@
           <button type="button" class="na-workspace-close" @click="closeNoteWorkspace">← Close</button>
           <div class="na-workspace-title">
             <strong>{{ workspaceTitle }}</strong>
-            <span v-if="signedNoteViewerId" class="na-finalized-badge">Finalized</span>
+            <span v-if="signedNoteViewerId" class="na-finalized-badge">{{ viewingChartNote?.needsSupervisorCosign ? 'Awaiting supervisor' : 'Signed' }}</span>
             <span v-else-if="draftId" class="na-draft-badge">Draft</span>
           </div>
           <div class="na-workspace-actions">
@@ -371,6 +371,8 @@
             <label v-if="assessmentKind !== (assessmentContext?.automaticKind || 'initial')" class="na-sign-check"><input v-model="assessmentKindConfirmed" type="checkbox" /> I confirm this assessment type matches the service performed.</label>
           </div></template>
         </NoteAidQuickSessionBar>
+        <NarrivaSessionConfirmations v-if="finalizedNarriva && !chartNoteReadOnly && narrivaComplianceRequired && !isClientChartAid && !isReviewOnlyAid"
+          consent-only :client-present="sessionClientPresent" :location="sessionLocationModel" v-model:consent="narrivaConsentConfirmed" />
         <section v-if="audioOnlyNote && !chartNoteReadOnly && !signedNoteViewerId" class="narriva-encounter-confirmation">
           <label for="note-audio-only-reason"><strong>Audio only</strong> · Why was this format used?</label>
           <textarea id="note-audio-only-reason" ref="audioOnlyReasonField" v-model="audioOnlyReason" class="na-textarea"
@@ -1039,7 +1041,7 @@
             <input v-model="narrivaRiskCompleted" type="checkbox" :disabled="!isRiskAssessmentComplete(chartRiskAssessment)" /> I completed and reviewed the risk assessment.
           </label>
 
-        <label v-if="initialIntakeDocumentation && !signedNoteViewerId && !chartNoteReadOnly && !finalizedNarriva" class="na-sign-check">
+        <label v-if="initialIntakeDocumentation && !signedNoteViewerId && !chartNoteReadOnly" class="na-sign-check">
           <input v-model="intakeDocumentationReviewed" type="checkbox" />
           I reviewed the disclosure agreement, my education and supervision status, informed consent, and practice policies with the attending participants.
         </label>
@@ -1136,7 +1138,7 @@
         >
           <div class="na-output-head">
             <div>
-              <h2>Finalized note</h2>
+              <h2>{{ viewingChartNote?.needsSupervisorCosign ? 'Note awaiting supervisor co-signature' : 'Signed note' }}</h2>
               <span class="na-ready-badge na-ready-badge--signed">Signed · read only</span>
             </div>
             <button type="button" class="na-btn-outline" @click="beginAmendmentFromSignedNote">
@@ -1514,7 +1516,7 @@
         :review-items="noteReviewQueueItems"
         :review-error="noteReviewWorkError"
         :cosign-error="cosignQueueError"
-        :mode="supervisorReviewItem ? 'cosign' : ''"
+        :mode="supervisorReviewItem || route.query.launchIntent === 'cosign' ? 'cosign' : ''"
         @add-todo="showTodoImportModal = true"
         @select="activateWorkQueueItem"
         @select-cosign="activateCosignQueueItem"
@@ -1637,7 +1639,7 @@ import NoteAidClientPicker from '../../components/clinical/NoteAidClientPicker.v
 import ClinicalNoteNavigator from '../../components/clinical/ClinicalNoteNavigator.vue';
 import { noteSectionNavigationLabel } from '../../utils/clinicalNoteNavigation.js';
 import ClinicalNoteChartPreview from '../../components/clinical/ClinicalNoteChartPreview.vue';
-import { clinicalNoteRecordSections, initialAssessmentDocumentationApplies, intakeDocumentationStatement, intakeObjectiveFirst } from '../../utils/clinicalNoteRecordSections.js';
+import { applyIntakeDocumentationReview, clinicalNoteRecordSections, initialAssessmentDocumentationApplies } from '../../utils/clinicalNoteRecordSections.js';
 import NarrivaEncounterPrompts from '../../components/clinical/NarrivaEncounterPrompts.vue';
 import NarrivaSessionConfirmations from '../../components/clinical/NarrivaSessionConfirmations.vue';
 import { planObjectiveReview, objectiveReviewMessage } from '../../utils/narrivaObjectiveReview.js';
@@ -1696,6 +1698,7 @@ import {
   buildLeftLibraryRows,
   deriveWorkQueueDocStatus,
   draftMatchesWorkQueueItem,
+  indexSignedEncounters,
   filterWorkQueueForRightPanel,
   normalizeDocStatus,
   sessionDedupeKey,
@@ -3479,16 +3482,30 @@ const sessionLocationModel=computed({get:()=>({locationLabel:sessionLocationLabe
  sessionLocationLabel.value=label;narrivaModality.value=value.modality;
 }});
 function inheritScheduledLocation(scheduled) {
- if(!scheduled || sessionLocationEdited.value || Object.hasOwn(outputObj.value?.meta?.sessionContext || {},'locationLabel'))return;
- const site=sessionLocationChoices.value.find(choice=>scheduled.serviceLocationId?Number(choice.serviceLocationId)===Number(scheduled.serviceLocationId):scheduled.billingOfficeLocationId&&Number(choice.billingOfficeLocationId)===Number(scheduled.billingOfficeLocationId)&&String(choice.placeOfService)===String(scheduled.placeOfService));
- if(site)sessionLocationLabel.value=site.value;
- else if(!sessionLocationLabel.value && scheduled.locationLabel){
-  const label=scheduled.locationLabel;
-  const saved={...scheduled,value:label,label,name:label};
-  if(!sessionLocationChoices.value.some(choice=>choice.value===label))sessionLocationChoices.value=[...sessionLocationChoices.value,saved];
-  sessionLocationLabel.value=label;
- }
- if(!narrivaModality.value && scheduled.modality)narrivaModality.value=scheduled.modality;
+  if (!scheduled || sessionLocationEdited.value) return;
+  const saved = outputObj.value?.meta?.sessionContext;
+  const remote = ['02', '10'].includes(String(scheduled.placeOfService));
+  const incompleteTelehealth = remote && !saved?.placeOfService &&
+    /^(?:telehealth|online|virtual|audio only)(?:$|[ (—-])/i.test(saved?.locationLabel || '');
+  if (saved?.locationLabel && !incompleteTelehealth) return;
+
+  const site = sessionLocationChoices.value.find(choice =>
+    (!scheduled.placeOfService || String(choice.placeOfService) === String(scheduled.placeOfService)) &&
+    (scheduled.serviceLocationId
+      ? Number(choice.serviceLocationId) === Number(scheduled.serviceLocationId)
+      : scheduled.billingOfficeLocationId && Number(choice.billingOfficeLocationId) === Number(scheduled.billingOfficeLocationId))
+  );
+  if (site) sessionLocationLabel.value = site.value;
+  else if ((!sessionLocationLabel.value || remote) && scheduled.locationLabel) {
+    const label = scheduled.locationLabel;
+    const choice = sessionLocationChoices.value.find(item => item.value === label);
+    sessionLocationChoices.value = [
+      { ...choice, ...scheduled, value: label, label, name: label },
+      ...sessionLocationChoices.value.filter(item => item.value !== label)
+    ];
+    sessionLocationLabel.value = label;
+  }
+  if (!narrivaModality.value && scheduled.modality) narrivaModality.value = scheduled.modality;
 }
 
 const narrivaAssessmentEvidence=ref([]),showNarrivaAssessmentEvidence=ref(false);
@@ -3798,6 +3815,9 @@ async function openSignedClinicalNote(noteId, { agencyId = null, preserveWorkQue
   closeSupervisorReview();
   const nid = Number(noteId || 0);
   if (!nid) return false;
+  libraryExpanded.value = false;
+  showAidPicker.value = false;
+  showActualSessionPicker.value = false;
   collapseSidebarsForNote();
   signedNoteViewerId.value = nid;
   props.demoPresentation?.onSelection?.({kind:'signed',id:nid});
@@ -5372,7 +5392,7 @@ const nextSameClientInProgressRow = computed(() => {
   return rows[0] || null;
 });
 
-const myWorkItems = computed(() => buildMyWorkItems({ drafts: recentDrafts.value, workQueueItems: workQueueItems.value }));
+const myWorkItems = computed(() => buildMyWorkItems({ drafts: recentDrafts.value, workQueueItems: workQueueItems.value, signedSessions: signedNoteSessions.value }));
 const workspaceWorkCounts = computed(() => myWorkCounts(myWorkItems.value));
 const sortedWorkQueueItems = computed(() => sortWorkQueueItems(myWorkItems.value, workQueueSortBy.value, workQueueSortDir.value));
 const workQueueTodoCount = computed(() => workspaceWorkCounts.value.notStarted);
@@ -5550,12 +5570,13 @@ const draftNoteTypeLabel = (d) => {
   if (String(parsed?.meta?.source || '') === 'session_recording') return 'Session Recording';
   const kind = String(d?.note_kind || d?.noteKind || parsed?.meta?.noteKind || '').toLowerCase();
   const toolId = String(parsed?.meta?.toolId || d?.tool_id || '').toLowerCase();
-  if (kind.includes('treatment') || toolId.includes('plan') || kind === 'plan') {
-    return 'Treatment plan';
+  const code = singleServiceCodeLabel(d?.service_code || d?.serviceCode || parsed?.meta?.serviceCode || '');
+  if (code === 'H0031' && /additional/i.test(toolId)) return 'Additional assessment (H0031)';
+  if (kind.includes('intake') || ['90791', '90792', 'H0031'].includes(code) || /(?:^|_)intake(?:_|$)/.test(toolId)) {
+    return code ? `Intake (${code})` : 'Intake';
   }
-  const code = singleServiceCodeLabel(d?.service_code || d?.serviceCode || '');
-  if (!code) return kind.includes('intake') ? 'Intake' : 'Progress Note';
-  if (kind.includes('intake')) return `Intake (${code})`;
+  if (kind.includes('treatment') || toolId.includes('plan') || kind === 'plan') return 'Treatment plan';
+  if (!code) return 'Progress Note';
   if (kind.includes('termination')) return 'Termination note';
   return `Progress (${code})`;
 };
@@ -7056,8 +7077,11 @@ watch(
 
 function currentRecordSections() {
   let sections = Object.fromEntries(mergedSectionEntries.value || []);
-  if (noteWriterMode.value === 'manual' && narrivaConsentConfirmed.value) {
-    sections['Consent for services'] = encounterConsentStatement({...sessionLocationModel.value, consentConfirmed:true});
+  if ((narrivaComplianceRequired.value || noteWriterMode.value === 'manual') && !isClientChartAid.value && !isReviewOnlyAid.value) {
+    delete sections['Consent for services'];
+    if (narrivaConsentConfirmed.value) sections['Consent for services'] = encounterConsentStatement({
+      ...sessionLocationModel.value, consentConfirmed: true, clientPresent: sessionClientPresent.value
+    });
   }
   if (isIntakeOutput.value || showStructuredChartPanel.value) sections = intakeSectionsForRecord(sections, {
     mentalStatusExam: skipMentalStatusExam.value ? null : chartMentalStatus.value, skipMse: skipMentalStatusExam.value, riskAssessment: chartRiskAssessment.value,
@@ -7074,9 +7098,9 @@ function currentRecordSections() {
 const chartRecordSections = computed(() => {
   let sections = clinicalNoteRecordSections(currentRecordSections());
   if (initialIntakeDocumentation.value) {
-    const statement = noteWriterMode.value === 'manual' && intakeDocumentationReviewed.value === true
-      ? intakeDocumentationStatement(!!clinicalCosignSupervisor.value?.supervisor_id) : '';
-    sections = intakeObjectiveFirst(sections, statement);
+    sections = applyIntakeDocumentationReview(sections, {
+      reviewed: intakeDocumentationReviewed.value, supervised: !!clinicalCosignSupervisor.value?.supervisor_id
+    });
   }
   if (audioOnlyNote.value && audioOnlyReason.value.trim()) sections['Reason for Audio Only'] = audioOnlyReason.value.trim();
   return sections;
@@ -7364,9 +7388,11 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
     let terminationTodo = null;
     let intakePlanTodo = null;
     let providerSignatureAt = null;
+    let awaitsCosign = false;
     const openTerminationAfterSign = ['now', 'after_progress'].includes(terminationNextStep.value);
     if (shouldAutosign && createdNote?.provider_signed_at) {
       providerSignatureAt = createdNote.provider_signed_at;
+      awaitsCosign = createdNote.needsSupervisorCosign === true;
       pendingChartSignature = null;
     } else if (shouldAutosign) {
       if (checkedEncounter && signingVersion!==narrivaEditVersion) throw new Error('The note changed while saving. Review the updated note before signing.');
@@ -7384,6 +7410,7 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
         );
         if (!signRes?.data?.signedAt) throw new Error('The server did not confirm the provider signature. Reload the saved note before continuing.');
         providerSignatureAt = signRes.data.signedAt;
+        awaitsCosign = signRes.data.needsSupervisorCosign === true;
         pendingChartSignature=null;
         terminationTodo = signRes?.data?.terminationTodo || null;
         intakePlanTodo = signRes?.data?.intakePlanTodo || null;
@@ -7396,8 +7423,9 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
       }
     }
 
-    // Claim drafts are prepared server-side from the signed note.
-    const claimDraftMsg = '';
+    const chartSignatureMessage = awaitsCosign
+      ? 'Note signed and submitted for supervisor co-signature.'
+      : 'Note signed and saved to the chart.';
 
     if (isTreatmentSummaryAid.value && noteId) {
       treatmentSummaryNoteId.value = noteId;
@@ -7423,7 +7451,7 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
         : 'Review complete — note saved to client chart.')
       : (isTreatmentSummaryAid.value
         ? 'Treatment Summary saved. Download/print PDF, then complete provider and clinical supervisor signatures.'
-        : `Signed as medically necessary and saved to clinical records.${claimDraftMsg}`);
+        : chartSignatureMessage);
     if (intakePlanTodo) {
       workQueueItems.value = [...workQueueItems.value.filter(row => row.id !== intakePlanTodo.id), normalizeWorkQueueItemStatus(intakePlanTodo)];
     }
@@ -7485,7 +7513,7 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
       await closeNoteWorkspace();
       approvalMessage.value = signedMsg;
       postSignatureNotice.value = {
-        message: shouldAutosign && !isReviewOnlyAid.value && !isTreatmentSummaryAid.value ? 'Note signed and saved to the chart.' : signedMsg,
+        message: shouldAutosign && !isReviewOnlyAid.value && !isTreatmentSummaryAid.value ? chartSignatureMessage : signedMsg,
         noteId, agencyId: signedAgencyId, nextPlan: intakePlanTodo
       };
     }
@@ -8391,65 +8419,25 @@ function resolveSignedClinicalNoteId(itemOrRow = {}) {
   const rowId = String(itemOrRow.id || '');
   const signedRowMatch = rowId.match(/^signed_(\d+)$/);
   if (signedRowMatch) return Number(signedRowMatch[1]);
-  const draftId = Number(itemOrRow.draftId || itemOrRow.raw?.draftId || 0);
-  const sessions = signedNoteSessions.value || [];
-  if (draftId) {
-    const byDraft = sessions.find((s) => Number(s.draftId) === draftId);
-    if (byDraft?.noteId) return Number(byDraft.noteId);
-  }
-  const key = queueItemSessionKey(itemOrRow)
-    || sessionDedupeKey({
-      officeEventId: itemOrRow.officeEventId || itemOrRow.raw?.officeEventId,
-      clinicalSessionId: itemOrRow.clinicalSessionId || itemOrRow.raw?.clinicalSessionId,
-      clientId: itemOrRow.clientId || itemOrRow.raw?.clientId,
-      date_of_service: itemOrRow.date_of_service || itemOrRow.date || itemOrRow.raw?.dateOfService,
-      service_code: itemOrRow.serviceCode || itemOrRow.service_code || itemOrRow.raw?.serviceCode
-    });
-  if (!key) return null;
-  const hit = sessions.find((s) => sessionDedupeKey({
-    officeEventId: s.officeEventId,
-    clinicalSessionId: s.clinicalSessionId,
-    clientId: s.clientId,
-    date_of_service: s.dateOfService,
-    service_code: s.serviceCode,
-    draftId: s.draftId,
-    noteId: s.noteId
-  }) === key);
-  return hit?.noteId ? Number(hit.noteId) : null;
+  const findSignedEncounter = indexSignedEncounters(signedNoteSessions.value);
+  const match = findSignedEncounter({ ...itemOrRow.raw, ...itemOrRow }, itemOrRow.draftId || itemOrRow.raw?.draftId);
+  return match ? Number(match.noteId) : null;
 }
 
 function applySignedSessionsToQueue(signedSessions = []) {
-  const sessionByKey = new Map();
-  const sessionByDraftId = new Map();
-  for (const s of signedSessions || []) {
-    if (s?.draftId) sessionByDraftId.set(Number(s.draftId), s);
-    const k = sessionDedupeKey({
-      officeEventId: s.officeEventId,
-      clinicalSessionId: s.clinicalSessionId,
-      clientId: s.clientId,
-      date_of_service: s.dateOfService,
-      service_code: s.serviceCode,
-      draftId: s.draftId,
-      noteId: s.noteId
-    });
-    if (k) sessionByKey.set(k, s);
-  }
-  if (sessionByKey.size || sessionByDraftId.size) {
-    workQueueItems.value = (workQueueItems.value || []).map((item) => {
+  const findSignedEncounter = indexSignedEncounters(signedSessions);
+  if (signedSessions.length) {
+    workQueueItems.value = (workQueueItems.value || []).map(item => {
       if (item.sourceIntakeNoteId || isUnlinkedWorkQueueItem(item)) return item;
-      const k = queueItemSessionKey(item);
-      const byKey = k && sessionByKey.get(k);
-      const byDraft = item.draftId && sessionByDraftId.get(Number(item.draftId));
-      const match = byKey || byDraft;
+      const match = findSignedEncounter(item);
       if (!match) return item;
       return {
         ...item,
         draftId: null,
-        clinicalNoteId: match.noteId || item.clinicalNoteId || null,
-        agencyId: match.agencyId || item.agencyId || null,
+        clinicalNoteId: match.noteId,
         status: DOC_STATUS.SIGNED,
         docStatus: DOC_STATUS.SIGNED,
-        signedAt: item.signedAt || match.signedAt || new Date().toISOString()
+        signedAt: item.signedAt || match.signedAt || null
       };
     });
   }
@@ -8827,7 +8815,7 @@ async function onLibrarySidebarSelect(row) {
   clientHydrateSeq += 1;
   const draft = row.raw || row;
   if (draft?.id && row.source !== 'work_queue') {
-    loadDraftIntoWorkspace(draft, {
+    await loadDraftIntoWorkspace(draft, {
       expectedClientId: Number(row.clientId || draft.client_id || draft.clientId || 0) || null,
       preserveWorkQueueItemId: !!row.workQueueId
     });
@@ -10050,7 +10038,8 @@ const loadClinicalNoteIntoWorkspace = async (
       id: note.id,
       title: note.title || '',
       standalone: !!note.standalone,
-      noteType: note.noteType || null
+      noteType: note.noteType || null,
+      needsSupervisorCosign: note.needsSupervisorCosign === true
     };
     draftId.value = null;
     activeWorkQueueItemId.value = preserveWorkQueueId || null;
@@ -10743,7 +10732,16 @@ watch([() => route.query.recordingId,effectiveClientId,sessionClinicalSessionId,
 watch([sessionClinicalSessionId,noteAidAgencyId,effectiveClientId],loadNarrivaEncounterService);
 watch([noteAidAgencyId, currentAgencyId], loadNarrivaGeneratorMappings);
 watch([actualServiceCode, selectedProgramId, narrivaUnderlyingCode], syncMappedNarrivaTool);
-watch(() => narrivaReview.value?.riskAssessmentRequired, required => { narrivaRiskRequired.value = required === true; });
+watch(narrivaReview, review => {
+  if (!review || review.status === 'stale') return;
+  if (review.riskAssessmentRequired === true) {
+    narrivaRiskRequired.value = true;
+    return;
+  }
+  const riskCheck = review.checks?.find(check => check.id === 'risk_safety');
+  const bypassed = riskCheck?.status === 'bypassed' && riskCheck.findings?.some(finding => finding.bypassed);
+  if (review.riskAssessmentRequired === false && bypassed) narrivaRiskRequired.value = false;
+}, { flush: 'sync' });
 watch([effectiveClientId,actualServiceCode,dateOfService],()=>{if(!isWorkspaceHydrating())diagnosesConfirmed.value=false;void loadAssessmentContext();});
 watch(assessmentKind,()=>{if(!isWorkspaceHydrating())syncMappedNarrivaTool();});
 watch([intakeDiagnosisRecommendations,intakeDocumentationReviewed,assessmentKind,assessmentKindConfirmed,diagnosesConfirmed,audioOnlyReason, sessionObjectiveRatings, sessionPresentingProblemOverride, chartDiagnoses, chartDiagnosticJustification, inputText, revisionInstruction, actualServiceCode, dateOfService, sessionDurationMinutes, sessionStartTimeLocal, sessionEndTimeLocal, sessionParticipants, sessionParticipantsDetail, sessionLocationLabel, chartMentalStatus, chartRiskAssessment, sectionOverrides, narrivaUnderlyingServiceCode, narrivaConsentConfirmed, narrivaModality, narrivaRiskCompleted, narrivaRiskIncluded, narrivaClientLocationDescription, narrivaAssessmentEvidence], () => { if (!isWorkspaceHydrating()) { narrivaEditVersion++; invalidateNarrivaReview({ preserve: narrivaReview.value?.phase === 'pre_generation' }); } }, { deep:true });
