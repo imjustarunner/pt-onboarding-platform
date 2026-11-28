@@ -16,7 +16,7 @@ vi.mock('../noteAidChartAudit.service.js',()=>({logNoteAidChartEvent:m.audit}));
 // Source ownership is exercised by its own tests; this suite drives the real
 // asynchronous review runner, persisted result transitions, rules and sign gate.
 vi.mock('../narrivaAccess.service.js',async importOriginal=>{const actual=await importOriginal();return {...actual,requireNarrivaAgency:m.requireAgency};});
-import {createNarrivaReview,readNarrivaReview,resolveNarrivaFinding,assertNarrivaQuickSign,assertNarrivaPreGeneration,narrivaModelPayload,inspectNarrivaFacts} from '../narrivaReview.service.js';
+import {createNarrivaReview,readNarrivaReview,resolveNarrivaFinding,assertNarrivaQuickSign,assertNarrivaPreGeneration,loadDirectNarrivaWriterContext,narrivaModelPayload,inspectNarrivaFacts} from '../narrivaReview.service.js';
 import {assertNarrivaRiskBeforeSignature} from '../narrivaRiskAssessment.service.js';
 import {narrivaSourceHash,NARRIVA_QUALITY_CRITERIA,NARRIVA_RULES_VERSION} from '../narrivaReviewPolicy.service.js';
 let rows,source,facts,features,riskRequired,referenceVersion,requiredReferenceComplete,supportCoverageComplete;
@@ -64,6 +64,27 @@ describe('server-owned Narriva review and Quick Sign boundary',()=>{
   const checks=await running;
   expect(checks).toMatchObject({workingDraft:expect.stringContaining('Synthetic documented'),facts:{currentRisk:true},reviewedWriter:{model:'synthetic-test'}});
   expect(checks).not.toHaveProperty('qualityEvidence');
+ });
+ it('validates the exact saved source for direct drafting without starting a review',async()=>{
+  source.meta.writerMode='smart_notes';source.source.service_code='90837';
+  source.planReview={eligible:true,missing:[],objectives:[{objective:'Practice a skill',rating:6}]};
+  m.load.mockResolvedValue(source);
+  const scope={agencyId:2,clientId:10,draftId:43,clinicalSessionId:20,serviceCode:'90837',writerMode:'smart_notes',inputText:source.inputText};
+  await expect(loadDirectNarrivaWriterContext(clinician,scope)).resolves.toMatchObject({objectives:source.planReview.objectives,savedInputText:source.inputText});
+  await expect(loadDirectNarrivaWriterContext(clinician,{...scope,inputText:'Unsaved source'})).rejects.toMatchObject({code:'NARRIVA_GENERATION_SOURCE_CHANGED'});
+  source.planReview.missing=[8];
+  await expect(loadDirectNarrivaWriterContext(clinician,scope)).rejects.toMatchObject({code:'NARRIVA_OBJECTIVE_RATINGS_REQUIRED'});
+  expect(m.model).not.toHaveBeenCalled();
+ });
+ it('checks attendance and safety from the source of an already-generated draft without grading or rewriting it',async()=>{
+  const draft={...source,phase:'output',draftId:43,noteId:null,narrative:'Synthetic generated note.',inputText:'The client and caregiver both attended.'};
+  const model=vi.fn(async()=>({text:JSON.stringify({currentRisk:false,riskUncertain:false,additionalParticipants:true})}));
+  const result=await inspectNarrivaFacts(draft,{model,review:{backgroundQuality:true}});
+  expect(result.facts.additionalParticipants).toBe(true);
+  expect(result).not.toHaveProperty('qualityEvidence');
+  expect(model).toHaveBeenCalledTimes(1);
+  expect(model.mock.calls[0][0].prompt).toContain(draft.inputText);
+  expect(model.mock.calls[0][0].prompt).not.toContain(draft.narrative);
  });
  it('uses explicit source safety facts even when optional encounter fields are omitted',async()=>{
   const draft={...source,phase:'pre_generation',draftId:43,noteId:null};

@@ -27,6 +27,8 @@ describe('OverviewTodaySchedule meeting rejoin', () => {
       title: 'Meeting',
       timeLabel: '7:00 AM – 8:00 AM',
       status: 'in_progress',
+      startMs: Date.now() - 60000,
+      endMs: Date.now() + 60000,
       joinUrl: '/join/team-meeting/host-token'
     };
     const wrapper = mount(OverviewTodaySchedule, {
@@ -37,6 +39,17 @@ describe('OverviewTodaySchedule meeting rejoin', () => {
     expect(join.exists()).toBe(true);
     await join.trigger('click');
     expect(wrapper.emitted('join')).toEqual([[meeting]]);
+  });
+
+  it('drops elapsed appointments even when the appointment status is scheduled', () => {
+    const now = Date.now();
+    const wrapper = mount(OverviewTodaySchedule, { props: { items: [
+      { id: 1, title: 'Past appointment', status: 'scheduled', startMs: now - 7200000, endMs: now - 3600000 },
+      { id: 2, title: 'Next appointment', status: 'scheduled', startMs: now + 3600000, endMs: now + 7200000 }
+    ] } });
+    expect(wrapper.text()).toContain('Next appointment');
+    expect(wrapper.text()).not.toContain('Past appointment');
+    wrapper.unmount();
   });
 
   it('does not offer rejoin after a meeting is completed', () => {

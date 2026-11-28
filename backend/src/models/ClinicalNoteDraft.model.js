@@ -271,6 +271,9 @@ class ClinicalNoteDraft {
   static async listRecentForUser({
     userId,
     draftId = null,
+    clinicalSessionId = null,
+    officeEventId = null,
+    encounterClientId = null,
     agencyId = null,
     agencyIds = null,
     days = 7,
@@ -297,6 +300,20 @@ class ClinicalNoteDraft {
       if (!id) return [];
       where.push('id = ?');
       params.push(id);
+    }
+    if (encounterClientId && (clinicalSessionId || officeEventId)) {
+      where.push('client_id = ?', 'archived_at IS NULL');
+      params.push(encounterClientId);
+      if (clinicalSessionId && officeEventId) {
+        where.push('(d.clinical_session_id = ? OR (d.office_event_id = ? AND d.clinical_session_id IS NULL))');
+        params.push(clinicalSessionId, officeEventId);
+      } else if (clinicalSessionId) {
+        where.push('clinical_session_id = ?');
+        params.push(clinicalSessionId);
+      } else {
+        where.push('office_event_id = ?');
+        params.push(officeEventId);
+      }
     }
     if (aids.length === 1) {
       where.push('(agency_id = ? OR agency_id IS NULL)');

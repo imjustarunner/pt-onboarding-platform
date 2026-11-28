@@ -82,7 +82,7 @@ function reviewedStatus(review) {
  const mandatory=narrivaOverall(review.checks.filter(check=>check.status!=='deferred'));
  if(mandatory!=='passed')return mandatory;
  if(review.priorDecisions?.length || review.manualEdited)return 'bypassed';
- if(review.phase==='pre_generation')return mandatory;
+ if(review.phase==='pre_generation' || review.backgroundQuality)return mandatory;
  return review.qualityBypass?'bypassed':review.scoring.qualityPassed?'passed':'action_required';
 }
 const pendingOutputRequests=new Map();
@@ -186,14 +186,14 @@ export async function inspectNarrivaFacts(source,{model=callPrivateSessionText,k
  const privacyInputs={identifiers:source.identifiers,clientNames:[source.client.first_name,source.client.last_name,source.client.full_name,source.client.initials],providerNames:[source.provider?.first_name,source.provider?.last_name]};
  const privacyContext=createSessionPrivacyContext(privacyInputs);
  const preflight = source.phase === 'pre_generation';
- const backgroundQuality = preflight && review?.backgroundQuality === true;
+ const backgroundQuality = review?.backgroundQuality === true;
  const configuredModel=clinicalNoteModelOptions();
  const reviewOptions={...configuredModel,...(configuredModel.thinkingLevel?{thinkingLevel:'LOW'}:{})};
  const evidencePayload=narrivaModelPayload(source);
  let enrollmentSources=null,enrollmentPreview=null,enrollmentAssessments=null,intakeSourceHash=null;
  await onProgress({stage:'sources'});
  const intake=['clinical_90791_intake_plan','clinical_90791_note_aid','clinical_h0031_intake','clinical_h0031_additional'].includes(mappedGeneratorId || source.meta?.toolId);
- if (intake) {
+ if (intake && (preflight || !backgroundQuality)) {
    const intakeContext = await buildClinicalIntakeSourceContext({agencyId:source.agencyId,clientId:source.client.id});
    evidencePayload.enrollmentClinicalHistory = intakeContext.contextText;
    intakeSourceHash=narrivaSourceHash(intakeContext.contextText);
@@ -220,7 +220,7 @@ export async function inspectNarrivaFacts(source,{model=callPrivateSessionText,k
    'Current risk requires an actual current report of danger to self or others. Distinguish historical or denied risk, a carried chart diagnosis, a blank screening prompt, and ordinary behavioral concerns. Uncertain risk requires a current source suggesting possible harm.',
    'Set clientPresent only if the narrative supports attendance or absence. AdditionalParticipants means a person who attended, not someone merely discussed. Set locationMatches or modalityMatches false only when the narrative explicitly contradicts the recorded encounter.',
    'If interactive complexity is selected, require evidence of a qualifying communication difficulty and its effect on the service. Use the authored service guidance.',
-   sourceConflictInstruction,source.clinical.interactiveComplexitySelected ? guidance : '',JSON.stringify(evidencePayload)
+   sourceConflictInstruction,source.clinical.interactiveComplexitySelected ? guidance : '',JSON.stringify(preflight ? evidencePayload : {...evidencePayload,note:undefined})
   ].join('\n\n')
  }).then(result=>{
   const facts=parse(String(result.text || '').trim().replace(/^```(?:json)?\s*/,'').replace(/\s*```$/,''));
@@ -354,7 +354,10 @@ async function executeReview(id,user,input,req,source) {
    const result=deriveNarrivaCheck(check.id,{...source,facts},{preGeneration:source.phase==='pre_generation'});
    if(!review.backgroundQuality)return result;
    if(['necessity_interventions','participation_plan'].includes(check.id))return {...check,status:'deferred'};
-   const findings=result.findings.filter(finding=>!finding.id.endsWith(':documentation'));
+   const findings=review.phase==='output'
+    ? result.findings.filter(finding=>finding.action==='risk_assessment' ||
+      /^(service_code:(additional|client_absent|client_present)|encounter_consent:(location_mismatch|method_mismatch))$/.test(finding.id))
+    : result.findings.filter(finding=>!finding.id.endsWith(':documentation'));
    return {...result,findings,actions:[...new Set(findings.map(finding=>finding.action))],status:findings.length?'action_required':'passed'};
   });
   review.riskAssessmentRequired=review.checks[0].riskAssessmentRequired===true;
@@ -403,6 +406,36 @@ async function initialAssessmentDocumentationStatement(source, actorUserId) {
   return intakeDocumentationStatement(!!policy.supervisorUserId);
 }
 
+async function savedNarrivaWriterContext(source,actorUserId) {
+ const consentStatement=encounterConsentStatement(source.encounter) || null;
+ const chart=parse(source.meta.structuredChart),context=parse(source.meta.narrivaContext);
+ const rawDiagnoses=chart.diagnoses || chart.intakeDiagnoses || source.meta.diagnoses || [];
+ const confirmed=parse(source.confirmedClinicalContext);
+ const clinicalContext={presentingProblem:context.presentingProblem || source.meta.presentingProblem || chart.presentingProblem || confirmed.presentingProblem || '',diagnosticJustification:chart.diagnosticJustification || source.meta.diagnosticJustification || confirmed.diagnosticJustification || '',diagnoses:Array.isArray(confirmed.diagnoses)?confirmed.diagnoses:(Array.isArray(rawDiagnoses)?rawDiagnoses:[]).map(diagnosis=>typeof diagnosis==='string'?{code:diagnosis}:{code:diagnosis.icd10_code || diagnosis.code || '',description:diagnosis.description || diagnosis.diagnosis || '',justification:diagnosis.justification || ''}),...(confirmed.diagnosesReferenceOnly?{diagnosesReferenceOnly:true}:{})};
+ requireNarrivaIdentifierCorrection(JSON.stringify(clinicalContext),source.identifiers);
+ const documentationStatement=await initialAssessmentDocumentationStatement(source,actorUserId);
+ return {consentStatement,clinicalContext,documentationStatement};
+}
+
+export async function loadDirectNarrivaWriterContext(user,{agencyId,clientId,draftId,clinicalSessionId,serviceCode,writerMode,inputText}) {
+ if(!draftId)throw narrivaError(409,'Save this encounter draft before generating.');
+ const source=await loadNarrivaSource(user,{agencyId,draftId,phase:'pre_generation'});
+ if(Number(source.client.id)!==Number(clientId) || Number(source.source.clinical_session_id)!==Number(clinicalSessionId)
+    || String(source.source.service_code || '').toUpperCase()!==String(serviceCode || '').toUpperCase()
+    || (source.meta.writerMode || source.meta.narrivaContext?.writerMode)!==writerMode
+    || narrativeForComparison(inputText)!==narrativeForComparison(source.inputText)){
+  throw narrivaError(409,'The saved encounter or narrative changed. Generate again from the current draft.','NARRIVA_GENERATION_SOURCE_CHANGED');
+ }
+ requireReviewedObjectives(source.planReview);
+ return {...await savedNarrivaWriterContext(source,user.id),savedInputText:source.inputText,objectives:source.planReview?.objectives};
+}
+
+function requireReviewedObjectives(plan){
+ if(!plan)return;
+ if(!plan.eligible)throw narrivaError(422,plan.message);
+ if(plan.missing.length)throw narrivaError(422,objectiveReviewMessage,'NARRIVA_OBJECTIVE_RATINGS_REQUIRED');
+}
+
 // Generation consumes the exact saved narrative that the provider checked.
 export async function assertNarrivaPreGeneration(req,{agencyId,clientId,draftId,clinicalSessionId,inputText,currentGuidance}) {
  const reviewId=positiveId(req.body?.preflightReviewId);
@@ -427,13 +460,7 @@ export async function assertNarrivaPreGeneration(req,{agencyId,clientId,draftId,
   method:approval.method==='all'?'all':'individual',
   sections:sectionTitles
  };
- const consentStatement=encounterConsentStatement(source.encounter) || null;
- const chart=parse(source.meta.structuredChart),context=parse(source.meta.narrivaContext);
- const rawDiagnoses=chart.diagnoses || chart.intakeDiagnoses || source.meta.diagnoses || [];
- const confirmed=parse(source.confirmedClinicalContext);
- const clinicalContext={presentingProblem:context.presentingProblem || source.meta.presentingProblem || chart.presentingProblem || confirmed.presentingProblem || '',diagnosticJustification:chart.diagnosticJustification || source.meta.diagnosticJustification || confirmed.diagnosticJustification || '',diagnoses:Array.isArray(confirmed.diagnoses)?confirmed.diagnoses:(Array.isArray(rawDiagnoses)?rawDiagnoses:[]).map(diagnosis=>typeof diagnosis==='string'?{code:diagnosis}:{code:diagnosis.icd10_code || diagnosis.code || '',description:diagnosis.description || diagnosis.diagnosis || '',justification:diagnosis.justification || ''}),...(confirmed.diagnosesReferenceOnly?{diagnosesReferenceOnly:true}:{})};
- requireNarrivaIdentifierCorrection(JSON.stringify(clinicalContext),source.identifiers);
- const documentationStatement=await initialAssessmentDocumentationStatement(source,req.user.id);
+ const {consentStatement,clinicalContext,documentationStatement}=await savedNarrivaWriterContext(source,req.user.id);
  return {authorApproval,documentationStatement,savedInputText:source.inputText,backgroundQuality:latest.backgroundQuality===true,reviewedWriter:(latest.reviewedWriter || (latest.manualEdited || keptFindings(review).length ? latest.writerCandidate:null)) ? {...(latest.reviewedWriter || latest.writerCandidate),guidanceHash:latest.guidanceHash} : null,workingDraft:latest.workingDraft,objectives:source.planReview?.objectives,intakeSourceHash:latest.intakeSourceHash || null,reviewId:review.id,sourceHash:review.sourceHash,inputHash:review.inputHash,keptAsIs:latest.manualEdited===true || keptFindings(review).length>0,manualEdited:latest.manualEdited===true,decisions:keptFindings(review),consentStatement,clinicalContext};
 }
 
@@ -474,12 +501,9 @@ export async function createNarrivaReview(req,{submitted=false}={}) {
  const input={agencyId:positiveId(req.body?.agencyId),draftId:positiveId(req.body?.draftId),noteId:positiveId(req.body?.noteId),phase:req.body?.phase==='pre_generation'?'pre_generation':'output'};
  if(input.phase==='pre_generation' && !input.draftId)throw narrivaError(400,'Save the session narrative before checking it.');
  const source=await loadNarrivaSource(req.user,input),features=await narrivaFeatures(source.agencyId);
- if(input.phase==='pre_generation' && source.planReview) {
-  if(!source.planReview.eligible)throw narrivaError(422,source.planReview.message);
-  if(source.planReview.missing.length)throw narrivaError(422,objectiveReviewMessage,'NARRIVA_OBJECTIVE_RATINGS_REQUIRED');
- }
+ if(input.phase==='pre_generation')requireReviewedObjectives(source.planReview);
  if(!features.compliance)throw narrivaError(403,'Narriva Compliance is disabled for this workspace.');
- const review={clientPresent:source.encounter.clientPresent,documentationCode:source.service.documentationCode || source.service.code,agencyId:source.agencyId,actorUserId:req.user.id,clientId:positiveId(source.client.id),clinicalSessionId:positiveId(source.source.clinical_session_id),draftId:input.draftId,noteId:input.noteId,phase:input.phase,backgroundQuality:input.phase==='pre_generation' && req.body?.backgroundQuality===true,inputHash:narrivaSourceHash(source.inputText),noteEvidenceHash:source.noteId?narrivaNoteEvidenceHash(source.source):null,draftEvidenceHash:source.draftId && source.phase==='output'?narrivaDraftEvidenceHash(source.source):null,sourceHash:source.sourceHash,rulesVersion:NARRIVA_RULES_VERSION,status:'running',checks:emptyNarrivaChecks(),scoring:pendingNarrivaScoring(),riskAssessmentIncluded:source.clinical.riskAssessmentIncluded===true,riskAssessmentRequired:false,quickSignEligible:false};
+ const review={clientPresent:source.encounter.clientPresent,documentationCode:source.service.documentationCode || source.service.code,agencyId:source.agencyId,actorUserId:req.user.id,clientId:positiveId(source.client.id),clinicalSessionId:positiveId(source.source.clinical_session_id),draftId:input.draftId,noteId:input.noteId,phase:input.phase,backgroundQuality:!!input.draftId && !input.noteId && req.body?.backgroundQuality===true,inputHash:narrivaSourceHash(source.inputText),noteEvidenceHash:source.noteId?narrivaNoteEvidenceHash(source.source):null,draftEvidenceHash:source.draftId && source.phase==='output'?narrivaDraftEvidenceHash(source.source):null,sourceHash:source.sourceHash,rulesVersion:NARRIVA_RULES_VERSION,status:'running',checks:emptyNarrivaChecks(),scoring:pendingNarrivaScoring(),riskAssessmentIncluded:source.clinical.riskAssessmentIncluded===true,riskAssessmentRequired:false,quickSignEligible:false};
  if(submitted && input.noteId && source.source.provider_signed_at && source.source.clinical_version_id) {
   review.submittedRevisionId=Number(source.source.clinical_version_id);
  }

@@ -2677,7 +2677,6 @@
               :clinical-note-id="editorClinicalNoteId"
               :disabled="submitting"
               @open-note="openEditorClinicalNote"
-              @open-session-note="openEditorQuickNote"
               @open-treatment-plan="openEditorTreatmentPlan"
             />
             <p v-else class="muted">Clinical notes are available for client sessions on this tenant.</p>
@@ -17282,8 +17281,9 @@ async function ensureEditorClinicalContext() {
 
 async function openEditorClinicalNote() {
   if (Number(editorAppointmentId.value || 0) > 0 && !await ensureEditorClinicalContext()) return;
+  let draftId;
   try {
-    await editorSessionNotePanel.value?.savePendingDraft?.();
+    draftId = await editorSessionNotePanel.value?.savePendingDraft?.();
   } catch (error) {
     modalError.value = error?.response?.data?.error?.message || error?.message || 'Your session note could not be saved. Keep this appointment open and retry.';
     scheduleEventEditError.value = modalError.value;
@@ -17293,21 +17293,25 @@ async function openEditorClinicalNote() {
   const sessionId = Number(editorClinicalSessionId.value || 0);
   const clientId = Number(editorInfoClientId.value || 0);
   const officeEventId = Number(editorOfficeEventId.value || 0);
+  const serviceCode = String(editorSessionServiceCode.value || bookingServiceCode.value || '').trim();
+  const isIntake = ['90791', 'H0031'].includes(serviceCode.toUpperCase());
   const query = buildNoteAidQuery({
+    agencyId: Number(editorAgencyId.value || effectiveAgencyId.value || 0),
+    draftId: noteId ? undefined : draftId,
     practiceCategory: editorPracticeCategory.value,
     clientId: clientId || undefined,
     clinicalSessionId: sessionId || undefined,
     noteId: noteId || undefined,
     officeEventId: officeEventId || undefined,
-    noteType: 'PROGRESS_NOTE',
+    noteType: isIntake ? 'INTAKE' : 'PROGRESS_NOTE',
     templateVersion: 'v1',
-    launchIntent: 'progress_note',
+    launchIntent: isIntake ? 'intake' : 'progress_note',
     dateOfService: toDateOfService(
       scheduleEventEditForm.value?.startAt
       || editorBookedUntil.value
       || null
     ),
-    serviceCode: String(bookingServiceCode.value || scheduleEventEditForm.value?.serviceCode || '').trim() || undefined
+    serviceCode: serviceCode || undefined
   });
   if (!Object.keys(query).length) return;
   router.push({ name: 'ClinicalNoteGenerator', query }).catch(() => {
@@ -18028,7 +18032,7 @@ const normalizeBookingSelectionPayload = () => {
   };
 };
 
-const preferDefaultServiceLocation = ({ force = false, preferSchool = !sessionReservationContext.value } = {}) => {
+const preferDefaultServiceLocation = ({ force = false, preferSchool = false } = {}) => {
   const locs = (editorIsClinical.value || editorServiceLocationOptions.value?.length
     ? editorServiceLocationOptions.value
     : bookingServiceLocationOptions.value) || [];
@@ -27656,7 +27660,8 @@ watch([virtualSessionSelectedClientIds, virtualSessionClients, bookingServiceCod
   if (ids.length !== 1) return;
   const client = virtualSessionClients.value.find(row => Number(row.id) === ids[0]);
   if (!client) return;
-  const saved = bookingServiceLocationOptions.value.find(location => Number(location.id) === client.defaultServiceLocationId);
+  const saved = bookingServiceLocationOptions.value.find(location => Number(location.id) === Number(client.defaultServiceLocationId)
+    && (client.clientType === 'school' || !Number(location.schoolOrganizationId) && location.placeOfService !== '03'));
   const school = client.clientType === 'school'
     && (!allowedPosForSelectedServiceCode.value || allowedPosForSelectedServiceCode.value.has('03'))
     ? editorClientSchoolLocationOptions.value[0] : null;
@@ -29308,8 +29313,7 @@ watch(bookingTimezoneIana, (zone, previous) => {
 watch(editorClientSchoolLocationOptions, (schools, previous) => {
   if (!showRequestModal.value || isAppointmentEditMode.value || !editorIsClinical.value) return;
   if (schools.map(s => s.id).join(',') === previous.map(s => s.id).join(',')) return;
-  if (sessionReservationContext.value) preferDefaultServiceLocation({ preferSchool: false });
-  else if (schools.length) preferDefaultServiceLocation({ force: true });
+  if (!editorSettingChosen.value) preferDefaultServiceLocation();
 });
 
 </script>

@@ -78,14 +78,20 @@
         </div>
 
         <p
-          v-if="displayQuestion(obj)"
+          v-if="hasObjectiveScale(obj) && displayQuestion(obj)"
           class="na-obj-kiosk-q"
           :class="{ faded: !kioskShareEnabled && (raterKind === 'client' || raterKind === 'other') }"
         >
           {{ displayQuestion(obj) }}
         </p>
 
-        <div class="na-scale-row" role="group" :aria-label="`Scale for objective ${obj.id}`">
+        <p v-if="!usesAlternateObjectiveMeasure(obj)" class="na-obj-scale-key">
+          <span class="na-obj-marker na-obj-marker--start">Start {{ startValue(obj) ?? 'not recorded' }}</span>
+          <span class="na-obj-marker na-obj-marker--prev">Previous {{ previousRated(obj) ?? 'none' }}</span>
+          <span class="na-obj-marker na-obj-marker--goal">Goal {{ targetScaleValue(obj) ?? 'not recorded' }}</span>
+        </p>
+        <p v-else class="na-field-hint">This objective uses a different measure.</p>
+        <div v-if="hasObjectiveScale(obj)" class="na-scale-row" role="group" :aria-label="`Scale for objective ${obj.id}`">
           <button
             v-for="n in 10"
             :key="n"
@@ -93,7 +99,7 @@
             class="na-scale-btn"
             :class="{
               start: startValue(obj) === n,
-              goal: Number(obj.scale_target) === n,
+              goal: targetScaleValue(obj) === n,
               prev: previousRated(obj) === n,
               selected: entry(obj.id)?.disposition === 'rated' && Number(entry(obj.id)?.scaleValue) === n
             }"
@@ -102,7 +108,7 @@
             @click="rate(obj, goal, n)"
           >
             {{ n }}
-            <span v-if="Number(obj.scale_target) === n" class="na-scale-goal-label">Goal</span>
+            <span v-if="targetScaleValue(obj) === n" class="na-scale-goal-label">Goal</span>
           </button>
         </div>
 
@@ -118,9 +124,6 @@
         <p v-else-if="isNonNumeric(obj.id)" class="na-obj-progress muted">
           {{ dispositionCopy(entry(obj.id)?.disposition) }}
         </p>
-        <p v-else-if="Number(obj.scale_target) || startValue(obj) != null" class="na-field-hint">
-          Start {{ startValue(obj) ?? '—' }} · previous {{ previousRated(obj) ?? '—' }} · goal {{ obj.scale_target ?? '—' }}.
-        </p>
         </template>
       </div>
     </div>
@@ -133,6 +136,9 @@ import { computed, nextTick, reactive, ref, watch } from 'vue';
 import { objectiveTargetReached } from '../../utils/treatmentGoalAchievement.js';
 import {
   computeProgressLabel,
+  hasObjectiveScale,
+  targetScaleValue,
+  usesAlternateObjectiveMeasure,
   kioskPromptForObjective,
   kioskPromptOtherForObjective,
   objectiveComparisonCopy,
@@ -221,13 +227,15 @@ function collapsedParts(obj, goal) {
     };
   }
   const val = e.scaleValue != null ? `${e.scaleValue}/10` : '—';
-  const target = e.scaleTarget != null ? ` (goal ${e.scaleTarget})` : '';
+  const baseline = startValue(obj);
+  const target = targetScaleValue(obj);
+  const scaleRange = [baseline != null ? `start ${baseline}` : '', target != null ? `goal ${target}` : ''].filter(Boolean).join(' · ');
   const progressRaw = e.progressLabel ? String(e.progressLabel) : '';
   const progressShort = comparisonCopy(obj);
   return {
     prefix: prefix ? `${prefix} ` : '',
     text: `${text}: `,
-    rating: `${val}${target}`,
+    rating: scaleRange ? `${val} (${scaleRange})` : val,
     progress: progressShort ? ` · ${progressShort}` : '',
     progressClass: progressRaw || '',
     achieved: objectiveAchieved(obj)
@@ -280,7 +288,7 @@ function priorRating(obj, kind = raterKind.value, label = otherLabel.value) {
 }
 function previousRated(obj) {
   const prior = priorRating(obj);
-  return prior ? Number(prior.scale_value ?? prior.scaleValue) : null;
+  return prior ? Number(prior.scale_value ?? prior.scaleValue) : raterKind.value === 'clinician' ? (obj.previousScore ?? null) : null;
 }
 function comparisonCopy(obj) {
   const e = entry(obj.id);
@@ -305,7 +313,7 @@ function displayQuestion(obj) {
 function scaleTitle(obj, n) {
   const bits = [String(n)];
   if (startValue(obj) === n) bits.push('start');
-  if (Number(obj.scale_target) === n) bits.push('goal');
+  if (targetScaleValue(obj) === n) bits.push('goal');
   if (previousRated(obj) === n) bits.push('previous session');
   if (entry(obj.id)?.disposition === 'rated' && Number(entry(obj.id)?.scaleValue) === n) {
     bits.push('this session');
@@ -335,7 +343,7 @@ function emitAll() {
 
 function rate(obj, goal, n) {
   const previous = previousRated(obj);
-  const target = obj.scale_target != null ? Number(obj.scale_target) : null;
+  const target = targetScaleValue(obj);
   const progressLabel = computeProgressLabel({
     previousValue: previous,
     newValue: n,
@@ -374,7 +382,7 @@ function setDisposition(obj, goal, disposition) {
     goalText: goal.goal_text || '',
     objectiveText: obj.objective_text || '',
     scaleValue: null,
-    scaleTarget: obj.scale_target != null ? Number(obj.scale_target) : null,
+    scaleTarget: obj.scale_target != null ? targetScaleValue(obj) : null,
     previousScaleValue: previous,
     previousDateOfService: priorRating(obj)?.date_of_service || priorRating(obj)?.dateOfService || null,
     scaleStart: startValue(obj),
@@ -409,9 +417,9 @@ function bounceToNextObjective(afterId) {
   const nextId = nextUnratedObjectiveId(afterId);
   if (nextId == null) return;
   nextTick(() => {
-    const el = document.querySelector(`[data-objective-id="${CSS.escape(String(nextId))}"]`);
+    const el = [...document.querySelectorAll('[data-objective-id]')].find(node => node.dataset.objectiveId === String(nextId));
     if (!el) return;
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
     el.classList.add('na-obj-card--focus');
     window.setTimeout(() => el.classList.remove('na-obj-card--focus'), 900);
   });
@@ -454,6 +462,12 @@ defineExpose({
 </script>
 
 <style scoped>
+.na-obj-scale-key{display:flex;gap:6px;flex-wrap:wrap;margin:5px 0;font-size:.78rem}
+.na-obj-marker{padding:2px 6px;border-radius:4px}
+.na-obj-marker--start{background:#596b82;color:#fff}
+.na-obj-marker--prev{background:#ffe6ad;color:#694605}
+.na-obj-marker--goal{background:#e5f5ea;color:#145630;box-shadow:inset 0 0 0 1px #168344}
+
 .na-obj-goal--achieved,.na-obj-card--achieved,.na-obj-achieved{background:#ecfdf5!important;border-color:#22c55e!important;color:#14532d}.na-achieved-label{font-size:12px;font-weight:700;padding:3px 7px;border-radius:6px;background:#d1fae5;color:#166534;white-space:nowrap}
 .na-obj-ratings--interactive-collapse .na-obj-compact-text{display:-webkit-inline-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;vertical-align:top}.na-obj-ratings--interactive-collapse .na-obj-text{align-items:flex-start}.na-obj-ratings--interactive-collapse .na-obj-text>span:nth-child(2){flex:1;min-width:0}.na-obj-ratings--interactive-collapse .na-obj-text>button{flex:none;font-size:11px}
 .na-obj-ratings {

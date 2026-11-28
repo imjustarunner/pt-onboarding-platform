@@ -12,9 +12,7 @@ import ClinicalNoteNavigator from '../components/clinical/ClinicalNoteNavigator.
 import { noteSectionNavigationLabel } from '../utils/clinicalNoteNavigation.js';
 import ClinicalNoteChartPreview from '../components/clinical/ClinicalNoteChartPreview.vue';
 import ClinicalDiagnosisReviewPanel from '../components/clinical/ClinicalDiagnosisReviewPanel.vue';
-import NarrivaReviewProgress from '../components/clinical/NarrivaReviewProgress.vue';
 import { clinicalNoteRecordSections, initialAssessmentDocumentationApplies, intakeDocumentationStatement, intakeObjectiveFirst } from '../utils/clinicalNoteRecordSections.js';
-import NarrivaReviewWorkspace from '../components/clinical/NarrivaReviewWorkspace.vue';
 import { resolveNoteAidBillingCodes } from '../utils/noteAidBillingAddons.js';
 import NarrivaSessionConfirmations from '../components/clinical/NarrivaSessionConfirmations.vue';
 import { planObjectiveReview, formatObjectiveRatings, objectiveReviewMessage, objectiveDispositions } from '../utils/narrivaObjectiveReview.js';
@@ -22,8 +20,6 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router';
 import NarrivaModeChooser from '../components/clinical/NarrivaModeChooser.vue';
 import ClinicalLocationPicker from '../components/clinical/ClinicalLocationPicker.vue';
-import NarrivaCompliancePanel from '../components/clinical/NarrivaCompliancePanel.vue';
-import NarrivaInlineFinding from '../components/clinical/NarrivaInlineFinding.vue';
 import { mergeSessionDiagnosis, sessionDiagnosisEntryMode, canSelectSessionDiagnosis } from '../utils/narrivaClinicalContext.js';
 import NarrivaAssessmentEvidence from '../components/clinical/NarrivaAssessmentEvidence.vue';
 import { activateClinicalRecovery,canRetainClinicalRecovery,stashClinicalRecovery,findClinicalRecovery,discardClinicalRecovery,clinicalRecoveryFingerprint } from './clinicalRecovery.js';
@@ -43,7 +39,9 @@ import {clinicalClientPresent,clinicalServiceRequirements} from '../utils/clinic
 import {encounterConsentStatement,progressContextSections} from '../utils/narrivaProgressContext.js';
 import {participantChoice,encounterMethod,currentGenerationReceipt} from './noteWorkflow.js';
 import { mobileClinicalClient } from './clinicalTransport.js';
-import { backInMobile } from './mobileNavigation.js';
+import ClinicalActionButton from '../components/clinical/ClinicalActionButton.vue';
+import NarrivaEncounterPrompts from '../components/clinical/NarrivaEncounterPrompts.vue';
+import NoteAidObjectiveRatings from '../components/clinical/NoteAidObjectiveRatings.vue';
 import MobileNoteSignatures from './MobileNoteSignatures.vue';
 import {clinicalTimestamp,clinicalClock,clinicalNarrativeDisplay} from './clinicalDisplay.js';
 
@@ -76,7 +74,7 @@ const mseHistory=ref([]);
 const encounter=reactive({dateOfService:'',startTimeLocal:'',endTimeLocal:'',durationMinutes:'',serviceCode:'',participants:'',locationLabel:'',serviceLocationId:'',billingOfficeLocationId:'',placeOfService:'',modality:'',participantsDetail:'',clientLocationDescription:'',consentConfirmed:false,interactiveComplexitySelected:false});
 const locationChoices=computed(()=>context.value?.locationChoices || []);
 const riskIncluded=ref(false),riskCompleted=ref(false),riskText=ref(''),riskRequiredLatched=ref(false),accurate=ref(false),necessary=ref(false),dirty=ref(false);
-const {review,busy:reviewBusy,error:reviewError,runReview,observeReview,resolveFinding,invalidate}=useNarrivaReview({agencyId,apiClient:{get:(...args)=>api.value.get(...args),post:(...args)=>api.value.post(...args),patch:(...args)=>api.value.patch(...args)}});
+const {review,busy:reviewBusy,runReview,observeReview,resolveFinding,invalidate}=useNarrivaReview({agencyId,apiClient:{get:(...args)=>api.value.get(...args),post:(...args)=>api.value.post(...args),patch:(...args)=>api.value.patch(...args)}});
 let pendingAuthorSignature=null;
 let savedRatingBatch=null;
 let generation=0,hydrating=false,saveTimer=null,savePromise=null,revision=0,disposed=false,completionTimer=null;
@@ -115,15 +113,12 @@ const sections=computed(()=>{
   return {...contextSections,...stored};
 });
 const hasContent=computed(()=>Object.values(sections.value).some(text=>String(text || '').trim()));
-const reviewAnchor = ref(null), objectivePanel = ref(null), preparingReview = ref(false);
+const objectivePanel = ref(null);
 const receiptMatches=ref(false);
 const generatedCurrent=computed(()=>receiptMatches.value && (!Array.isArray(output.value.meta?.generatedObjectiveRatings) || ratingDecisionKey(currentRatings())===ratingDecisionKey(output.value.meta.generatedObjectiveRatings)));
 function ratingDecisionKey(rows){
   return JSON.stringify(rows.filter(row=>!row.raterKind || row.raterKind==='clinician').map(row=>[Number(row.objectiveId),row.scaleValue==null?null:Number(row.scaleValue),row.disposition || 'rated']).sort((a,b)=>a[0]-b[0]));
 }
-const reviewStarted=ref(false),reviewPhase=ref('output'),preflightSource=ref('');
-const previewNeedsEventMonth = computed(() => aidKind(encounterAid.value) === 'intake'
-  && diagnosesMissingEventMonth(intakeDiagnoses(review.value?.draftPreviewSections), encounter.dateOfService).length > 0);
 const scheduledTiming = computed(() => {
   const session = context.value?.session;
   if (!session?.startTimeLocal || !session?.endTimeLocal || !session?.durationMinutes) return null;
@@ -167,11 +162,6 @@ async function loadEnrollment(){
   finally {enrollmentLoading.value=false;}
 }
 const searchClinicalDiagnosis=(payload,options)=>api.value.post('/diagnosis-search',payload,options);
-const preGenerationRequired=computed(()=>mode.value==='narriva' && !!context.value?.session?.id);
-const preflightFingerprint=()=>clinicalRecoveryFingerprint({agencyId:agencyId.value,clientId:context.value?.client?.id,sessionId:context.value?.session?.id,draftId:draftId.value,inputText:generationInput(),clinicalContext:{intakeDocumentationReviewed:intakeDocumentationReviewed.value,diagnoses:clinicalDiagnoses.value,diagnosticJustification:diagnosticJustification.value,presentingProblem:presentingProblem.value},encounter:{...encounter},ratings:currentRatings(),underlyingServiceCode:underlyingCode.value,assessmentEvidence:assessmentEvidence.value,riskIncluded:riskIncluded.value,riskCompleted:riskCompleted.value,riskText:riskText.value,riskChoices:{...riskChoices}});
-const draftApproval=ref(null);
-const draftApproved=computed(()=>!!draftApproval.value?.token && draftApproval.value.token===review.value?.draftApprovalToken);
-const preflightReady=computed(()=>preGenerationRequired.value && review.value?.phase==='pre_generation' && ['passed','bypassed'].includes(review.value?.status) && preflightSource.value===preflightFingerprint());
 const inlineContext=computed(()=>({clientId:context.value?.client?.id,clinicalSessionId:context.value?.session?.id,agencyId:agencyId.value,credentialTier:context.value?.credentialTier,diagnosisMode:clinicalContextDiagnosisMode.value,diagnoses:clinicalDiagnoses.value,diagnosticJustification:diagnosticJustification.value,presentingProblem:presentingProblem.value,consentConfirmed:encounter.consentConfirmed,participants:encounter.participants,participantsDetail:encounter.participantsDetail,dateOfService:encounter.dateOfService,startTime:encounter.startTimeLocal,endTime:encounter.endTimeLocal,durationMinutes:encounter.durationMinutes,location:{...encounter},clientLocationDescription:encounter.clientLocationDescription}));
 const prepared=computed(()=>readOnly.value || mode.value==='manual' || generatedCurrent.value);
 const finalizedNarriva=computed(()=>mode.value==='narriva' && !!output.value.meta?.generationReceipt);
@@ -186,6 +176,20 @@ const allowComplexity=computed(()=>aidAllowsInteractiveComplexity(findNoteAidByT
   && resolveNoteAidBillingCodes({primaryCode:encounter.serviceCode,durationMinutes:encounter.durationMinutes,includeInteractiveComplexity:true,metadata:output.value.meta}).allow90785);
 const selectedComplexity=computed(()=>allowComplexity.value && encounter.interactiveComplexitySelected===true);
 const goals=computed(()=>clinicalServiceRequirements({serviceCode:encounter.serviceCode,assessmentKind:assessmentKind.value}).requireExistingGoals?context.value?.treatmentPlan?.goals || []:[]);
+const smartSteps=computed(()=>['Focus','Interventions',...(clientPresent.value===false?[]:['Response']),'Necessity',...(goals.value.length?['Treatment plan']:[]),'Plan']);
+const smartContentComplete=computed(()=>!!(encounter.startTimeLocal && encounter.endTimeLocal
+  && smart.value.sessionFocus?.trim()
+  && (smart.value.interventionsSelected?.length || smart.value.interventionsCustom?.trim())
+  && (clientPresent.value===false || smart.value.clientResponseMore?.trim())
+  && smart.value.medicalNecessityNarrative?.trim() && smart.value.planEdited?.trim()
+  && encounter.consentConfirmed));
+const missingObjectives=computed(()=>context.value?.requiresObjectiveRatings===false?[]:planObjectiveReview(goals.value,currentRatings()).missing);
+const mobileRatingGoals=computed(()=>goals.value.map((goal,index)=>({...goal,goal_index:index+1,goal_text:goal.title,
+  objectives:goal.objectives.map((objective,objectiveIndex)=>({...objective,objective_index:objectiveIndex+1,objective_text:objective.title}))})));
+function updateMobileRatings(rows){
+  for(const row of rows){if(!row.raterKind || row.raterKind==='clinician')ratings[row.objectiveId]=row.scaleValue ?? row.disposition;}
+}
+
 const ratingSectionTitle='Treatment objective ratings';
 const savedRatingsText=computed(()=>{
   if(sections.value[ratingSectionTitle])return sections.value[ratingSectionTitle];
@@ -228,7 +232,7 @@ function draftPayload() {
     outputJson: { ...output.value, sections: output.value.meta?.generationReceipt ? chartRecordSections.value : authoredRecordSections(), meta: chartMetadata() }
   };
 }
-function markDirty(){if(hydrating || disposed || readOnly.value)return;pendingAuthorSignature=null;dirty.value=true;revision++;accurate.value=false;necessary.value=false;preflightSource.value='';invalidate({preserve:review.value?.phase==='pre_generation'});if(recoveryActorUserId && !canRetainClinicalRecovery(recoveryIdentity(),recoverySnapshot()))recoveryWarning.value='This draft cannot be kept for app-lock recovery because the memory buffer is full or the text is too large. Save it before leaving or locking the app.';else recoveryWarning.value='';clearTimeout(saveTimer);saveTimer=setTimeout(()=>{void save();},600);}
+function markDirty(){if(hydrating || disposed || readOnly.value)return;pendingAuthorSignature=null;dirty.value=true;revision++;accurate.value=false;necessary.value=false;invalidate();if(recoveryActorUserId && !canRetainClinicalRecovery(recoveryIdentity(),recoverySnapshot()))recoveryWarning.value='This draft cannot be kept for app-lock recovery because the memory buffer is full or the text is too large. Save it before leaving or locking the app.';else recoveryWarning.value='';clearTimeout(saveTimer);saveTimer=setTimeout(()=>{void save();},600);}
 const chartRecordSections=computed(()=>{
   const chart=chartMetadata().structuredChart;
   let record=intakeSectionsForRecord(authoredRecordSections(),{
@@ -249,9 +253,9 @@ async function save(explicit=false){
   if(serviceChanged.value){error.value='Confirm the service-code change below before saving or generating.';stashRecovery();return false;}
   if(manualBlocked.value)return false;
   clearTimeout(saveTimer);if(savePromise){await savePromise;if(dirty.value)return save(explicit);return !!draftId.value;}
-  if(!dirty.value && !draftId.value && context.value && !readOnly.value && (narrative.value.trim() || hasContent.value)){dirty.value=true;revision++;}
+  if(!dirty.value && !draftId.value && context.value && !readOnly.value && (generationInput().trim() || hasContent.value || currentRatings().length)){dirty.value=true;revision++;}
   if(!dirty.value || !context.value || readOnly.value)return !!draftId.value;
-  if(!narrative.value.trim() && !hasContent.value && !draftId.value){dirty.value=false;return true;}
+  if(!generationInput().trim() && !hasContent.value && !currentRatings().length && !draftId.value){dirty.value=false;return true;}
   const version=revision,key=selectionKey(),payload=JSON.parse(JSON.stringify(draftPayload())),target=draftId.value;
   saving.value=true;error.value='';
   savePromise=(async()=>{try{const {data}=target?await api.value.patch(`/drafts/${target}`,payload):await api.value.post('/drafts',payload);if(disposed || key!==selectionKey())return false;const id=data?.draft?.id || data?.draftId || data?.id || target;if(!id)throw new Error('Draft not confirmed');draftId.value=id;const sessionId=data.draft?.clinicalSessionId || data.draft?.clinical_session_id;if(sessionId && context.value)context.value={...context.value,session:{...(context.value.session || {}),id:Number(sessionId)}};if(version===revision){dirty.value=false;recoveryNeedsSave.value=false;recoveryWarning.value='';discardClinicalRecovery(recoveryIdentity());}notice.value='Draft saved';return true;}catch(e){if(!disposed && key===selectionKey())error.value=e.response?.data?.error?.message || 'Your draft could not be saved. Keep this page open and retry.';return false;}finally{saving.value=false;savePromise=null;}})();
@@ -259,7 +263,7 @@ async function save(explicit=false){
 }
 async function load(){
   showReturnRequest.value=false;returnReason.value='';mobileCorrection.value={};mobileReviewAction.value='changes_needed';
-  const current=++generation;pendingAuthorSignature=null;savedRatingBatch=null;editingNoteSection.value='';clearTimeout(completionTimer);savedSignature.value=null;hydrating=true;loading.value=true;error.value='';notice.value='';context.value=null;sessionPresentingProblemOverride.value=null;reviewStarted.value=false;reviewPhase.value='output';preflightSource.value='';receiptMatches.value=false;invalidate();clearTimeout(saveTimer);dirty.value=false;
+  const current=++generation;pendingAuthorSignature=null;savedRatingBatch=null;editingNoteSection.value='';clearTimeout(completionTimer);savedSignature.value=null;hydrating=true;loading.value=true;error.value='';notice.value='';context.value=null;sessionPresentingProblemOverride.value=null;receiptMatches.value=false;invalidate();clearTimeout(saveTimer);dirty.value=false;
   try{const {data}=await api.value.get('/context',{params:selection.value});if(current!==generation)return;context.value=data;const saved=data.draft?.outputJson || data.note?.outputJson || {sections:{Narrative:''},meta:{}};output.value=typeof saved==='string'?JSON.parse(saved):saved;output.value.sections ||= {Narrative:''};output.value.meta ||= {};
     sessionPresentingProblemOverride.value=typeof output.value.meta.narrivaContext?.presentingProblemOverride==='string'?output.value.meta.narrivaContext.presentingProblemOverride:null;
     draftId.value=data.draft?.id || null;defaultMode.value=data.preferences?.defaultMode || 'manual';mode.value=output.value.meta.writerMode || output.value.meta.narrivaContext?.writerMode || (data.draft || data.note?(output.value.meta.manualSections?'manual':'narriva'):defaultMode.value);if(!data.draft && !data.note && mode.value==='manual' && data.preferences?.features?.manualAllowed===false)mode.value='narriva';
@@ -280,48 +284,14 @@ async function load(){
     accurate.value=false;necessary.value=false;cosignAttested.value=false;recoveryNeedsSave.value=false;serviceReason.value='';pendingConfirmation.value=null;servicePendingOther.value=false;serviceVerificationError.value='';if(data.session?.id && data.note?.readOnly!==true)await refreshServiceStatus();await nextTick();
     recoveryActorUserId=Number(props.userId)||0;activateClinicalRecovery(recoveryActorUserId,data.agencyId);serverRecoveryFingerprint=clinicalRecoveryFingerprint(recoverySnapshot());recoveryCopy.value=findClinicalRecovery(recoveryIdentity(),recoverySnapshot());
     await refreshGeneration();
-    if(data.reviewUnavailable)notice.value='Your draft is open. The saved compliance result could not be loaded.';
+    if(data.reviewUnavailable && readOnly.value)notice.value='Your draft is open. The saved compliance result could not be loaded.';
     const savedReview=data.review?.narriva;
-    if(savedReview?.checks){
-      reviewPhase.value=finalizedNarriva.value?'output':savedReview.phase || 'output';
-      reviewStarted.value=true;
-      if(savedReview.phase==='pre_generation')preflightSource.value=preflightFingerprint();
-      void observeReview(savedReview);
-    }
+    if(savedReview?.checks && savedReview.phase!=='pre_generation') void observeReview(savedReview);
 
   }catch(e){if(current===generation)error.value=e.response?.data?.error?.message || 'This note is unavailable for your account.';}finally{if(current===generation){hydrating=false;loading.value=false;}}
 }
 async function setDefault(value){preferenceSaving.value=true;preferenceError.value='';try{const {data}=await api.value.patch('/narriva/preferences',{agencyId:agencyId.value,defaultMode:value});defaultMode.value=data.defaultMode || data.preferences?.defaultMode || value;}catch{preferenceError.value='Your default could not be saved. The current note is preserved.';}finally{preferenceSaving.value=false;}}
-async function checks({phase=preGenerationRequired.value && !generatedCurrent.value?'pre_generation':'output',forSigning=false}={}){
-  if(signing.value && !forSigning)return;
-  if(finalizedNarriva.value)phase='output';
- if(encounter.serviceCode==='H0031' && assessmentKind.value!==(assessmentContext.value?.automaticKind || 'initial') && !assessmentKindConfirmed.value){error.value='Confirm the selected assessment type before submitting.';return;}
-  if(readOnly.value || preparingReview.value || reviewBusy.value || (phase==='pre_generation' ? !generationInput().trim() : !hasContent.value || !prepared.value))return;
-  if (phase==='pre_generation' && context.value?.requiresObjectiveRatings!==false && planObjectiveReview(goals.value,currentRatings()).missing.length) {
-    error.value=objectiveReviewMessage;
-    const plan=objectivePanel.value;
-    if(plan){plan.open=true;plan.scrollIntoView?.({block:'center'});}
-    return;
-  }
-  error.value='';
-  reviewStarted.value=true;reviewPhase.value=phase;
-  if(context.value?.preferences?.features?.compliance===false){reviewError.value='Narriva checks are not enabled for this workspace.';return;}
-  preparingReview.value=true;
-  const requestGeneration=generation;
-  try {
-  await nextTick();
-  if(!signing.value)reviewAnchor.value?.scrollIntoView?.({block:'start'});
-  if(!await save(true) || requestGeneration!==generation){
-    if(requestGeneration===generation)reviewError.value=error.value || 'Save the session draft before checking.';
-    return;
-  }
-  try{if(phase==='pre_generation')await saveRatings();}catch(e){reviewError.value=e.response?.data?.error?.message || 'The objective scores could not be saved. Retry before checking the narrative.';return;}
-  if(requestGeneration!==generation)return;
-  const current=generation,fingerprint=preflightFingerprint();
-  const result=await runReview({draftId:Number(draftId.value),phase,backgroundQuality:phase==='pre_generation'});
-  if(current===generation && fingerprint===preflightFingerprint() && result?.phase==='pre_generation')preflightSource.value=fingerprint;
-  } finally { preparingReview.value=false; }
-}
+
 function editEncounterTime(field, value) {
   const times = { startTime: encounter.startTimeLocal, endTime: encounter.endTimeLocal, durationMinutes: encounter.durationMinutes };
   const next = synchronizeServiceTimes({ ...times, [field]: value }, field);
@@ -329,6 +299,11 @@ function editEncounterTime(field, value) {
 }
 async function applyClinicalAssist(patch){try{if(patch.diagnosis){const {data}=await api.value.post(`/sessions/${context.value.session.id}/diagnoses`,{agencyId:agencyId.value,clientId:context.value.client.id,icd10Code:patch.diagnosis.code || patch.diagnosis.icd10_code,description:patch.diagnosis.description,justification:patch.diagnosis.justification});patch.diagnosis={...patch.diagnosis,id:data.id};}await applyInlineUpdate(patch);}catch(e){error.value=e.response?.data?.error?.message || 'The recommendation could not be applied.';}}
 function recordOutsideDiagnosis(diagnosis){output.value.meta.structuredChart={...assessmentChart.value,diagnoses:mergeSessionDiagnosis(clinicalDiagnoses.value,diagnosis)};diagnosesConfirmed.value=false;markDirty();}
+async function includeSuggestedRisk(){
+  riskIncluded.value=true;
+  await nextTick();
+  document.getElementById('mobile-assessment-todos')?.scrollIntoView?.({block:'start'});
+}
 async function applyInlineUpdate(patch){
   if(typeof patch.presentingProblem==='string' && patch.presentingProblem.trim())sessionPresentingProblemOverride.value=patch.presentingProblem.trim();
   if(patch.diagnosis && canSelectSessionDiagnosis(clinicalContextDiagnosisMode.value,patch.diagnosis)){
@@ -346,7 +321,17 @@ async function applyInlineUpdate(patch){
   if('interactiveComplexitySelected' in patch)encounter.interactiveComplexitySelected=patch.interactiveComplexitySelected;
   if(patch.riskAssessmentIncluded)riskIncluded.value=true;
 
-  if(patch.clarification)narrative.value=[narrative.value.trim(),'Clinician-confirmed clarification: '+patch.clarification].filter(Boolean).join('\n\n');
+  if(patch.clarification && !finalizedNarriva.value)narrative.value=[narrative.value.trim(),'Clinician-confirmed clarification: '+patch.clarification].filter(Boolean).join('\n\n');
+}
+
+async function applyEncounterCorrection(patch) {
+  const id = Number(draftId.value);
+  const current = generation;
+  await applyInlineUpdate(patch);
+  await nextTick();
+  if (id && await save(true) && current === generation) {
+    void runReview({ draftId: id, phase: 'output', backgroundQuality: true });
+  }
 }
 
 async function saveRatings(){
@@ -368,15 +353,23 @@ async function generate(){
   if(finalizedNarriva.value)return;
  if(assessmentContext.value && encounter.serviceCode==='H0031' && assessmentKind.value!==assessmentContext.value.automaticKind && !assessmentKindConfirmed.value){error.value='Confirm the assessment type before continuing.';return;}
   if(generating.value || readOnly.value || blockingAlerts.value.length)return;
-  if(preGenerationRequired.value && !preflightReady.value){error.value='Submit the current session narrative for compliance check and confirm the prompts before generating.';return;}
-  const preflightReviewId=preGenerationRequired.value?review.value.id:null;
-  if(preflightReviewId && !draftApproved.value){error.value='Review and approve each draft section before finalizing.';return;}
+  if (missingObjectives.value.length) {
+    error.value=objectiveReviewMessage;
+    if (mode.value==='smart_notes') smartStep.value=smartSteps.value.indexOf('Treatment plan');
+    await nextTick();
+    objectivePanel.value?.scrollIntoView?.({block:'start'});
+    return;
+  }
+  if (mode.value==='smart_notes' && !smartContentComplete.value) {
+    error.value='Complete the guided note sections before generating.';
+    return;
+  }
   if(serviceVerificationError.value){error.value=serviceVerificationError.value;return;}
   if(context.value?.preferences?.features?.writing===false){error.value='Narriva writing is not enabled for this workspace.';return;}
   const input=generationInput();
   if(!input.trim()){error.value='Add the session content before generating.';return;}
   generating.value=true;error.value='';const current=generation;
-  try{if(!await save(true))return;if(!preflightReviewId)await saveRatings();const requestRevision=revision;const {data}=await api.value.post('/generate',{...draftPayload(),durationMinutes:encounter.durationMinutes,includeInteractiveComplexity:selectedComplexity.value,draftId:Number(draftId.value),...(preflightReviewId?{preflightReviewId,draftApproval:draftApproval.value}:{}),inputText:input,underlyingServiceCode:underlyingCode.value || undefined,aidId:output.value.meta?.aidId,toolId:mode.value==='smart_notes'?'clinical_cs_note_build':/^custom_\d+$/.test(String(output.value.meta?.aidId || ''))?output.value.meta?.toolId:undefined,...(preflightReviewId ? {} : {treatmentPlanContext:context.value.treatmentPlan?.presentingProblem || '',objectiveRatingsContext:JSON.stringify(currentRatings())})});if(current!==generation)return;if(requestRevision!==revision){dirty.value=true;await save();error.value='Your Session Narrative changed while generating. Your current text is preserved; generate again when ready.';return;}if(!data.outputJson?.sections)throw new Error('Generation was not completed');const preserved=metadata();
+  try{if(!await save(true))return;const requestRevision=revision;const {data}=await api.value.post('/generate',{...draftPayload(),durationMinutes:encounter.durationMinutes,includeInteractiveComplexity:selectedComplexity.value,draftId:Number(draftId.value),backgroundReview:true,inputText:input,underlyingServiceCode:underlyingCode.value || undefined,aidId:output.value.meta?.aidId,toolId:mode.value==='smart_notes'?'clinical_cs_note_build':/^custom_\d+$/.test(String(output.value.meta?.aidId || ''))?output.value.meta?.toolId:undefined,treatmentPlanContext:context.value.treatmentPlan?.presentingProblem || '',objectiveRatingsContext:JSON.stringify(currentRatings())});if(current!==generation)return;if(requestRevision!==revision){dirty.value=true;await save();error.value='Your Session Narrative changed while generating. Your current text is preserved; generate again when ready.';return;}if(!data.outputJson?.sections)throw new Error('Generation was not completed');const preserved=metadata();
     if(aidKind(encounterAid.value)==='intake'){
       const diagnoses=intakeDiagnoses(data.outputJson.sections).filter(diagnosisAllowed);
       if (diagnoses.length) {
@@ -386,7 +379,7 @@ async function generate(){
         });
       }
     }
-    output.value={...data.outputJson,meta:{...preserved,...(data.outputJson.meta || {}),writerMode:mode.value,narrivaContext:preserved.narrivaContext,structuredChart:preserved.structuredChart}};draftId.value=data.draftId || draftId.value;await nextTick();markDirty();await refreshGeneration();if(await save(true)){reviewStarted.value=false;reviewPhase.value='output';invalidate();await nextTick();notePanel.value?.scrollIntoView?.({block:'start'});}}catch(e){if(current===generation)error.value=e.response?.data?.error?.message || 'Narriva could not generate the note. Your source text is preserved.';}finally{if(current===generation)generating.value=false;}
+    output.value={...data.outputJson,meta:{...preserved,...(data.outputJson.meta || {}),writerMode:mode.value,narrivaContext:preserved.narrivaContext,structuredChart:preserved.structuredChart}};draftId.value=data.draftId || draftId.value;await nextTick();markDirty();await refreshGeneration();if(await save(true)){invalidate();await nextTick();notePanel.value?.scrollIntoView?.({block:'start'});if(mode.value==='narriva' && context.value?.preferences?.features?.compliance!==false)void runReview({draftId:Number(draftId.value),phase:'output',backgroundQuality:true});}}catch(e){if(current===generation)error.value=e.response?.data?.error?.message || 'Narriva could not generate the note. Your source text is preserved.';}finally{if(current===generation)generating.value=false;}
 }
 async function sign(){
   if(assessmentPending.value)return;
@@ -486,7 +479,9 @@ const mobileSubmissionQuickLook=computed(()=>{
  const status=review.value?.status || 'unavailable';
  const completed=['passed','action_required','bypassed'].includes(status);
  return {aiSummary:completed?review.value?.quickSummary:null,
-  submissionReview:{status,score:completed?review.value?.scoring?.score ?? null:null,findings:[]}};
+  submissionReview:{status,message:review.value?.message,score:completed?review.value?.scoring?.score ?? null:null,
+   findings:completed?[...new Set((review.value?.checks || []).flatMap(check=>
+     [...(check.findings || []), ...(check.advisories || [])].map(item=>item.message).filter(Boolean)))]:[]}};
 });
 async function sendSupervisorRequest(documentationOnly = false) {
   if (!canCosign.value || signing.value || returningNote.value || !canReturn.value || (documentationOnly && !mobileDocumentationAddendum.value)) return;
@@ -527,11 +522,10 @@ function pageHidden(){stashRecovery();void save();}
 function beforeUnload(event){if(dirty.value){stashRecovery();event.preventDefault();event.returnValue='';}}
 async function refreshServiceStatus(){const sessionId=context.value?.session?.id,current=generation;if(!sessionId)return;try{const {data}=await api.value.get(`/sessions/${sessionId}/service`);if(current!==generation)return;pendingConfirmation.value=data.pendingConfirmation || data.session?.pendingConfirmation || null;servicePendingOther.value=!!(data.pendingServiceChange || data.session?.pendingServiceChange) && !pendingConfirmation.value;serviceVerificationError.value='';if(pendingConfirmation.value){encounter.serviceCode=pendingConfirmation.value.serviceCode;serviceReason.value=pendingConfirmation.value.justification;invalidate();}if(data.serviceCode || data.session?.serviceCode)context.value={...context.value,session:{...context.value.session,...data.session,serviceCode:data.serviceCode || data.session.serviceCode}};}catch(e){if(current===generation)serviceVerificationError.value=e.response?.data?.error?.message || 'The actual encounter service could not be verified. Retry before saving or generating.';}}
 async function confirmService(){if(serviceSaving.value || servicePendingOther.value || serviceReason.value.trim().length<5 || !serviceChanged.value)return;serviceSaving.value=true;error.value='';try{let sessionId=context.value.session?.id;if(!sessionId){const linked=await api.value.post('/sessions/bootstrap',{agencyId:agencyId.value,clientId:context.value.client.id,officeEventId:context.value.session?.officeEventId});sessionId=linked.data.session?.id || linked.data.clinicalSessionId;if(!sessionId)throw new Error('The real encounter could not be linked.');}const {data}=await api.value.post(`/sessions/${sessionId}/service`,{serviceCode:pendingConfirmation.value?.serviceCode || encounter.serviceCode,previousServiceCode:pendingConfirmation.value?.expectedOldServiceCode || context.value.session?.serviceCode || '',confirmed:true,justification:pendingConfirmation.value?.justification || serviceReason.value.trim(),durationMinutes:Number(encounter.durationMinutes),modality:encounter.modality});context.value={...context.value,session:{...context.value.session,...data.session,id:sessionId,serviceCode:data.serviceCode || data.session?.serviceCode || encounter.serviceCode}};encounter.serviceCode=data.serviceCode || data.session?.serviceCode || encounter.serviceCode;pendingConfirmation.value=null;servicePendingOther.value=false;serviceReason.value='';markDirty();notice.value='Service change confirmed. Review or regenerate the note for the selected service.';}catch(e){error.value=e.response?.data?.error?.message || 'The encounter service was not changed. Review its eligibility and try again.';}finally{serviceSaving.value=false;}}
-async function back(){if(dirty.value && !await save())return;backInMobile(router,{path:'/mobile/workspace',query:{view:'mywork'}});}
+async function back(){if(dirty.value && !await save())return;await router.replace({path:'/mobile/workspace',query:{view:'mywork'}});}
 async function openProfile(){if(dirty.value && !await save())return;router.push({path:'/mobile/workspace',query:{view:'client',clientId:String(context.value.client.id)}});}
 function useRecording(append=false){narrative.value=append && narrative.value.trim()?`${narrative.value}\n\n${recordingText.value}`:recordingText.value;markDirty();}
 function toggleIntervention(value){const list=smart.value.interventionsSelected;smart.value.interventionsSelected=list.includes(value)?list.filter(item=>item!==value):[...list,value];}
-function focusFinding({checkId,finding}){if(finding?.action==='clinical_service'){nextTick(()=>{const field=document.getElementById('mobile-underlying-service');field?.scrollIntoView?.({block:'center',behavior:'smooth'});field?.focus();});return;}if(finding?.action==='assessment'){showAssessmentEvidence.value=true;nextTick(()=>document.getElementById('mobile-assessment-evidence')?.scrollIntoView?.({block:'start',behavior:'smooth'}));return;}document.getElementById(checkId==='risk_safety'?(mode.value==='narriva'?'mobile-assessment-todos':'mobile-risk-assessment'):checkId==='service_code'?'mobile-encounter-details':'mobile-session-narrative')?.scrollIntoView?.({block:'start',behavior:'smooth'});}
 watch(()=>[context.value?.client?.id,encounter.dateOfService,showOutput.value && mseRequired.value && !readOnly.value],async([clientId,dateOfService,needed],_,onCleanup)=>{
   let active=true;onCleanup(()=>{active=false;});mseHistory.value=[];
   if(!needed || !clientId || !dateOfService)return;
@@ -539,7 +533,7 @@ watch(()=>[context.value?.client?.id,encounter.dateOfService,showOutput.value &&
 });
 watch(()=>[mode.value,generationInput(),encounter.serviceCode,output.value.meta?.generationReceipt],refreshGeneration,{deep:true});
 watch(review,value=>{
- if(value?.riskAssessmentRequired===true)riskRequiredLatched.value=true;
+ if(value?.phase==='output' && value?.status!=='stale' && value?.riskAssessmentRequired===true)riskRequiredLatched.value=true;
  const risk=value?.checks?.find(check=>check.id==='risk_safety');
  const recordedBypass=risk?.status==='bypassed' && risk.findings?.some(finding=>finding.bypassed) || value?.priorDecisions?.some(decision=>decision.checkId==='risk_safety');
  if(value?.riskAssessmentRequired===false && recordedBypass)riskRequiredLatched.value=false;
@@ -560,7 +554,7 @@ onBeforeUnmount(()=>{stashRecovery();disposed=true;generation++;clearTimeout(sav
       <section v-if="recoveryCopy && !readOnly" class="mn-card mn-recovery" role="status"><h2>Unsaved text is available</h2><p>Text from this same account and encounter was kept in this app’s memory when it locked. Nothing has replaced the current server draft.</p><p v-if="recoveryCopy.serverChanged">The server draft has also changed. Review the recovered copy before saving.</p><button type="button" @click="restoreRecovery">Restore unsaved draft</button><button type="button" @click="discardRecovery">Discard recovery copy</button></section>
       <NarrivaModeChooser compact v-if="!readOnly && !finalizedNarriva" v-model="mode" :default-mode="defaultMode" :allow-manual="context.preferences?.features?.manualAllowed !== false" :allow-narriva="context.preferences?.features?.writing !== false" :allow-smart="context.preferences?.features?.writing !== false" :saving="preferenceSaving" :error="preferenceError" @save-default="setDefault" />
       <ClinicalNoteNavigator />
-      <details v-if="readOnly" class="mn-card mn-submission-review"><summary>Quick review · Narriva results at submission</summary><NarrivaNoteSummary :quick-look="mobileSubmissionQuickLook" /></details>
+      <details v-if="canCosign" class="mn-card mn-submission-review"><summary>Quick review · Narriva results at submission</summary><NarrivaNoteSummary :quick-look="mobileSubmissionQuickLook" /></details>
     <ClinicalNoteReviewRequests v-if="readOnly && authorReviewRequests.length" :requests="authorReviewRequests"
       :request-client="(path,body)=>api.post(path,body)" mobile @acknowledged="refreshAuthorReview" />
 
@@ -572,11 +566,34 @@ onBeforeUnmount(()=>{stashRecovery();disposed=true;generation++;clearTimeout(sav
       <section v-if="serviceChanged && !readOnly" class="mn-card mn-service-confirm"><h2>{{ pendingConfirmation ? 'Finish pending service change' : 'Confirm service-code change' }}</h2><p v-if="pendingConfirmation">The prior confirmation is pending. Review the preserved service and reason, then explicitly retry it.</p><p v-if="servicePendingOther">Another authorized service change is pending. Its author must finish it before this note can proceed.</p><p>The scheduled encounter still uses {{ context.session?.serviceCode || 'its original service' }}. Narriva will not change a billed service automatically.</p><label>Reason / crisis justification<textarea v-model="serviceReason" :readonly="!!pendingConfirmation || servicePendingOther" rows="3" minlength="5" maxlength="4000" /></label><button type="button" :disabled="serviceSaving || servicePendingOther || serviceReason.trim().length<5" @click="confirmService">{{ serviceSaving?'Checking eligibility…':pendingConfirmation?'Retry confirmation':'Confirm service change' }}</button></section>
       <section v-if="!readOnly && !finalizedNarriva && clinicalContextDiagnosisMode !== 'none'" class="mn-card"><h2>Diagnosis assistance</h2><NarrivaClinicalAssist :agency-id="agencyId" :source-text="narrative" :diagnosis-mode="encounter.serviceCode==='H0031'?'zr_only':clinicalContextDiagnosisMode" :date-of-service="encounter.dateOfService" :transport="api" :search="searchClinicalDiagnosis" @apply="applyClinicalAssist" /><ExternalClinicalDiagnosis :agency-id="agencyId" :client-id="context.client.id" :session-id="context.session?.id" :date-of-service="encounter.dateOfService" :transport="api" :search="searchClinicalDiagnosis" @saved="recordOutsideDiagnosis" /></section>
       <section v-if="encounter.serviceCode==='H0031' && !readOnly" class="mn-card"><label>Assessment type<select v-model="assessmentKind" @change="assessmentKindConfirmed=false"><option value="initial">Initial assessment</option><option value="additional">Additional / collateral assessment</option></select></label><label v-if="assessmentKind!==(assessmentContext?.automaticKind || 'initial')" class="mn-check"><input v-model="assessmentKindConfirmed" type="checkbox" /> I confirm the assessment type matches this service.</label></section>
-      <details v-if="goals.length" data-note-section="Treatment plan" id="mobile-treatment-objectives" ref="objectivePanel" class="mn-card"><summary>Treatment plan &amp; current scores</summary><p v-if="error===objectiveReviewMessage" role="alert">{{error}}</p><section v-for="goal in goals" :key="goal.id"><h3>{{ goal.title || goal.goal_text }}</h3><div v-for="objective in goal.objectives" :key="objective.id" class="mn-objective"><span>{{ objective.title || objective.objective_text }}<span class="mn-rating-key"><b class="original">Original {{ objective.scaleStart ?? '—' }}</b><b class="previous">Previous {{ objective.previousScore ?? '—' }}</b><b class="goal">Goal {{ objective.scaleTarget ?? '—' }}</b></span></span><div v-if="!readOnly" class="mn-rating-buttons" role="group" :aria-label="'Current score for '+objective.title">
-          <div class="mn-rating-scale"><button v-for="score in 10" :key="score" :class="{original:Number(objective.scaleStart)===score,previous:Number(objective.previousScore)===score,goal:Number(objective.scaleTarget)===score}" type="button" :aria-pressed="Number(ratings[objective.id])===score" @click="ratings[objective.id]=score">{{score}}</button></div>
-          <div class="mn-rating-dispositions"><button v-for="(label,value) in objectiveDispositions" :key="value" type="button" :aria-pressed="ratings[objective.id]===value" @click="ratings[objective.id]=value">{{label}}</button></div>
-        </div><small v-if="ratings[objective.id]!=null">{{objectiveDispositions[ratings[objective.id]] || ("Current score "+ratings[objective.id])}}</small></div></section></details>
-      <section v-if="mode === 'smart_notes' && !readOnly" class="mn-card mn-smart"><h2><img class="mn-learning-icon" :src="NARRIVA_BRAND.learning" alt="" /> Smart Notes</h2><p>Guided note builder · Powered by Narriva</p><nav aria-label="Guided note steps"><button v-for="(title,index) in ['Focus','Interventions','Response','Necessity','Plan']" :key="title" type="button" :aria-pressed="smartStep===index" @click="smartStep=index">{{ index+1 }}. {{ title }}</button></nav><label v-if="smartStep===0">Session focus<textarea v-model="smart.sessionFocus" rows="5" /></label><template v-else-if="smartStep===1"><p>Select interventions actually used.</p><div class="mn-chips"><button v-for="item in CS_DEFAULT_INTERVENTIONS.slice(0,12)" :key="item" type="button" :aria-pressed="smart.interventionsSelected.includes(item)" @click="toggleIntervention(item)">{{ item }}</button></div><label>Other interventions and how they were used<textarea v-model="smart.interventionsCustom" rows="4" /></label></template><label v-else-if="smartStep===2">Engagement and response to interventions<textarea v-model="smart.clientResponseMore" rows="5" /></label><label v-else-if="smartStep===3">Symptoms, functional impact and medical necessity<textarea v-model="smart.medicalNecessityNarrative" rows="5" /></label><label v-else>Progress and plan for next service<textarea v-model="smart.planEdited" rows="5" /></label><div class="mn-step-actions"><button v-if="smartStep>0" type="button" @click="smartStep--">Previous</button><button v-if="smartStep<4" type="button" @click="smartStep++">Next</button></div></section>
+      <section v-if="mode === 'smart_notes' && !readOnly" class="mn-card mn-smart">
+        <h2><img class="mn-learning-icon" :src="NARRIVA_BRAND.learning" alt="" /> Smart Notes</h2>
+        <div class="mn-forms">
+          <label>Start time<input type="time" :value="encounter.startTimeLocal" @input="editEncounterTime('startTime', $event.target.value)" /></label>
+          <label>End time<input type="time" :value="encounter.endTimeLocal" @input="editEncounterTime('endTime', $event.target.value)" /></label>
+        </div>
+        <nav aria-label="Guided note steps">
+          <button v-for="(title,index) in smartSteps" :key="title" type="button" :aria-pressed="smartStep===index" @click="smartStep=index">{{ title }}</button>
+        </nav>
+        <label v-if="smartSteps[smartStep]==='Focus'">Session focus<textarea v-model="smart.sessionFocus" rows="5" /></label>
+        <template v-else-if="smartSteps[smartStep]==='Interventions'">
+          <div class="mn-chips"><button v-for="item in CS_DEFAULT_INTERVENTIONS.slice(0,12)" :key="item" type="button" :aria-pressed="smart.interventionsSelected.includes(item)" @click="toggleIntervention(item)">{{ item }}</button></div>
+          <label>Other interventions and how they were used<textarea v-model="smart.interventionsCustom" rows="4" /></label>
+        </template>
+        <label v-else-if="smartSteps[smartStep]==='Response'">Engagement and response to interventions<textarea v-model="smart.clientResponseMore" rows="5" /></label>
+        <label v-else-if="smartSteps[smartStep]==='Necessity'">Symptoms, functional impact and medical necessity<textarea v-model="smart.medicalNecessityNarrative" rows="5" /></label>
+        <label v-else-if="smartSteps[smartStep]!=='Treatment plan'">Progress and plan for next service<textarea v-model="smart.planEdited" rows="5" /></label>
+        <div class="mn-step-actions">
+          <button v-if="smartStep>0" type="button" @click="smartStep--">Previous</button>
+          <button v-if="smartStep<smartSteps.length-1" type="button" @click="smartStep++">Next</button>
+        </div>
+        <NarrivaSessionConfirmations :client-present="clientPresent" :risk-required="requiredRisk" :location="encounter" v-model:consent="encounter.consentConfirmed" v-model:risk="riskIncluded" />
+      </section>
+      <section v-if="goals.length && (mode!=='smart_notes' || smartSteps[smartStep]==='Treatment plan' || readOnly)" ref="objectivePanel" data-note-section="Treatment plan" id="mobile-treatment-objectives" class="mn-card">
+        <NoteAidObjectiveRatings v-if="!readOnly" :goals="mobileRatingGoals" :session-ratings="currentRatings()"
+          :date-of-service="encounter.dateOfService" :kiosk-share-enabled="false" @update:ratings="updateMobileRatings" />
+        <p v-else-if="hasRatingSummary">{{savedRatingsText}}</p>
+      </section>
       <section v-if="mode==='manual' && !readOnly" class="mn-card">
         <h2>Session details</h2>
         <NarrivaSessionConfirmations :client-present="clientPresent" :risk-required="requiredRisk" :location="encounter" v-model:consent="encounter.consentConfirmed" v-model:risk="riskIncluded" />
@@ -590,7 +607,11 @@ onBeforeUnmount(()=>{stashRecovery();disposed=true;generation++;clearTimeout(sav
       </section>
       <label v-if="initialIntakeDocumentation && !readOnly && !finalizedNarriva" class="mn-card mn-check"><input v-model="intakeDocumentationReviewed" type="checkbox" /> I reviewed the disclosure agreement, my education and supervision status, informed consent, and practice policies with the attending participants.</label>
       <section v-if="mode==='narriva' && !readOnly && !finalizedNarriva" id="mobile-session-narrative" class="mn-card"><h2>Session Narrative</h2><p class="mn-privacy">Please do not enter or speak names, dates of birth, contact details, or other identifiers here. Use Client, Provider, parent or guardian.</p><textarea v-model="narrative" aria-label="Session Narrative" rows="8" maxlength="150000" placeholder="Describe what occurred, the interventions, response, progress, and next plan…" /><NarrivaSessionConfirmations :client-present="clientPresent" :risk-required="requiredRisk" :location="encounter" v-model:consent="encounter.consentConfirmed" v-model:risk="riskIncluded" /><label v-if="allowComplexity" class="mn-check"><input v-model="encounter.interactiveComplexitySelected" type="checkbox" /> Interactive complexity (90785)</label><template v-if="recordingText && recordingText !== narrative"><p>A reviewed recording narrative is available for this encounter.</p><button type="button" @click="useRecording(true)">Append recording narrative</button><button type="button" @click="useRecording(false)">Replace with recording narrative</button></template></section>
-      <button v-if="mode!=='manual' && !readOnly && !finalizedNarriva" type="button" class="mn-generate" :disabled="generating || saving || preparingReview || reviewBusy || blockingAlerts.length>0 || (preflightReady && !draftApproved)" @click="preGenerationRequired && !preflightReady ? checks({phase:'pre_generation'}) : generate()"><img :src="NARRIVA_BRAND.icon" alt="" />{{ generating?'Generating your note…':reviewBusy?'Checking your session…':preGenerationRequired && !preflightReady?(review?.id?'Re-generate note and check':'Submit for compliance check'):'Finalize note' }}</button>
+      <ClinicalActionButton v-if="mode!=='manual' && !readOnly && !finalizedNarriva" action="generate" class="mn-generate" :busy="generating"
+        :disabled="saving || blockingAlerts.length > 0" @click="generate" />
+      <NarrivaEncounterPrompts v-if="!readOnly && mode==='narriva'" :review="review" :context="inlineContext"
+        :location-choices="locationChoices" :resolve="resolveFinding" :risk-included="riskIncluded"
+        @apply="applyEncounterCorrection" @risk="includeSuggestedRisk" />
       <p v-if="error && mode!=='manual'" role="alert">{{ error }}</p>
       <p v-if="hasContent && !showOutput" class="mn-notice">Saved note content is preserved. Generate from the Session Narrative, or choose Manual Writer to edit the saved note.</p>
       <section v-if="showOutput" ref="notePanel" class="mn-card mn-note" :class="{'mn-paper': readOnly}"><p v-if="mode!=='manual' && !readOnly && !generatedCurrent" class="mn-alert">The encounter details changed. Review the saved note and the current encounter before signing.</p><h2>{{ readOnly?'Signed note':mode==='manual'?'Manual writer':'Finalized draft' }}</h2>
@@ -610,18 +631,12 @@ onBeforeUnmount(()=>{stashRecovery();disposed=true;generation++;clearTimeout(sav
         <label v-if="clientPresent !== false && (riskIncluded || requiredRisk)" class="mn-check"><input v-model="riskCompleted" :disabled="!riskDomainComplete" type="checkbox" /> I completed and reviewed this risk assessment.</label>
       </section>
       <label v-if="assessmentContext?.requiresDiagnosisConfirmation && !readOnly" class="mn-check"><input v-model="diagnosesConfirmed" type="checkbox" /> I reviewed and confirm the carried diagnoses and clinical justifications, including any updates.</label>
-      <section v-if="showProviderSign && !canCosign" class="mn-card mn-sign" data-note-section="Signature"><h2>Review &amp; sign</h2><label v-if="!encounter.consentConfirmed" class="mn-check"><input v-model="encounter.consentConfirmed" type="checkbox" /> I confirm consent to participate in this session.</label><ClinicalNoteChartPreview :sections="chartRecordSections" :encounter="Object.fromEntries(encounterSummary)" /><p v-if="assessmentPending">Complete the assessment above to sign.</p><p v-if="signing || reviewBusy" role="status">{{signing?'Finishing your signature request…':'Reviewing the generated note…'}}</p><p v-if="error" role="alert">{{error}}</p><label class="mn-check"><input v-model="accurate" type="checkbox" />I reviewed every section of this final note and approve it as accurate and complete.</label><label class="mn-check"><input v-model="necessary" type="checkbox" />I attest that this service was medically necessary.</label><p v-if="!context.session?.id">An authorized encounter must be linked before chart signing.</p><button class="mn-sign-submit" type="button" :disabled="signing || saving || manualBlocked || serviceChanged || !!serviceVerificationError || !encounter.consentConfirmed || clientPresent!==false && encounter.placeOfService==='02' && !encounter.clientLocationDescription.trim() || !accurate || !necessary || !hasContent || !context.session?.id || context.note?.canSignClinicalNote === false || blockingAlerts.length>0 || assessmentPending" @click="sign">{{ signing ? 'Signing & saving…' : 'Sign & save to chart' }}</button></section>
+      <section v-if="showProviderSign && !canCosign" class="mn-card mn-sign" data-note-section="Signature"><h2>Review &amp; sign</h2><label v-if="!encounter.consentConfirmed" class="mn-check"><input v-model="encounter.consentConfirmed" type="checkbox" /> I confirm consent to participate in this session.</label><ClinicalNoteChartPreview :sections="chartRecordSections" :encounter="Object.fromEntries(encounterSummary)" /><p v-if="assessmentPending">Complete the assessment above to sign.</p><p v-if="signing" role="status">Finishing your signature request…</p><p v-if="error" role="alert">{{error}}</p><label class="mn-check"><input v-model="accurate" type="checkbox" />I reviewed every section of this final note and approve it as accurate and complete.</label><label class="mn-check"><input v-model="necessary" type="checkbox" />I attest that this service was medically necessary.</label><p v-if="!context.session?.id">An authorized encounter must be linked before chart signing.</p><button class="mn-sign-submit" type="button" :disabled="signing || saving || manualBlocked || serviceChanged || !!serviceVerificationError || !encounter.consentConfirmed || clientPresent!==false && encounter.placeOfService==='02' && !encounter.clientLocationDescription.trim() || !accurate || !necessary || !hasContent || !context.session?.id || context.note?.canSignClinicalNote === false || blockingAlerts.length>0 || assessmentPending" @click="sign">{{ signing ? 'Signing & saving…' : 'Sign & save to chart' }}</button></section>
       <SessionSupportingMaterials v-if="context.session?.id && !readOnly" :clinical-session-id="context.session.id" :transport="api" base-path="" />
       <ConfidentialClinicalEntries data-note-section="Confidential addendums" v-if="context.session?.id && context.client?.id && !readOnly" attached :agency-id="agencyId" :client-id="context.client.id" :session-id="context.session.id" :draft-id="draftId" :ensure-draft="async () => await save(true) && draftId" :transport="api" base-path="" />
       <InternalDiagnosticCriteriaReview v-if="readOnly || canCosign" :agency-id="agencyId" :client-id="context.client?.id" :note-id="context.note?.id || undefined" :transport="api" />
       <MobileNoteSignatures v-if="readOnly" data-note-section="Signature" :signatures="displayedSignatures" :time-zone="displayTimeZone" />
-      <div ref="reviewAnchor" class="mn-review-anchor">
-      <NarrivaReviewProgress v-if="generating && preGenerationRequired" stage="finalizing" />
-      <NarrivaReviewWorkspace @approval="draftApproval = $event" @edit="resolveFinding({action:'edit_draft',sections:$event})" v-if="!generating && (!readOnly || canCosign) && mode !== 'manual' && (reviewStarted || preparingReview || reviewBusy)" :review="review" :busy="!signing && (preparingReview || reviewBusy)" :pre-generation="!finalizedNarriva && reviewPhase === 'pre_generation'">
-      <NarrivaCompliancePanel :supervisor-view="canCosign" :pre-generation="reviewPhase==='pre_generation'" v-if="(readOnly || mode !== 'manual') && !preparingReview && !reviewBusy && (prepared || reviewPhase==='pre_generation') && reviewStarted && (review || reviewBusy || reviewError || requiredRisk || riskIncluded)" :read-only="readOnly" :review="review" :risk-assessment-required="requiredRisk" :busy="reviewBusy" :error="reviewError" @retry="checks" @resolve="resolveFinding" @action="focusFinding"><template v-if="mode==='narriva' && reviewPhase==='pre_generation'" #finding="{checkId,finding}"><NarrivaInlineFinding v-if="!finding.bypassed" :check-id="checkId" :finding="finding" :context="inlineContext" :location-choices="locationChoices" :diagnosis-search="searchClinicalDiagnosis" :disabled="reviewBusy || readOnly" @apply="applyInlineUpdate" /></template><template v-if="preflightReady && !finalizedNarriva" #generate><p v-if="previewNeedsEventMonth">Record the precipitating event month and year in Diagnoses after finalizing the draft and before signing.</p><button type="button" :disabled="!draftApproved || generating || saving || blockingAlerts.length>0" @click="generate">{{ generating ? 'Generating your note…' : 'Finalize note' }}</button><p v-if="error" role="alert">{{ error }}</p></template><template #risk><label v-if="mode!=='narriva' && !requiredRisk && !readOnly" class="mn-check"><input v-model="riskIncluded" type="checkbox" /> Include a risk assessment</label><p v-if="requiredRisk && reviewPhase!=='pre_generation'">Required for this note</p><p v-if="reviewPhase==='pre_generation' && riskIncluded" class="mn-notice">Risk assessment will be a to-do in the generated note. Complete it before signing.</p><section v-if="mode!=='narriva' && reviewPhase!=='pre_generation' && (requiredRisk || riskIncluded)" id="mobile-risk-assessment"><label v-for="domain in riskDomains" :key="domain">{{ domain }}<select v-model="riskChoices[domain]" :disabled="readOnly"><option value="">Choose assessed finding</option><option>Denied</option><option>Present</option><option>Unable to assess</option></select></label><label>Risk assessment and safety interventions<textarea v-model="riskText" :disabled="readOnly" rows="5" placeholder="Document the assessment actually performed, findings, and any safety interventions." /></label><label class="mn-check"><input v-model="riskCompleted" :disabled="readOnly" type="checkbox" />I completed and reviewed this documented risk assessment.</label></section></template></NarrivaCompliancePanel>
-      </NarrivaReviewWorkspace></div>
       <NarrivaAssessmentEvidence v-if="!readOnly && (showAssessmentEvidence || assessmentEvidence.length)" id="mobile-assessment-evidence" data-note-section="Assessments" v-model="assessmentEvidence" :agency-id="context.agencyId" :client-id="context.client?.id" :clinical-session-id="context.session?.id" :draft-id="draftId" :note-id="context.note?.id" :api-client="api" base-url="/assessments" />
-      <button v-if="!readOnly && hasContent && prepared && mode==='smart_notes'" type="button" :disabled="reviewBusy || saving" @click="checks">{{ reviewBusy?'Checking…':mode==='manual'?'Check Note':'Run Narriva checks' }}</button>
 
       <section v-if="savedSignature" class="mn-card mn-signature" role="status"><h2>{{savedSignature.kind==='cosign'?'Supervisor signature saved':'Provider signature saved'}}</h2><p>{{signatureDate(savedSignature.cosignedAt || savedSignature.signedAt)}}</p><p>{{savedSignature.openNext?'Opening the next note awaiting co-sign…':'Returning to My Work…'}}</p></section>
       <section v-if="canCosign" class="mn-card mn-sign" data-note-section="Signature"><h2>Supervisor review</h2>
@@ -643,7 +658,7 @@ onBeforeUnmount(()=>{stashRecovery();disposed=true;generation++;clearTimeout(sav
 <style scoped>
 .mn-service-field{display:flex;align-items:flex-end;gap:8px;min-width:0}.mn-service-field>label{flex:1;min-width:0}.mn-service-field>.service-information{align-self:flex-end;margin-bottom:6px}
 
-.mobile-note-workspace{background:#f7f9fc;padding:15px;color:#173754;min-width:0}.mobile-note-workspace button{font:inherit;cursor:pointer;border:1px solid #cbd8e5;border-radius:9px;background:#f3f7fc;color:#23577f;padding:10px 12px}.mobile-note-workspace button:disabled{opacity:.5;cursor:default}.mn-back{margin-bottom:16px}.mobile-note-workspace>header{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px}.mobile-note-workspace header p{font-size:11px;letter-spacing:.07em;text-transform:uppercase;margin:0;color:#6c8194}.mobile-note-workspace h1{font-size:21px;margin:5px 0}.mobile-note-workspace header>img{width:125px;max-width:37%;height:auto}.mn-client{display:flex;align-items:center;flex-wrap:wrap;gap:8px;width:100%;text-align:left;background:#fff!important;border-color:#d9e3ed!important;margin-bottom:15px}.mn-client strong{font-size:16px;flex:1}.mn-client span{font-size:12px;color:#6b8195}.mn-client span:last-child{font-size:10px;color:#23577f}.mn-card{background:#fff;border:1px solid #dbe4ee;border-radius:12px;padding:15px;margin:14px 0}.mn-card summary{font-weight:650;cursor:pointer;font-size:15px}.mn-card h2{font-size:17px;margin:0 0 12px}.mn-card h3{font-size:13px;margin:15px 0 8px}.mn-card p{font-size:12px;line-height:1.6;color:#6b8092}.mobile-note-workspace label{display:block;font-size:12px;color:#42617b;margin:11px 0;font-weight:550}.mobile-note-workspace input:not([type=checkbox]):not([type=radio]),.mobile-note-workspace textarea,.mobile-note-workspace select{display:block;box-sizing:border-box;width:100%;font:inherit;font-size:15px;margin-top:6px;border:1px solid #cbd9e6;padding:11px 10px;border-radius:8px;background:#fff;color:#173754;min-width:0}.mobile-note-workspace textarea{resize:vertical;line-height:1.6}.mn-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 10px;margin-top:10px}.mn-wide{grid-column:1/-1}.mobile-note-workspace .mn-check{display:flex;align-items:flex-start;gap:8px;line-height:1.6;font-weight:400}.mn-check input{margin-top:4px;flex:none}.mn-objective{display:grid!important;grid-template-columns:minmax(0,1fr);gap:6px;border-top:1px solid #dae4ed;padding:12px 0}.mn-objective>span{width:100%;word-break:normal}.mn-objective input{min-height:44px;box-sizing:border-box}.mn-rating-key,.mn-rating-dispositions{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}.mn-rating-key b{border-radius:6px;padding:3px 7px;font-size:.8rem}.mn-rating-scale{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:5px}.mn-rating-key .original,.mn-rating-scale .original{background:#64748b;color:white}.mn-rating-key .previous,.mn-rating-scale .previous{background:#fbbf24;color:#432b04}.mn-rating-key .goal,.mn-rating-scale .goal{box-shadow:inset 0 0 0 2px #15803d;color:#125d31;background:#edf8ed}.mn-rating-dispositions button{white-space:nowrap;word-break:normal}.mn-rating-buttons button[aria-pressed=true]{outline:2px solid #0f766e;outline-offset:-2px}.mn-rating-buttons button{min-height:44px}.mn-rating-buttons button[aria-pressed=true]{background:#0f766e;color:white}.mn-review-anchor{scroll-margin-top:6rem}.mn-review-anchor p{display:grid;justify-items:center;gap:12px;padding:20px;background:white}.mn-review-anchor img{width:min(180px,70%)}.mn-objective>span{flex:1;line-height:1.5}.mn-objective small{display:block;font-size:10px;color:#7a8fa1}.mn-objective input{max-width:68px}.mn-smart nav{display:flex;gap:5px;overflow:auto;margin:10px 0 17px;padding-bottom:4px}.mn-smart nav button{font-size:11px;white-space:nowrap;padding:8px}.mn-smart button[aria-pressed=true]{background:#1c5885;color:#fff;border-color:#1c5885}.mn-chips{display:flex;flex-wrap:wrap;gap:6px}.mn-chips button{font-size:11px;padding:7px 9px}.mn-step-actions{display:flex;justify-content:space-between;gap:10px}.mobile-note-workspace .mn-generate{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;background:#174f7c;color:white;border-color:#b79648;box-shadow:0 2px 5px #12345515;font-weight:650}.mn-generate img{width:26px;height:26px;object-fit:contain;background:#fff;border-radius:6px;padding:3px}.mn-privacy{padding:10px;background:#f2f6fb;border-left:3px solid #caab55}.mn-risk-choice{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:12px;font-size:12px}.mn-risk-choice label{display:flex;align-items:center;gap:4px;margin:0}.mn-risk-choice>span{color:#94621e}.mn-sign>button{width:100%;background:#1e5a82;color:#fff}.mn-sign p{font-size:11px}.mn-error,.mn-alert{color:#a32d2a;background:#fff0ed;padding:11px;border-radius:8px;font-size:13px;line-height:1.6}.mn-notice{font-size:12px;color:#28744f}.mobile-note-workspace :deep(.narriva-modes){margin-bottom:14px}.mobile-note-workspace :deep(.narriva-compliance){padding:13px;margin:14px 0}.mobile-note-workspace :deep(.narriva-compliance footer){flex-wrap:wrap}@media(max-width:350px){.mobile-note-workspace{padding:10px}.mn-card{padding:11px}.mn-fields{gap:0 7px}.mobile-note-workspace input:not([type=checkbox]):not([type=radio]),.mobile-note-workspace select{font-size:13px;padding:10px 6px}}
+.mobile-note-workspace{background:#f7f9fc;padding:15px;color:#173754;min-width:0}.mobile-note-workspace button:not(.clinical-action){font:inherit;cursor:pointer;border:1px solid #cbd8e5;border-radius:9px;background:#f3f7fc;color:#23577f;padding:10px 12px}.mobile-note-workspace button:disabled{opacity:.5;cursor:default}.mn-back{margin-bottom:16px}.mobile-note-workspace>header{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px}.mobile-note-workspace header p{font-size:11px;letter-spacing:.07em;text-transform:uppercase;margin:0;color:#6c8194}.mobile-note-workspace h1{font-size:21px;margin:5px 0}.mobile-note-workspace header>img{width:125px;max-width:37%;height:auto}.mn-client{display:flex;align-items:center;flex-wrap:wrap;gap:8px;width:100%;text-align:left;background:#fff!important;border-color:#d9e3ed!important;margin-bottom:15px}.mn-client strong{font-size:16px;flex:1}.mn-client span{font-size:12px;color:#6b8195}.mn-client span:last-child{font-size:10px;color:#23577f}.mn-card{background:#fff;border:1px solid #dbe4ee;border-radius:12px;padding:15px;margin:14px 0}.mn-card summary{font-weight:650;cursor:pointer;font-size:15px}.mn-card h2{font-size:17px;margin:0 0 12px}.mn-card h3{font-size:13px;margin:15px 0 8px}.mn-card p{font-size:12px;line-height:1.6;color:#6b8092}.mobile-note-workspace label{display:block;font-size:12px;color:#42617b;margin:11px 0;font-weight:550}.mobile-note-workspace input:not([type=checkbox]):not([type=radio]),.mobile-note-workspace textarea,.mobile-note-workspace select{display:block;box-sizing:border-box;width:100%;font:inherit;font-size:15px;margin-top:6px;border:1px solid #cbd9e6;padding:11px 10px;border-radius:8px;background:#fff;color:#173754;min-width:0}.mobile-note-workspace textarea{resize:vertical;line-height:1.6}.mn-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 10px;margin-top:10px}.mn-wide{grid-column:1/-1}.mobile-note-workspace .mn-check{display:flex;align-items:flex-start;gap:8px;line-height:1.6;font-weight:400}.mn-check input{margin-top:4px;flex:none}.mn-objective{display:grid!important;grid-template-columns:minmax(0,1fr);gap:6px;border-top:1px solid #dae4ed;padding:12px 0}.mn-objective>span{width:100%;word-break:normal}.mn-objective input{min-height:44px;box-sizing:border-box}.mn-rating-key,.mn-rating-dispositions{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}.mn-rating-key b{border-radius:6px;padding:3px 7px;font-size:.8rem}.mn-rating-scale{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:5px}.mn-rating-key .original,.mn-rating-scale .original{background:#64748b;color:white}.mn-rating-key .previous,.mn-rating-scale .previous{background:#fbbf24;color:#432b04}.mn-rating-key .goal,.mn-rating-scale .goal{box-shadow:inset 0 0 0 2px #15803d;color:#125d31;background:#edf8ed}.mn-rating-dispositions button{white-space:nowrap;word-break:normal}.mn-rating-buttons button[aria-pressed=true]{outline:2px solid #0f766e;outline-offset:-2px}.mn-rating-buttons button{min-height:44px}.mn-rating-buttons button[aria-pressed=true]{background:#0f766e;color:white}.mn-review-anchor{scroll-margin-top:6rem}.mn-review-anchor p{display:grid;justify-items:center;gap:12px;padding:20px;background:white}.mn-review-anchor img{width:min(180px,70%)}.mn-objective>span{flex:1;line-height:1.5}.mn-objective small{display:block;font-size:10px;color:#7a8fa1}.mn-objective input{max-width:68px}.mn-smart nav{display:flex;gap:5px;overflow:auto;margin:10px 0 17px;padding-bottom:4px}.mn-smart nav button{font-size:11px;white-space:nowrap;padding:8px}.mn-smart button[aria-pressed=true]{background:#1c5885;color:#fff;border-color:#1c5885}.mn-chips{display:flex;flex-wrap:wrap;gap:6px}.mn-chips button{font-size:11px;padding:7px 9px}.mn-step-actions{display:flex;justify-content:space-between;gap:10px}.mobile-note-workspace .mn-generate{display:grid;margin-inline:auto}.mn-privacy{padding:10px;background:#f2f6fb;border-left:3px solid #caab55}.mn-risk-choice{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:12px;font-size:12px}.mn-risk-choice label{display:flex;align-items:center;gap:4px;margin:0}.mn-risk-choice>span{color:#94621e}.mn-sign>button{width:100%;background:#1e5a82;color:#fff}.mn-sign p{font-size:11px}.mn-error,.mn-alert{color:#a32d2a;background:#fff0ed;padding:11px;border-radius:8px;font-size:13px;line-height:1.6}.mn-notice{font-size:12px;color:#28744f}.mobile-note-workspace :deep(.narriva-modes){margin-bottom:14px}.mobile-note-workspace :deep(.narriva-compliance){padding:13px;margin:14px 0}.mobile-note-workspace :deep(.narriva-compliance footer){flex-wrap:wrap}@media(max-width:350px){.mobile-note-workspace{padding:10px}.mn-card{padding:11px}.mn-fields{gap:0 7px}.mobile-note-workspace input:not([type=checkbox]):not([type=radio]),.mobile-note-workspace select{font-size:13px;padding:10px 6px}}
 </style>
 
 <style scoped>

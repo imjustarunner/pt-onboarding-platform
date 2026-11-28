@@ -14,7 +14,7 @@
     <p v-if="['running','pending'].includes(quickLook.submissionReview.status)">Narriva is reviewing the signed note.</p>
     <ul v-else-if="quickLook.submissionReview.findings?.length"><li v-for="finding in quickLook.submissionReview.findings" :key="finding">{{ finding }}</li></ul>
     <p v-else-if="quickLook.submissionReview.score !== null">No items flagged for review.</p>
-    <p v-else>Review results are unavailable for this version.</p>
+    <p v-else>Score unavailable<span v-if="quickLook.submissionReview.message">. {{ quickLook.submissionReview.message }}</span><span v-else> for this version.</span></p>
   </section>
   <details :open="!Object.keys(quickLook.aiSummary || {}).length">
     <summary>Saved note excerpts</summary>

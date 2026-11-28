@@ -47,7 +47,7 @@ import {
 } from '../services/billingRules.service.js';
 import { callPrivateSessionText, createSessionPrivacyContext } from '../services/sessionAiPrivacy.service.js';
 import { encounterTimingInstruction, buildPromptForTool, generateClinicalText } from '../services/clinicalNoteWriter.service.js';
-import { assertNarrivaPreGeneration } from '../services/narrivaReview.service.js';
+import { assertNarrivaPreGeneration, loadDirectNarrivaWriterContext } from '../services/narrivaReview.service.js';
 import { providerConversionPending,providerHasGroupPasswordAccess,rolloutForPractice } from '../services/clientSessionBookingRollout.service.js';
 import { isTreatmentPlanToolId, isProgressNoteToolId, isCsNoteBuildToolId, TRANSCRIPT_FIDELITY_INSTRUCTIONS } from '../config/clinicalNotePlanOutput.js';
 import { transcribeLongAudio } from '../services/speechTranscription.service.js';
@@ -940,8 +940,13 @@ export const patchClinicalNoteDraft = async (req, res, next) => {
       }
     }
 
-    let savedToolId = '', savedDraftMeta = {};
-    try { const savedOutput=maybeDecryptText(existing.output_json); savedDraftMeta=(typeof savedOutput==='string' ? JSON.parse(savedOutput) : savedOutput)?.meta || {}; savedToolId=savedDraftMeta.toolId || ''; } catch { /* Unknown drafts retain the alert check. */ }
+    let savedOutput = {}, savedOutputReadable = true;
+    try {
+      const decoded = maybeDecryptText(existing.output_json);
+      savedOutput = (typeof decoded === 'string' ? JSON.parse(decoded) : decoded) || {};
+    } catch { savedOutputReadable = false; }
+    const savedDraftMeta = savedOutput.meta || {};
+    const savedToolId = savedDraftMeta.toolId || '';
     const standaloneTermination = savedToolId === 'clinical_termination' && !existing.clinical_session_id && !existing.office_event_id && !req.body?.clinicalSessionId && !req.body?.officeEventId;
     if (!standaloneTermination) await clinicalAppointmentAlerts.assertReviewed(req.user,{agencyId,clientId:nextClientId,clinicalSessionId:req.body?.clinicalSessionId || existing.clinical_session_id,officeEventId:req.body?.officeEventId || existing.office_event_id,dateOfService:req.body?.dateOfService || existing.date_of_service});
 
@@ -965,7 +970,23 @@ export const patchClinicalNoteDraft = async (req, res, next) => {
       const inputText = req.body.inputText === null ? null : String(req.body.inputText || '');
       patch.inputText = maybeEncryptText(inputText);
     }
-    if (req.body?.outputJson !== undefined) {
+    const appointmentDetails = req.body?.appointmentNoteDetails;
+    if (appointmentDetails !== undefined) {
+      if (!savedOutputReadable || (!existing.clinical_session_id && !existing.office_event_id)
+          || !appointmentDetails || !Array.isArray(appointmentDetails.objectiveRatings)
+          || typeof appointmentDetails.includeInteractiveComplexity !== 'boolean') {
+        throw Object.assign(new Error('These appointment details could not be applied to the current draft.'), {status:409});
+      }
+      patch.outputJson = maybeEncryptText(JSON.stringify({
+        ...savedOutput,
+        meta: {
+          ...savedDraftMeta,
+          objectiveRatings: appointmentDetails.objectiveRatings,
+          includeInteractiveComplexity: appointmentDetails.includeInteractiveComplexity,
+          ...(safeInt(appointmentDetails.sessionRecordingId) ? {sessionRecordingId:safeInt(appointmentDetails.sessionRecordingId)} : {})
+        }
+      }));
+    } else if (req.body?.outputJson !== undefined) {
       if (req.body.outputJson === null) {
         patch.outputJson = null;
       } else if (typeof req.body.outputJson === 'object') {
@@ -1015,8 +1036,12 @@ export const patchClinicalNoteDraft = async (req, res, next) => {
     const updated = await ClinicalNoteDraft.updateForUser({
       draftId,
       userId: req.user.id,
+      ...(appointmentDetails !== undefined ? {expectedSnapshot:existing} : {}),
       patch
     });
+    if (!updated && appointmentDetails !== undefined) {
+      throw Object.assign(new Error('This draft changed while saving. Reopen the appointment to see the latest draft.'), {status:409});
+    }
     if (!updated) return res.status(404).json({ error: { message: 'Draft not found' } });
     res.json({ draft: sanitizeDraftRow(updated), attendance: await savedDraftAttendance(req,updated,existing) });
   } catch (e) {
@@ -1069,9 +1094,16 @@ export const listRecentClinicalNoteDrafts = async (req, res, next) => {
 
     const days = req.query?.days ? Number(req.query.days) : 2555;
     const archiveStatus = String(req.query?.archiveStatus || req.query?.status || 'all').toLowerCase();
+    const clinicalSessionId = safeInt(req.query?.clinicalSessionId);
+    const officeEventId = safeInt(req.query?.officeEventId);
+    const encounterClientId = clinicalSessionId || officeEventId ? safeInt(req.query?.encounterClientId) : null;
+    if ((clinicalSessionId || officeEventId) && (!encounterClientId || allAccessible)) {
+      return res.status(400).json({error:{message:'Choose an organization and client for this appointment draft.'}});
+    }
     const fetchedDrafts = await ClinicalNoteDraft.listRecentForUser({
       userId: req.user.id,
       draftId: req.query?.draftId || null,
+      clinicalSessionId, officeEventId, encounterClientId,
       agencyId: allAccessible && isSuperAdmin ? null : (allAccessible ? null : agencyId),
       agencyIds: allAccessible && isSuperAdmin ? null : (allAccessible ? agencyIds : null),
       days,
@@ -1705,20 +1737,31 @@ export const generateClinicalNote = async (req, res, next) => {
       }
     }
 
-    const checkedDraft = req.body?.writerMode === 'narriva' && generationSessionContext.clinicalSessionId && (isProgressNoteToolId(toolId) || req.body?.preflightReviewId)
-      ? await assertNarrivaPreGeneration(req, { agencyId, clientId: generationSessionContext.clientId, draftId, clinicalSessionId: generationSessionContext.clinicalSessionId, inputText: req.body?.inputText, currentGuidance:narrivaGuidance })
+    const writerMode = String(req.body?.writerMode || '');
+    const directDraft = ['true', true].includes(req.body?.backgroundReview)
+      && ['narriva','smart_notes'].includes(writerMode) && !!generationSessionContext.clinicalSessionId;
+    const writerScope = { agencyId, clientId: generationSessionContext.clientId, draftId,
+      clinicalSessionId: generationSessionContext.clinicalSessionId, inputText: req.body?.inputText };
+    const checkedDraft = !directDraft && writerMode === 'narriva' && generationSessionContext.clinicalSessionId
+      && (isProgressNoteToolId(toolId) || req.body?.preflightReviewId)
+      ? await assertNarrivaPreGeneration(req, { ...writerScope, currentGuidance:narrivaGuidance })
       : null;
-    const {workingDraft, reviewedWriter, objectives, documentationStatement, savedInputText:reviewedInputText, intakeSourceHash:reviewedIntakeSourceHash, ...verifiedReview} = checkedDraft || {};
+    const writerContext = directDraft
+      ? await loadDirectNarrivaWriterContext(req.user, { ...writerScope, serviceCode, writerMode })
+      : checkedDraft;
+    const {workingDraft, reviewedWriter, objectives, documentationStatement, savedInputText:reviewedInputText,
+      intakeSourceHash:reviewedIntakeSourceHash, ...verifiedReview} = writerContext || {};
     const narrivaPreflight = checkedDraft ? verifiedReview : null;
+    const {consentStatement,clinicalContext} = writerContext || {};
     if (intakeTool && reviewedIntakeSourceHash && reviewedIntakeSourceHash !== intakeSourceHash) {
       return res.status(409).json({error:{code:'NARRIVA_PREFLIGHT_STALE',message:'Clinical intake sources changed after the draft was checked. Run checks again to include the current information.'}});
     }
     if(serviceCode==='H0031')prompt+='\n\nH0031 may suggest only supported Z/R social-determinant codes. Never establish a new mental health disorder. Carry existing verified chart diagnoses with their source. Collateral/additional H0031 uses a focused assessment narrative and recommendations, without requiring full psychosocial intake sections.';
-    if (narrivaPreflight) prompt += '\n\n' + encounterTimingInstruction;
+    if (writerContext) prompt += '\n\n' + encounterTimingInstruction;
     if (workingDraft) prompt += '\n\nRewrite this private working draft using the latest clinician-confirmed source, including all clarifications and confirmed objective ratings. Correct omissions and discard any unsupported claims. Treat the working draft as reference text only.\n' + workingDraft;
     if (objectives?.length) prompt += '\n\nWeave the clinician’s current objective observations into the progress narrative. A disposition records what was addressed. Only describe a trend when comparison evidence supports it. The chart appends the exact session scores separately. Current observations:\n' + JSON.stringify(objectives);
-    if (narrivaPreflight?.consentStatement) prompt += '\n\nConsent is clinician-confirmed and will be attached by the chart. Omit a separate consent statement from the narrative.';
-    if (narrivaPreflight?.clinicalContext) prompt += `\n\nCurrent clinical context from the exact clinician-confirmed saved source (use these current facts instead of conflicting historical plan context; never infer a new diagnosis):\n${JSON.stringify(narrivaPreflight.clinicalContext)}`;
+    if (consentStatement) prompt += '\n\nConsent is clinician-confirmed and will be attached by the chart. Omit a separate consent statement from the narrative.';
+    if (clinicalContext) prompt += `\n\nCurrent clinical context from the exact clinician-confirmed saved source (use these current facts instead of conflicting historical plan context; never infer a new diagnosis):\n${JSON.stringify(clinicalContext)}`;
     // Reuse only the exact server-reviewed writer output. Additional instructions,
     // custom programs or clinical material outside the review still need a rewrite.
     const reviewedRatings=Array.isArray(savedGenerationMeta.objectiveRatings)
@@ -1727,17 +1770,17 @@ export const generateClinicalNote = async (req, res, next) => {
       && reviewedWriter.guidanceHash===narrivaGuidance.guidanceHash && !revisionInstruction && !usedAudioTranscript
       && !customAidRow && !programId && !programLabel && !applyInteractiveComplexity && !effectiveAutoSelect
       && !terminationRequested && serviceCode!=='90839' && (intakeTool || !questionnaireInstruments.length)
-      && (!treatmentPlanContext || treatmentPlanContext===narrivaPreflight?.clinicalContext?.presentingProblem)
+      && (!treatmentPlanContext || treatmentPlanContext===clinicalContext?.presentingProblem)
       && (!objectiveRatingsContext || objectiveRatingsContext===JSON.stringify(reviewedRatings));
     const { text, modelName, latencyMs, finishReason } = reuseReviewedDraft
       ? {text:workingDraft,modelName:reviewedWriter.model,latencyMs:reviewedWriter.latencyMs,finishReason:'STOP'}
-      : await generateClinicalText({ tool, prompt, privacyContext, generatorGuidance: narrivaGuidance,
+      : await generateClinicalText({ tool, prompt, privacyContext, generatorGuidance: narrivaGuidance, fastDraft: directDraft,
       ...(req.sessionTranscription ? {vertexOnly:true,sensitive:true} : {}) });
 
     if (terminationRequested && finishReason && finishReason !== 'STOP') {
       return res.status(422).json({ error: { message: 'The termination note could not be generated in full. No partial note was saved. Please retry or complete the note manually.' } });
     }
-    if(serviceCode==='H0031')assertH0031DiagnosisScope(text,narrivaPreflight?.clinicalContext?.diagnoses || savedGenerationMeta.structuredChart?.diagnoses || []);
+    if(serviceCode==='H0031')assertH0031DiagnosisScope(text,clinicalContext?.diagnoses || savedGenerationMeta.structuredChart?.diagnoses || []);
     const parsedSections = parseNoteSections(text, { skipMse: clinicalClientPresent(savedGenerationMeta)===false || /^clinical_h\d{4}(?:_|$)/i.test(toolId), intake: ['clinical_90791_intake_plan', 'clinical_90791_note_aid', 'clinical_h0031_intake'].includes(toolId) });
     const intakeError = intakeOutputError(toolId, parsedSections, finishReason,{clientPresent:clinicalClientPresent(savedGenerationMeta)});
     if (intakeError) return res.status(422).json({ error: { message: intakeError } });
@@ -1755,13 +1798,13 @@ export const generateClinicalNote = async (req, res, next) => {
       ? (intakeTool ? applyIntakeIdentifyingAge(parsedSections, encounterAge) : parsedSections)
       : { Output: String(text || '').trim() };
 
-    if (narrivaPreflight?.clinicalContext) {
-      for (const [title,value] of Object.entries(progressContextSections(narrivaPreflight.clinicalContext))) {
+    if (clinicalContext) {
+      for (const [title,value] of Object.entries(progressContextSections(clinicalContext))) {
         // An intake can establish a new formulation from enrollment and assessments.
         if (!intakeTool || !sections[title]?.trim()) sections[title]=value;
       }
     }
-    if (narrivaPreflight?.consentStatement) sections['Consent for services'] = narrivaPreflight.consentStatement;
+    if (consentStatement) sections['Consent for services'] = consentStatement;
     if (objectives?.length) sections['Treatment objective ratings'] = formatObjectiveRatings(objectives);
 
     if(intakeTool)sections=intakeObjectiveFirst(sections,documentationStatement);
@@ -1770,11 +1813,12 @@ export const generateClinicalNote = async (req, res, next) => {
     const outputObj = {
       sections,
       meta: {
-        ...(checkedDraft ? {
-          writerMode:'narriva',objectiveRatings:savedGenerationMeta.objectiveRatings || [],
+        ...(writerContext ? {
+          writerMode,objectiveRatings:savedGenerationMeta.objectiveRatings || [],
           generatedObjectiveRatings:reviewedRatings.map(({objectiveId,scaleValue,disposition})=>({objectiveId,scaleValue,disposition})),
           structuredChart:savedGenerationMeta.structuredChart || {},
-          narrivaContext:{...savedGenerationMeta.narrivaContext,writerMode:'narriva'}
+          narrivaContext:{...savedGenerationMeta.narrivaContext,writerMode},
+          smartNotes:savedGenerationMeta.smartNotes
         } : {}),
         toolId,
         narrivaPreflight,
@@ -1788,7 +1832,7 @@ export const generateClinicalNote = async (req, res, next) => {
         intakeSources: intakeTool ? intakeSources : undefined,
         encounterAge: intakeTool ? encounterAge : null,
         assessmentContext,
-        sessionContext: { ...(checkedDraft ? savedGenerationMeta.sessionContext : {}), durationMinutes: Number(req.body?.durationMinutes) || savedGenerationMeta.sessionContext?.durationMinutes || null },
+        sessionContext: { ...(writerContext ? savedGenerationMeta.sessionContext : {}), durationMinutes: Number(req.body?.durationMinutes) || savedGenerationMeta.sessionContext?.durationMinutes || null },
         billingPrimaryUnits: resolveNoteAidBillingCodes({primaryCode:serviceCode,durationMinutes:req.body?.durationMinutes,includeInteractiveComplexity:!!applyInteractiveComplexity,sessionStartAt:validatedGenerationSession?.scheduled_start_at,timeZone:validatedGenerationSession?.source_timezone,metadata:documentationMeta}).primaryUnits,
         billingAddons: resolveNoteAidBillingCodes({primaryCode:serviceCode,durationMinutes:req.body?.durationMinutes,includeInteractiveComplexity:!!applyInteractiveComplexity,sessionStartAt:validatedGenerationSession?.scheduled_start_at,timeZone:validatedGenerationSession?.source_timezone,metadata:documentationMeta}).addons,
         model: modelName,
@@ -1812,7 +1856,7 @@ export const generateClinicalNote = async (req, res, next) => {
     // Primary mobile writing must finish generation before it can enter signing.
     // Desktop and legacy/manual drafts keep their existing signature workflow.
     const mobileWriterMode=req.quickView?.mobileDeviceSessionId ? String(req.body?.writerMode || '') : '';
-    const receiptMode=checkedDraft?'narriva':mobileWriterMode;
+    const receiptMode=writerContext?writerMode:mobileWriterMode;
     if(['narriva','smart_notes'].includes(receiptMode))outputObj.meta.generationReceipt=issueNarrivaGenerationReceipt({userId:req.user.id,agencyId,clientId,clinicalSessionId:generationSessionContext.clinicalSessionId,officeEventId:generationSessionContext.officeEventId,inputText:reviewedInputText ?? String(req.body?.inputText || ''),serviceCode,writerMode:receiptMode});
     const outputJson = JSON.stringify(outputObj);
     const storedInputText =
@@ -1855,7 +1899,7 @@ export const generateClinicalNote = async (req, res, next) => {
           outputJson: encryptedOutputJson
         }
       });
-      if (!draft && narrivaWorkflow) throw Object.assign(new Error('The saved narrative or session changed during generation. Your newer content was preserved. Submit it for compliance check again.'), { status: 409, code: 'NARRIVA_GENERATION_SOURCE_CHANGED' });
+      if (!draft && narrivaWorkflow) throw Object.assign(new Error('The saved narrative or session changed during generation. Your newer content was preserved. Generate again from the current draft.'), { status: 409, code: 'NARRIVA_GENERATION_SOURCE_CHANGED' });
     }
 
     if (!draft) {

@@ -86,6 +86,19 @@ export function startScaleValue(obj = {}) {
   return Number.isFinite(n) && n >= 1 && n <= 10 ? n : null;
 }
 
+export function targetScaleValue(objective = {}) {
+  const n = Number(objective.scale_target ?? objective.scaleTarget);
+  return Number.isInteger(n) && n >= 1 && n <= 10 ? n : null;
+}
+
+export function usesAlternateObjectiveMeasure(objective = {}) {
+  return objective.skipScale === true || /^alternate measure:/i.test(objective.measurement_method || objective.measurementMethod || '');
+}
+
+export function hasObjectiveScale(objective) {
+  return !usesAlternateObjectiveMeasure(objective) && startScaleValue(objective) != null && targetScaleValue(objective) != null;
+}
+
 /** Strip duplicated "Objective 1.1" / "Treatment Goal 2" prefixes from body copy. */
 export function stripPlanHeadingPrefix(text) {
   return String(text || '')

@@ -93,7 +93,7 @@ export function useNarrivaReview({ agencyId, apiClient, base = '/narriva', pollM
     const current = generation; busy.value = true; error.value = '';
     try {
       const { data } = await apiClient.patch(`${base}/reviews/${review.value.id}/findings`, { agencyId: Number(unref(agencyId)), findingId, action, reason, sections }, { skipGlobalLoading: true });
-      if (current === generation) { review.value = data?.review || null; if(active(review.value))await pollReview(current); }
+      if (current === generation) { review.value = data?.review || null; if(active(review.value))await pollReview(current); return review.value; }
     } catch (e) { if (current === generation) error.value = message(e); }
     finally { if (current === generation) busy.value = false; }
   }

@@ -214,7 +214,7 @@ export function serializeCsNoteBuildForGenerate(state, {
   return lines.filter((l) => l !== '').join('\n').slice(0, 12000);
 }
 
-export function csNoteBuildCompletionCount(state, { isTelehealth = false, goalIds = [], skipMse = false } = {}) {
+export function csNoteBuildCompletionCount(state, { isTelehealth = false, goalIds = [], objectivesComplete = null, skipMse = false, clientPresent = true } = {}) {
   const s = state || createEmptyCsNoteBuildState();
   const checks = [
     !!s.startConfirmed && !!s.startTime,
@@ -223,12 +223,10 @@ export function csNoteBuildCompletionCount(state, { isTelehealth = false, goalId
     !!String(s.sessionFocus || '').trim(),
     (s.interventionsSelected || []).length > 0 || !!String(s.interventionsCustom || '').trim(),
     (s.interventionUse || []).length > 0 || !!String(s.interventionUseMore || '').trim(),
-    !!s.clientResponse,
+    !clientPresent || !!s.clientResponse,
     (s.symptomsSelected || []).length > 0 && !!String(s.medicalNecessityNarrative || '').trim(),
     skipMse ? true : (!!s.mse?.mood && !!s.riskLevel),
-    goalIds.length
-      ? goalIds.every((id) => s.goalProgress?.[id]?.rating)
-      : true,
+    objectivesComplete ?? goalIds.every((id) => s.goalProgress?.[id]?.rating),
     isTelehealth ? !!String(s.telehealthVerification || '').trim() : true,
     !!(s.planAccepted || String(s.planEdited || s.planProposed || '').trim())
   ];
