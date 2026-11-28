@@ -1,3 +1,4 @@
+import { nluTutoringVideoChoice } from './nluTutoringVideoChoice.service.js';
 // Called inside the office transaction, after the provider/agency/roster checks.
 // The appointment row serializes the bridge with other entry points.
 import { selectedLearningServiceCode, learningServiceMetadata } from './learningServiceCompensation.js';
@@ -5,7 +6,14 @@ import { selectedLearningServiceCode, learningServiceMetadata } from './learning
 export async function ensureTutoringAppointmentWorkspace(room, visit, db, { allowEnded = false, actorUserId = room.userId } = {}) {
   if (!visit.tutoringAppointmentId) return visit;
   const id = visit.tutoringAppointmentId;
-  const serviceCode = selectedLearningServiceCode(visit.learning_service_code);
+  const source=visit.sessionHubSource;
+  if(source){
+    if(!await nluTutoringVideoChoice({agencyId:room.agencyId}))throw Object.assign(new Error('This Session Hub is available only in NLU.'),{status:403});
+    const [[actual]]=await db.execute('SELECT service_code,business_type FROM appointments WHERE id=? AND agency_id=? AND provider_user_id=? FOR UPDATE',[id,room.agencyId,room.userId]);
+    if(!actual||String(actual.service_code||'')!==String(source.code||'')||String(actual.business_type||'')!==String(source.businessType||''))throw Object.assign(new Error('This appointment’s selected service changed. Reopen its Session Hub.'),{status:409});
+  }
+  const serviceCode = source?String(source.code||''):selectedLearningServiceCode(visit.learning_service_code);
+  const sourceMetadata=source?{sessionHubActivitiesOnly:true,sourceServiceCode:source.code,sourceBusinessType:source.businessType}:{};
   const deliveryContext = String(visit.modality || '').toUpperCase() === 'IN_PERSON' ? 'in_person' : 'virtual';
   await db.execute('SELECT id FROM appointments WHERE id=? FOR UPDATE', [id]);
   const [[existing]] = await db.execute('SELECT session_id FROM tutoring_appointment_sessions WHERE appointment_id=?', [id]);
@@ -30,7 +38,7 @@ export async function ensureTutoringAppointmentWorkspace(room, visit, db, { allo
     }
     const [created] = await db.execute(`INSERT INTO learning_class_sessions
       (learning_class_id,title,mode,session_subtype,delivery_context,starts_at,ends_at,provider_user_id,created_by_user_id,metadata_json)
-      VALUES (?,?,?,'tutoring',?,?,?,?,?,?)`, [classId, visit.title || 'Tutoring appointment', visit.participants.length===1?'individual':'group', deliveryContext, visit.starts_at, visit.ends_at, room.userId, actorUserId, JSON.stringify({ learningServiceCode: serviceCode })]);
+      VALUES (?,?,?,'tutoring',?,?,?,?,?,?)`, [classId, visit.title || 'Tutoring appointment', visit.participants.length===1?'individual':'group', deliveryContext, visit.starts_at, visit.ends_at, room.userId, actorUserId, JSON.stringify({ learningServiceCode: serviceCode,...sourceMetadata })]);
     sessionId = created.insertId;
     const selected=typeof visit.learning_context_json==='string'?JSON.parse(visit.learning_context_json):visit.learning_context_json;
     if(selected?.studentSubjectId)await db.execute('UPDATE learning_class_sessions SET student_subject_id=? WHERE id=?',[selected.studentSubjectId,sessionId]);
@@ -50,7 +58,7 @@ export async function ensureTutoringAppointmentWorkspace(room, visit, db, { allo
   const metadata = learningServiceMetadata(session);
   const existingContext = ['online','telehealth','video'].includes(String(session.delivery_context).toLowerCase()) ? 'virtual' : session.delivery_context;
   if (existingContext && existingContext !== deliveryContext) throw Object.assign(new Error('The appointment delivery format differs from its learning visit. Review the session before opening it.'), { status: 409 });
-  if (metadata.learningServiceCode && selectedLearningServiceCode(metadata.learningServiceCode) !== serviceCode) throw Object.assign(new Error('The appointment service differs from its learning visit. Review the service before opening it.'), { status: 409 });
+  if ((source&&metadata.sessionHubActivitiesOnly!==true)||(source&&String(metadata.sourceServiceCode||'')!==String(source.code||''))||(source&&String(metadata.sourceBusinessType||'')!==String(source.businessType||''))||(metadata.learningServiceCode && (source?metadata.learningServiceCode:selectedLearningServiceCode(metadata.learningServiceCode)) !== serviceCode)) throw Object.assign(new Error('The appointment service differs from its learning visit. Review the service before opening it.'), { status: 409 });
   if (!metadata.learningServiceCode && ['live','ended'].includes(session.status) && serviceCode !== 'TUTORING') throw Object.assign(new Error('A started tutoring visit cannot be relabeled Homework Help. Review the original service first.'), { status: 409 });
   if (session.status === 'ended') return { ...visit, learningSessionId: Number(sessionId) };
   const [presenters] = await db.execute("SELECT user_id FROM learning_class_session_participants WHERE session_id=? AND role='presenter'", [sessionId]);
@@ -58,7 +66,7 @@ export async function ensureTutoringAppointmentWorkspace(room, visit, db, { allo
   // The checked appointment provider is also the learning presenter and payroll owner.
   if (!presenters.length) await db.execute(`INSERT INTO learning_class_session_participants (session_id,user_id,role)
     VALUES (?,?,'presenter') ON DUPLICATE KEY UPDATE role='presenter'`, [sessionId, room.userId]);
-  if (!metadata.learningServiceCode) await db.execute('UPDATE learning_class_sessions SET metadata_json=? WHERE id=?', [JSON.stringify({ ...metadata, learningServiceCode: serviceCode }), sessionId]);
+  if (!metadata.learningServiceCode) await db.execute('UPDATE learning_class_sessions SET metadata_json=? WHERE id=?', [JSON.stringify({ ...metadata, learningServiceCode: serviceCode,...sourceMetadata }), sessionId]);
   await db.execute("UPDATE learning_class_sessions SET starts_at=?,ends_at=? WHERE id=? AND status='scheduled'",[visit.starts_at,visit.ends_at,sessionId]);
   if(!existing)await db.execute('INSERT INTO tutoring_appointment_sessions(appointment_id,session_id) VALUES (?,?)', [id, sessionId]);
   return { ...visit, learningSessionId: Number(sessionId) };

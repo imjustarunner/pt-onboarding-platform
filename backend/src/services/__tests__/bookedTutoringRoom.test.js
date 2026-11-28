@@ -1,3 +1,5 @@
+import {nluSessionHubClientAccess} from '../nluSessionHubAccess.service.js';
+vi.mock('../nluSessionHubAccess.service.js',()=>({nluSessionHubClientAccess:vi.fn(async()=>({client:{full_name:'Synthetic student'}}))}));
 vi.mock('../../models/StudentSubject.model.js',()=>({default:{listByClient:vi.fn(async()=>[]),findById:vi.fn()}}));
 vi.mock('../../models/StudentLearningPlan.model.js',()=>({default:{findActiveBySubject:vi.fn(),listBySubject:vi.fn(),listGoals:vi.fn(),getPlanBundle:vi.fn()}}));
 import {beforeEach,afterEach,it,expect,vi} from 'vitest';
@@ -178,4 +180,19 @@ it('never relabels an existing platform media record as an externally attended m
  const ctx={appointment:{...a,videoRoomMode:'google_meet'},clientId:2547,host:true,actor:'user-1496',req:tutor};
  await expect(room.startBookedExternalTutoring(ctx,{body:{attended:true}})).rejects.toMatchObject({status:409,message:expect.stringContaining('platform video record')});
  expect(clinicalAudit).not.toHaveBeenCalled();expect(db.execute.mock.calls.some(([sql])=>sql.includes('actual_started_at=UTC_TIMESTAMP()'))).toBe(false);
+});
+
+it.each(['HOMEWORK HELP','H2014','90837','CUSTOM-NLU'])('opens the full NLU Hub for %s while retaining its actual service',async serviceCode=>{
+ const appointment={...a,serviceCode,businessType:serviceCode==='HOMEWORK HELP'?'learning':'mental_health',videoRoomMode:'unique_session'};
+ Appointment.findById.mockResolvedValue(appointment);
+ const ctx=await room.bookedTutoringAccess(tutor,359);
+ expect(ctx).toMatchObject({appointment:{serviceCode,businessType:appointment.businessType},hubV2:true,activitiesOnly:true});
+ expect(nluSessionHubClientAccess).toHaveBeenCalledWith(tutor,appointment,2547,true);
+ expect(assertLearningClientAccess).not.toHaveBeenCalled();
+ expect((await room.tutoringRoomStatus(ctx)).serviceCode).toBe(serviceCode);
+});
+it('keeps arbitrary service codes out of another agency’s Hub',async()=>{
+ const Agency=(await import('../../models/Agency.model.js')).default;
+ Agency.findById.mockResolvedValueOnce({id:2,slug:'itsco'});Appointment.findById.mockResolvedValue({...a,agencyId:2,serviceCode:'H2014',businessType:'mental_health'});
+ await expect(room.bookedTutoringAccess(tutor,359)).rejects.toHaveProperty('status',404);
 });

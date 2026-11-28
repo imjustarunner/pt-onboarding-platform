@@ -47,3 +47,9 @@ it('keeps another agency’s tutoring choices and counseling Google generation u
  expect(w.findAll('#tutoring-video-option option').map(row=>row.attributes('value'))).toEqual(['none','unique_session']);w.unmount();
  const shell=shallowMount(AppointmentEditorShell,{props:{nluVideoChoice:true}});expect(shell.getComponent(AppointmentHeaderFields).props('nluVideoChoice')).toBe(true);shell.unmount();
 });
+
+it('offers the full NLU Session Hub independently of a non-tutoring service selection',async()=>{
+ const w=shallowMount(AppointmentHeaderFields,{props:{nluVideoChoice:true,learning:false,appointmentType:'mental_health',showModality:true,modality:'TELEHEALTH',videoRoomMode:'google_meet'}});
+ const options=w.get('#tutoring-video-option').findAll('option').map(o=>o.attributes('value'));expect(options).toContain('unique_session');expect(options).toContain('google_meet');
+ await w.get('#tutoring-video-option').setValue('unique_session');expect(w.emitted('update:videoRoomMode')).toEqual([['unique_session']]);expect(w.emitted('update:appointmentType')).toBeUndefined();w.unmount();
+});

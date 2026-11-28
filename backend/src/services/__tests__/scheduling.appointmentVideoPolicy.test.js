@@ -51,3 +51,9 @@ it('applies the same clinical video policy when the caller omits or supplies a d
 });
 
 it('does not offer the NLU transport policy to another tutoring agency',()=>{expect(appointmentVideoRoomMode({modality:'TELEHEALTH',businessType:'tutoring',videoRoomMode:'google_meet'})).toBe('unique_session');});
+
+it('separates the NLU session interface from a clinical or other selected code',()=>{
+ expect(appointmentVideoRoomMode({modality:'TELEHEALTH',businessType:'mental_health',clinicalBooking:true,nluVideoChoice:true,videoRoomMode:'unique_session'})).toBe('unique_session');
+ expect(appointmentVideoRoomMode({modality:'TELEHEALTH',businessType:'mental_health',clinicalBooking:true,nluVideoChoice:true,videoRoomMode:'google_meet'})).toBe('google_meet');
+ expect(appointmentVideoRoomMode({modality:'TELEHEALTH',businessType:'mental_health',clinicalBooking:true,nluVideoChoice:true})).toBe('google_meet');
+});

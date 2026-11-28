@@ -37,7 +37,7 @@ it('never includes joining details for canceled or in-person appointments',async
 });
 it('uses an actual attached counseling room for native client sessions',async()=>{
  const db={execute:vi.fn(async()=>[[{guest_invite_token:'synthetic-room-token'}]])};
- const native={...appointment,businessType:'mental_health',videoRoomMode:'unique_session',externalMeetingUrl:null};
+ const native={...appointment,agencyId:2,businessType:'mental_health',videoRoomMode:'unique_session',externalMeetingUrl:null};
  expect(await guardianAppointmentJoin(native,client,db)).toBe('/counseling/invite/synthetic-room-token');
  expect(await guardianAppointmentJoin({...native,status:'canceled_by_provider'},client,db)).toBeNull();
  expect(db.execute).toHaveBeenCalledTimes(1);

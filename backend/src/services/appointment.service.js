@@ -319,7 +319,7 @@ async function createLockedAppointment({
   const clinicalVideoBooking = bookingClients.length > 0 && !audioOnly && !appointmentHasStarted(end)
     && (['mental_health', 'healthcare'].includes(businessType)
       || (!businessType && serviceCode !== 'TUTORING' && bookingClients.some(client => ['clinical', 'school', 'both'].includes(client.client_type))));
-  const nluVideoChoice = videoRoomMode === 'google_meet' && await nluTutoringVideoChoice({agencyId:aid,businessType});
+  const nluVideoChoice = await nluTutoringVideoChoice({agencyId:aid,businessType});
   videoRoomMode = appointmentVideoRoomMode({ modality: modality || service?.modality, businessType, videoRoomMode, clinicalBooking: clinicalVideoBooking, nluVideoChoice });
   if (videoRoomMode === 'google_meet') {
     includeGoogleDialIn = true;
@@ -554,8 +554,7 @@ async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId 
     await validateCustomReminderChannels(existing.agencyId, patch.customReminders);
   }
   if (!existing) return null;
-  const nluVideoChoice = ['videoRoomMode','externalMeetingUrl'].some(key=>patch[key]!==undefined)
-    || existing.videoRoomMode==='google_meet' ? await nluTutoringVideoChoice(existing) : false;
+  const nluVideoChoice = await nluTutoringVideoChoice(existing);
   if (nluVideoChoice && ['videoRoomMode','externalMeetingUrl'].some(key=>patch[key]!==undefined&&String(patch[key]??'')!==String(existing[key]??''))) {
     const { assertAppointmentCanMove } = await import('./appointmentScheduleSync.service.js');
     await assertAppointmentCanMove(existing);
@@ -576,7 +575,7 @@ async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId 
   const addsClinicalVideo = ['mental_health', 'healthcare'].includes(existing.businessType)
     && patch.modality !== undefined && existing.modality === 'IN_PERSON';
   if ((wasAudioOnly || addsClinicalVideo) && !appointmentHasStarted(patch.endAt || existing.endAt)) {
-    const nextVideoMode = appointmentVideoRoomMode({ modality: patch.modality || existing.modality, clinicalBooking: true });
+    const nextVideoMode = appointmentVideoRoomMode({ modality: patch.modality || existing.modality, videoRoomMode:patch.videoRoomMode??existing.videoRoomMode, clinicalBooking: true, nluVideoChoice });
     if (nextVideoMode === 'google_meet') {
       patch.videoRoomMode = nextVideoMode;
       patch.externalMeetingUrl = null;
@@ -860,7 +859,7 @@ export async function cancelAppointment(appointmentId, {
   cancellationClientDetails(notificationFacts);
   if (isCanceledAppointmentStatus(existing.status)) {
     await syncQaAppointmentBalance(existing, actorUserId);
-    if(existing.businessType==='tutoring'){const {closeChangedBookedTutoringRoom}=await import('./bookedTutoringRoom.service.js');await closeChangedBookedTutoringRoom(existing,actorUserId);}
+    if(existing.businessType==='tutoring'||await nluTutoringVideoChoice(existing)){const {closeChangedBookedTutoringRoom}=await import('./bookedTutoringRoom.service.js');await closeChangedBookedTutoringRoom(existing,actorUserId);}
   }
   if (isCanceledAppointmentStatus(existing.status)) return { ...(await getAppointmentBundle(appointmentId)), alreadyCanceled: true,
     notificationDelivery: null };
@@ -945,7 +944,7 @@ export async function cancelAppointment(appointmentId, {
     canceledByUserId: actorUserId,
     updatedByUserId: actorUserId
   }, { actorUserId, guardianCancellationClientId: familyCancellationActor ? billingClientId : null });
-  if(existing.businessType==='tutoring'){const {closeChangedBookedTutoringRoom}=await import('./bookedTutoringRoom.service.js');await closeChangedBookedTutoringRoom(existing,actorUserId);}
+  if(existing.businessType==='tutoring'||await nluTutoringVideoChoice(existing)){const {closeChangedBookedTutoringRoom}=await import('./bookedTutoringRoom.service.js');await closeChangedBookedTutoringRoom(existing,actorUserId);}
 
   try {
     await cancelPendingReminders(appointmentId);

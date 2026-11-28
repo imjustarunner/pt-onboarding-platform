@@ -1,3 +1,4 @@
+import { nluTutoringVideoChoice } from '../services/nluTutoringVideoChoice.service.js';
 import { appointmentHasStarted } from '../utils/appointmentVideoPolicy.js';
 import { requireClientSessionBooking } from '../services/clientSessionBookingRollout.service.js';
 import { prepareStaffAppointmentMeet } from '../services/staffAppointmentMeet.service.js';
@@ -402,6 +403,11 @@ export async function findOrCreateFromAppointment(req, res) {
     if (appointment.videoRoomMode === 'none') return res.status(409).json({ error: { message: 'Video is off for this appointment.' } });
     if(appointment.videoRoomMode==='external')return res.status(409).json({error:{message:'This appointment uses an external meeting. Open its saved link from the appointment.'}});
 
+    if(appointment.videoRoomMode==='unique_session'&&await nluTutoringVideoChoice(appointment)){
+      const clients=(await Appointment.listParticipants(appointmentId)).filter(p=>p.clientId);
+      if(clients.length!==1)return res.status(409).json({error:{message:'Use the group workflow for a shared appointment.'}});
+      return res.json({ok:true,session:{publicId:`tutoring-appointment:${appointmentId}`},sharePath:`/tutoring/appointment/${appointmentId}?agencyId=${agencyId}&clientId=${Number(clients[0].clientId)}`});
+    }
     bookingLock = await pool.getConnection();
     bookingLockName = `counseling_appointment:${appointmentId}`;
     const [[lock]] = await bookingLock.execute('SELECT GET_LOCK(?, 8) AS acquired', [bookingLockName]);

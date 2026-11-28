@@ -414,6 +414,7 @@ async function prepareSessionPayroll(sessionId, actorUserId) {
 export async function completeLearningSession(sessionId,actorUserId,transcript=null) {
     const session=await LearningClassSession.findById(sessionId);
     if(!session)throw Object.assign(new Error('Session not found'),{status:404});
+    if(learningServiceMetadata(session).sessionHubActivitiesOnly)throw Object.assign(new Error('Complete this selected-service appointment from its Session Hub.'),{status:409});
     const linked=await linkedTutoringBilling(session);
     await requireLinkedTutoringCompletion(linked,session);
     const syncCompletedAppointment=async saved=>{

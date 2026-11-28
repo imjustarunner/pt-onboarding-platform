@@ -1,4 +1,5 @@
 import { nluTutoringVideoChoice } from './nluTutoringVideoChoice.service.js';
+import { nluSessionHubClientAccess } from './nluSessionHubAccess.service.js';
 import crypto from 'node:crypto';
 import pool from '../config/database.js';
 import Appointment from '../models/Appointment.model.js';
@@ -22,10 +23,11 @@ const stopped=new Set(['completed','ended','no_show','no_show_pending','late_can
 export async function issueTutoringGuestLink(appointment,clientId,recipientUserId,db=pool) {
  const agency=await Agency.findById(appointment.agencyId);
  const nluMeet=appointment.videoRoomMode==='google_meet'&&await nluTutoringVideoChoice(appointment);
- if(!nluMeet&&!tutoringSessionHubEnabled(agency))return null;
+ if(!await nluTutoringVideoChoice(appointment)&&!tutoringSessionHubEnabled(agency))return null;
  if(stopped.has(appointment.status)||['none','external'].includes(appointment.videoRoomMode)||!['VIRTUAL','TELEHEALTH','VIDEO','ONLINE'].includes(appointment.modality))return null;
  const access=await authorizedAppointmentClient(recipientUserId,clientId,{agencyId:appointment.agencyId,serviceId:appointment.learningContext?.serviceEnrollmentId});
  if(!tutoringInvitationAllowed(access,appointment,guardianContextAllowsAppointment))throw fail(403,'This tutoring invitation is unavailable.');
+ if((!['learning','tutoring'].includes(appointment.businessType)||appointment.serviceCode!=='TUTORING')&&await nluTutoringVideoChoice(appointment))await nluSessionHubClientAccess({user:{id:recipientUserId},query:{}},appointment,clientId,false);
  // Google Meet uses its saved appointment-specific link, never a native guest grant.
  if(nluMeet)return savedStaffAppointmentMeet(appointment,db);
  const bookingHash=tutoringGuestBookingHash(appointment);
@@ -39,7 +41,7 @@ export async function issueTutoringGuestLink(appointment,clientId,recipientUserI
  return buildPublicAppUrl(agency,'tutoring/invite#'+token);
 }
 export async function tutoringGuestReminderBody({appointment,clientId,recipientUserId,body},issue=issueTutoringGuestLink){
- if(!Number(recipientUserId)||!['learning','tutoring'].includes(appointment.businessType))return body;
+ if(!Number(recipientUserId)||(!['learning','tutoring'].includes(appointment.businessType)&&!await nluTutoringVideoChoice(appointment)))return body;
  const url=await issue(appointment,clientId,recipientUserId);
  if(!url)return body;
  const action='\nJoin tutoring session: '+url;
@@ -48,13 +50,14 @@ export async function tutoringGuestReminderBody({appointment,clientId,recipientU
 async function grantContext(req,grant) {
  const appointment=await Appointment.findById(grant.appointment_id);
  const agency=appointment&&await Agency.findById(appointment.agencyId);
- if(!appointment||(['google_meet','external','none'].includes(appointment.videoRoomMode)&&await nluTutoringVideoChoice(appointment))||!tutoringSessionHubEnabled(agency)||grant.revoked_at||Number(grant.agency_id)!==Number(appointment.agencyId)||grant.booking_hash!==tutoringGuestBookingHash(appointment)||stopped.has(appointment.status))throw fail(410,'This session link has ended or changed. Ask your tutor for the current appointment link.');
+ if(!appointment||(['google_meet','external','none'].includes(appointment.videoRoomMode)&&await nluTutoringVideoChoice(appointment))||(!await nluTutoringVideoChoice(appointment)&&!tutoringSessionHubEnabled(agency))||grant.revoked_at||Number(grant.agency_id)!==Number(appointment.agencyId)||grant.booking_hash!==tutoringGuestBookingHash(appointment)||stopped.has(appointment.status))throw fail(410,'This session link has ended or changed. Ask your tutor for the current appointment link.');
  const window=bookedTutoringWindow(appointment);
  if(Date.now()>Date.parse(window.closesAt))throw fail(410,'This session link has expired.');
  const person=await User.findById(grant.recipient_user_id);
  if(!person||Number(person.is_active)!==1||Number(person.is_archived)===1)throw fail(403,'This invitation is no longer available.');
  const access=await authorizedAppointmentClient(grant.recipient_user_id,grant.client_id,{agencyId:appointment.agencyId,serviceId:appointment.learningContext?.serviceEnrollmentId});
  if(!tutoringInvitationAllowed(access,appointment,guardianContextAllowsAppointment))throw fail(403,'This invitation is no longer available.');
+ if((!['learning','tutoring'].includes(appointment.businessType)||appointment.serviceCode!=='TUTORING')&&await nluTutoringVideoChoice(appointment))await nluSessionHubClientAccess({user:{id:grant.recipient_user_id},query:{}},appointment,grant.client_id,false);
  const participants=await Appointment.listParticipants(appointment.id);
  if(participants.filter(p=>p.clientId).length!==1||!participants.some(p=>Number(p.clientId)===Number(grant.client_id)))throw fail(403,'This invitation belongs to another session.');
  return {appointment,agency,access,person};
@@ -75,7 +78,7 @@ export async function tutoringGuestAccess(req,id,proof) {
  if(!session||session.revoked_at||session.grant_revoked_at)throw fail(401,'Open the session link from your invitation.');
  const {appointment,access,person}=await grantContext(req,{...session,revoked_at:session.grant_revoked_at});
  await pool.execute('UPDATE tutoring_guest_sessions SET last_seen_at=UTC_TIMESTAMP() WHERE id=?',[id]);
- return {appointment,hubV2:true,clientId:Number(session.client_id),studentName:access.full_name||access.client?.full_name||access.initials||null,host:false,actor:'guest:'+id,participantUserId:Number(session.recipient_user_id),guestSessionId:id,guestGrantId:session.grant_id,
+ return {appointment,hubV2:true,nluVideoChoice:await nluTutoringVideoChoice(appointment),activitiesOnly:!['learning','tutoring'].includes(appointment.businessType)||appointment.serviceCode!=='TUTORING',clientId:Number(session.client_id),studentName:access.full_name||access.client?.full_name||access.initials||null,host:false,actor:'guest:'+id,participantUserId:Number(session.recipient_user_id),guestSessionId:id,guestGrantId:session.grant_id,
   req:{...req,user:{id:null,role:'invited_family'},tutoringGuest:{id,recipientUserId:session.recipient_user_id}},guestDisplayName:[person.first_name,person.last_name].filter(Boolean).join(' ')||'Invited family'};
 }
 

@@ -1,3 +1,4 @@
+import { nluTutoringVideoChoice } from './nluTutoringVideoChoice.service.js';
 import pool from '../config/database.js';
 import Appointment from '../models/Appointment.model.js';
 import User from '../models/User.model.js';
@@ -54,7 +55,7 @@ export function createAppointmentStaffTools({ db = pool, appointments = Appointm
       businessType: appointment.businessType,
       ...(['learning','tutoring'].includes(appointment.businessType) ? { learningContext: { subjectLabel: appointment.learningContext?.subjectLabel || 'General' } } : {}),
       serviceSetting:['learning','tutoring'].includes(appointment.businessType)?await resolveAppointmentServiceSetting(appointment):null,
-      canOpenLearningWorkspace: canOpenLearningWorkspace(appointment,user.id) };
+      canOpenLearningWorkspace: canOpenLearningWorkspace(appointment,user.id,await nluTutoringVideoChoice(appointment)) };
   }
   async function save(user, id, body) {
     const appointment = await appointmentAccess(user, id, true);

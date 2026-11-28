@@ -1,3 +1,4 @@
+import { nluSessionHubClientAccess } from './nluSessionHubAccess.service.js';
 import { nluTutoringVideoChoice } from './nluTutoringVideoChoice.service.js';
 import StudentSubject from '../models/StudentSubject.model.js';
 import {tutoringSessionHubEnabled} from '../utils/tutoringSessionHubPolicy.js';
@@ -40,7 +41,8 @@ export function bookedTutoringWindow(appointment, now = Date.now()) {
 }
 export async function bookedTutoringAccess(req, appointmentId) {
  const appointment = await Appointment.findById(Number(appointmentId));
- if (!appointment || (!['tutoring','learning'].includes(appointment.businessType)||appointment.serviceCode!=='TUTORING')) throw fail(404, 'Tutoring appointment not found.');
+ const nluVideoChoice=appointment&&await nluTutoringVideoChoice(appointment);
+ if (!appointment || (!nluVideoChoice&&(!['tutoring','learning'].includes(appointment.businessType)||appointment.serviceCode!=='TUTORING'))) throw fail(404, 'Tutoring appointment not found.');
  const clients = (await Appointment.listParticipants(appointment.id)).filter(p=>p.clientId);
  if (clients.length !== 1) throw fail(409, 'This room requires one scheduled student. Use the group workflow for a class.');
  const selectedServiceId=Number(req.query?.serviceId);
@@ -50,20 +52,21 @@ export async function bookedTutoringAccess(req, appointmentId) {
  }
  const clientId = Number(clients[0].clientId), host = Number(req.user.id) === Number(appointment.providerUserId);
  if(req.dependentPortalAccess && Number(req.dependentPortalAccess.client_id)!==clientId)throw fail(403,'This personal portal opens only your own tutoring sessions.');
+ const activitiesOnly=nluVideoChoice&&(!['learning','tutoring'].includes(appointment.businessType)||appointment.serviceCode!=='TUTORING');
  let access;
  if (host) {
   if (!(await User.getAgencies(req.user.id)).some(a=>Number(a.id)===Number(appointment.agencyId))) throw fail(403, 'Your access to this tutoring organization is no longer active.');
-  access = await assertLearningClientAccess(req,clientId,appointment.agencyId);
+  access = activitiesOnly?await nluSessionHubClientAccess(req,appointment,clientId,true):await assertLearningClientAccess(req,clientId,appointment.agencyId);
  } else {
   if (!['client','client_guardian','guardian'].includes(req.user.role)) throw fail(403, 'Only the assigned tutor or an authorized family participant can join this session.');
-  access = await assertLearningClientAccess(req,clientId,appointment.agencyId);
+  access = activitiesOnly?await nluSessionHubClientAccess(req,appointment,clientId,false):await assertLearningClientAccess(req,clientId,appointment.agencyId);
   if(access.service&&appointment.learningContext?.serviceEnrollmentId&&Number(access.service.id)!==Number(appointment.learningContext.serviceEnrollmentId))throw fail(403,'This appointment belongs to a different tutoring service.');
   if (access.service && Number(access.service.provider_user_id)!==Number(appointment.providerUserId)) throw fail(403, 'This appointment belongs to a different tutoring team.');
-  if (Array.isArray(access.services) && !access.services.some(s=>s.service_kind==='tutoring'&&Number(s.is_active)===1&&Number(s.provider_user_id)===Number(appointment.providerUserId)&&(!appointment.learningContext?.serviceEnrollmentId||Number(s.id)===Number(appointment.learningContext.serviceEnrollmentId)))) throw fail(403,'An active tutoring assignment is required to join this appointment.');
+  if (!activitiesOnly && Array.isArray(access.services) && !access.services.some(s=>s.service_kind==='tutoring'&&Number(s.is_active)===1&&Number(s.provider_user_id)===Number(appointment.providerUserId)&&(!appointment.learningContext?.serviceEnrollmentId||Number(s.id)===Number(appointment.learningContext.serviceEnrollmentId)))) throw fail(403,'An active tutoring assignment is required to join this appointment.');
   if (access.permissions?.canViewAppointments===false) throw fail(403, 'Appointment access is required to join this session.');
  }
  if (req.query?.clientId && Number(req.query.clientId)!==clientId) throw fail(403,'This appointment belongs to a different student.');
- return {appointment,clientId,nluVideoChoice:await nluTutoringVideoChoice(appointment),hubV2:tutoringSessionHubEnabled(await Agency.findById(appointment.agencyId)),studentName:access?.client?.full_name || clients[0].displayName || access?.client?.initials || null,host,actor:`user-${req.user.id}`,req};
+ return {appointment,clientId,nluVideoChoice,activitiesOnly,hubV2:nluVideoChoice||tutoringSessionHubEnabled(await Agency.findById(appointment.agencyId)),studentName:access?.client?.full_name || clients[0].displayName || access?.client?.initials || null,host,actor:`user-${req.user.id}`,req};
 }
 const transact = async operation => {
  const db = await pool.getConnection();
@@ -97,7 +100,8 @@ export async function lockAppointment(ctx,db) {
  const [[current]]=await db.execute('SELECT status,provider_user_id,agency_id,start_at,end_at,modality,service_code,business_type,video_room_mode FROM appointments WHERE id=? FOR UPDATE',[ctx.appointment.id]);
  if (!current || Number(current.provider_user_id)!==Number(ctx.appointment.providerUserId)||Number(current.agency_id)!==Number(ctx.appointment.agencyId)) throw fail(409,'The tutor assignment changed. Reopen the appointment.');
  if((current.start_at&&utcMysqlToIso(current.start_at)!==utcMysqlToIso(ctx.appointment.startAt))||(current.end_at&&utcMysqlToIso(current.end_at)!==utcMysqlToIso(ctx.appointment.endAt)))throw fail(409,'This appointment was rescheduled. Reopen the current booking from your calendar.');
- if(current.service_code&&current.service_code!=='TUTORING')throw fail(409,'This appointment service changed. Reopen the current booking.');
+ if(current.service_code&&current.service_code!==(ctx.appointment.serviceCode||'TUTORING'))throw fail(409,'This appointment service changed. Reopen the current booking.');
+ if(current.business_type&&ctx.appointment.businessType&&current.business_type!==ctx.appointment.businessType)throw fail(409,'This appointment service changed. Reopen the current booking.');
  if(current.modality&&current.modality!==ctx.appointment.modality)throw fail(409,'This appointment format changed. Reopen the current booking.');
  ctx.appointment={...ctx.appointment,status:current.status,videoRoomMode:current.video_room_mode ?? ctx.appointment.videoRoomMode};
 }
@@ -107,7 +111,8 @@ async function prepareSession(ctx,db,{workspaceOnly=false}={}){
  if(session)return session;
  if(ctx.appointment.status==='completed')throw fail(409,'This completed appointment has no linked learning record. Ask Support to review its existing attendance before adding a signed summary.');
  const owner={userId:ctx.appointment.providerUserId,agencyId:ctx.appointment.agencyId};
- const visit=workspaceOnly?{tutoringAppointmentId:ctx.appointment.id,learning_service_code:'TUTORING',starts_at:ctx.appointment.startAt,ends_at:ctx.appointment.endAt,title:appointmentServiceLabel(ctx.appointment),modality:ctx.appointment.modality,participants:[{id:ctx.clientId}],learning_context_json:ctx.appointment.learningContext}:await tutoringVisit(owner,{tutoringAppointmentId:ctx.appointment.id},db);
+ const source=ctx.activitiesOnly?{code:ctx.appointment.serviceCode||null,businessType:ctx.appointment.businessType||null}:null;
+ const visit=workspaceOnly||source?{tutoringAppointmentId:ctx.appointment.id,learning_service_code:ctx.appointment.serviceCode||'TUTORING',sessionHubSource:source,starts_at:ctx.appointment.startAt,ends_at:ctx.appointment.endAt,title:appointmentServiceLabel(ctx.appointment),modality:ctx.appointment.modality,participants:[{id:ctx.clientId}],learning_context_json:ctx.appointment.learningContext}:await tutoringVisit(owner,{tutoringAppointmentId:ctx.appointment.id},db);
  await ensureTutoringAppointmentWorkspace(owner,visit,db,{actorUserId:ctx.req.user.id});
  session=await linkedSession(ctx,db,true);
  if(!session)throw fail(409,'The booked tutoring room could not be prepared. Your appointment is unchanged.');
@@ -118,7 +123,7 @@ export async function tutoringRoomStatus(ctx) {
  const session=await linkedSession(ctx), window=bookedTutoringWindow(ctx.appointment);
  const {status,displayStatus}=appointmentAttendanceView(ctx.appointment,{learningSession:session});
  const closed=terminal.has(status)||['ended','completed'].includes(status);
- const safe={sessionHubV2:!!ctx.hubV2,videoRoomMode:ctx.nluVideoChoice?ctx.appointment.videoRoomMode||'unique_session':'unique_session',appointmentId:ctx.appointment.id,clientId:ctx.clientId,agencyId:ctx.appointment.agencyId,
+ const safe={sessionHubV2:!!ctx.hubV2,activitiesOnly:!!ctx.activitiesOnly,serviceCode:ctx.appointment.serviceCode||null,businessType:ctx.appointment.businessType||null,videoRoomMode:ctx.nluVideoChoice?ctx.appointment.videoRoomMode||'unique_session':'unique_session',appointmentId:ctx.appointment.id,clientId:ctx.clientId,agencyId:ctx.appointment.agencyId,
   providerId:ctx.appointment.providerUserId,studentName:ctx.studentName||null,host:ctx.host,
   title:appointmentServiceLabel(ctx.appointment),modality:ctx.appointment.modality,
   timeZone:ctx.appointment.sourceTimezone||'America/Denver',startAt:utcMysqlToIso(ctx.appointment.startAt),endAt:utcMysqlToIso(ctx.appointment.endAt),
@@ -263,6 +268,7 @@ export async function endBookedTutoringRoom(ctx) {
  const disconnected=session.booked_media_id?await media.finishClinicalEnd(session.booked_media_id):{state:'ended'};
  let billingWarning=null;
  if(session.actual_started_at&&session.booked_media_id&&!connectedAttendance)billingWarning='The room is closed, but no connected family attendance has been confirmed. Support must review the evidence before billing.';
+ else if(session.actual_started_at&&ctx.activitiesOnly){try{const {finishNluHubActivities}=await import('./nluSessionHubCompletion.service.js');const result=await finishNluHubActivities(ctx,session.id);billingWarning=result.billingWarning||null;}catch(error){billingWarning=`The activities are saved. Complete the selected service through its usual workflow: ${error.message}`;}}
  else if(session.actual_started_at){try{const {completeLearningSession}=await import('../controllers/learningClassSessions.controller.js');const result=await completeLearningSession(session.id,ctx.req.user.id);billingWarning=result?.billingWarning||null;}catch(error){await pool.execute("UPDATE learning_class_sessions SET status='ended' WHERE id=? AND actual_ended_at IS NOT NULL",[session.id]);billingWarning=`The session is closed and attendance was kept. Billing needs office review: ${error.message}`;}}
  return {...disconnected,appointmentId:ctx.appointment.id,learningSessionId:session.id,billingWarning};
 }
@@ -302,7 +308,7 @@ export async function bookedTutoringWorkspace(ctx,operation,input={}) {
 // Called only by the authorized scheduling mutation, after the canonical change.
 // It closes media and preserves attendance; cancellation is never completion.
 export async function closeChangedBookedTutoringRoom(appointment,actorUserId){
- if(appointment?.businessType!=='tutoring')return;
+ if(appointment?.businessType!=='tutoring'&&!await nluTutoringVideoChoice(appointment))return;
  let mediaId=null;
  await transact(async db=>{
   const ctx={appointment};await lockAppointment(ctx,db);

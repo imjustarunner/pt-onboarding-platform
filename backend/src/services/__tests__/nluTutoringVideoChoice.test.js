@@ -13,10 +13,9 @@ it.each([[453,'nlu-qa-demo'],[454,'nlu-qa-learning']])('enables the retained syn
  expect(await nluTutoringVideoChoice({agencyId:id,businessType:'learning'})).toBe(true);
  Agency.findById.mockResolvedValue({id,slug});expect(await nluTutoringVideoChoice({agencyId:id,businessType:'learning'})).toBe(false);
 });
-it('does not change another agency or NLU counseling even if callers supply an NLU label',async()=>{
+it('keeps the new scope within NLU regardless of its selected service',async()=>{
  Agency.findById.mockResolvedValue({id:2,slug:'itsco'});
  expect(await nluTutoringVideoChoice({agencyId:2,businessType:'tutoring',slug:'nlu'})).toBe(false);
- Agency.findById.mockClear();
- expect(await nluTutoringVideoChoice({agencyId:6,businessType:'mental_health'})).toBe(false);
- expect(Agency.findById).not.toHaveBeenCalled();
+ Agency.findById.mockResolvedValue({id:6,slug:'nlu'});
+ for(const businessType of ['mental_health','healthcare','coaching','learning',null])expect(await nluTutoringVideoChoice({agencyId:6,businessType})).toBe(true);
 });

@@ -54,7 +54,7 @@ export async function appointmentJoinEmail({appointment,clientId,to,context,reci
   let url = bookedTutoring ? buildPublicAppUrl(context.tenant,destination) : destination.startsWith('/') ? context.url(destination.slice(1)) : destination;
   if(bookedTutoring){const guest=await (dependencies.guestLink|| (await import('./tutoringGuest.service.js')).issueTutoringGuestLink)(appointment,clientId,recipient.id,d.db);if(guest)url=guest;}
   const learning=['learning','tutoring'].includes(appointment.businessType);
-  const phone=(appointment.videoRoomMode === 'google_meet' || (appointment.includeGoogleDialIn === true&&!(learning&&await nluTutoringVideoChoice(appointment))))?googleDialInContent(await d.conference(appointment)):null;
+  const phone=(appointment.videoRoomMode === 'google_meet' || (appointment.includeGoogleDialIn === true&&!await nluTutoringVideoChoice(appointment)))?googleDialInContent(await d.conference(appointment)):null;
   const label=['learning','tutoring'].includes(appointment.businessType)?'Join tutoring session':'Join online appointment';
   return {url,label,detailsHtml:phone?.html||'',detailsText:phone?.text||'',text:`${label}:\n${url}${phone?`\n\n${phone.text}`:''}`,html:`<p><a href="${esc(url)}">${esc(label)}</a></p>${phone?.html||''}`};
  }catch(error){

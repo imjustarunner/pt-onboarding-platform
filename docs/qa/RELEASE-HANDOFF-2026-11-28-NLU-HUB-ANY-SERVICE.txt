@@ -1,0 +1,168 @@
+NLU SESSION HUB — SERVICE-INDEPENDENT FOLLOW-UP
+November 28, 2026. Implementation/testing handoff, not a live QA pass.
+
+RELEASE OWNERSHIP
+Branch: codex/nlu-session-hub-any-service-20261128
+Integrated base: 114172110958d0a06460f1a42a60d5780babef6e.
+This follows the earlier NLU video-choice release and is a separate release item.
+This chat pushes its feature branch only. The owner's separate release chat
+integrates, packages and deploys the paired backend/frontend, then verifies live.
+No main merge/push, production deployment, production data change, application
+impersonation, human account use, live mail or real payment was performed here.
+Awaiting the separate release chat. Not deployed.
+
+OWNER'S SCOPE CLARIFICATION
+The full tutoring Session Hub is available for NLU's individual client sessions
+regardless of the selected service code/business category. Staff choose the
+Hub when doing tutoring activities. Service filtering can be added later.
+This supersedes the previous TUTORING-only restriction and the old VC18
+expectation that NLU counseling must have only the Google Meet option.
+Other agencies retain their existing meeting behavior.
+
+RESULTING BEHAVIOR
+- NLU virtual booking offers Platform Session Hub and system-generated Google
+  Meet separately from the service/code/subject. Non-learning NLU bookings keep
+  Google Meet as their default; an explicit Hub selection is honored. Code
+  changes and format/policy loading do not silently change the NLU selection.
+- The native option opens the full existing Session Hub: shared whiteboard,
+  worksheet/material tools, activities, AI practice, ratings, progress and notes.
+  The same full Hub is available from eligible in-person NLU appointments.
+- The server resolves the stored NLU organization, including retained QA453/454
+  with intact markers. A client-supplied brand cannot enable another agency.
+  NLU uses the full Hub without requiring a separate tutoring rollout flag.
+- The existing assigned-provider/one-student appointment boundaries remain.
+  This is not a new group/class workflow, a studentless meeting, a credential
+  grant, or permission to schedule a service the employee is not authorized for.
+- Family access uses the actual appointment's current service, provider, agency
+  and relationship. An active tutoring enrollment cannot unlock an unrelated or
+  ended counseling service. Restricted relationships and revoked links stay
+  restricted; full tools do not expose another service's private records.
+- Native family email/SMS/portal destinations use the exact appointment's Hub
+  invitation, including for non-TUTORING codes. Existing Google Meet options
+  still use their system-generated per-appointment links. Calendar staff entry
+  resolves to the same Hub rather than creating a second counseling room.
+- A non-TUTORING activity workspace retains the actual source code and business
+  type in its existing metadata. It never overwrites the booked code/price or
+  reclassifies an H2014/custom-code service as TUTORING.
+- Completion validates the same appointment, provider, student, source code and
+  actual positive attendance interval. Settlement uses the original appointment
+  and its selected-service policy. It does not use a tutor profile price or an
+  automatic tutoring card charge. Retries reuse existing appointment settlement.
+- Homework Help retains its existing distinct compensation path. Other service
+  codes continue through their own documentation/claim/payroll workflow; using
+  learning tools does not generate a tutoring payroll claim for those services.
+  Activity notes do not replace required service-specific documentation.
+- Canceled, changed, expired or ended sessions preserve their existing records.
+  Changing a booking still closes its native media rather than treating the
+  canceled appointment as completed work.
+
+PERSISTENCE / DEPLOYMENT
+No new migration, dependency installation, backfill, account provisioning or
+production configuration change. Uses the existing appointment/service fields,
+learning-session bridge and metadata_json for source attribution.
+Deploy the integrated backend and frontend together. Retain existing Google
+Workspace readiness, media monitoring, eligibility, signature and billing gates.
+The prior release's existing database migrations must already be present.
+No live fee amounts or employee pay overrides are seeded by this change.
+
+ENGINEERING VALIDATION
+Evidence directory in the owner workspace:
+deliverables/nlu-hub-any-service-2026-11-28/
+- Combined backend: 22 files / 253 passed, no skips, including 5 disposable SQL
+  cases and the coordinator's 19 shared booking/access/window checks. Concurrent
+  opens produce one activity workspace; original H2014 code, business category
+  and price remain unchanged. backend-integrated-final.log.
+- Existing native room/material/attendance/email checks: 4 files / 23 passed,
+  including 16 disposable SQL cases. backend-native-regressions.log.
+  Total across these disjoint backend runs: 276 passed.
+- Integrated frontend: 7 files / 124 passed, no skips or failures, including
+  booking, office booking, full Hub, entry and service/in-person scope tests.
+  frontend-integrated-final.log.
+- Earlier on the pre-update base, seven school/service-choice tests failed and
+  were reproduced unchanged. The coordinator's 1141721 fixture corrections are
+  now incorporated; the final integrated run passes those tests. Historical
+  logs remain evidence, not unresolved failures in the final run.
+- Four synthetic localhost Chrome previews at 1280px/390px show independent
+  H2014 meeting options and the full Hub. The real shared-whiteboard launcher
+  was clicked. No page errors or horizontal overflow. preview-checks.json and
+  nlu-h2014-options-/nlu-h2014-full-hub-*.png.
+- JavaScript syntax, Vue compilation in tests/previews and diff checks passed.
+- Initial local SQL permission-review timeout was retried successfully. Sparse
+  checkout asset-resolution errors were resolved by restoring the small tracked
+  assets; no dependencies or large production builds were duplicated.
+- Production packaging, native-device testing, real Google/Vonage media, live
+  inbox receipt, actual paystub/charge verification and deployed build checks
+  were NOT RUN in this chat. These remain release/live QA work.
+
+SELF-CONTAINED LIVE BOT RETEST
+No upload attachments required. Preserve earlier 47-case tutoring and follow-on
+results; this handoff does not declare their unresolved cases passed.
+Run after the release chat verifies the new deployed build. Use ordinary app
+actions and authorized automation-only QA accounts in NLU QA453/454. Retain
+existing caps and synthetic records; no real-client writes or human admin use.
+Mail physically goes to testing@itsco.health. Credentials and bearer links stay
+in the existing vault, never in screenshots or ordinary result text.
+
+AH00 Record visible deployed build, actor, agency and actual Denver timestamp.
+AH01 As an authorized NLU QA operator open ordinary individual-session booking.
+     Verify Hub/Google choices with a non-TUTORING service from the real catalog.
+AH02 Change service code, subject and virtual/in-person/virtual. Verify the
+     selected NLU meeting option stays separate and the original quote remains.
+AH03 Book a native session using an already authorized non-TUTORING QA service.
+     Record exact code/subject/provider/student/appointment/quote. Do not grant
+     Finley clinical permissions merely to obtain an H2014/psychotherapy test.
+     Use an existing eligible QA provider or record the exact scheduling blocker.
+AH04 Open from the calendar and appointment tools. Verify the full Session Hub,
+     not a generic video room or a second counseling-session record.
+AH05 Use two separately authorized family/tutor sessions. Verify actual native
+     waiting, admission and media; no timer/attendance from a link click alone.
+AH06 Use whiteboard lock/own work, overlays, materials, typed answers, assessments,
+     AI draft/review and activity ratings. Confirm exact appointment association
+     and existing private tutor-key / unshared-material boundaries.
+AH07 Save/reopen activity notes. Complete a genuinely attended session; verify
+     source code, source business type, actual interval and original quote.
+     Finish required selected-service documentation in its existing workflow.
+AH08 Inspect isolated QA settlement and pay preview: H2014/custom codes must not
+     acquire TUTORING prices, indirect allowances or tutoring payroll claims.
+     Homework Help must retain its own configured rate and time basis.
+AH09 Retry completion/open/refresh. Verify one workspace, retained attendance,
+     one applicable settlement and no duplicate claim/charge/receipt.
+AH10 Verify actual family email/SMS/portal links for the non-TUTORING booking:
+     correct recipient and appointment, NLU host, private token handling and
+     physical inbox receipt. Sent/queued/transport acceptance is not receipt.
+AH11 Deny another family, mismatched service/provider, restricted/ended service,
+     revoked membership and stale/canceled links. An active different enrollment
+     must not supply permission. Do not open unrelated people's private data.
+AH12 Repeat through an in-person QA appointment. Verify the same full tools and
+     exact attendance/note linkage without starting a virtual room unnecessarily.
+AH13 Repeat with Google Meet. Verify its saved appointment-specific destination,
+     existing organizer readiness and explicit attendance-recording behavior.
+AH14 Verify desktop and 390px layouts, return after sign-out, retained service
+     context, keyboard controls and private/shared notes after completion.
+AH15 Read-only inspect an authorized other-agency QA booking: its existing
+     system-generated Google Meet behavior remains. No new NLU selector there.
+
+BLANK LIVE RESULTS — ALL START NOT RUN
+case_id,status,build,actor_user_id,agency_id,client_id,service_id,service_code,appointment_id,session_id,time_denver,utc_offset,evidence,finding
+AH00,NOT RUN,,,,,,,,,,,,
+AH01,NOT RUN,,,,,,,,,,,,
+AH02,NOT RUN,,,,,,,,,,,,
+AH03,NOT RUN,,,,,,,,,,,,
+AH04,NOT RUN,,,,,,,,,,,,
+AH05,NOT RUN,,,,,,,,,,,,
+AH06,NOT RUN,,,,,,,,,,,,
+AH07,NOT RUN,,,,,,,,,,,,
+AH08,NOT RUN,,,,,,,,,,,,
+AH09,NOT RUN,,,,,,,,,,,,
+AH10,NOT RUN,,,,,,,,,,,,
+AH11,NOT RUN,,,,,,,,,,,,
+AH12,NOT RUN,,,,,,,,,,,,
+AH13,NOT RUN,,,,,,,,,,,,
+AH14,NOT RUN,,,,,,,,,,,,
+AH15,NOT RUN,,,,,,,,,,,,
+
+ACTION / AUDIT LEDGER
+case_id,actor_user_id,agency_id,object_type,object_id,action,time_denver,expected_event,actual_audit_id,evidence,status,finding
+
+DELIVERY / FINANCIAL EVIDENCE LEDGER
+case_id,appointment_id,service_code,logical_recipient,physical_inbox,from,reply_to,message_id,received_at_denver,settlement_id,pay_claim_id,evidence,status,finding

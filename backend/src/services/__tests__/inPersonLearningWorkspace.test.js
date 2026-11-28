@@ -1,3 +1,5 @@
+vi.mock('../nluTutoringVideoChoice.service.js',()=>({nluTutoringVideoChoice:vi.fn(async()=>false)}));
+import {nluTutoringVideoChoice} from '../nluTutoringVideoChoice.service.js';
 import { beforeEach, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{}}));
 vi.mock('../appointmentStaffTools.service.js',()=>({default:{authorize:vi.fn()}}));
@@ -5,6 +7,7 @@ import { createInPersonLearningWorkspace } from '../inPersonLearningWorkspace.se
 const appointment={id:8,agencyId:6,providerUserId:20,businessType:'tutoring',modality:'IN_PERSON',status:'scheduled'};
 let conn,db,authorize,bridge,open,visit,students;
 beforeEach(()=>{
+ nluTutoringVideoChoice.mockResolvedValue(false);
  visit={id:8,agency_id:6,provider_user_id:20,business_type:'tutoring',modality:'IN_PERSON',status:'scheduled',learning_service_code:'HOMEWORK HELP',starts_at:'2026-10-29 20:00:00',ends_at:'2026-10-29 21:00:00'};
  students=[{id:40}];
  conn={beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn(),execute:vi.fn(async sql=>{
@@ -54,3 +57,9 @@ it('opens an existing completed visit for review but does not create a historica
 });
 
 it('opens the same appointment Session Hub for in-person tutoring',async()=>{visit.learning_service_code='TUTORING';expect(await open({id:20},8)).toMatchObject({appointmentId:8,destination:'/tutoring-session/appointment/8'});});
+
+it('opens the full NLU Hub for an in-person appointment without substituting a tutoring service code',async()=>{
+ nluTutoringVideoChoice.mockResolvedValue(true);authorize.mockResolvedValue({...appointment,businessType:'mental_health',serviceCode:'H2014'});
+ expect(await open({id:20,role:'provider'},8)).toMatchObject({appointmentId:8,destination:'/tutoring-session/appointment/8?agencyId=6'});
+ expect(bridge).not.toHaveBeenCalled();expect(db.getConnection).not.toHaveBeenCalled();
+});

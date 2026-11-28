@@ -2,7 +2,7 @@ import pool from '../config/database.js';
 import PayrollTimeClaim from '../models/PayrollTimeClaim.model.js';
 import { handbookTenant } from './handbookTenant.js';
 import { computeLineAmount, loadUserPaySystemContext } from './paySystem.service.js';
-import { learningSessionServiceCode } from './learningServiceCompensation.js';
+import { learningSessionServiceCode, learningServiceMetadata } from './learningServiceCompensation.js';
 
 export const TUTORING_UNIT_CODE = 'TUTORING 15 MIN';
 export function tutoringSessionQuantities(start, end) {
@@ -22,6 +22,7 @@ export async function createTutoringPayrollDraft(sessionId, actorUserId, db = po
       JOIN agencies a ON a.id=COALESCE((SELECT oa.agency_id FROM organization_affiliations oa WHERE oa.organization_id=c.organization_id AND oa.is_active=TRUE ORDER BY oa.id DESC LIMIT 1),c.organization_id) WHERE s.id=? FOR UPDATE`, [sessionId]);
     const session = rows[0];
     if (!session || handbookTenant({ slug: session.agency_slug }) !== 'nlu' || session.session_subtype !== 'tutoring' || session.status !== 'ended') { await conn.commit(); return { skipped: true }; }
+    if(learningServiceMetadata(session).sessionHubActivitiesOnly&&learningServiceMetadata(session).sourceServiceCode!=='HOMEWORK HELP'){await conn.commit();return {skipped:true,reason:'SELECTED_SERVICE_PAYROLL_WORKFLOW'};}
     const service = learningSessionServiceCode(session);
     const homework = service === 'HOMEWORK HELP';
     const serviceCode = homework ? 'HOMEWORK HELP 15 MIN' : TUTORING_UNIT_CODE;

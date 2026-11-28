@@ -15177,7 +15177,7 @@ const editorExternalMeetingUrl=ref('');
 const editorIncludeGoogleDialIn=ref(false),editorGoogleDialInStatus=ref('');
 const bookingMeetingPolicy=ref(null);
 const editorNluVideoChoice=computed(()=>{
- if(!editorIsLearning.value)return false;
+ if(!editorIsClinical.value)return false;
  const id=Number(editorAgencyId.value||effectiveAgencyId.value);
  const agency=[agencyStore.currentAgency,...(agencyStore.userAgencies||[]),...(selfScheduleAgencyOptions.value||[])].find(row=>Number(row?.id)===id);
  const slug=String(agency?.slug||agency?.portal_url||agency?.portalUrl||'').toLowerCase();
@@ -15514,7 +15514,7 @@ const editorHistoricalBooking = computed(() => {
 const editorAudioOnly = ref(false);
 const editorBookingVideoMode = computed(() => {
   if (editorAudioOnly.value || editorHistoricalBooking.value || editorVideoRoomMode.value === 'none') return 'none';
-  if (!editorIsLearning.value && editorIsClinical.value) return 'google_meet';
+  if (!editorIsLearning.value && editorIsClinical.value && !editorNluVideoChoice.value) return 'google_meet';
   return editorVideoRoomMode.value;
 });
 function applyAppointmentDeliveryEdits(patch, baseline) {
@@ -20212,7 +20212,7 @@ watch([editorAgencyId,editorPracticeCategory],()=>{if(showRequestModal.value&&ed
 watch([showRequestModal,editorAgencyId,editorModality,editorExternalMeetingsEnabled,editorIsLearning],(values,previous)=>{
  if(!showRequestModal.value||isAppointmentEditMode.value||isScheduleEventEditMode.value)return;
  // NLU's transport is an independent choice; format/policy loading must not reset it.
- if(editorNluVideoChoice.value&&previous&&values[0]===previous[0]&&values[1]===previous[1]&&values[4]===previous[4])return;
+ if(editorNluVideoChoice.value&&previous&&values[0]===previous[0]&&values[1]===previous[1])return;
  editorVideoRoomMode.value=editorIsLearning.value&&!editorNluVideoChoice.value&&editorExternalMeetingsEnabled.value&&editorModality.value==='TELEHEALTH'?'external':editorIsLearning.value?'unique_session':'google_meet';editorExternalMeetingUrl.value='';
 });
 
@@ -23496,7 +23496,7 @@ const finishVirtualSessionVideoLinks = async () => {
   }
   for (const appointment of videoAppointments) {
     if (booking.videoRooms[appointment.id]) continue;
-    if (booking.nluVideoChoice && appointment.videoRoomMode === 'google_meet' && (booking.learning || ['learning', 'tutoring'].includes(appointment.businessType))) {
+    if (booking.nluVideoChoice && appointment.videoRoomMode === 'google_meet') {
       // Read the saved meeting first: booking staff may verify readiness, while
       // only the assigned tutor receives the private host link.
       const { data: saved } = await api.get(`/appointments/${appointment.id}`, { skipGlobalLoading: true });
@@ -23508,7 +23508,7 @@ const finishVirtualSessionVideoLinks = async () => {
       booking.googleMeetReady = true;
       continue;
     }
-    if (booking.learning || ['learning', 'tutoring'].includes(appointment.businessType)) {
+    if (booking.nluVideoChoice || booking.learning || ['learning', 'tutoring'].includes(appointment.businessType)) {
       const external = appointment.videoRoomMode === 'external' || booking.externalMeeting;
       booking.videoRooms[appointment.id] = { session: { publicId: `${external ? 'external' : 'tutoring'}-appointment:${appointment.id}` },
         shareUrl: external ? appointment.externalMeetingUrl || '' : new URL(scheduleOrgTo(`/tutoring-session/appointment/${appointment.id}`), window.location.origin).href };
@@ -23811,7 +23811,7 @@ const submitRequest = async () => {
 
     if (requestType.value === 'start_video') {
       const ctx = modalContext.value || {};
-      if(editorIsLearning.value){const bookedId=Number(editorAppointmentId.value||ctx.appointmentId||0);if(!bookedId)throw new Error('Open this booked tutoring appointment and choose Open learning workspace to join its exact room.');closeModal();await router.push(scheduleOrgTo(`/tutoring-session/appointment/${bookedId}`));return;}
+      if(editorIsLearning.value||(editorNluVideoChoice.value&&editorVideoRoomMode.value==='unique_session')){const bookedId=Number(editorAppointmentId.value||ctx.appointmentId||0);if(!bookedId)throw new Error('Open this booked tutoring appointment and choose Open learning workspace to join its exact room.');closeModal();await router.push(scheduleOrgTo(`/tutoring-session/appointment/${bookedId}`));return;}
       const appointmentId = Number(ctx.officeEventId || 0);
       if (!appointmentId) throw new Error('Booked office event is required for video.');
       const agencyId = Number(

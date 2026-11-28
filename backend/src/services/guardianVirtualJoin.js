@@ -27,10 +27,10 @@ export async function guardianAppointmentJoin(row,client,db,{includeFutureDestin
   if((client.services||[]).some(s=>Number(s.provider_user_id)===Number(row.providerUserId)&&(Number(s.is_active)!==1||s.portal_limited)&&serviceMatchesAppointment(s,{...row,agencyId:row.agencyId||client.agency_id})))return null;
   if(row.videoRoomMode==='external')return guardianVirtualJoin(row);
   // A stale calendar conference must not override an explicit Session Hub choice.
-  const nativeNlu=learning&&row.videoRoomMode!=='google_meet'&&await nluTutoringVideoChoice({...row,agencyId:row.agencyId||client.agency_id,businessType:learning?'tutoring':row.businessType});
+  const nativeNlu=row.videoRoomMode!=='google_meet'&&await nluTutoringVideoChoice({...row,agencyId:row.agencyId||client.agency_id});
   const google=nativeNlu?null:guardianVirtualJoin(row);
   if (google || row.videoRoomMode === 'google_meet') return google;
-  if(!learning){
+  if(!learning&&!nativeNlu){
     if(!db?.execute||!['VIRTUAL','ONLINE','VIDEO','TELEHEALTH'].includes(String(row.modality).toUpperCase())||!['scheduled','confirmed','client_confirmed','in_progress'].includes(row.status))return null;
     let room;
     try{[[room]]=await db.execute("SELECT guest_invite_token,guest_invite_expires_at FROM counseling_sessions WHERE appointment_id=? AND agency_id=? AND provider_user_id=? AND status IN ('scheduled','joining','active') ORDER BY id DESC LIMIT 1",[row.id,row.agencyId||client.agency_id,row.providerUserId]);}

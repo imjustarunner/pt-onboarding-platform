@@ -493,3 +493,15 @@ it('keeps the NLU meeting option separate from the tutoring subject selection',a
  expect(s.editorVideoRoomMode).toBe('google_meet');expect(s.editorBookingVideoMode).toBe('google_meet');
  expect(s.editorPracticeCategory).toBe('tutoring');
 });
+
+it('retains the actual NLU service code when choosing the full Session Hub',async()=>{
+ m.agency.slug='nlu';const s=await editor();expect(s.editorIsLearning).toBe(false);expect(s.editorNluVideoChoice).toBe(true);
+ s.editorVideoRoomMode='unique_session';s.bookingServiceCode='H2014';await flushPromises();
+ expect(s.editorBookingVideoMode).toBe('unique_session');expect(s.bookingServiceCode).toBe('H2014');
+ s.bookingServiceCode='90837';await flushPromises();expect(s.editorBookingVideoMode).toBe('unique_session');expect(s.bookingServiceCode).toBe('90837');
+});
+it('links an NLU non-tutoring native booking to the full Hub without creating a second clinical room',async()=>{
+ const s=await editor(),saved={...appointment,businessType:'mental_health',serviceCode:'H2014',videoRoomMode:'unique_session'};
+ s.virtualSessionBookingResult={agencyId:2,learning:false,nluVideoChoice:true,appointments:[saved],videoRooms:{}};
+ await s.finishVirtualSessionVideoLinks();expect(s.virtualSessionShareUrl).toContain('/tutoring-session/appointment/41');expect(m.post).not.toHaveBeenCalled();expect(saved.serviceCode).toBe('H2014');
+});

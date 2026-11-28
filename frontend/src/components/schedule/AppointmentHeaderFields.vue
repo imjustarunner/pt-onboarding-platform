@@ -372,7 +372,7 @@
             <span class="ahf-label">Virtual session room</span>
             <span>An upcoming session is required to create a video link.</span>
           </template>
-          <template v-else-if="!['tutoring', 'learning'].includes(appointmentType)">
+          <template v-else-if="!nluVideoChoice && !['tutoring', 'learning'].includes(appointmentType)">
             <p v-if="videoRoomMode === 'google_meet'" class="ahf-hint">Create a unique Google Meet link</p>
             <label v-else class="ahf-booking-notice">
               <input type="checkbox" :checked="videoRoomMode === 'google_meet'" :disabled="disabled"
@@ -396,7 +396,7 @@
             <option value="unique_session">Platform Session Hub</option>
             <option value="google_meet">Google Meet</option>
             <option v-if="videoRoomMode==='my_room'" value="my_room" disabled>Previously saved personal room</option>
-            <option v-if="externalMeetingsEnabled" value="external">Use external link</option>
+            <option v-if="externalMeetingsEnabled && ['learning','tutoring'].includes(appointmentType)" value="external">Use external link</option>
             <option v-else-if="videoRoomMode==='external'" value="external" disabled>Previously saved external meeting</option>
             </template>
             <template v-else>

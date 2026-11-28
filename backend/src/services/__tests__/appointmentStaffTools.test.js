@@ -1,3 +1,5 @@
+vi.mock('../nluTutoringVideoChoice.service.js',()=>({nluTutoringVideoChoice:vi.fn(async()=>false)}));
+import {nluTutoringVideoChoice} from '../nluTutoringVideoChoice.service.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js', () => ({ default: {} }));
 vi.mock('../../models/Appointment.model.js', () => ({ default: {} }));
@@ -11,6 +13,7 @@ import { createAppointmentStaffTools } from '../appointmentStaffTools.service.js
 let db, conn, appointments, users, clientAccess, encrypt, decrypt, service;
 const provider = { id: 9, role: 'provider' };
 beforeEach(() => {
+ nluTutoringVideoChoice.mockResolvedValue(false);
   conn = { beginTransaction: vi.fn(), execute: vi.fn(async sql => sql.includes('SELECT revision') ? [[{ revision: 2 }]] : [{ affectedRows: 1 }]), commit: vi.fn(), rollback: vi.fn(), release: vi.fn() };
   db = { execute: vi.fn(async () => [[{ alert_text: 'encrypted', revision: 2 }]]), getConnection: vi.fn(async () => conn) };
   appointments = { findById: vi.fn(async () => ({ id: 12, agencyId: 2, providerUserId: 9 })), listParticipants: vi.fn(async () => [{ clientId: 31 }, { clientId: 32 }, { clientId: 31 }]) };
@@ -98,3 +101,8 @@ it('keeps a schedule clip off the schedule face until show on schedule is checke
 });
 
 it('adds persistent diagnosis flags to scheduled sessions even without a manual alert',async()=>{db.execute.mockResolvedValue([[{appointment_id:12,client_id:31,alert_text:null,revision:0}]]);service=createAppointmentStaffTools({db,appointments,users,clientAccess,encrypt,decrypt,diagnosisAlerts:vi.fn(async()=>[{code:'diagnosis_unspecified_90_days',diagnosisId:4,message:'Review diagnosis specificity.'}])});const alerts=await service.list(provider,{providerId:9,agencyId:2,windowStart:'2026-11-01',windowEnd:'2026-11-08'});expect(alerts[0]).toMatchObject({text:'Review diagnosis specificity.',diagnosisAlerts:[{clientId:31,code:'diagnosis_unspecified_90_days'}]});});
+
+it('offers the full NLU Hub for an assigned H2014 appointment while preserving its service',async()=>{
+ nluTutoringVideoChoice.mockResolvedValue(true);appointments.findById.mockResolvedValue({id:12,agencyId:2,providerUserId:9,businessType:'mental_health',serviceCode:'H2014',status:'scheduled',modality:'VIRTUAL'});
+ expect(await service.get(provider,12)).toHaveProperty('canOpenLearningWorkspace',true);
+});

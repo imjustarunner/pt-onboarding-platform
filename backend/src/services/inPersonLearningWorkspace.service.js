@@ -1,3 +1,4 @@
+import { nluTutoringVideoChoice } from './nluTutoringVideoChoice.service.js';
 import pool from '../config/database.js';
 import staffTools from './appointmentStaffTools.service.js';
 import { canOpenLearningWorkspace, selectedLearningServiceCode } from './learningServiceCompensation.js';
@@ -8,7 +9,9 @@ const fail = (status,message) => Object.assign(new Error(message),{status});
 export function createInPersonLearningWorkspace({ db = pool, authorize = staffTools.authorize, bridge = ensureTutoringAppointmentWorkspace } = {}) {
   return async function open(user, appointmentId) {
     const appointment = await authorize(user, appointmentId);
-    if (!canOpenLearningWorkspace(appointment,user.id)) throw fail(403,'Only the assigned tutor may open an available learning appointment.');
+    const nlu=await nluTutoringVideoChoice(appointment);
+    if (!canOpenLearningWorkspace(appointment,user.id,nlu)) throw fail(403,'Only the assigned tutor may open an available learning appointment.');
+    if(nlu)return {appointmentId:appointment.id,destination:`/tutoring-session/appointment/${appointment.id}?agencyId=${appointment.agencyId}`};
     if (String(appointment.modality).toUpperCase() !== 'IN_PERSON') return {appointmentId:appointment.id,destination:`/tutoring-session/appointment/${appointment.id}`};
     const conn = await db.getConnection();
     try {
