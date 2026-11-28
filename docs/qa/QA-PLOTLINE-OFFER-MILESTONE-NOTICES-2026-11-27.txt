@@ -1,0 +1,60 @@
+PLOTLINE OFFER AND PRE-HIRE GROUP NOTICES
+Release handoff and scoped live verification
+
+Deploy backend with migration 1885_hiring_milestone_group_notices.sql first.
+The existing hiring notification worker discovers and dispatches milestones.
+No frontend deployment or new worker schedule is required.
+
+Company prerequisites
+- Enable and review People Operations submission notices in the existing hiring
+  notification settings. Retain the approved reviewer and sender configuration.
+- Select a verified People Operations sender identity. The PO destination is
+  that identity's mailbox. The admin destination is the active tenant admin@
+  identity on the same domain, using the existing applicant-admin resolver.
+- Both mailbox identities must be configured. Missing or changed configuration
+  holds the notice with a review reason. Ordinary email approval and demo gates
+  continue to apply. No new mailbox is provisioned by this change.
+
+Expected behavior
+- A candidate's saved signature on an employment contract queues a congratulatory
+  Offer signed notice to PO and admin, each with a Review candidate button.
+- Completion of required pre-hire and submission queues a separate congratulatory
+  Pre-hire completed notice. It states that the candidate signed their contract
+  and completed pre-hire, and that the materials are ready for staff review.
+- An offer signature alone never claims that unfinished pre-hire is complete.
+- Use generated contracts or employmentContract-tagged library contract tasks.
+  Acknowledgments, provider-update amendments, wrong signers and unsigned tasks
+  do not produce these milestones. Required countersignatures retain their own
+  status. These notices describe the candidate's signature and phase submission.
+- Company name, logo and Plotline branding use the shared email frame with
+  A People Operations Platform. Contract text and attachments are excluded.
+- Only milestones after rollout and notification review are discovered. Already
+  signed historical contracts are not mailed. Repeated discovery is idempotent.
+- Failed/uncertain sends remain held for review. They are never blindly resent.
+  Communication records and hiring_milestone_group_notices retain delivery state.
+
+Coordinator live QA
+1. In an approved synthetic company, verify PO/admin recipients and approved
+   sender settings before triggering a new signature. Capture the build and IDs.
+2. As the fictional candidate, sign one new offer through the ordinary portal.
+   Leave a separate required pre-hire item incomplete.
+3. Wait for the normal hiring worker. Confirm two workflow messages, one to each
+   logical group. With QA redirection, inspect testing@itsco.health and both
+   logical recipient records. Confirm signature wording, company/Plotline logos,
+   quick-open link, sender/Reply-To and actual receipt. Transport acceptance is
+   separate from inbox delivery evidence.
+4. Open Review candidate as an authorized staff member. Confirm exact company
+   and candidate. Signed-out users must authenticate and unauthorized accounts
+   must remain denied by the existing hiring permissions.
+5. Complete and submit the remaining pre-hire items normally. Confirm the later
+   completion notice to each group and the truthful reviewed state in the app.
+6. Reload/revisit, run another normal worker tick and verify no duplicate sends.
+   Check an unchanged old signed offer and a pending/unsigned contract as negatives.
+7. Record PASS/FAIL/BLOCKED with candidate, task, event and communication IDs,
+   actual email receipts and screenshots. Preserve synthetic signed evidence.
+
+Engineering verification
+- 14 milestone tests passed, including the migration and discovery/source queries
+  on an isolated MySQL instance, tenant/signer negatives and duplicate discovery.
+- 67 existing hiring communication, reviewer, sender and transport tests passed.
+- No production mail or production state was changed during implementation.

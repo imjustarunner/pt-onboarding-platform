@@ -58,6 +58,7 @@ export const PREFERRED_IDENTITY_KEYS_BY_TEMPLATE_TYPE = {
   session_confirmation: ['clinical_appointment_reminders', 'notifications'],
   manual: ['notifications'],
   job_applications: ['people_operations', 'job_applications', 'notifications'],
+  hiring_milestone_group: ['people_operations', 'people_ops', 'people_operations_notifications'],
   hiring_interview_invite: ['people_operations', 'job_applications', 'notifications'],
   hiring_references: ['hiring_references', 'people_operations', 'notifications'],
   enrollment_unfinished_reminder_24h: ['forms', 'intake', 'school_intake'],

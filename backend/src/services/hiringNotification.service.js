@@ -113,5 +113,7 @@ export async function runHiringNotifications(){
   await runPeopleOperationsSubmissionNotifications(db);
   const {runApplicantAdminNotices}=await import('./applicantAdminNotices.service.js');
   await runApplicantAdminNotices(db);
+  const {runHiringMilestoneNotices}=await import('./hiringMilestoneNotices.service.js');
+  await runHiringMilestoneNotices(db);
  }finally{try{if(locked)await db.execute("SELECT RELEASE_LOCK('hiring-notification-worker')");}finally{db.release();}}
 }

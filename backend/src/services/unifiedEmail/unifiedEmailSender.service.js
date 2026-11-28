@@ -12,6 +12,7 @@ import { routineParentEmailGate } from '../routineParentEmailPause.service.js';
 import { reviewedDayCancellationContext } from '../dayCancellationEmail.service.js';
 import { individualCancellationEmailContext } from '../appointmentCancellationEmail.service.js';
 import {assertApplicantAdminNotice} from '../applicantAdminNotices.service.js';
+import {assertHiringMilestoneNotice} from '../hiringMilestoneNotices.service.js';
 import {assertPeopleOperationsSubmissionRecipient} from '../peopleOperationsSubmissionNotifications.service.js';
 import { assertReferenceReceiptRecipient } from '../hiringReferenceReceipt.service.js';
 import {assertSchoolStatusEmailAudience} from '../../utils/schoolStatusEmailAudience.js';
@@ -1091,6 +1092,7 @@ export async function sendEmailFromIdentity({
   await assertPeopleOperationsSubmissionRecipient({templateType,agencyId:identity.agency_id,senderIdentityId:identity.id,to,cc,bcc,existingCommunicationId});
   await assertReferenceReceiptRecipient({templateType,agencyId:identity.agency_id,senderIdentityId:identity.id,userId,to,cc,bcc,existingCommunicationId});
   await assertApplicantAdminNotice({templateType,agencyId:identity.agency_id,senderIdentityId:identity.id,to,cc,bcc,existingCommunicationId});
+  await assertHiringMilestoneNotice({templateType,agencyId:identity.agency_id,senderIdentityId:identity.id,to,cc,bcc,existingCommunicationId});
   const operational=await reviewedDayCancellationContext({agencyId:identity.agency_id,clientId,to,cc,bcc,templateType,
     reviewedCancellationToken,reviewedCancellationItemKey,existingCommunicationId,generatedByUserId},{verifyEnvelope:true})
     || await individualCancellationEmailContext({agencyId:identity.agency_id,clientId,to,cc,bcc,templateType,
