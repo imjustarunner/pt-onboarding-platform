@@ -315,7 +315,7 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
             const portalLink=await d.portalAccess({appointment:entries[0].appointment,clientId:seed.client_id,to:recipient}).catch(()=>null);
             const deliveryPortalUrl=portalLink?.url||portalUrl;
             for(const entry of entries){
-              const input={appointment:entry.appointment,clientId:seed.client_id,to:recipient};
+              const input={appointment:entry.appointment,clientId:seed.client_id,to:recipient,guardianUserId:target?.userId};
               const response=await d.tutoringResponse(input)||await d.officeResponse(input).catch(()=>null);
               const join=await d.joinEmail({appointment:entry.appointment,clientId:seed.client_id,to:recipient});
               if(response?.links){
