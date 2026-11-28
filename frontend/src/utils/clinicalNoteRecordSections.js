@@ -16,6 +16,16 @@ export function intakeDocumentationStatement(supervised) {
   return 'The provider reviewed the disclosure agreement, provider education and supervision status, informed consent, and practice policies with the attending participant(s).' + supervision;
 }
 
+export function applyIntakeDocumentationReview(sections, { reviewed, supervised }) {
+  const { 'Objective Content': objective, ...remaining } = sections;
+  const content = String(objective || '')
+    .replaceAll(intakeDocumentationStatement(true), '')
+    .replaceAll(intakeDocumentationStatement(false), '')
+    .trim();
+  return intakeObjectiveFirst(content ? { 'Objective Content': content, ...remaining } : remaining,
+    reviewed === true ? intakeDocumentationStatement(supervised) : '');
+}
+
 export function intakeObjectiveFirst(sections, documentationStatement = '') {
   const { 'Objective Content': objective, ...remaining } = sections;
   const content = [objective, objective?.includes(documentationStatement) ? '' : documentationStatement].filter(Boolean).join('\n\n');

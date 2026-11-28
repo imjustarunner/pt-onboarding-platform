@@ -401,7 +401,7 @@
           </ul>
         </div>
         <p v-if="error" class="error" role="alert">{{ error }}</p>
-        <p v-if="inPage" class="hint">Signing confirms the plan is accurate and sends it for supervisor review.</p>
+        <p v-if="inPage" class="hint">Signing confirms that you reviewed and approved this plan.</p>
         <div class="na-modal-actions">
           <button type="button" class="na-btn-outline" @click="exitEditor('close')">Cancel</button>
           <button
@@ -763,7 +763,7 @@ function mapGoal(g, effectiveDate, { deriveScores = true } = {}) {
       g.projectedCompletion || g.projected_completion || completionDateFromDurationMonths(months, effectiveDate || todayIsoDate()) || null,
     objectives: (g.objectives || []).map((o) => {
       const text = withoutReviewPreamble(o.objectiveText || o.objective_text);
-      let scaleCurrent = o.scaleCurrent ?? o.scale_current ?? null;
+      let scaleCurrent = o.scaleCurrent ?? o.scaleStart ?? o.scale_start ?? o.scale_current ?? null;
       let scaleTarget = o.scaleTarget ?? o.scale_target ?? null;
       if (deriveScores && !isObjectiveScaleValid(scaleCurrent, scaleTarget) && text) {
         const parsed = parseScalePair(text);

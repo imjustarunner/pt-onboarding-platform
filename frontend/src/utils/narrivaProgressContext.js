@@ -17,13 +17,20 @@ export function progressContextSections(context = {}) {
   }).filter(([, value]) => value));
 }
 
+export function isRemoteEncounter(encounter) {
+  return ['02', '10'].includes(String(encounter.placeOfService).padStart(2, '0'))
+    || /video|phone|virtual|telehealth|audio/i.test(encounter.modality || '')
+    || /^(?:online|virtual|telehealth|audio only)(?:$|[ (—-])/i.test(encounter.locationLabel || encounter.location || '');
+}
+
 export function encounterConsentStatement(encounter = {}) {
   if (!encounter.consentConfirmed) return '';
   const party = encounter.clientPresent === false ? 'The attending participant(s)' : 'The participant(s)';
   const pos = String(encounter.placeOfService || '').padStart(2,'0');
-  const remote = ['02','10'].includes(pos) || /video|phone|virtual|telehealth|audio/i.test(encounter.modality || '');
-  const modality = remote ? 'telehealth' : 'in-person';
-  const site = encounter.clientPresent===false ? '' : pos === '10' ? 'at home' : String(encounter.clientLocationDescription || (!remote && (encounter.locationLabel || encounter.location)) || '').trim();
+  const remote = isRemoteEncounter(encounter);
+  const inPerson = !remote && (encounter.modality === 'in_person' || encounter.locationLabel || encounter.location);
+  const services = remote ? 'telehealth services' : inPerson ? 'in-person services' : 'services';
+  const site = encounter.clientPresent===false ? '' : pos === '10' ? 'at home' : String(encounter.clientLocationDescription || (inPerson && (encounter.locationLabel || encounter.location)) || '').trim();
   const setting = site ? (pos === '10' ? ' at home' : ' (' + site + ')') : '';
-  return party + ' consented to ' + modality + ' services and participated from a private setting' + setting + '.';
+  return party + ' consented to ' + services + ' and participated from a private setting' + setting + '.';
 }

@@ -10,6 +10,7 @@ const DOMAINS = [
   ['self-confidence', /self.confiden|self.esteem|self.doubt/i],
   ['coping with stress', /stress|coping|distress/i],
   ['emotion regulation', /anger|emotion|irritab|regulat/i],
+  ['peer relationships', /\b(?:peers?|friends?|friendships?|classmates?)\b/i],
   ['relationships', /relationship|social|family/i],
   ['daily routines', /routine|daily.function|self.care/i],
   ['school participation and functioning', /school|academ|classroom|attendance|homework/i],

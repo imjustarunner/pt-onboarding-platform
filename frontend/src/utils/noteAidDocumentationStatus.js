@@ -269,10 +269,41 @@ export function filterWorkQueueForRightPanel(items) {
   return (items || []).filter((i) => isRightPanelStatus(deriveWorkQueueDocStatus(i)));
 }
 
+export function indexSignedEncounters(signedSessions = []) {
+  const drafts = new Map();
+  const sessions = new Map();
+  const events = new Map();
+  const eventsWithoutSession = new Map();
+  function encounterKeys(row) {
+    const agencyId = Number(row.agencyId || row.agency_id);
+    const clientId = Number(row.clientId || row.client_id);
+    const sessionId = Number(row.clinicalSessionId || row.clinical_session_id);
+    const eventId = Number(row.officeEventId || row.office_event_id);
+    if (!(agencyId > 0 && clientId > 0)) return {};
+    return {
+      session: sessionId > 0 ? `${agencyId}:${clientId}:${sessionId}` : null,
+      event: eventId > 0 ? `${agencyId}:${clientId}:${eventId}` : null
+    };
+  }
+  for (const row of signedSessions) {
+    if (!row.noteId) continue;
+    if (Number(row.draftId) > 0) drafts.set(Number(row.draftId), row);
+    const { session, event } = encounterKeys(row);
+    if (session) sessions.set(session, row);
+    if (event) events.set(event, row);
+    if (event && !session) eventsWithoutSession.set(event, row);
+  }
+  return (row, draftId = row.draftId) => {
+    const { session, event } = encounterKeys(row);
+    return drafts.get(Number(draftId)) || (session ? sessions.get(session) || eventsWithoutSession.get(event) : events.get(event));
+  };
+}
+
 /** One unfinished-work list for My Work and its counts, including saved drafts
  * whose server queue row has not yet been materialized. Never persist this
  * projection: draft-only rows retain the draft that must be opened directly. */
-export function buildMyWorkItems({ drafts = [], workQueueItems = [] } = {}) {
+export function buildMyWorkItems({ drafts = [], workQueueItems = [], signedSessions = [] } = {}) {
+  const alreadySigned = indexSignedEncounters(signedSessions);
   const rows = [];
   const codeOf = code => String(code || '').trim().toUpperCase();
   const intakeKind = ({ serviceCode, noteKind, toolId }) => {
@@ -283,7 +314,8 @@ export function buildMyWorkItems({ drafts = [], workQueueItems = [] } = {}) {
     return noteKind;
   };
   for (const item of workQueueItems || []) {
-    if (!isRightPanelStatus(deriveWorkQueueDocStatus(item))) continue;
+    if (!isRightPanelStatus(deriveWorkQueueDocStatus(item)) ||
+      (!item.sourceIntakeNoteId && alreadySigned(item, item.draftId))) continue;
     const existing = rows.find(row => draftMatchesWorkQueueItem(
       { ...row, id: row.draftId, client_id: row.clientId }, item
     ));
@@ -294,7 +326,7 @@ export function buildMyWorkItems({ drafts = [], workQueueItems = [] } = {}) {
     rows.push({ ...item, noteKind: intakeKind(item) });
   }
   for (const draft of drafts || []) {
-    if (draft.archived_at || deriveDraftDocStatus(draft) !== DOC_STATUS.STARTED) continue;
+    if (draft.archived_at || deriveDraftDocStatus(draft) !== DOC_STATUS.STARTED || alreadySigned(draft, draft.id)) continue;
     const existing = rows.find(item => draftMatchesWorkQueueItem(draft, item));
     if (existing) {
       existing.draftId = existing.draftId || draft.id;

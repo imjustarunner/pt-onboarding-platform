@@ -30,6 +30,7 @@ import {
   DOC_STATUS,
   NOTE_CONNECTION,
   buildLeftLibraryRows,
+  buildMyWorkItems,
   filterLeftLibraryRows,
   filterWorkQueueForRightPanel,
   groupLeftLibraryRows,
@@ -38,6 +39,20 @@ import {
   deriveWorkQueueDocStatus,
   deriveNoteConnection
 } from '../noteAidDocumentationStatus.js';
+
+it('reconciles a signed encounter in My Work without hiding other visits or the intake plan task', () => {
+  const encounter = { agencyId: 7, clientId: 22, clinicalSessionId: 89, officeEventId: 105 };
+  const signedSessions = [{ ...encounter, noteId: 17, draftId: 42 }];
+  const workQueueItems = [
+    { ...encounter, id: 'completed-visit', status: 'not_started' },
+    { ...encounter, id: 'separate-visit', clinicalSessionId: 90, status: 'not_started' },
+    { ...encounter, id: 'other-agency', agencyId: 8, status: 'not_started' },
+    { ...encounter, id: 'plan', sourceIntakeNoteId: 17, noteKind: 'treatment_plan', status: 'not_started' }
+  ];
+  const drafts = [{ id: 42, status: 'draft', input_text: 'Synthetic text', agency_id: 7, client_id: 22 }];
+  expect(buildMyWorkItems({ drafts, workQueueItems, signedSessions }).map(row => row.id))
+    .toEqual(['separate-visit', 'other-agency', 'plan']);
+});
 
 describe('work queue PHI storage', () => {
   const userId = 501;

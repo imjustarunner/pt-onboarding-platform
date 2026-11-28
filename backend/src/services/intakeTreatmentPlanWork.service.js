@@ -7,6 +7,14 @@ import { visibleClinicalWork } from './clinicalWorkArchiveRead.service.js';
 import { maybeDecryptNotePayload } from './clinicalNoteCrypto.service.js';
 import { parseObject } from './supervisedBillingPolicy.service.js';
 
+import { parseUtcDate, resolveOfficeTimeZone } from '../utils/officeEventDateTime.util.js';
+import { utcDateToZonedYmd } from '../utils/zonedWallTime.util.js';
+
+const linkedEncounterColumns = `s.service_code,s.scheduled_start_at AS session_start_at,s.source_timezone AS session_timezone,
+  NULLIF(JSON_UNQUOTE(JSON_EXTRACT(s.metadata_json,'$.serviceDate')),'null') AS session_service_date`;
+const joinLinkedEncounter = 'LEFT JOIN clinical_sessions s ON s.id=n.clinical_session_id AND s.agency_id=n.agency_id';
+const serviceDatePattern = /^\d{4}-\d{2}-\d{2}$/;
+
 const keyFor = note => `intake_plan_${note.agency_id}_${note.client_id}`;
 
 export function intakePlanSource(note) {
@@ -14,11 +22,15 @@ export function intakePlanSource(note) {
   const context = parseObject(meta.narrivaContext);
   const code = String(meta.serviceCode || note?.service_code || '').toUpperCase();
   const kind = meta.assessmentContext?.assessmentKind || context.assessmentKind;
-  const date = String(meta.dateOfService || '').slice(0, 10);
   if (!note?.provider_signed_at || !['90791', 'H0031'].includes(code)
       || kind === 'additional' || /additional/i.test(String(meta.toolId || ''))
-      || !/^\d{4}-\d{2}-\d{2}$/.test(date)
       || meta.restricted || meta.privatePsychotherapyNote || Number(note.is_deleted)) return null;
+  const documentedDate = [meta.dateOfService, note.session_service_date]
+    .map(value => String(value || '').slice(0, 10))
+    .find(date => serviceDatePattern.test(date));
+  const start = documentedDate ? null : parseUtcDate(note.session_start_at);
+  const date = documentedDate || (start && utcDateToZonedYmd(start, resolveOfficeTimeZone(note.session_timezone)));
+  if (!date) return null;
   return { date, meta };
 }
 
@@ -53,8 +65,8 @@ export async function reconcileIntakeTreatmentPlanWork(user, agencyId = null) {
   );
   const seen = new Set(known.map(row => row.client_key));
   const [notes] = await clinicalPool.execute(
-    `SELECT n.id,n.agency_id,n.client_id,n.created_by_user_id,n.provider_signed_by_user_id,n.provider_signed_at,n.metadata_json,s.service_code
-       FROM clinical_notes n LEFT JOIN clinical_sessions s ON s.id=n.clinical_session_id AND s.agency_id=n.agency_id
+    `SELECT n.id,n.agency_id,n.client_id,n.created_by_user_id,n.provider_signed_by_user_id,n.provider_signed_at,n.metadata_json,${linkedEncounterColumns}
+       FROM clinical_notes n ${joinLinkedEncounter}
       WHERE n.created_by_user_id=? AND n.is_deleted=0 AND n.provider_signed_at>=UTC_TIMESTAMP()-INTERVAL 30 DAY
         AND COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(IF(JSON_VALID(n.metadata_json),n.metadata_json,'{}'),'$.serviceCode')),'null'),s.service_code) IN ('90791','H0031')
         ${agencyId ? 'AND n.agency_id=?' : ''}
@@ -77,11 +89,17 @@ export async function reconcileIntakeTreatmentPlanWork(user, agencyId = null) {
   }
 }
 
-export async function intakeEvidenceForPlan({ noteId, agencyId, clientId, userId }) {
+export async function loadIntakePlanSourceNote({ noteId, agencyId, clientId, userId }) {
   const [[note]] = await clinicalPool.execute(
-    'SELECT n.*,s.service_code FROM clinical_notes n LEFT JOIN clinical_sessions s ON s.id=n.clinical_session_id AND s.agency_id=n.agency_id WHERE n.id=? AND n.agency_id=? AND n.client_id=? AND n.created_by_user_id=? AND n.is_deleted=0',
+    `SELECT n.*,${linkedEncounterColumns} FROM clinical_notes n ${joinLinkedEncounter}
+      WHERE n.id=? AND n.agency_id=? AND n.client_id=? AND n.created_by_user_id=? AND n.is_deleted=0`,
     [noteId, agencyId, clientId, userId]
   );
+  return note;
+}
+
+export async function intakeEvidenceForPlan(scope) {
+  const note = await loadIntakePlanSourceNote(scope);
   const source = intakePlanSource(note);
   if (!source || !(await visibleClinicalWork([note], { kind: 'note' })).length) {
     throw Object.assign(new Error('The signed intake is unavailable for this treatment plan.'), { status: 404 });

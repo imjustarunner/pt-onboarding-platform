@@ -85,7 +85,10 @@ export function narrivaLocalContext({source,meta,session={},provider={},serviceR
  const participantText=[context.participants || meta.participants || '',context.participantsDetail || ''].filter(Boolean).join(' ').trim();
  const participantLower=participantText.toLowerCase();
  const pos=String(context.placeOfService || meta.placeOfService || session.place_of_service || '').padStart(2,'0');
- const storedMethod=String(narriva.modality || context.modality || meta.modality || session.modality || '').trim().toLowerCase();
+ const sessionMetadata = parse(session.metadata_json);
+ const scheduledRemote = Number(session.is_telehealth) === 1;
+ const storedMethod=String(narriva.modality || context.modality || meta.modality || session.modality
+  || (sessionMetadata.scheduledAudioOnly ? 'phone' : scheduledRemote ? 'telehealth' : '')).trim().toLowerCase();
  const modality=({'in-person':'in_person',virtual:'telehealth',audio:'phone','audio_only':'phone','audio-only':'phone'})[storedMethod] || storedMethod
   || (['02','10'].includes(pos)?'telehealth':pos!=='00'?'in_person':'');
  // Clinical documentation records the actual delivery method. Claim-specific
@@ -97,7 +100,7 @@ export function narrivaLocalContext({source,meta,session={},provider={},serviceR
  return {
   encounter:{durationMinutes:duration,dateValid:/^\d{4}-\d{2}-\d{2}$/.test((source.date_of_service instanceof Date?source.date_of_service.toISOString():String(source.date_of_service || meta.dateOfService || '')).slice(0,10)),
    timesValid:duration>0 && (hasInstants?Number.isFinite(actualMinutes) && actualMinutes>0 && Math.round(actualMinutes)===duration:(a!==null && b!==null && ((b-a+1440)%1440)===duration)),
-   location:String(context.locationLabel || context.placeOfService || meta.locationLabel || session.location_name || ''),
+   location:String(context.locationLabel || meta.locationLabel || sessionMetadata.locationLabel || session.location_name || (pos !== '00' ? pos : '')),
    modality,placeOfService:pos,clientLocationDescription:String(narriva.clientLocationDescription || ''),
    consentConfirmed:narriva.consentConfirmed===true,
    participants:participantText,clientPresent:clinicalClientPresent(meta),

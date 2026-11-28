@@ -391,6 +391,7 @@ watch(
   () => props.showCosignMode,
   (ok) => {
     if (!ok && queueMode.value === 'cosign') setQueueMode('notes');
+    if (ok && props.mode === 'cosign') openCosignMode();
   }
 );
 
