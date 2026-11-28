@@ -50,8 +50,8 @@ it('prepares and signs an initial plan against its signed intake without a claim
   } };
   const plan = { id: 21, agency_id: 2, client_id: 42, created_by_user_id: 7, status: 'draft', goals: [] };
   mocks.access.mockResolvedValue({ agency_id: 2 });
-  mocks.findIntake.mockResolvedValue({ id: 12, agency_id: 2, client_id: 42, created_by_user_id: 7,
-    provider_signed_at: '2026-11-25', metadata_json: { serviceCode: '90791', dateOfService: '2026-09-05' } });
+  mocks.clinical.mockResolvedValue([[{ id: 12, agency_id: 2, client_id: 42, created_by_user_id: 7,
+    provider_signed_at: '2026-11-25', metadata_json: { serviceCode: '90791', dateOfService: '2026-09-05' } }]]);
   mocks.create.mockResolvedValue(plan);
   mocks.findPlan.mockResolvedValue(plan);
   mocks.signPlan.mockResolvedValue({ plan, approval: { providerApproved: true, supervisorApproved: false } });
@@ -59,7 +59,7 @@ it('prepares and signs an initial plan against its signed intake without a claim
   const res = { status: vi.fn().mockReturnThis(), json: vi.fn() }, next = vi.fn();
   await saveTreatmentPlanToChart(req, res, next);
   expect(next).not.toHaveBeenCalled();
-  expect(mocks.findIntake).toHaveBeenCalledWith(12);
+  expect(mocks.clinical).toHaveBeenCalledWith(expect.stringContaining('n.created_by_user_id=? AND n.is_deleted=0'), [12, 2, 42, 7]);
   expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({
     clinicalSessionId: null, effectiveDate: '2026-09-05', prescribedFrequency: 'Weekly'
   }));
