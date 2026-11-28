@@ -1,3 +1,4 @@
+import { nluTutoringVideoChoice } from '../services/nluTutoringVideoChoice.service.js';
 import { appointmentHasStarted } from '../utils/appointmentVideoPolicy.js';
 import { bookingNoticePreferenceFacts, recurringBookingNoticeFacts } from '../utils/recurringBookingNotice.js';
 import { confirmSameDayServiceWarnings } from '../services/sameDayServiceWarning.service.js';
@@ -116,7 +117,10 @@ export const getAppointment = async (req, res, next) => {
     const {appointmentGoogleConference}=await import('../services/appointmentJoinEmail.service.js');
     const conference=await appointmentGoogleConference(bundle);
     bundle.googleDialInStatus=conference.status;
-    if (bundle.videoRoomMode === 'google_meet' && Number(req.user.id) === Number(bundle.providerUserId)) {
+    if (bundle.videoRoomMode === 'google_meet' && await nluTutoringVideoChoice(bundle)) {
+      const { staffAppointmentMeetDetails } = await import('../services/staffAppointmentMeet.service.js');
+      Object.assign(bundle, await staffAppointmentMeetDetails(bundle, req.user.id));
+    } else if (bundle.videoRoomMode === 'google_meet' && Number(req.user.id) === Number(bundle.providerUserId)) {
       const { savedStaffAppointmentMeet } = await import('../services/staffAppointmentMeet.service.js');
       bundle.googleMeetUrl = await savedStaffAppointmentMeet(bundle);
     }
@@ -359,6 +363,14 @@ export const updateAppointmentHandler = async (req, res, next) => {
       if (!await confirmSameDayServiceWarnings(req,res,{agencyId:existing.agencyId,tenantServiceId:req.body?.tenantServiceId||existing.tenantServiceId,participants,occurrences:[{startAt:req.body.startAt || existing.startAt}],timeZone:req.body.timeZone || existing.sourceTimezone,excludeAppointmentId:id})) return;
     }
     const bundle = await updateAppointment(id, req.body || {}, { actorUserId: req.user?.id || null });
+    if (bundle.videoRoomMode === 'google_meet' && existing.videoRoomMode !== 'google_meet' && !appointmentHasStarted(bundle.endAt) && await nluTutoringVideoChoice(bundle)) {
+      try {
+        const { prepareStaffAppointmentMeet } = await import('../services/staffAppointmentMeet.service.js');
+        await prepareStaffAppointmentMeet(bundle);
+      } catch {
+        bundle.calendarWarnings = [...(bundle.calendarWarnings || []), 'The appointment is saved. Its Google Meet link needs preparation; retry the link from this appointment.'];
+      }
+    }
     res.json(await schedulingResponseForUser(req.user, bundle.agencyId, { ok: true, appointment: bundle }));
   } catch (e) {
     if (e?.status) return res.status(e.status).json({ error: { message: e.message } });

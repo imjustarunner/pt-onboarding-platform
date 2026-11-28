@@ -383,22 +383,35 @@
             <p v-if="videoRoomMode === 'google_meet' && recurrenceFrequency !== 'ONCE'" class="ahf-hint">Each upcoming session gets its own link.</p>
           </template>
           <template v-else>
-          <span class="ahf-label">Virtual meeting option</span>
+          <label for="tutoring-video-option" class="ahf-label">Virtual meeting option</label>
           <select
+            id="tutoring-video-option"
             class="ahf-input"
             :value="videoRoomMode"
             :disabled="disabled"
             @change="emit('update:videoRoomMode', String($event.target.value || 'unique_session'))"
           >
             <option value="none">No video room</option>
-            <template v-if="externalMeetingsEnabled"><option v-if="!['external', 'none'].includes(videoRoomMode)" :value="videoRoomMode">Existing session link</option><option value="external">Use external link</option></template>
-            <template v-else><option v-if="videoRoomMode==='external'" value="external" disabled>Previously saved external meeting</option><option value="unique_session">Unique link for this session</option><option v-if="appointmentType!=='tutoring' && appointmentType!=='learning'" value="my_room">Use my room (personal link)</option></template>
+            <template v-if="nluVideoChoice">
+            <option value="unique_session">Platform Session Hub</option>
+            <option value="google_meet">Google Meet</option>
+            <option v-if="videoRoomMode==='my_room'" value="my_room" disabled>Previously saved personal room</option>
+            <option v-if="externalMeetingsEnabled" value="external">Use external link</option>
+            <option v-else-if="videoRoomMode==='external'" value="external" disabled>Previously saved external meeting</option>
+            </template>
+            <template v-else>
+              <template v-if="externalMeetingsEnabled"><option v-if="!['external', 'none'].includes(videoRoomMode)" :value="videoRoomMode">Existing session link</option><option value="external">Use external link</option></template>
+              <template v-else><option v-if="videoRoomMode==='external'" value="external" disabled>Previously saved external meeting</option><option value="unique_session">Unique link for this session</option></template>
+            </template>
           </select>
+          <p v-if="nluVideoChoice && videoRoomMode==='unique_session'" class="ahf-hint">Meet in the Session Hub with shared learning tools and this appointment’s own waiting room.</p>
+          <p v-if="nluVideoChoice && videoRoomMode==='google_meet'" class="ahf-hint">Create a unique Google Meet link using the tutor’s connected work account. Video opens in a separate tab; session notes stay with this appointment.</p>
+          <p v-if="nluVideoChoice && videoRoomMode==='google_meet' && recurrenceFrequency!=='ONCE'" class="ahf-hint">Each upcoming session gets its own link.</p>
           <label v-if="externalMeetingsEnabled && videoRoomMode==='external'">External meeting URL (optional)<input class="ahf-input" type="url" maxlength="2048" placeholder="https://…" :value="externalMeetingUrl" :disabled="disabled" @input="emit('update:externalMeetingUrl',$event.target.value)" /></label>
           <p v-if="videoRoomMode==='external'" class="ahf-hint">The meeting is arranged externally. Add its link now or update the appointment later.</p>
           </template>
           <p v-if="videoRoomMode === 'google_meet'" class="ahf-help">Appointment emails include dial-in instructions when Google Meet provides them.</p>
-          <label v-else-if="videoRoomMode !== 'none' && (googleDialInStatus === 'available' || includeGoogleDialIn)"><input type="checkbox" :checked="includeGoogleDialIn" :disabled="disabled || (videoRoomMode !== 'google_meet' && !includeGoogleDialIn && googleDialInStatus!=='available')" @change="emit('update:includeGoogleDialIn',$event.target.checked)" /> Include dial-in in eligible reminders when Google provides it</label>
+          <label v-else-if="!nluVideoChoice && videoRoomMode !== 'none' && (googleDialInStatus === 'available' || includeGoogleDialIn)"><input type="checkbox" :checked="includeGoogleDialIn" :disabled="disabled || (videoRoomMode !== 'google_meet' && !includeGoogleDialIn && googleDialInStatus!=='available')" @change="emit('update:includeGoogleDialIn',$event.target.checked)" /> Include dial-in in eligible reminders when Google provides it</label>
           <p v-if="googleDialInStatus==='not_verified'" class="ahf-hint">Google Meet phone details could not be verified. Phone instructions will be omitted until Google provides them.</p>
         </div>
 
@@ -749,6 +762,7 @@ const props = defineProps({
   forceExpandGroupClients: { type: Boolean, default: false },
   /** Mockup sectioned Book Session layout */
   learning: { type: Boolean, default: false },
+  nluVideoChoice: { type: Boolean, default: false },
   bookSessionLayout: { type: Boolean, default: false },
   showInlineRecurrence: { type: Boolean, default: false },
   recurrenceFrequency: { type: String, default: 'ONCE' },

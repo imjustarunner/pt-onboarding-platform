@@ -10,6 +10,7 @@ router.use('/:appointmentId/studio',async(req,res,next)=>{try{req.tutoringContex
 router.get('/:appointmentId',handle(room.tutoringRoomStatus));
 router.post('/:appointmentId/prepare',handle(room.prepareBookedTutoringHub));
 router.post('/:appointmentId/start-in-person',handle(room.startBookedInPersonTutoring));
+router.post('/:appointmentId/start-external',handle(room.startBookedExternalTutoring));
 router.get('/:appointmentId/learning-context',handle(room.bookedTutoringLearningContext));
 router.get('/:appointmentId/materials',handle(room.tutoringBoardMaterials));
 router.get('/:appointmentId/join-link',handle(room.tutoringJoinLink));

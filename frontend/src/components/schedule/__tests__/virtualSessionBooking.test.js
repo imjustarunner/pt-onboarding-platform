@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { flushPromises, mount, shallowMount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
-const m = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn(), push: vi.fn(), user: null }));
+const m = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn(), push: vi.fn(), user: null, agency:null }));
 vi.mock('../../../services/api', () => ({ default: { get: m.get, post: m.post, patch: m.patch }, isApiRateLimited: () => false, apiRateLimitRetryAt: () => 0 }));
 vi.mock('vue-router', () => ({ useRoute: () => ({ path: '/test/dashboard', params: { organizationSlug: 'test' }, query: {} }), useRouter: () => ({ push: m.push, replace: vi.fn(), resolve: () => ({ href: '/test/dashboard' }) }) }));
 vi.mock('../../../store/auth', () => ({ useAuthStore: () => ({ user: m.user, isAuthenticated: true }) }));
-vi.mock('../../../store/agency', () => ({ useAgencyStore: () => ({ currentAgency: { id: 2, name: 'Test practice', slug: 'test', organization_type: 'agency', timezone: 'America/Denver' }, agencies: [], userAgencies: [] }) }));
+vi.mock('../../../store/agency', () => ({ useAgencyStore: () => ({ currentAgency: m.agency, agencies: [], userAgencies: [] }) }));
 import Grid from '../ScheduleAvailabilityGrid.vue';
 import Header from '../AppointmentHeaderFields.vue';
 import Confirmation from '../VirtualSessionBookingConfirmation.vue';
@@ -15,6 +15,7 @@ const appointment = { id: 41, agencyId: 2, providerUserId: 7, providerScheduleEv
   startAt: '2026-11-20 00:00:00', endAt: '2026-11-20 01:00:00', title: 'Virtual session', participants: [{ clientId: 8, role: 'client' }] };
 beforeEach(() => {
   m.user = { id: 7, role: 'provider' };
+  m.agency={id:2,name:'Test practice',slug:'test',organization_type:'agency',timezone:'America/Denver'};
   vi.clearAllMocks(); setActivePinia(createPinia()); localStorage.clear(); sessionStorage.clear(); clearScheduleSummaryCache();
   vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-11-18T15:00:00Z'));
   vi.spyOn(window, 'confirm').mockReturnValue(false);
@@ -430,4 +431,60 @@ it('filters Book Session by provider offering and hides staff time codes', async
   s.clientSessionCategories = ['tutoring'];
   await flushPromises();
   expect(s.editorBookServiceChoices).toEqual([{ value: 'tutoring', label: 'Learning' }]);
+});
+
+async function nluEditor(){
+ m.agency.slug='nlu';m.user.workspaceServiceContext={agencyId:2,canTutor:true,learningOnly:true};
+ const base=m.get.getMockImplementation();
+ m.get.mockImplementation(async(url,...args)=>url.includes('/practice-categories')?{data:{categories:['tutoring'],allowedCategories:['tutoring']}}:url.includes('/booking-options')?{data:{services:[{id:11,businessType:'tutoring',serviceCode:'TUTORING',isActive:true}],tutoringSubjects:[{key:'math',label:'Math'},{key:'reading',label:'Reading'}]}}:base(url,...args));
+ const s=await editor();await flushPromises();expect(s.editorIsLearning).toBe(true);expect(s.editorNluVideoChoice).toBe(true);return s;
+}
+it.each([true,false])('offers both Session Hub and Google Meet for tutoring with external-link policy=%s',async externalMeetingsEnabled=>{
+ wrapper=mount(Header,{props:{showModality:true,modality:'TELEHEALTH',appointmentType:'tutoring',nluVideoChoice:true,videoRoomMode:'unique_session',externalMeetingsEnabled,recurrenceFrequency:'WEEKLY'}});
+ const options=wrapper.findAll('#tutoring-video-option option').map(option=>({value:option.attributes('value'),label:option.text()}));
+ expect(options).toEqual(expect.arrayContaining([{value:'unique_session',label:'Platform Session Hub'},{value:'google_meet',label:'Google Meet'}]));
+ expect(options.some(option=>option.value==='external')).toBe(externalMeetingsEnabled);
+ await wrapper.get('#tutoring-video-option').setValue('google_meet');
+ expect(wrapper.emitted('update:videoRoomMode').at(-1)).toEqual(['google_meet']);
+ await wrapper.setProps({videoRoomMode:'google_meet'});
+ expect(wrapper.text()).toContain('Each upcoming session gets its own link.');
+ await wrapper.setProps({modality:'IN_PERSON'});
+ expect(wrapper.find('#tutoring-video-option').exists()).toBe(false);
+});
+it('keeps the chosen tutoring transport through modality and asynchronous external-policy changes',async()=>{
+ const s=await nluEditor();
+ s.editorVideoRoomMode='google_meet';s.editorModality='IN_PERSON';await flushPromises();s.editorModality='TELEHEALTH';
+ s.bookingMeetingPolicy={agencyId:2,providerId:7,usesGoogleSso:false};await flushPromises();
+ expect(s.editorVideoRoomMode).toBe('google_meet');expect(s.editorBookingVideoMode).toBe('google_meet');
+});
+it('uses the saved tutoring Meet destination after booking and never substitutes a platform room',async()=>{
+ const s=await editor();
+ const saved={...appointment,businessType:'tutoring',videoRoomMode:'google_meet',googleMeetReady:true,googleMeetUrl:'https://meet.google.com/abc-defg-hij'};
+ m.get.mockImplementation(async url=>({data:url==='/appointments/41'?{appointment:saved}:{}}));
+ s.virtualSessionBookingResult={agencyId:2,learning:true,nluVideoChoice:true,appointments:[saved],videoRooms:{}};
+ await s.finishVirtualSessionVideoLinks();
+ expect(s.virtualSessionShareUrl).toBe(saved.googleMeetUrl);expect(s.virtualSessionBookingResult.googleMeetReady).toBe(true);
+ expect(s.virtualSessionBookingResult.videoRooms[41].shareUrl).not.toContain('tutoring-session');
+ expect(countCreates()).toBe(0);expect(m.post).not.toHaveBeenCalled();
+});
+it('lets an authorized booker verify tutoring Meet readiness without obtaining the tutor’s private host link',async()=>{
+ const s=await editor(),saved={...appointment,businessType:'tutoring',videoRoomMode:'google_meet',googleMeetReady:true};
+ m.get.mockImplementation(async()=>({data:{appointment:saved}}));
+ s.virtualSessionBookingResult={agencyId:2,learning:true,nluVideoChoice:true,appointments:[saved],videoRooms:{}};
+ await s.finishVirtualSessionVideoLinks();
+ expect(s.virtualSessionBookingResult.googleMeetReady).toBe(true);expect(s.virtualSessionShareUrl).toBe('');expect(m.post).not.toHaveBeenCalled();
+});
+it('keeps a failed tutoring Meet preparation visible on the saved booking without creating it twice',async()=>{
+ const s=await editor(),saved={...appointment,businessType:'tutoring',videoRoomMode:'google_meet',googleMeetReady:false};
+ m.get.mockImplementation(async()=>({data:{appointment:saved}}));m.post.mockRejectedValue(new Error('Google Meet is unavailable for this provider’s workspace.'));
+ s.virtualSessionBookingResult={agencyId:2,learning:true,nluVideoChoice:true,appointments:[saved],videoRooms:{}};
+ await expect(s.finishVirtualSessionVideoLinks()).rejects.toThrow('workspace');
+ expect(countCreates()).toBe(0);expect(Object.keys(s.virtualSessionBookingResult.videoRooms)).toEqual([]);
+});
+
+it('keeps the NLU meeting option separate from the tutoring subject selection',async()=>{
+ const s=await nluEditor();
+ s.editorVideoRoomMode='google_meet';s.editorTutoringSubject='math';await flushPromises();s.editorTutoringSubject='reading';await flushPromises();
+ expect(s.editorVideoRoomMode).toBe('google_meet');expect(s.editorBookingVideoMode).toBe('google_meet');
+ expect(s.editorPracticeCategory).toBe('tutoring');
 });

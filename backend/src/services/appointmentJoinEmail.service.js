@@ -1,3 +1,4 @@
+import { nluTutoringVideoChoice } from './nluTutoringVideoChoice.service.js';
 import pool from '../config/database.js';
 import {buildPublicAppUrl} from '../utils/publicPortalUrl.js';
 import {authorizedAppointmentClient} from './guardianAppointments.service.js';
@@ -11,6 +12,7 @@ const esc=value=>String(value||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;
 export async function appointmentGoogleConference(appointment,{db=pool,conference=currentGoogleConference}={}) {
  if(!active(appointment)||['external', 'none'].includes(appointment.videoRoomMode))return {status:'not_available',phones:[]};
  try{
+ if(appointment.videoRoomMode!=='google_meet'&&await nluTutoringVideoChoice(appointment))return {status:'not_available',phones:[]};
  if (appointment.videoRoomMode === 'google_meet') {
    const url = await savedStaffAppointmentMeet(appointment, db);
    return url ? readStaffAppointmentMeetConference(appointment, url) : {status:'not_available',phones:[]};
@@ -51,7 +53,8 @@ export async function appointmentJoinEmail({appointment,clientId,to,context,reci
   const bookedTutoring = destination.startsWith('/tutoring/appointment/') && Number(context.tenant?.id) === Number(appointment.agencyId);
   let url = bookedTutoring ? buildPublicAppUrl(context.tenant,destination) : destination.startsWith('/') ? context.url(destination.slice(1)) : destination;
   if(bookedTutoring){const guest=await (dependencies.guestLink|| (await import('./tutoringGuest.service.js')).issueTutoringGuestLink)(appointment,clientId,recipient.id,d.db);if(guest)url=guest;}
-  const phone=(appointment.videoRoomMode === 'google_meet' || appointment.includeGoogleDialIn === true)?googleDialInContent(await d.conference(appointment)):null;
+  const learning=['learning','tutoring'].includes(appointment.businessType);
+  const phone=(appointment.videoRoomMode === 'google_meet' || (appointment.includeGoogleDialIn === true&&!(learning&&await nluTutoringVideoChoice(appointment))))?googleDialInContent(await d.conference(appointment)):null;
   const label=['learning','tutoring'].includes(appointment.businessType)?'Join tutoring session':'Join online appointment';
   return {url,label,detailsHtml:phone?.html||'',detailsText:phone?.text||'',text:`${label}:\n${url}${phone?`\n\n${phone.text}`:''}`,html:`<p><a href="${esc(url)}">${esc(label)}</a></p>${phone?.html||''}`};
  }catch(error){

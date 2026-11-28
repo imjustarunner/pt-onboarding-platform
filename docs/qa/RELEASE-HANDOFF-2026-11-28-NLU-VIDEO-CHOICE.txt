@@ -1,0 +1,183 @@
+NLU TUTORING VIDEO CHOICE — IMPLEMENTATION AND RETEST HANDOFF
+Task date: November 28, 2026. Engineering validation is separate from live QA.
+
+RELEASE OWNERSHIP
+Branch: codex/nlu-tutoring-video-choice-20261128
+Base: ec6d4ba09ca6fd42c0fa2ae60da7ab31b1d35ed7 (fetched origin/main).
+Obtain the full final commit SHA from this branch and the release receipt.
+This chat implements/tests/pushes the feature branch only. The separate release
+chat integrates the branch with current main and deploys the paired backend and
+frontend. No main merge/push, deployment, production data change, human account
+use, or live mail send was performed for this task.
+Awaiting the separate release chat. Not deployed.
+
+SCOPE AND BEHAVIOR
+- The new meeting selector is specific to NLU tutoring/learning appointments.
+  The server resolves the saved agency: NLU live slugs, or the retained QA
+  agencies 453/454 with their synthetic tutoring markers. A caller-supplied
+  brand does not enable it. NLU counseling and other agencies retain their
+  existing system-generated Google Meet behavior.
+- Meeting option is separate from the selected service and subject. Choosing
+  Math, Reading or General does not pick a different transport. Pricing, pay
+  placement, permissions and clinical authority are not changed by this work.
+- Platform Session Hub remains the new NLU tutoring default. Google Meet is an
+  explicit alternative using the existing system-generated, appointment-specific
+  Meet implementation. Existing permitted external URLs remain available under
+  their existing policy. This is not a new personal/permanent room flow.
+- Format/policy loading does not erase NLU's selected meeting option. In-person
+  and no-video bookings keep their existing behavior. Upcoming recurring Meet
+  appointments use their own links; preparation reuses an already saved link.
+- Authorized booking staff see Meet readiness. The private host destination in
+  staff appointment responses remains limited to the assigned tutor. Family
+  join delivery still checks current relationship/service permissions.
+- NLU portal, email and SMS destinations use the selected meeting. A stale
+  calendar Meet URL cannot replace an explicit native Session Hub selection.
+  Native guest invitations are not minted for a Meet-selected appointment.
+- A Meet-selected Session Hub shows the saved meeting button and the same
+  appointment's notes. It does not simulate native waiting-room admission or
+  create platform media tokens. Merely opening Google Meet is not attendance.
+- The assigned tutor explicitly confirms student presence and records the start.
+  The audit identifies tutor_attestation, rather than claiming verified Google
+  media attendance. Server time and the appointment window apply. Concurrent
+  start retries preserve one start/audit. Missing links, ended/canceled sessions,
+  and retained platform media records cannot create a new external start.
+- Finish session record uses the existing learning completion, settlement and
+  note workflow. The external Google call must be closed separately. Drafts
+  stay private and sharing still requires an attended, ended session and the
+  tutor's own review/signature. Recorded attendance prevents transport edits.
+- Workspace/configuration failures preserve the saved booking and show retry
+  guidance. Retrying preparation is not a second booking or a native fallback.
+
+PERSISTENCE, CONFIGURATION AND RELEASE REQUIREMENTS
+- No new migration, backfill, account provisioning or production setup write.
+  The base already contains migration 1868_appointment_delivery_options.sql
+  for google_meet and private_meet_url, plus the existing tutoring session tables.
+- Deploy backend and frontend from the integrated release together. Keep the
+  current native Session Hub rollout flags, sender policy and recipient checks.
+- Google Meet requires the tutor's already approved Google work identity and
+  existing Workspace/Meet delegation configuration. Missing configuration stays
+  an actionable blocker. Do not invent a mailbox, impersonate a human, forge a
+  login, change account mode, or substitute another employee's organizer.
+- No changes to the Google transport API implementation or global agency
+  defaults. No Stripe/live charges, payroll approval, or clinical signing.
+- The release chat must validate combined production packaging and perform the
+  live cases below after release. A local preview is not a connected Meet call,
+  delivered email, deployment or completed live QA.
+
+ENGINEERING VALIDATION
+Evidence: deliverables/nlu-session-video-choice-2026-11-28/ in the owner workspace.
+- Focused backend: 12 files / 155 passed, including 3 disposable localhost SQL
+  concurrency/revalidation tests. backend-nlu-scope-final.log.
+- Existing native room/media/email regression: 4 files / 23 passed, including
+  16 existing disposable SQL cases. backend-native-sql-regressions.log.
+- Frontend entry/editor/service/in-person group: 4 files / 35 passed.
+  frontend-nlu-scope.log.
+- New booking-choice subset: 7 passed; 34 other tests deliberately excluded by
+  the name filter. frontend-video-choice-final.log.
+- Wider frontend run: 5 files / 69 passed and 7 failed, no skips. See
+  frontend-regressions-final.log. The seven pre-existing
+  failures below also fail with unchanged main's ScheduleAvailabilityGrid.
+  Baseline proof: frontend-baseline-proof.log. They are not passing claims.
+  1 assigned-school default selection;
+  2 synthetic-school default preparation;
+  3 missing synthetic-school location error;
+  4 recurring-school typed-minute booking;
+  5 nonexistent DST school time validation;
+  6 authorized provider service category filtering;
+  7 Book Session provider-offering/staff-time-code filtering.
+- Four synthetic localhost Chrome previews: booking and Meet Session Hub at
+  1280px and 390px. No page errors or horizontal overflow; attendance requires
+  attestation and no native room control appears in the Meet record.
+  preview-checks.json and booking-options-/meet-session-record-*.png.
+- JavaScript syntax, Vue compilation through tests/previews and diff checks run.
+- Full production packaging, real Google API/media connectivity, live email/SMS
+  receipt, live billing/paystub results and deployed build verification NOT RUN.
+  The sparse checkout reused existing dependencies; no dependency install or
+  duplicated production build was performed. Initial sandbox loopback denial
+  was rerun successfully with permission for the disposable local test service.
+
+SELF-CONTAINED BOT RETEST — RUN ONLY AFTER THE RELEASE CHAT VERIFIES THE BUILD
+No separate upload attachments are required for these cases. Retain earlier
+47-case tutoring and follow-on findings; this packet does not close them.
+Use normal app actions, authorized automation-only QA accounts, existing vault
+and testing@itsco.health. Never put passwords or full bearer links in evidence.
+Recount/reuse retained synthetic fixtures, follow existing caps and actual time.
+This packet does not authorize a real Google mailbox, card charge or payroll run.
+
+Known scoped personas: Finley 1496 (tutor), Riley 1807 (QA reviewer/booker), Morgan
+1759 and Rene 1785 (separate authorized family identities), Jordan 1434 (scoped
+support). Do not use a human superadmin. Verify current assignments/permissions
+instead of assuming that a role or a saved URL grants access.
+
+VC00 Record visible deployed build, current actor and actual Denver UTC offset.
+VC01 As Finley open ordinary NLU booking; verify Platform Session Hub and Google
+     Meet choices. Subject/service selection remains a separate control.
+VC02 Change Math/Reading/General and virtual/in-person/virtual; preserve chosen
+     meeting option without changing client, assigned tutor, price or pay.
+VC03 Book one allowed native virtual QA session. Verify appointment-specific
+     email/portal destination; no stale Google conference or Google dial-in.
+VC04 In two separate sessions, join/admit the native booking and verify actual
+     media and saved attendance. Use real time; a preview is not a video pass.
+VC05 Book one allowed Google Meet tutoring session. Verify saved appointment ID,
+     service, subject, tutor and one system-generated Meet destination.
+VC06 As authorized staff check readiness without receiving a private tutor host
+     field. As the assigned tutor open the same saved meeting, not a new one.
+VC07 Open each eligible family's actual email/SMS/portal Join destination. Check
+     logical recipient, physical testing@ receipt and exact appointment link.
+VC08 Verify Meet opens externally while the same Session Hub notes stay in app.
+     No native waiting entry, Admit, media token, timer or attendance from a click.
+VC09 Before student arrival, ensure Record session start is disabled without
+     confirmation. After actual attendance, confirm and record once; refresh.
+VC10 Retry start, refresh and revisit. Verify the same start and one audit entry,
+     with source tutor_attestation; do not claim Google-verified media duration.
+VC11 Save a private draft, finish the record, close the Meet call separately,
+     review/sign/share the family summary. Check its exact appointment/version.
+VC12 Inspect existing QA settlement/pay preview after an attended completed Meet
+     session. Opening a link alone must not create a completed/billed session.
+VC13 Test missing Google readiness via an already unconfigured authorized QA
+     fixture if available. Preserve the booking; retry must not duplicate it or
+     substitute native media. Otherwise mark NOT RUN; do not disable real setup.
+VC14 Before attendance change a retained unsigned future native booking to Meet
+     and back. Verify one updated notice per actual change and current links.
+     After attendance, switching transport must be denied with history retained.
+VC15 Recurring Meet appointments have distinct saved links; repeated preparation
+     of one appointment reuses its link. Preserve all current roster boundaries.
+VC16 Canceled/ended/out-of-window/wrong-family/other-agency/revoked membership
+     tests deny session access or attendance as appropriate. Old native tokens
+     cannot reopen an appointment that now uses Meet.
+VC17 Repeat key choice/Join/note controls at 390px and on desktop. Record actual
+     device/browser, screen evidence, errors and retained context after refresh.
+VC18 Read-only inspect an authorized non-NLU QA booking and NLU counseling:
+     their existing system-generated Google Meet flow stays unchanged. No new
+     Session Hub selector. Do not create unrelated-agency records for this case.
+VC19 Verify in-person NLU tutoring still opens its existing learning workspace,
+     with no Google requirement and unchanged attendance/documentation controls.
+
+BLANK LIVE RESULTS (all start NOT RUN)
+case_id,status,build,actor_user_id,agency_id,client_id,service_id,appointment_id,session_id,time_denver,utc_offset,evidence,finding
+VC00,NOT RUN,,,,,,,,,,,
+VC01,NOT RUN,,,,,,,,,,,
+VC02,NOT RUN,,,,,,,,,,,
+VC03,NOT RUN,,,,,,,,,,,
+VC04,NOT RUN,,,,,,,,,,,
+VC05,NOT RUN,,,,,,,,,,,
+VC06,NOT RUN,,,,,,,,,,,
+VC07,NOT RUN,,,,,,,,,,,
+VC08,NOT RUN,,,,,,,,,,,
+VC09,NOT RUN,,,,,,,,,,,
+VC10,NOT RUN,,,,,,,,,,,
+VC11,NOT RUN,,,,,,,,,,,
+VC12,NOT RUN,,,,,,,,,,,
+VC13,NOT RUN,,,,,,,,,,,
+VC14,NOT RUN,,,,,,,,,,,
+VC15,NOT RUN,,,,,,,,,,,
+VC16,NOT RUN,,,,,,,,,,,
+VC17,NOT RUN,,,,,,,,,,,
+VC18,NOT RUN,,,,,,,,,,,
+VC19,NOT RUN,,,,,,,,,,,
+
+ACTION / AUDIT LEDGER
+case_id,actor_user_id,agency_id,object_type,object_id,action,time_denver,expected_event,actual_audit_id,evidence,status,finding
+
+DELIVERY LEDGER (transport acceptance or a Sent label is not inbox receipt)
+case_id,appointment_id,logical_recipient,physical_inbox,from,reply_to,due_at,sent_at,received_at_denver,message_id,evidence,status,finding

@@ -1,3 +1,4 @@
+import { nluTutoringVideoChoice } from './nluTutoringVideoChoice.service.js';
 import StudentSubject from '../models/StudentSubject.model.js';
 import {tutoringSessionHubEnabled} from '../utils/tutoringSessionHubPolicy.js';
 import StudentLearningPlan from '../models/StudentLearningPlan.model.js';
@@ -18,6 +19,8 @@ import Video from './vonageVideo.service.js';
 import { clinicalAudit } from './clinicalSessionAudit.service.js';
 import * as workspace from './therapyWorkspace.service.js';
 import { utcMysqlToIso } from '../utils/zonedWallTime.util.js';
+import { savedStaffAppointmentMeet } from './staffAppointmentMeet.service.js';
+import { validExternalMeetingUrl } from './appointmentExternalMeeting.service.js';
 import { buildPublicFormBrandingForAgencyId } from './publicFormBranding.service.js';
 import {publishTutoringNote,getPublishedTutoringNote,getAppointmentFamilySummary,tutoringFamilyDraft,tutoringFamilyDraftMetadata} from './tutoringNotePublication.service.js';
 import {appointmentServiceLabel,appointmentAttendanceView} from '../utils/appointmentPresentation.js';
@@ -60,7 +63,7 @@ export async function bookedTutoringAccess(req, appointmentId) {
   if (access.permissions?.canViewAppointments===false) throw fail(403, 'Appointment access is required to join this session.');
  }
  if (req.query?.clientId && Number(req.query.clientId)!==clientId) throw fail(403,'This appointment belongs to a different student.');
- return {appointment,clientId,hubV2:tutoringSessionHubEnabled(await Agency.findById(appointment.agencyId)),studentName:access?.client?.full_name || clients[0].displayName || access?.client?.initials || null,host,actor:`user-${req.user.id}`,req};
+ return {appointment,clientId,nluVideoChoice:await nluTutoringVideoChoice(appointment),hubV2:tutoringSessionHubEnabled(await Agency.findById(appointment.agencyId)),studentName:access?.client?.full_name || clients[0].displayName || access?.client?.initials || null,host,actor:`user-${req.user.id}`,req};
 }
 const transact = async operation => {
  const db = await pool.getConnection();
@@ -77,6 +80,7 @@ export async function linkedSession(ctx,db=pool,lock=false) {
  return row||null;
 }
 function requireOpen(ctx) {
+ if(ctx.nluVideoChoice&&['google_meet','external'].includes(ctx.appointment.videoRoomMode))throw fail(409,'This appointment uses an external meeting. Open its saved meeting link; the Session Hub keeps its documentation.');
  if(ctx.appointment.videoRoomMode==='none')throw fail(409,'This appointment has no video room.');
  if(!['VIRTUAL','ONLINE','VIDEO','TELEHEALTH'].includes(String(ctx.appointment.modality).toUpperCase()))throw fail(409,'This is an in-person appointment. Open its learning workspace from your calendar.');
  if (ctx.appointment.status==='completed') throw fail(410,'This tutoring session has ended.');
@@ -114,7 +118,7 @@ export async function tutoringRoomStatus(ctx) {
  const session=await linkedSession(ctx), window=bookedTutoringWindow(ctx.appointment);
  const {status,displayStatus}=appointmentAttendanceView(ctx.appointment,{learningSession:session});
  const closed=terminal.has(status)||['ended','completed'].includes(status);
- const safe={sessionHubV2:!!ctx.hubV2,appointmentId:ctx.appointment.id,clientId:ctx.clientId,agencyId:ctx.appointment.agencyId,
+ const safe={sessionHubV2:!!ctx.hubV2,videoRoomMode:ctx.nluVideoChoice?ctx.appointment.videoRoomMode||'unique_session':'unique_session',appointmentId:ctx.appointment.id,clientId:ctx.clientId,agencyId:ctx.appointment.agencyId,
   providerId:ctx.appointment.providerUserId,studentName:ctx.studentName||null,host:ctx.host,
   title:appointmentServiceLabel(ctx.appointment),modality:ctx.appointment.modality,
   timeZone:ctx.appointment.sourceTimezone||'America/Denver',startAt:utcMysqlToIso(ctx.appointment.startAt),endAt:utcMysqlToIso(ctx.appointment.endAt),
@@ -124,6 +128,14 @@ export async function tutoringRoomStatus(ctx) {
   branding:await buildPublicFormBrandingForAgencyId(ctx.appointment.agencyId,{enrollmentChannel:'tutoring'})};
  if(!ctx.host&&session?.actual_ended_at&&['ended','completed'].includes(status)) {
   safe.familySummary=await getAppointmentFamilySummary(ctx,session);
+ }
+ if(ctx.nluVideoChoice&&['google_meet','external'].includes(ctx.appointment.videoRoomMode)) {
+  let meetingUrl=null;
+  if(!closed){
+   if(ctx.appointment.videoRoomMode==='google_meet')meetingUrl=await savedStaffAppointmentMeet(ctx.appointment);
+   else {try{meetingUrl=validExternalMeetingUrl(ctx.appointment.externalMeetingUrl);}catch{/* An invalid legacy link is not exposed. */}}
+  }
+  return {...safe,meetingUrl,visits:[],visit:null};
  }
  if (!session||closed)return {...safe,visits:[],visit:null};
  const [visits]=await pool.execute(`SELECT v.id,v.user_id AS userId,v.actor,v.status,v.last_seen_at AS lastSeenAt,v.admitted_at AS admittedAt,v.ended_at AS endedAt,v.duration_seconds AS durationSeconds,CONCAT_WS(' ',u.first_name,u.last_name) AS displayName FROM tutoring_session_visits v JOIN users u ON u.id=v.user_id WHERE v.session_id=? ${ctx.host?'':ctx.guestSessionId?'AND v.actor=?':'AND v.user_id=?'} ORDER BY v.id`,ctx.host?[session.id]:[session.id,ctx.guestSessionId?ctx.actor:ctx.req.user.id]);
@@ -164,6 +176,7 @@ export async function maintainBookedTutoringRooms() {
 }
 export async function openBookedTutoringRoom(ctx) {
  if(!ctx.host)throw fail(403,'Only the assigned tutor can open this tutoring room.');
+ requireOpen(ctx);
  try{media.requireClinicalVideoMonitoring();}catch(error){if(error.status===503)throw fail(503,'Tutoring video monitoring is unavailable. Contact Support before opening this session.');throw error;}
  return transact(async db=>{
   await lockAppointment(ctx,db);requireOpen(ctx);
@@ -376,6 +389,25 @@ export async function prepareBookedTutoringHub(ctx){
  if(!ctx.host)throw fail(403,'Only the assigned tutor can prepare this Session Hub.');
  return transact(async db=>{await lockAppointment(ctx,db);if(terminal.has(ctx.appointment.status)||ctx.appointment.status==='no_show_pending')throw fail(409,'This appointment has an attendance outcome. Its saved history remains available.');const session=await prepareSession(ctx,db,{workspaceOnly:true});return {sessionId:Number(session.id)};});
 }
+export async function startBookedExternalTutoring(ctx,req){
+ if(!await nluTutoringVideoChoice(ctx.appointment))throw fail(403,'External meeting attendance is available only for NLU tutoring.');
+ if(!ctx.host)throw fail(403,'Only the assigned tutor can record this session’s attendance.');
+ if(req.body?.attended!==true)throw fail(400,'Confirm that the student is present and the tutoring session has begun.');
+ return transact(async db=>{
+  await lockAppointment(ctx,db);
+  if(!['google_meet','external'].includes(ctx.appointment.videoRoomMode)||!['VIRTUAL','TELEHEALTH','VIDEO','ONLINE'].includes(ctx.appointment.modality))throw fail(409,'Use this attendance control only for the booked external meeting.');
+  if(terminal.has(ctx.appointment.status)||ctx.appointment.status==='completed'||!bookedTutoringWindow(ctx.appointment).available)throw fail(409,'Open the current appointment during its session window to record attendance.');
+  const session=await prepareSession(ctx,db,{workspaceOnly:true});
+  if(session.booked_media_id)throw fail(409,'This appointment already has a platform video record. Ask Support to review it before recording an external meeting.');
+  if(session.actual_ended_at||session.status==='ended')throw fail(409,'This session has already ended.');
+  if(session.actual_started_at)return {sessionId:Number(session.id)};
+  if(ctx.appointment.videoRoomMode==='google_meet'&&!await savedStaffAppointmentMeet(ctx.appointment,db))throw fail(409,'Prepare this appointment’s Google Meet link before recording attendance.');
+  await db.execute("UPDATE learning_class_sessions SET status='live',actual_started_at=UTC_TIMESTAMP(),started_by_user_id=? WHERE id=? AND actual_started_at IS NULL",[ctx.req.user.id,session.id]);
+  await db.execute("UPDATE appointments SET status='in_progress',updated_by_user_id=? WHERE id=?",[ctx.req.user.id,ctx.appointment.id]);
+  await audit(ctx,session,'tutoring_external_attendance_started',{source:'tutor_attestation',videoRoomMode:ctx.appointment.videoRoomMode},db);
+  return {sessionId:Number(session.id)};
+ });
+}
 export async function startBookedInPersonTutoring(ctx){
  if(!ctx.host)throw fail(403,'Only the assigned tutor can start this session.');
  if(String(ctx.appointment.modality).toUpperCase()!=='IN_PERSON')throw fail(409,'Open the virtual session and admit its participant.');
@@ -389,6 +421,11 @@ export async function tutoringBoardMaterials(ctx){
  return {materials:rows};
 }
 export async function tutoringJoinLink(ctx){
+ if(ctx.nluVideoChoice&&ctx.appointment.videoRoomMode==='google_meet'){
+  const url=await savedStaffAppointmentMeet(ctx.appointment);
+  if(!url)throw fail(409,'The appointment’s Google Meet link is not ready. The assigned tutor can retry it from the appointment.');
+  return {url};
+ }
  const agency=await Agency.findById(ctx.appointment.agencyId);
  if(ctx.hubV2){
   const {issueTutoringGuestLink}=await import('./tutoringGuest.service.js');

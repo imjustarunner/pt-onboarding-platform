@@ -9,6 +9,12 @@ it.each(['mental_health', 'healthcare', null])('uses a distinct appointment room
 it('keeps the separate tutoring room policy scoped to learning appointments', () => {
   expect(appointmentVideoRoomMode({ modality: 'VIRTUAL', businessType: 'tutoring', videoRoomMode: 'my_room' })).toBe('my_room');
 });
+it.each(['learning','tutoring'])('preserves the explicit Google Meet choice for virtual %s and keeps Session Hub as the default', businessType => {
+ expect(appointmentVideoRoomMode({modality:'TELEHEALTH',businessType,videoRoomMode:'google_meet',nluVideoChoice:true})).toBe('google_meet');
+ expect(appointmentVideoRoomMode({modality:'VIRTUAL',businessType})).toBe('unique_session');
+ expect(appointmentVideoRoomMode({modality:'IN_PERSON',businessType,videoRoomMode:'google_meet',nluVideoChoice:true})).toBe('unique_session');
+ expect(appointmentVideoRoomMode({modality:'TELEHEALTH',businessType,videoRoomMode:'none'})).toBe('none');
+});
 it('shows a saved appointment whose calendar facet did not save, using its canonical appointment ID and UTC time', async () => {
   const db = { execute: vi.fn().mockResolvedValue([[{ id: 18141, agency_id: 2, provider_user_id: 501, status: 'scheduled', modality: 'TELEHEALTH',
     start_at: '2026-11-20 00:00:00', end_at: '2026-11-20 01:00:00', source_timezone: 'America/Denver', client_id: 8, clinical_session_id: 77 }]]) };
@@ -43,3 +49,5 @@ it('applies the same clinical video policy when the caller omits or supplies a d
  expect(appointmentVideoRoomMode({modality:'IN_PERSON',businessType:'mental_health',videoRoomMode:'none',clinicalBooking:true}))
    .toBe('none');
 });
+
+it('does not offer the NLU transport policy to another tutoring agency',()=>{expect(appointmentVideoRoomMode({modality:'TELEHEALTH',businessType:'tutoring',videoRoomMode:'google_meet'})).toBe('unique_session');});

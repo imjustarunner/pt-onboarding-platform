@@ -1,3 +1,4 @@
+vi.mock('../../models/Agency.model.js',()=>({default:{findById:vi.fn(async id=>({id,slug:Number(id)===6?'nlu':'itsco'}))}}));
 vi.mock('../clientSessionBookingRollout.service.js', () => ({ requireClientSessionBooking: vi.fn().mockResolvedValue({ enabled: true }) }));
 import { requireClientSessionBooking } from '../clientSessionBookingRollout.service.js';
 vi.mock('../appointmentScheduleNotice.service.js', () => ({ appointmentScheduleNotices: { queue: vi.fn() } }));
@@ -93,4 +94,27 @@ it.each([undefined,'America/New_York'])('does not turn a display-only timezone f
 it('preserves clinical linkage while allowing an explicitly silent administrative office attachment',async()=>{
  await updateAppointment(20,{roomId:10,officeLocationId:1},{actorUserId:9,deferScheduleNotice:true});
  expect(current.roomId).toBe(10);expect(current.clinicalSessionId).toBe(159);expect(ensureAppointmentClinicalLink).toHaveBeenCalledWith(20,9);expect(appointmentScheduleNotices.queue).not.toHaveBeenCalled();
+});
+
+it('changes only the NLU tutoring meeting transport and queues one updated appointment notice',async()=>{
+ Object.assign(current,{agencyId:6,businessType:'tutoring',serviceCode:'TUTORING',videoRoomMode:'unique_session',modality:'TELEHEALTH'});
+ const before={...current};
+ await updateAppointment(20,{videoRoomMode:'google_meet'},{actorUserId:9});
+ expect(current.videoRoomMode).toBe('google_meet');expect(current.tenantServiceId).toBe(before.tenantServiceId);expect(current.serviceCode).toBe('TUTORING');
+ expect(appointmentScheduleNotices.queue).toHaveBeenCalledTimes(1);expect(appointmentScheduleNotices.queue).toHaveBeenCalledWith(20,expect.objectContaining({eventType:'updated',actorUserId:9}));
+ appointmentScheduleNotices.queue.mockClear();
+ await updateAppointment(20,{videoRoomMode:'google_meet'},{actorUserId:9});
+ expect(appointmentScheduleNotices.queue).not.toHaveBeenCalled();
+});
+it('preserves another agency’s existing tutoring transport policy',async()=>{
+ Object.assign(current,{agencyId:1,businessType:'tutoring',serviceCode:'TUTORING',videoRoomMode:'unique_session',modality:'TELEHEALTH'});
+ await updateAppointment(20,{videoRoomMode:'google_meet'},{actorUserId:9});
+ expect(current.videoRoomMode).toBe('unique_session');expect(appointmentScheduleNotices.queue).not.toHaveBeenCalled();
+});
+
+it('keeps recorded NLU attendance and its meeting transport intact',async()=>{
+ Object.assign(current,{agencyId:6,businessType:'tutoring',videoRoomMode:'unique_session'});
+ assertAppointmentCanMove.mockRejectedValue(Object.assign(Error('This session has recorded attendance'),{status:409}));
+ await expect(updateAppointment(20,{videoRoomMode:'google_meet'},{actorUserId:9})).rejects.toHaveProperty('status',409);
+ expect(Appointment.update).not.toHaveBeenCalled();expect(appointmentScheduleNotices.queue).not.toHaveBeenCalled();
 });

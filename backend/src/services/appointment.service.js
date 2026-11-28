@@ -18,6 +18,7 @@ import {isProBonoFunding,isProBonoServiceCode,proBonoClientBilling} from '../uti
 import {reconcileClinicalAfterHours,savedOfficeBookingTimezone} from './clinicalAfterHours.service.js';
 import pool from '../config/database.js';
 import { appointmentHasStarted, appointmentVideoRoomMode } from '../utils/appointmentVideoPolicy.js';
+import { nluTutoringVideoChoice } from './nluTutoringVideoChoice.service.js';
 import { clientScheduleInstantToUtcMysql } from '../utils/zonedWallTime.util.js';
 import AgencyServiceLocation from '../models/AgencyServiceLocation.model.js';
 import { ensureAppointmentClinicalLink, assertAppointmentClients } from './appointmentClinicalLink.service.js';
@@ -318,7 +319,8 @@ async function createLockedAppointment({
   const clinicalVideoBooking = bookingClients.length > 0 && !audioOnly && !appointmentHasStarted(end)
     && (['mental_health', 'healthcare'].includes(businessType)
       || (!businessType && serviceCode !== 'TUTORING' && bookingClients.some(client => ['clinical', 'school', 'both'].includes(client.client_type))));
-  videoRoomMode = appointmentVideoRoomMode({ modality: modality || service?.modality, businessType, videoRoomMode, clinicalBooking: clinicalVideoBooking });
+  const nluVideoChoice = videoRoomMode === 'google_meet' && await nluTutoringVideoChoice({agencyId:aid,businessType});
+  videoRoomMode = appointmentVideoRoomMode({ modality: modality || service?.modality, businessType, videoRoomMode, clinicalBooking: clinicalVideoBooking, nluVideoChoice });
   if (videoRoomMode === 'google_meet') {
     includeGoogleDialIn = true;
     externalMeetingUrl = null;
@@ -552,6 +554,12 @@ async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId 
     await validateCustomReminderChannels(existing.agencyId, patch.customReminders);
   }
   if (!existing) return null;
+  const nluVideoChoice = ['videoRoomMode','externalMeetingUrl'].some(key=>patch[key]!==undefined)
+    || existing.videoRoomMode==='google_meet' ? await nluTutoringVideoChoice(existing) : false;
+  if (nluVideoChoice && ['videoRoomMode','externalMeetingUrl'].some(key=>patch[key]!==undefined&&String(patch[key]??'')!==String(existing[key]??''))) {
+    const { assertAppointmentCanMove } = await import('./appointmentScheduleSync.service.js');
+    await assertAppointmentCanMove(existing);
+  }
   if (patch.audioOnly !== undefined && typeof patch.audioOnly !== 'boolean') {
     throw Object.assign(new Error('Choose a valid session type.'), { status: 400 });
   }
@@ -741,7 +749,7 @@ async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId 
   const prevStatus = String(existing.status || '').toLowerCase();
   const updatePatch = {
     ...patch,
-    videoRoomMode: appointmentVideoRoomMode({ modality: patch.modality || existing.modality, businessType: existing.businessType, videoRoomMode: patch.videoRoomMode ?? existing.videoRoomMode }),
+    videoRoomMode: appointmentVideoRoomMode({ modality: patch.modality || existing.modality, businessType: existing.businessType, videoRoomMode: patch.videoRoomMode ?? existing.videoRoomMode, nluVideoChoice }),
     startAt,
     endAt,
     updatedByUserId: actorUserId
@@ -807,7 +815,7 @@ async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId 
     await refreshAppointmentCalendar(await Appointment.findById(appointmentId), actorUserId, { detachFromSeries: detachCalendarOccurrence });
   }
 
-  if (!deferScheduleNotice && (moved || (updatePatch.videoRoomMode === 'google_meet' && (patch.participants || existing.audioOnly !== (patch.audioOnly ?? existing.audioOnly))) || ['modality','roomId','serviceLocationId','providerUserId'].some(k => patch[k] !== undefined && String(patch[k]) !== String(existing[k])))) {
+  if (!deferScheduleNotice && (moved || (updatePatch.videoRoomMode === 'google_meet' && (patch.participants || existing.audioOnly !== (patch.audioOnly ?? existing.audioOnly))) || ['modality','roomId','serviceLocationId','providerUserId',...(nluVideoChoice?['videoRoomMode','externalMeetingUrl']:[])].some(k => patch[k] !== undefined && String(patch[k]) !== String(existing[k])))) {
     await (await import('./appointmentScheduleNotice.service.js')).appointmentScheduleNotices.queue(appointmentId, { eventType: moved ? 'moved' : 'updated', before: existing, actorUserId });
   }
   if (!moved && (patch.customReminders !== undefined || patch.notificationMode !== undefined)) await scheduleSessionNotifications(appointmentId, { replace: true });

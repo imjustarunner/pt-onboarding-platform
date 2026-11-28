@@ -1,10 +1,11 @@
 vi.mock('../../models/StudentSubject.model.js',()=>({default:{listByClient:vi.fn(async()=>[]),findById:vi.fn()}}));
 vi.mock('../../models/StudentLearningPlan.model.js',()=>({default:{findActiveBySubject:vi.fn(),listBySubject:vi.fn(),listGoals:vi.fn(),getPlanBundle:vi.fn()}}));
 import {beforeEach,afterEach,it,expect,vi} from 'vitest';
+vi.mock('../staffAppointmentMeet.service.js',()=>({savedStaffAppointmentMeet:vi.fn(async()=>null)}));
 vi.mock('../clinicalNoteCrypto.service.js',()=>({maybeEncryptNotePayload:v=>`encrypted:${v}`,maybeDecryptNotePayload:v=>v.replace(/^encrypted:/,'')}));
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn(),getConnection:vi.fn()}}));
 vi.mock('../../models/Appointment.model.js',()=>({default:{findById:vi.fn(),listParticipants:vi.fn()}}));
-vi.mock('../../models/Agency.model.js',()=>({default:{findById:vi.fn(async()=>({feature_flags:{}}))}}));
+vi.mock('../../models/Agency.model.js',()=>({default:{findById:vi.fn(async()=>({id:453,slug:'nlu-qa-demo',feature_flags:{qaSandbox:{syntheticOnly:true,program:'tutoring'}}}))}}));
 vi.mock('../../models/User.model.js',()=>({default:{getAgencies:vi.fn()}}));
 vi.mock('../../utils/learningAccess.js',()=>({assertLearningClientAccess:vi.fn()}));
 vi.mock('../tutoringOffice.service.js',()=>({tutoringVisit:vi.fn()}));
@@ -25,6 +26,7 @@ import Video from '../vonageVideo.service.js';
 import {TutoringSessionNote} from '../../models/TutoringSessionLearning.model.js';
 import {clinicalAudit} from '../clinicalSessionAudit.service.js';
 import * as room from '../bookedTutoringRoom.service.js';
+import {savedStaffAppointmentMeet} from '../staffAppointmentMeet.service.js';
 import {completeLearningSession} from '../../controllers/learningClassSessions.controller.js';
 const a={id:359,agencyId:453,providerUserId:1496,businessType:'tutoring',serviceCode:'TUTORING',status:'scheduled',modality:'VIRTUAL',startAt:'2026-11-17 18:00:00',endAt:'2026-11-17 19:00:00'};
 const tutor={user:{id:1496,role:'provider'},query:{}},parent={user:{id:1759,role:'client_guardian'},query:{}};
@@ -130,3 +132,50 @@ it('refreshes only the current invited participant presence through an explicit 
 
 it('does not bill a historical admitted-only visit with no verified media attendance',async()=>{session.booked_media_id='exact-room';session.actual_started_at='2026-11-17 18:00:00';const ctx=await room.bookedTutoringAccess(tutor,359);expect((await room.endBookedTutoringRoom(ctx)).billingWarning).toContain('no connected family attendance');expect(completeLearningSession).not.toHaveBeenCalled();});
 it('stores measured connected seconds rather than time since the Admit click',async()=>{session.booked_media_id='exact-room';media.clinicalAttendance.mockResolvedValue(new Map([[9,7]]));const ctx=await room.bookedTutoringAccess(parent,359);await room.leaveBookedTutoringRoom(ctx);expect(db.execute).toHaveBeenCalledWith(expect.stringContaining('duration_seconds=CASE id WHEN ? THEN ? ELSE 0 END'),[9,7,600,1759]);});
+
+it('keeps Google Meet status, notes and exact link without exposing a native waiting room or creating media',async()=>{
+ const ctx={appointment:{...a,videoRoomMode:'google_meet'},clientId:2547,host:true,hubV2:true,nluVideoChoice:true,actor:'user-1496',req:tutor};
+ savedStaffAppointmentMeet.mockResolvedValue('https://meet.google.com/abc-defg-hij');
+ const status=await room.tutoringRoomStatus(ctx);
+ expect(status).toMatchObject({appointmentId:359,videoRoomMode:'google_meet',meetingUrl:'https://meet.google.com/abc-defg-hij',visits:[],visit:null,sessionId:600});
+ await expect(room.openBookedTutoringRoom(ctx)).rejects.toMatchObject({status:409});
+ await expect(room.joinBookedTutoringRoom({...ctx,host:false,req:parent})).rejects.toMatchObject({status:409});
+ expect(Video.createSession).not.toHaveBeenCalled();expect(media.clinicalVideoToken).not.toHaveBeenCalled();
+ expect(db.execute.mock.calls.some(([sql])=>/INSERT INTO tutoring_session_visits/.test(sql))).toBe(false);
+});
+it('requires the assigned tutor’s explicit attendance attestation before recording an external session start',async()=>{
+ const ctx={appointment:{...a,videoRoomMode:'google_meet'},clientId:2547,host:true,actor:'user-1496',req:tutor};
+ await expect(room.startBookedExternalTutoring({...ctx,host:false}, {body:{attended:true}})).rejects.toMatchObject({status:403});
+ await expect(room.startBookedExternalTutoring(ctx,{body:{}})).rejects.toMatchObject({status:400});
+ expect(db.execute).not.toHaveBeenCalled();
+ savedStaffAppointmentMeet.mockResolvedValue('https://meet.google.com/abc-defg-hij');
+ await expect(room.startBookedExternalTutoring(ctx,{body:{attended:true}})).resolves.toEqual({sessionId:600});
+ expect(clinicalAudit).toHaveBeenCalledWith(expect.anything(),'tutoring_external_attendance_started',expect.objectContaining({appointmentId:359,source:'tutor_attestation',videoRoomMode:'google_meet'}),db);
+ expect(Video.createSession).not.toHaveBeenCalled();expect(media.clinicalVideoToken).not.toHaveBeenCalled();
+});
+it('does not reset an already recorded external start on retry or create a second attendance event',async()=>{
+ session.actual_started_at='2026-11-17 18:05:00';
+ const ctx={appointment:{...a,videoRoomMode:'google_meet'},clientId:2547,host:true,actor:'user-1496',req:tutor};
+ await room.startBookedExternalTutoring(ctx,{body:{attended:true}});
+ expect(db.execute.mock.calls.some(([sql])=>sql.startsWith('UPDATE learning_class_sessions'))).toBe(false);
+ expect(clinicalAudit).not.toHaveBeenCalled();
+});
+it.each([{videoRoomMode:'unique_session'},{videoRoomMode:'google_meet',status:'canceled_by_client'},{videoRoomMode:'google_meet',startAt:'2026-11-18 18:00:00',endAt:'2026-11-18 19:00:00'}])('rejects external attendance for an invalid appointment window or mode',async changed=>{
+ const appointment={...a,...changed};
+ const original=db.execute.getMockImplementation();db.execute.mockImplementation(async(sql,...args)=>sql.startsWith('SELECT status,provider_user_id')?[[{status:appointment.status,agency_id:453,provider_user_id:1496,start_at:appointment.startAt,end_at:appointment.endAt,modality:appointment.modality,video_room_mode:appointment.videoRoomMode}]]:original(sql,...args));
+ await expect(room.startBookedExternalTutoring({appointment,clientId:2547,host:true,actor:'user-1496',req:tutor},{body:{attended:true}})).rejects.toMatchObject({status:409});
+ expect(clinicalAudit).not.toHaveBeenCalled();
+});
+it('keeps a Google Meet session unstarted when its meeting link is unavailable',async()=>{
+ savedStaffAppointmentMeet.mockResolvedValue(null);
+ const ctx={appointment:{...a,videoRoomMode:'google_meet'},clientId:2547,host:true,actor:'user-1496',req:tutor};
+ await expect(room.startBookedExternalTutoring(ctx,{body:{attended:true}})).rejects.toMatchObject({status:409,message:expect.stringContaining('Prepare')});
+ expect(db.execute.mock.calls.some(([sql])=>sql.startsWith('UPDATE learning_class_sessions'))).toBe(false);expect(clinicalAudit).not.toHaveBeenCalled();
+});
+
+it('never relabels an existing platform media record as an externally attended meeting',async()=>{
+ session.booked_media_id='retained-platform-media';
+ const ctx={appointment:{...a,videoRoomMode:'google_meet'},clientId:2547,host:true,actor:'user-1496',req:tutor};
+ await expect(room.startBookedExternalTutoring(ctx,{body:{attended:true}})).rejects.toMatchObject({status:409,message:expect.stringContaining('platform video record')});
+ expect(clinicalAudit).not.toHaveBeenCalled();expect(db.execute.mock.calls.some(([sql])=>sql.includes('actual_started_at=UTC_TIMESTAMP()'))).toBe(false);
+});
