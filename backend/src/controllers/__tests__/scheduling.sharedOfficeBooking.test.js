@@ -1,4 +1,4 @@
-import { beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 vi.mock('../../services/appointmentClinicalLink.service.js',()=>({assertAppointmentClients:m.assertClients}));
 vi.mock('../../services/ownedOfficeSession.service.js',()=>({bookSessionInOwnedOffice:vi.fn(async()=>null)}));
 vi.mock('../../services/ownedOfficeSessionJobs.service.js',()=>({queueOwnedOfficeSession:vi.fn(async()=>null)}));
@@ -20,6 +20,7 @@ import { bookSessionInOwnedOffice } from '../../services/ownedOfficeSession.serv
 import { queueOwnedOfficeSession } from '../../services/ownedOfficeSessionJobs.service.js';
 import { createOfficeBookingRequest, getBookingLocations } from '../officeSchedule.controller.js';
 beforeEach(()=>{
+ vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(new Date('2026-11-24T12:00:00Z'));
  vi.clearAllMocks();m.assertClients.mockResolvedValue([{id:81}]);m.execute.mockResolvedValue([[]]);m.room.mockResolvedValue({id:10,location_id:1});m.access.mockResolvedValue(true);
  m.warnings.mockResolvedValue(true);m.rollout.mockResolvedValue({enabled:true});
  m.tenantService.mockResolvedValue({id:320,businessType:'tutoring',serviceCode:'TUTORING',isActive:true});
@@ -28,6 +29,7 @@ beforeEach(()=>{
  m.create.mockResolvedValue({id:9});m.selection.mockResolvedValue({appointmentTypeCode:'SESSION',modality:'IN_PERSON',serviceCode:'90837'});
  m.locations.mockResolvedValue([{id:44,agency_id:377}]);
 });
+afterEach(()=>vi.useRealTimers());
 it('uses active tutoring eligibility for an ordinary tutor office request and retains the exact service',async()=>{
  m.agencies.mockResolvedValue([{id:453}]);m.officeAgencies.mockResolvedValue([{id:453}]);
  m.provider.mockResolvedValue({id:1496,role:'provider'});

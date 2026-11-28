@@ -387,6 +387,7 @@ it.each([
  s.editorPracticeCategory=businessType;s.editorModality='TELEHEALTH';s.bookingModality='TELEHEALTH';await flushPromises();
  s.editorTenantServices=[{id:320,businessType,serviceCode:businessType==='tutoring'?'TUTORING':'90837',name:'Configured service',defaultDurationMinutes:60}];
  s.editorTenantServiceId=320;await flushPromises();
+ if(businessType==='tutoring')s.editorVideoRoomMode='external';
  s.editorExternalMeetingUrl=url;s.virtualSessionSelectedClientIds=[81];await flushPromises();s.bookingServiceCode=businessType==='tutoring'?'TUTORING':'90837';
  expect(s.editorExternalMeetingUrl).toBe(url);s.clientSessionBookingEnabled=true;await nextTick();
  expect(mocks.get).toHaveBeenCalledWith('/tenant-booking/agencies/6/booking-options',expect.objectContaining({params:expect.objectContaining({providerId:7,clientId:81,sessionOnly:'1'})}));

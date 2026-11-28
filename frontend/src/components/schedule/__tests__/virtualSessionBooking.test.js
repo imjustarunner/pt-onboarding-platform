@@ -47,7 +47,7 @@ async function schoolClientEditor({ synthetic = false } = {}) {
     { id: 54, name: 'Unassigned school', place_of_service: '03', school_organization_id: 40 },
     ...(!synthetic ? [{ id: 53, name: 'Assigned school', place_of_service: '03', school_organization_id: 30 }] : [])
   ];
-  const clients = [{ id: 8, displayName: 'School client', schools: [{ schoolOrganizationId: 30, name: 'Assigned school' }] }];
+  const clients = [{ id: 8, displayName: 'School client', clientType: 'school', schools: [{ schoolOrganizationId: 30, name: 'Assigned school' }] }];
   m.get.mockImplementation(async (url, ...args) => url.includes('virtual-session-clients') ? { data: { clients } } : /booking-(metadata|locations)/.test(url)
     ? { data: { serviceLocations, serviceCodes: [{ code: '90837' }, { code: '90832' }] } }
     : base(url, ...args));
@@ -390,10 +390,12 @@ it('offers tutoring only for the selected provider’s authorized services in th
   const s = await editor({ mode: 'admin' });
   s.editorPracticeCategories = ['mental_health', 'tutoring'];
   s.bookingProviderBusinessTypes = ['mental_health'];
+  s.editorTenantServices = [{ id: 21, businessType: 'mental_health', serviceCode: '90837' }];
   await flushPromises();
   expect(s.editorBookServiceChoices.map(row => row.value)).toEqual(['mental_health']);
   expect(s.mixedSessionServices).toBe(false);
   s.bookingProviderBusinessTypes = ['mental_health', 'tutoring'];
+  s.editorTenantServices = [...s.editorTenantServices, { id: 22, businessType: 'tutoring', serviceCode: 'TUTORING' }];
   await flushPromises();
   expect(s.editorBookServiceChoices.map(row => row.value)).toEqual(['mental_health', 'tutoring']);
   expect(s.mixedSessionServices).toBe(true);
@@ -417,6 +419,7 @@ it('filters Book Session by provider offering and hides staff time codes', async
   const s = await editor();
   s.editorPracticeCategories = ['mental_health', 'tutoring'];
   s.bookingProviderBusinessTypes = ['mental_health'];
+  s.editorTenantServices = [{ id: 21, businessType: 'mental_health', serviceCode: '90837' }];
   s.bookingMetadata = { ...s.bookingMetadata, serviceCodes: [
     { code: '90837' }, { code: 'ADMIN TIME' }, { code: 'TUTORING' }
   ] };
@@ -425,10 +428,12 @@ it('filters Book Session by provider offering and hides staff time codes', async
   expect(s.bookingServiceCodeOptions.map(item => item.code)).toEqual(['90837']);
   const base = m.get.getMockImplementation();
   m.get.mockImplementation((url, ...args) => url.endsWith('/booking-options')
-    ? Promise.resolve({ data: { clientSessionCategories: ['tutoring'], sessionOnly: true } })
+    ? Promise.resolve({ data: { clientSessionCategories: ['tutoring'], sessionOnly: true,
+      services: [{ id: 22, businessType: 'tutoring', serviceCode: 'TUTORING' }] } })
     : base(url, ...args));
   s.bookingProviderBusinessTypes = ['mental_health', 'tutoring'];
   s.clientSessionCategories = ['tutoring'];
+  s.editorTenantServices = [{ id: 22, businessType: 'tutoring', serviceCode: 'TUTORING' }];
   await flushPromises();
   expect(s.editorBookServiceChoices).toEqual([{ value: 'tutoring', label: 'Learning' }]);
 });
