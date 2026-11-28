@@ -125,7 +125,7 @@
       <p v-if="error" class="ehr-error">{{ error }}</p>
       <p v-if="successMessage" class="ehr-ok">{{ successMessage }}</p>
 
-      <ClientUpdateAssignments v-if="showAssignments" :key="`${agencyId}:${clientId}`" ref="assignmentsPanel" :client-id="clientId" :agency-id="agencyId" :initial-assignment="initialAssignment" @busy="assignmentsBusy=$event" @ready="assignmentsReady=$event" @updated="transitionRefreshKey++" />
+      <ClientUpdateAssignments v-if="showAssignments" :key="`${agencyId}:${clientId}`" ref="assignmentsPanel" :client-id="clientId" :agency-id="agencyId" :initial-assignment="initialAssignment" @busy="assignmentsBusy=$event" @ready="assignmentsReady=$event" @school-removed="emit('school-removed',$event)" @updated="transitionRefreshKey++" />
 
       <div v-if="!creationFlow && !historicalImport && creationPendingReasons.length"><p>Still pending in this workflow:</p><ul><li v-for="reason in creationPendingReasons" :key="reason">{{ reason }}</li></ul></div>
       <template v-if="!historicalImport && canPrepareAccounts">
@@ -226,7 +226,7 @@ const props = defineProps({
   recordStatus: { type: Object, default: () => ({}) }
 });
 
-const emit = defineEmits(['close', 'done', 'imported', 'busy', 'drafts-saved', 'section-imported', 'review-intake', 'review-plan', 'sections-imported']);
+const emit = defineEmits(['close', 'done', 'imported', 'busy', 'drafts-saved', 'section-imported', 'review-intake', 'review-plan', 'sections-imported', 'school-removed']);
 const auth = getActivePinia() ? useAuthStore() : null;
 const delegatedImport=inject('transitionClientImportOperator',ref(false));
 const canPrepareAccounts = computed(() => ['super_admin','admin','support'].includes(auth?.user?.role)||delegatedImport.value);

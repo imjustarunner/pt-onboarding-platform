@@ -139,10 +139,11 @@ async function saveClientServiceRow({clientId,agencyId,input,userId},db){
 // A real scheduled service or tutoring subject may discover an additional
 // enrollment. Never replace another agency/provider or silently reopen an ended
 // enrollment; that requires an explicit staff action.
-export async function ensureClientService({clientId,agencyId,providerUserId=0,serviceKind,userId=null},db=pool){
+export async function ensureClientService({clientId,agencyId,providerUserId=0,serviceKind,userId=null,organizationId=0},db=pool){
  if(!SERVICE_KINDS.includes(serviceKind)||!await clientAgencyMembership(clientId,agencyId,db))return;
  if(serviceKind==='counseling')return withClientServiceLock(clientId,db,async connection=>{
-  const [services]=await connection.execute("SELECT id,provider_user_id,organization_id,is_active FROM client_service_enrollments WHERE client_id=? AND agency_id=? AND service_kind='counseling' ORDER BY organization_id DESC,id",[clientId,agencyId]);
+  const [rows]=await connection.execute("SELECT id,provider_user_id,organization_id,is_active FROM client_service_enrollments WHERE client_id=? AND agency_id=? AND service_kind='counseling' ORDER BY organization_id DESC,id",[clientId,agencyId]);
+  const services=organizationId ? rows.filter(row=>[0,Number(organizationId)].includes(Number(row.organization_id))) : rows;
   // An ended enrollment remains ended until staff explicitly add the service again.
   if(services.some(row=>Number(row.provider_user_id)===Number(providerUserId)))return;
   const active=services.filter(row=>Number(row.is_active)===1);
@@ -150,10 +151,20 @@ export async function ensureClientService({clientId,agencyId,providerUserId=0,se
   if(!providerUserId&&active.length)return;
   const placeholder=active.find(row=>!Number(row.provider_user_id));
   if(placeholder&&providerUserId){
-   await connection.execute('UPDATE client_service_enrollments SET provider_user_id=?,updated_by_user_id=? WHERE id=? AND client_id=? AND agency_id=? AND is_active=1 AND provider_user_id=0',[providerUserId,userId,placeholder.id,clientId,agencyId]);
+   const schoolField = organizationId ? ',organization_id=?' : '';
+   await connection.execute(
+    `UPDATE client_service_enrollments SET provider_user_id=?${schoolField},updated_by_user_id=?
+     WHERE id=? AND client_id=? AND agency_id=? AND is_active=1 AND provider_user_id=0`,
+    [providerUserId,...(organizationId ? [organizationId] : []),userId,placeholder.id,clientId,agencyId]
+   );
    return;
   }
-  await connection.execute("INSERT IGNORE INTO client_service_enrollments (client_id,agency_id,service_kind,provider_user_id,label,created_by_user_id,updated_by_user_id) VALUES (?,?,'counseling',?,'Counseling',?,?)",[clientId,agencyId,providerUserId||0,userId,userId]);
+  await connection.execute(
+   `INSERT IGNORE INTO client_service_enrollments
+    (client_id,agency_id,service_kind,provider_user_id,label,created_by_user_id,updated_by_user_id${organizationId ? ',organization_id' : ''})
+    VALUES (?,?,'counseling',?,'Counseling',?,?${organizationId ? ',?' : ''})`,
+   [clientId,agencyId,providerUserId||0,userId,userId,...(organizationId ? [organizationId] : [])]
+  );
  });
  const [[existing]]=await db.execute('SELECT id FROM client_service_enrollments WHERE client_id=? AND agency_id=? AND service_kind=? AND provider_user_id=? LIMIT 1',[clientId,agencyId,serviceKind,providerUserId||0]);
  if(existing)return;

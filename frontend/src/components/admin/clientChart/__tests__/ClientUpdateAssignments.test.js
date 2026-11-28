@@ -1,8 +1,8 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { defineComponent, onMounted } from 'vue';
 import { mount, flushPromises } from '@vue/test-utils';
-const m=vi.hoisted(()=>({get:vi.fn(),post:vi.fn(),leave:vi.fn(),user:{role:'support',billingAgencyIds:[2,3]}}));
-vi.mock('../../../../services/api',()=>({default:{get:m.get,post:m.post}}));
+const m=vi.hoisted(()=>({get:vi.fn(),post:vi.fn(),delete:vi.fn(),leave:vi.fn(),user:{role:'support',billingAgencyIds:[2,3]}}));
+vi.mock('../../../../services/api',()=>({default:{get:m.get,post:m.post,delete:m.delete}}));
 vi.mock('../../../../store/auth',()=>({useAuthStore:()=>({user:m.user})}));
 import Assignments from '../ClientUpdateAssignments.vue';
 const Services=defineComponent({name:'ClientServiceEnrollments',props:['clientId','agencyId','organizations'],emits:['loaded','updated','busy'],setup(props,{emit,expose}){expose({prepareLeave:m.leave});onMounted(()=>emit('loaded',{services:[{service_kind:'counseling',provider_user_id:props.clientId===7?20:30,is_active:1}]}));},template:'<div data-services>Services and providers</div>'});
@@ -73,5 +73,32 @@ it('uses the primary school billing site for a school import even with stale off
  expect(location.element.value).toBe('61');
  expect(location.text()).toContain('Grant (POS 03)');
  expect(m.get.mock.calls.some(([url])=>url.includes('/office-assignments'))).toBe(false);
+ w.unmount();
+});
+
+it('replaces and removes a wrong primary school without retaining it in Assignments',async()=>{
+ clients[7]={...clients[7],client_type:'school',organization_id:8};
+ const original=m.get.getMockImplementation();
+ let removed=false;
+ m.get.mockImplementation((url,...args)=>url.endsWith('/affiliations')?{data:[
+  ...(!removed?[{organization_id:8,organization_name:'Grant',organization_type:'school',is_primary:1}]:[]),
+  {organization_id:10,organization_name:'Replacement school',organization_type:'school',is_primary:removed?1:0}
+ ]}:original(url,...args));
+ m.delete.mockImplementation(async()=>{
+  removed=true;clients[7].organization_id=10;
+  return {data:{ok:true,organizationId:10}};
+ });
+ const w=await render();
+ await w.get('[aria-label="Remove Grant"]').trigger('click');
+ expect(m.delete).not.toHaveBeenCalled();
+ await w.get('.school-removal select').setValue('10');
+ await w.get('.school-removal').trigger('submit');
+ await flushPromises();
+ expect(m.delete).toHaveBeenCalledWith('/clients/7/affiliations/8',expect.objectContaining({
+  params:{importAgencyId:2,replacementSchoolId:10},headers:{'X-Agency-Id':'2'}
+ }));
+ expect(w.find('[aria-label="Remove Grant"]').exists()).toBe(false);
+ expect(w.get('[aria-label="Schools"]').text()).toContain('Replacement school · Primary');
+ expect(w.emitted('school-removed')).toEqual([[{ok:true,organizationId:10,wasPrimary:true}]]);
  w.unmount();
 });

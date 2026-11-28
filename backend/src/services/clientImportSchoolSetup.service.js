@@ -3,23 +3,22 @@ import { ensureSchoolServiceLocation } from './officeBillingSites.service.js';
 import { ensureClientService } from './clientServiceEnrollment.service.js';
 import { hasTerminalClientStatus } from './clientTerminationRoster.service.js';
 
-export async function resolveClientImportSchool({ clientId, agencyId, requestedSchoolId }, db = pool) {
-  const schoolId = Number(requestedSchoolId || 0);
-  if (requestedSchoolId && (!Number.isSafeInteger(schoolId) || schoolId < 1)) return null;
+async function resolveClientImportSchool({ clientId, agencyId }, db) {
   const [[school]] = await db.execute(
     `SELECT school.id FROM clients c
      JOIN agencies school ON school.organization_type='school' AND school.is_active=1 AND COALESCE(school.is_archived,0)=0
      LEFT JOIN client_organization_assignments coa
        ON coa.client_id=c.id AND coa.organization_id=school.id AND coa.is_active=1
      WHERE c.id=? AND c.agency_id=?
-       AND ((? > 0 AND school.id=?) OR (?=0 AND
-         (school.id=c.organization_id OR coa.is_primary=1 OR (c.client_type='school' AND coa.organization_id IS NOT NULL))))
+       AND (school.id=c.organization_id OR coa.is_primary=1)
+       AND NOT EXISTS (SELECT 1 FROM client_organization_assignments removed
+        WHERE removed.client_id=c.id AND removed.organization_id=school.id AND removed.is_active=0)
        AND (EXISTS (SELECT 1 FROM organization_affiliations oa
          WHERE oa.agency_id=c.agency_id AND oa.organization_id=school.id AND oa.is_active=1)
          OR EXISTS (SELECT 1 FROM agency_schools legacy
          WHERE legacy.agency_id=c.agency_id AND legacy.school_organization_id=school.id AND COALESCE(legacy.is_active,1)=1))
      ORDER BY (school.id=c.organization_id) DESC, coa.is_primary DESC, school.id
-     LIMIT 1`, [clientId, agencyId, schoolId, schoolId, schoolId]
+     LIMIT 1`, [clientId, agencyId]
   );
   return school || null;
 }
@@ -57,13 +56,14 @@ export async function syncClientImportSchoolSetup(scope, actorId, { preserveDefa
         `SELECT u.id FROM users u JOIN user_agencies m ON m.user_id=u.id AND m.agency_id=? AND m.is_active=1
          WHERE u.id=? AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0 AND u.terminated_at IS NULL
            AND NOT EXISTS (SELECT 1 FROM client_provider_assignments a
-             WHERE a.client_id=? AND a.organization_id=? AND a.provider_user_id=u.id)
+             WHERE a.client_id=? AND a.provider_user_id=u.id
+               AND (a.organization_id=? OR a.is_active=1))
          LIMIT 1`, [agencyId, legacyProvider, clientId, school.id]
       );
       providerId = Number(legacy?.id || 0);
     }
     if (providerId) {
-      await ensureClientService({ clientId, agencyId, providerUserId: providerId, serviceKind: 'counseling', userId: actorId }, db);
+      await ensureClientService({ clientId, agencyId, providerUserId: providerId, serviceKind: 'counseling', organizationId: school.id, userId: actorId }, db);
     }
     const location = await ensureSchoolServiceLocation({ agencyId, schoolOrganizationId: school.id, actorUserId: actorId, db });
     if (!location?.id) throw Object.assign(new Error('The school billing location could not be saved.'), { status: 409 });

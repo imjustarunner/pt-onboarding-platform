@@ -65,17 +65,17 @@ export async function ensureClientProviderAssignmentRow(
 }
 
 /**
- * Mirror legacy clients.provider_id onto every active org affiliation when CPA is missing.
+ * Mirror legacy clients.provider_id onto the chart’s primary affiliation only.
  */
 export async function syncLegacyProviderToAffiliatedOrgs(
   connection,
-  { clientId, userId = null, serviceDay = null, isPrimary = false }
+  { clientId, userId = null, serviceDay = null, isPrimary = false, schoolId = null }
 ) {
   const cid = parseInt(clientId, 10);
   if (!cid) return { repaired: 0 };
 
   const [clientRows] = await connection.execute(
-    `SELECT c.provider_id,c.service_day,c.status,s.status_key AS client_status_key,s.label AS client_status_label
+    `SELECT c.provider_id,c.service_day,c.organization_id,c.status,s.status_key AS client_status_key,s.label AS client_status_label
      FROM clients c LEFT JOIN client_statuses s ON s.id=c.client_status_id WHERE c.id=? LIMIT 1`,
     [cid]
   );
@@ -90,37 +90,25 @@ export async function syncLegacyProviderToAffiliatedOrgs(
         ? String(clientRows[0].service_day).trim()
         : null;
 
-  const [coaRows] = await connection.execute(
-    `SELECT organization_id
-     FROM client_organization_assignments
-     WHERE client_id = ? AND is_active = TRUE`,
-    [cid]
+  const organizationId = Number(clientRows[0]?.organization_id);
+  if (!organizationId || (schoolId && Number(schoolId) !== organizationId)) return { repaired: 0 };
+
+  const [[affiliation]] = await connection.execute(
+    'SELECT organization_id FROM client_organization_assignments WHERE client_id=? AND organization_id=? AND is_active=1',
+    [cid, organizationId]
   );
-  const orgIds = [...new Set((coaRows || []).map((r) => parseInt(r.organization_id, 10)).filter(Boolean))];
-  let repaired = 0;
+  if (!affiliation) return { repaired: 0 };
 
-  for (const organizationId of orgIds) {
-    const [existing] = await connection.execute(
-      `SELECT id
-       FROM client_provider_assignments
-       WHERE client_id = ? AND organization_id = ? AND provider_user_id = ? AND is_active = TRUE
-       LIMIT 1`,
-      [cid, organizationId, providerUserId]
-    );
-    if (existing?.[0]?.id) continue;
+  const [existing] = await connection.execute(
+    'SELECT id FROM client_provider_assignments WHERE client_id=? AND provider_user_id=? AND is_active=1',
+    [cid, providerUserId]
+  );
+  if (existing.length) return { repaired: 0 };
 
-    const result = await ensureClientProviderAssignmentRow(connection, {
-      clientId: cid,
-      organizationId,
-      providerUserId,
-      serviceDay: effectiveDay,
-      userId,
-      isPrimary
-    });
-    if (result.ok) repaired += 1;
-  }
-
-  return { repaired };
+  const result = await ensureClientProviderAssignmentRow(connection, {
+    clientId: cid, organizationId, providerUserId, serviceDay: effectiveDay, userId, isPrimary
+  });
+  return { repaired: result.ok ? 1 : 0, organizationId: result.ok ? organizationId : null };
 }
 
 /**
@@ -209,7 +197,7 @@ export async function afterLegacyProviderFieldsChanged(
   if (cleared) {
     await resolveClientProviderHolds(connection,{clientId:cid,userId});
     await deactivateClientProviderAssignments(connection, { clientId: cid, userId });
-    await queueSchoolClientStatusEmails(connection, { clientId: cid, assignmentChanged: true,actorUserId:userId });
+    await queueSchoolClientStatusEmails(connection, { clientId: cid, actorUserId: userId });
     await cancelPendingFamilyIntroductions(connection, cid);
     return;
   }
@@ -219,13 +207,13 @@ export async function afterLegacyProviderFieldsChanged(
 
   await resolveClientProviderHolds(connection,{clientId:cid,userId});
   await resolveAssignedEnrollmentWaitlist(connection, cid);
-  await syncLegacyProviderToAffiliatedOrgs(connection, {
+  const sync = await syncLegacyProviderToAffiliatedOrgs(connection, {
     clientId: cid,
     userId,
     serviceDay,
     isPrimary
   });
-  await queueSchoolClientStatusEmails(connection, { clientId: cid, assignmentChanged: true,actorUserId:userId });
+  await queueSchoolClientStatusEmails(connection, { clientId: cid, assignmentSchoolId: sync.organizationId, actorUserId: userId });
   await queueFamilyIntroduction(connection, { clientId: cid });
   await queueInitialSchoolContact(connection, cid);
 }
@@ -233,14 +221,14 @@ export async function afterLegacyProviderFieldsChanged(
 /**
  * Central hook after scoped CPA upsert/delete — keep legacy columns aligned.
  */
-export async function afterScopedProviderAssignmentChanged(connection, { clientId, userId = null, forceLegacy = false }) {
+export async function afterScopedProviderAssignmentChanged(connection, { clientId, userId = null, forceLegacy = false, assignmentSchoolId = null }) {
   const cid = parseInt(clientId, 10);
   if (!cid) return;
   await resolveClientProviderHolds(connection,{clientId:cid,userId});
   await resolveAssignedEnrollmentWaitlist(connection, cid);
   if (forceLegacy) {
     await syncPrimaryLegacyFromClientAssignments(connection, { clientId: cid, userId });
-    await queueSchoolClientStatusEmails(connection, { clientId: cid, assignmentChanged: true,actorUserId:userId });
+    await queueSchoolClientStatusEmails(connection, { clientId: cid, assignmentSchoolId, actorUserId: userId });
     await queueFamilyIntroduction(connection, { clientId: cid });
     await queueInitialSchoolContact(connection, cid);
     return;
@@ -251,7 +239,7 @@ export async function afterScopedProviderAssignmentChanged(connection, { clientI
   if (!hasLegacy) {
     await syncPrimaryLegacyFromClientAssignments(connection, { clientId: cid, userId });
   }
-  await queueSchoolClientStatusEmails(connection, { clientId: cid, assignmentChanged: true,actorUserId:userId });
+  await queueSchoolClientStatusEmails(connection, { clientId: cid, assignmentSchoolId, actorUserId: userId });
   await queueFamilyIntroduction(connection, { clientId: cid });
   await queueInitialSchoolContact(connection, cid);
 }
@@ -303,7 +291,8 @@ export async function repairMissingProviderAssignmentsForSchool(schoolOrganizati
       const result = await syncLegacyProviderToAffiliatedOrgs(connection, {
         clientId: client.id,
         userId,
-        serviceDay: client.legacy_service_day || null
+        serviceDay: client.legacy_service_day || null,
+        schoolId
       });
       if (result.repaired > 0) {
         repaired += result.repaired || 0;

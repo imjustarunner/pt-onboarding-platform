@@ -9,8 +9,8 @@
      <div class="cr-context">
       <label>Agency<select :value="agencyId" :disabled="busy || !!created || drafts.state.loading" @change="changeAgency($event.target.value)"><option value="">Choose agency…</option><option v-for="agency in agencies" :key="agency.id" :value="agency.id">{{ agency.name }}</option></select></label>
       <label>Service<select v-model="form.kind" :disabled="busy || !!created || drafts.state.loading"><option value="clinical">Office / clinical</option><option v-if="organizations.some(org=>org.organization_type==='school') || (created && form.kind==='school')" value="school">School</option><option value="learning">Learning</option><option value="basic_nonclinical">Coaching / consulting</option></select></label>
-      <label>{{ form.kind === 'school' ? 'School' : 'Program (optional)' }}<select v-model="form.organizationId" :disabled="busy || !!created || drafts.state.loading"><option :value="form.kind==='school'?'':Number(agencyId)">{{ form.kind==='school'?'Choose school…':'No program — agency office client' }}</option><option v-for="org in filteredOrganizations" :key="org.id" :value="org.id">{{ org.name }}</option></select></label>
-      <label v-if="!created">Provider<select v-model="form.providerId" @change="form.providerSelectionConfirmed=true" :disabled="busy || !!created || drafts.state.loading || !isBackoffice"><option :value="null">Save unassigned</option><option v-for="provider in eligibleProviders" :key="provider.id" :value="provider.id">{{ provider.first_name }} {{ provider.last_name }}</option></select></label>
+      <label>{{ form.kind === 'school' ? 'School' : 'Program (optional)' }}<select v-model="form.organizationId" @change="confirmOrganization" :disabled="busy || !!created || drafts.state.loading"><option :value="form.kind==='school'?'':Number(agencyId)">{{ form.kind==='school'?'Choose school…':'No program — agency office client' }}</option><option v-for="org in filteredOrganizations" :key="org.id" :value="org.id">{{ org.name }}</option></select></label>
+      <label v-if="!created">Provider<select v-model="form.providerId" @change="form.providerSelectionConfirmed=true" :disabled="busy || !!created || drafts.state.loading || !isBackoffice || (form.kind==='school' && !form.schoolSelectionConfirmed)"><option :value="null">Save unassigned</option><option v-for="provider in eligibleProviders" :key="provider.id" :value="provider.id">{{ provider.first_name }} {{ provider.last_name }}</option></select></label>
       <template v-if="form.kind === 'school'"><label>School year (optional)<input v-model="form.schoolYear" :disabled="!!created" placeholder="YYYY-YYYY" /></label><label>Grade (optional)<select v-model="form.grade" :disabled="!!created"><option value="">Not recorded</option><option v-for="grade in grades" :key="grade.value" :value="grade.value">{{ grade.label }}</option></select></label></template>
      </div>
      <p v-if="!drafts.state.loading && agencyId && form.kind==='school' && !filteredOrganizations.length" class="cr-error">This agency has no active affiliation for this service. Select another service or configure the office affiliation.</p>
@@ -64,10 +64,10 @@
       </section>
       <p v-if="!startImport && !initializing">The saved pastes have not been imported automatically. Continue this same chart below.</p><button v-if="!startImport && !initializing" type="button" class="cr-button cr-primary" :disabled="busy" @click="resumeImport">Resume saved import</button>
       <p v-if="initializing" role="status">Preparing the shared records workflow…</p>
-      <ClientEhrBringUpToDatePanel v-if="!initializing" :key="created.id" ref="panel" embedded open creation-flow require-verified-payers :auto-import="startImport" :merge-existing="created.merged === true" :prefer-incoming-pastes="created.merged === true && !chartDraftsSaved" :pending-provider-assignment="!!assignmentError" :client-id="created.id" :agency-id="agencyId" :client-label="form.fullName" :initial-texts="recordPastes" :initial-contact-owner="form.contactOwner || suggestedOwnership.owner" :initial-contact-owner-confirmed="form.contactOwnerConfirmed" :initial-patient-info="form.parsedDemographics" :initial-client-classification="form.clientClassification || suggestedOwnership.clientClassification" :initial-intake-service-code="form.intakeServiceCode" :initial-coverage-drafts="form.coverageDrafts" :initial-coverage-mode="form.coverageMode" :initial-self-pay="form.selfPay" :initial-assignment="{school:form.kind==='school',providerId:form.providerId,serviceKind:form.kind==='learning'?'tutoring':form.kind==='basic_nonclinical'?'coaching':'counseling',organizationId:Number(form.organizationId)===Number(agencyId)?0:Number(form.organizationId)}" @sections-imported="applyInitialAssignment" @busy="panelBusy=$event" @drafts-saved="recordDraftHandoff" @imported="finish" />
-      <button type="button" class="cr-button" :disabled="busy" @click="leaveImportForNextClient">Save this import and add a different client</button>
+      <ClientEhrBringUpToDatePanel v-if="!initializing" :key="created.id" ref="panel" embedded open creation-flow require-verified-payers :auto-import="startImport" :merge-existing="created.merged === true" :prefer-incoming-pastes="created.merged === true && !chartDraftsSaved" :pending-provider-assignment="!!assignmentError" :client-id="created.id" :agency-id="agencyId" :client-label="form.fullName" :initial-texts="recordPastes" :initial-contact-owner="form.contactOwner || suggestedOwnership.owner" :initial-contact-owner-confirmed="form.contactOwnerConfirmed" :initial-patient-info="form.parsedDemographics" :initial-client-classification="form.clientClassification || suggestedOwnership.clientClassification" :initial-intake-service-code="form.intakeServiceCode" :initial-coverage-drafts="form.coverageDrafts" :initial-coverage-mode="form.coverageMode" :initial-self-pay="form.selfPay" :initial-assignment="{school:form.kind==='school',providerId:created.merged || form.kind==='school' ? null : form.providerId,serviceKind:form.kind==='learning'?'tutoring':form.kind==='basic_nonclinical'?'coaching':'counseling',organizationId:Number(form.organizationId)===Number(agencyId)?0:Number(form.organizationId)}" @school-removed="onSchoolRemoved" @sections-imported="applyInitialAssignment" @busy="panelBusy=$event" @drafts-saved="recordDraftHandoff" @imported="finish" />
+      <button type="button" class="cr-button" :disabled="busy" @click="leaveImportForNextClient">Save this chart’s import and choose a different client</button>
      </template>
-     <section v-else class="cr-complete"><h3>Client saved{{ form.providerId ? ' and assigned' : '' }}</h3><p>{{ form.fullName }} · {{ providerName || 'Unassigned' }} · Chart #{{ created.id }}</p><button type="button" class="cr-button cr-primary" :disabled="busy" @click="nextClient">Add next client{{ providerName ? ` for ${providerName}` : '' }}</button><button type="button" class="cr-button" @click="leave">Close</button></section>
+     <section v-else class="cr-complete"><h3>Client saved{{ form.providerId ? ' and assigned' : '' }}</h3><p>{{ form.fullName }} · {{ providerName || 'Unassigned' }} · Chart #{{ created.id }}</p><button type="button" class="cr-button cr-primary" :disabled="busy" @click="nextClient">Add next client{{ providerName && form.kind!=='school' ? ` for ${providerName}` : '' }}</button><button type="button" class="cr-button" @click="leave">Close</button></section>
     </div>
    </section>
   </div>
@@ -104,7 +104,7 @@ const initializing=ref(false),startImport=ref(false);
 const assignmentError=ref('');
 const chartDraftsSaved=ref(false);
 const candidates=ref([]),duplicatesReviewed=ref(false);let candidateFingerprint='';
-const defaults=()=>({coverageMode:'insurance',coveragePosition:'primary',coverageDrafts:{primary:{text:'',imported:false},secondary:{text:'',imported:false}},selfPay:{code:'',amount:'',basis:'visit',reason:'',imported:false},intakeServiceCode:'',records:Object.fromEntries(CLIENT_RECORD_SECTIONS.map(section=>[section.key,''])),parsedDemographics:null,contactOwner:'',contactOwnerConfirmed:false,clientClassification:'',kind:'clinical',organizationId:'',providerId:isBackoffice.value?null:auth.user?.id,providerSelectionConfirmed:false,schoolYear:'',grade:'',manual:false,demographics:'',fullName:'',dateOfBirth:''});
+const defaults=()=>({coverageMode:'insurance',coveragePosition:'primary',coverageDrafts:{primary:{text:'',imported:false},secondary:{text:'',imported:false}},selfPay:{code:'',amount:'',basis:'visit',reason:'',imported:false},intakeServiceCode:'',records:Object.fromEntries(CLIENT_RECORD_SECTIONS.map(section=>[section.key,''])),parsedDemographics:null,contactOwner:'',contactOwnerConfirmed:false,clientClassification:'',kind:'clinical',organizationId:'',schoolSelectionConfirmed:false,providerId:isBackoffice.value?null:auth.user?.id,providerSelectionConfirmed:false,schoolYear:'',grade:'',manual:false,demographics:'',fullName:'',dateOfBirth:''});
 const form=reactive(defaults()),drafts=useClientCreationDrafts(),grades=STANDARD_GRADE_SELECT_OPTIONS.filter(g=>g.value);
 let generation=0,hydrating=false,parseTimer,parseVersion=0;
 const busy=computed(()=>working.value||panelBusy.value||drafts.state.loading);
@@ -139,7 +139,7 @@ watch(() => [form.demographics, form.records.contacts], () => {
   form.contactOwnerConfirmed = false;
   form.clientClassification = '';
 }, { flush: 'sync' });
-const canCreate=computed(()=>!!agencyId.value&&!!form.organizationId&&!!form.fullName.trim()&&!!initials.value&&!drafts.state.error&&!busy.value);
+const canCreate=computed(()=>!!agencyId.value&&!!form.organizationId&&(form.kind!=='school'||form.schoolSelectionConfirmed)&&!!form.fullName.trim()&&!!initials.value&&!drafts.state.error&&!busy.value);
 function snapshot(){return{form:{...form,...(created.value&&chartDraftsSaved.value?{records:defaults().records,demographics:''}:{})},created:created.value?{id:created.value.id,agency_id:Number(agencyId.value),merged:created.value.merged===true,incomingDraftsSaved:chartDraftsSaved.value}:null,completed:completed.value};}
 function recordDraftHandoff(){
  if(chartDraftsSaved.value)return;
@@ -147,7 +147,21 @@ function recordDraftHandoff(){
 }
 function save(){if(!hydrating&&agencyId.value)drafts.schedule(snapshot());}
 watch(form,save,{deep:true});watch([created,completed],save);
-watch(()=>form.kind,()=>{if(hydrating)return;if(!eligibleProviders.value.some(row=>Number(row.id)===Number(form.providerId)))form.providerId=null;form.organizationId=form.kind==='school'?(filteredOrganizations.value.length===1?filteredOrganizations.value[0].id:''):Number(agencyId.value);if(form.kind!=='school'){form.schoolYear='';form.grade='';}},{flush:'sync'});
+function confirmOrganization() {
+  if (form.kind !== 'school') return;
+  form.schoolSelectionConfirmed = !!form.organizationId;
+  form.providerId = null;
+  form.providerSelectionConfirmed = false;
+}
+watch(()=>form.kind,(kind,previous)=>{
+  if(hydrating)return;
+  if(kind==='school'||previous==='school'||!eligibleProviders.value.some(row=>Number(row.id)===Number(form.providerId))){
+    form.providerId=null;form.providerSelectionConfirmed=false;
+  }
+  form.schoolSelectionConfirmed=false;
+  form.organizationId=kind==='school'?'':Number(agencyId.value);
+  if(kind!=='school'){form.schoolYear='';form.grade='';}
+},{flush:'sync'});
 watch(()=>form.demographics,()=>{if(hydrating||form.manual||created.value)return;form.fullName='';form.dateOfBirth='';form.parsedDemographics=null;candidates.value=[];candidateFingerprint='';duplicatesReviewed.value=false;clearTimeout(parseTimer);parseVersion++;parseTimer=setTimeout(readDemographics,500);},{flush:'sync'});
 async function readDemographics(){
  if(!form.demographics.trim()||form.manual)return;const version=++parseVersion,text=form.demographics,context=generation;parsing.value=true;error.value='';
@@ -188,10 +202,19 @@ async function changeAgency(value){
   }
   if(form.providerId&&!eligibleProviders.value.some(row=>Number(row.id)===Number(form.providerId))){form.providerId=null;if(created.value)assignmentError.value='The saved provider is no longer assignable in this agency. Choose an active provider or continue unassigned.';}
   if(!form.organizationId&&form.kind!=='school')form.organizationId=Number(agencyId.value);
-  if(!form.organizationId&&filteredOrganizations.value.length===1)form.organizationId=filteredOrganizations.value[0].id;
+  if(!created.value && form.kind==='school' && (!form.schoolSelectionConfirmed
+    || !filteredOrganizations.value.some(org=>Number(org.id)===Number(form.organizationId)))) {
+    form.organizationId='';confirmOrganization();
+  }
   if(created.value){
    const[record,enrollments]=await Promise.all([api.get(`/clients/${created.value.id}`,{skipGlobalLoading:true,headers:{'X-Agency-Id':String(agencyId.value)}}),api.get(`/clients/${created.value.id}/service-enrollments`,{params:{agencyId:Number(agencyId.value)},skipGlobalLoading:true})]);if(version!==generation)return;
-   const actualProvider=primaryAssignmentProvider(record.data?.client||record.data,enrollments.data?.services||[], form.kind === 'learning' ? 'tutoring' : null);
+   const chart=record.data?.client||record.data;
+   if(form.kind==='school' && (!form.schoolSelectionConfirmed || !form.providerSelectionConfirmed
+     || Number(chart.organization_id)!==Number(form.organizationId) || created.value.merged)){
+    form.providerId=null;form.providerSelectionConfirmed=false;
+   }
+   form.organizationId=chart.organization_id||form.organizationId;
+   const actualProvider=primaryAssignmentProvider(chart,enrollments.data?.services||[], form.kind === 'learning' ? 'tutoring' : null);
    if(form.providerId && form.providerId!==actualProvider && !completed.value){
     assignmentError.value='The saved provider selection has not been applied to this chart. Retry the assignment or continue unassigned.';
    } else if(actualProvider){
@@ -210,24 +233,25 @@ async function create(candidate = null){
   if(!candidate&&candidates.value.some(row=>row.kind==='possible_duplicate')&&!duplicatesReviewed.value)throw Error('Review the possible duplicate clients above before creating another chart.');
   if (!form.manual && suggestedOwnership.value.hasContact && !form.contactOwnerConfirmed) throw Error('Confirm who owns the phone and email in Patient info before saving the chart.');
   if(candidate && !candidates.value.some(row=>row.id===candidate.id && row.canMerge))throw Error('Review the refreshed matches before merging this chart.');
-  if(candidate && !window.confirm(`Import your filled sections into ${candidate.full_name} (chart #${candidate.id})? The pasted information will update this existing chart.`))return;
+  if(candidate && !window.confirm(`Import your filled sections into ${candidate.full_name} (chart #${candidate.id})? The pasted information will update this existing chart. Review any school or provider changes separately under Assignments.`))return;
   save();if(!(await drafts.flush()))return;
-  const payload={recordsImport:true,recordsContactClassification:form.clientClassification||suggestedOwnership.value.clientClassification,agency_id:Number(agencyId.value),organization_id:Number(form.organizationId),client_type:form.kind,full_name:form.fullName,date_of_birth:form.dateOfBirth||null,gender:form.parsedDemographics?.administrativeSex||null,provider_id:isBackoffice.value?null:Number(auth.user.id),submission_date:todayCalendarDate(),referral_date:todayCalendarDate(),school_year:form.kind==='school'?form.schoolYear||null:null,grade:form.kind==='school'?form.grade||null:null,source:'ADMIN_CREATED'};
+  const payload={recordsImport:true,recordsContactClassification:form.clientClassification||suggestedOwnership.value.clientClassification,agency_id:Number(agencyId.value),organization_id:Number(form.organizationId),schoolSelectionConfirmed:form.kind==='school'&&form.schoolSelectionConfirmed,client_type:form.kind,full_name:form.fullName,date_of_birth:form.dateOfBirth||null,gender:form.parsedDemographics?.administrativeSex||null,provider_id:isBackoffice.value||form.kind==='school'?null:Number(auth.user.id),submission_date:todayCalendarDate(),referral_date:todayCalendarDate(),school_year:form.kind==='school'?form.schoolYear||null:null,grade:form.kind==='school'?form.grade||null:null,source:'ADMIN_CREATED'};
   const request={skipGlobalLoading:true,headers:{'X-Agency-Id':String(agencyId.value)}};
   const {data}=candidate
    ? await api.post(`/clients/${candidate.id}/chart-import/merge`, {
        confirmed:true,fullName:form.fullName,dateOfBirth:form.dateOfBirth,
        expectedName:candidate.full_name,expectedDateOfBirth:candidate.date_of_birth,
-       schoolOrganizationId:form.kind==='school'?form.organizationId||null:null,
        manualIdentity:form.manual
      },request)
    : await api.post('/clients',payload,request);
   if(!data?.id)throw Error('The client could not be saved.');
   if(candidate && data.client_type){
-   const selectedProvider=form.providerSelectionConfirmed ? form.providerId : null;
+   hydrating=true;
    form.kind=data.client_type;
    form.providerId=null;
-   if(eligibleProviders.value.some(row=>Number(row.id)===Number(selectedProvider)))form.providerId=selectedProvider;
+   form.providerSelectionConfirmed=false;
+   form.schoolSelectionConfirmed=false;
+   hydrating=false;
   }
   created.value={...data,merged:!!candidate};form.organizationId=data.organization_id||form.organizationId;save();await drafts.flush();emit('created',data);
   startImport.value=true;
@@ -235,7 +259,7 @@ async function create(candidate = null){
 }
 async function assignSelectedProvider(){return finishClientCreation({api,clientId:created.value.id,agencyId:Number(agencyId.value),organizationId:Number(form.organizationId),serviceKind:form.kind==='learning'?'tutoring':!isBackoffice.value?null:form.kind==='basic_nonclinical'?'coaching':'counseling',outcome:'assign',providerId:form.providerId,isSchool:form.kind==='school',recordsImport:true});}
 let initialAssignmentAttempted=false;
-async function applyInitialAssignment(){if(initialAssignmentAttempted||!form.providerId)return;initialAssignmentAttempted=true;await retryProvider();}
+async function applyInitialAssignment(){if(initialAssignmentAttempted||!form.providerId||created.value?.merged||(form.kind==='school'&&(!form.providerSelectionConfirmed||!form.schoolSelectionConfirmed)))return;initialAssignmentAttempted=true;await retryProvider();}
 const coverageVerificationPending=ref(false);
 watch(assignmentError, error => { if (!error) coverageVerificationPending.value=false; });
 async function retryProvider() {
@@ -254,6 +278,13 @@ async function retryProvider() {
     working.value=false;
   }
 }
+function onSchoolRemoved({organizationId,wasPrimary}){
+ if(!wasPrimary)return;
+ form.organizationId=organizationId||Number(agencyId.value);
+ form.providerId=null;form.providerSelectionConfirmed=false;form.schoolSelectionConfirmed=false;
+ assignmentError.value='';
+ save();
+}
 async function resumeImport(){startImport.value=true;await panel.value?.importAll?.();}
 async function finish(result){
  if(result?.client)created.value={...created.value,...result.client};
@@ -266,9 +297,13 @@ async function finish(result){
  }catch{/* The imported chart and completion were saved; its profile can refresh independently. */}
 }
 
-async function nextClient(){candidates.value=[];candidateFingerprint='';duplicatesReviewed.value=false;initialAssignmentAttempted=false;chartDraftsSaved.value=false;const context={kind:form.kind,organizationId:form.organizationId,providerId:form.providerId};hydrating=true;Object.assign(form,defaults(),context);created.value=null;completed.value=false;startImport.value=false;assignmentError.value='';hydrating=false;save();await drafts.flush();await nextTick();dialog.value?.querySelector('textarea')?.focus();}
+async function nextClient(){candidates.value=[];candidateFingerprint='';duplicatesReviewed.value=false;initialAssignmentAttempted=false;chartDraftsSaved.value=false;const context=form.kind==='school'?{kind:'school',providerId:null}:{kind:form.kind,organizationId:form.organizationId,providerId:form.providerId};hydrating=true;Object.assign(form,defaults(),context);created.value=null;completed.value=false;startImport.value=false;assignmentError.value='';hydrating=false;save();await drafts.flush();await nextTick();dialog.value?.querySelector('textarea')?.focus();}
 async function discardDraft(){if(created.value||busy.value||!window.confirm('Discard this uncreated client draft and its pasted records?'))return;hydrating=true;clearTimeout(parseTimer);parseVersion++;Object.assign(form,defaults(),{organizationId:Number(agencyId.value)});candidates.value=[];candidateFingerprint='';duplicatesReviewed.value=false;error.value='';hydrating=false;save();await drafts.flush();}
-async function leaveImportForNextClient(){if(await panel.value?.prepareLeave()===false)return;await nextClient();chartDraftsSaved.value=false;}
+async function leaveImportForNextClient(){
+ if(!window.confirm('Leave this chart and start a fresh import? Records already saved stay on this chart. Review its chart history if information was imported here by mistake.'))return;
+ if(await panel.value?.prepareLeave()===false)return;
+ await nextClient();
+}
 async function prepareLeave(){if(busy.value){error.value='Wait for the current request to finish, then save and close.';return false;}clearTimeout(parseTimer);if(await panel.value?.prepareLeave()===false)return false;save();return drafts.flush();}
 async function leave(){if(await prepareLeave())emit('close');}
 useModalFocus(dialog,leave);

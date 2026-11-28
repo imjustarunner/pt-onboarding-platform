@@ -37,6 +37,7 @@ import { adjustProviderSlots, clientStatusConsumesProviderSlot } from '../servic
 import { enqueueD11ComplianceEnsure } from '../services/d11Compliance.service.js';
 import { notifyClientBecameCurrent, notifyClientChecklistUpdated, notifyPaperworkReceived, notifyClientTerminated } from '../services/clientNotifications.service.js';
 import { createClientOnboardingTaskForProvider } from '../services/clientOnboardingTask.service.js';
+import { logAuditEvent } from '../services/auditEvent.service.js';
 import { logClientAccess } from '../services/clientAccessLog.service.js';
 import {
   providerHasAssignedClientAccess as providerHasAssignedClientAccessSvc,
@@ -1464,7 +1465,7 @@ export const createClient = async (req, res, next) => {
     const peekTypeForResolve = String(peekOrgForResolve?.organization_type || '').toLowerCase();
     const intakeOrgTypes = ['school', 'program', 'learning', 'clinical', 'life_coach', 'consultant'];
     const requestedOfficeRoot=isOfficeRootOrganization({agencyId:parsedAgencyId,organizationId:parsedOrganizationId,organizationType:peekTypeForResolve,clientType:client_type});
-    if (!requestedOfficeRoot && (!peekOrgForResolve || peekTypeForResolve === 'agency' || !intakeOrgTypes.includes(peekTypeForResolve))) {
+    if (req.body?.recordsImport !== true && !requestedOfficeRoot && (!peekOrgForResolve || peekTypeForResolve === 'agency' || !intakeOrgTypes.includes(peekTypeForResolve))) {
       const { resolveOrganizationIdForPublicBooking } = await import('../services/publicIntakeClient.service.js');
       const sourceNorm = String(source || '').trim().toUpperCase();
       const serviceType =
@@ -1490,6 +1491,11 @@ export const createClient = async (req, res, next) => {
 
     const orgType = organization.organization_type || 'agency';
     const normalizedOrgType = String(orgType).toLowerCase();
+    if (req.body?.recordsImport === true && (String(client_type).toLowerCase() === 'school' || normalizedOrgType === 'school')
+        && (normalizedOrgType !== 'school' || String(client_type).toLowerCase() !== 'school'
+          || req.body.schoolSelectionConfirmed !== true || Number(organization.is_active) !== 1 || Number(organization.is_archived) === 1)) {
+      return res.status(400).json({ error: { message: 'Choose and confirm the school for this client.' } });
+    }
     const allowedOrgTypes = ['school', 'program', 'learning', 'clinical', 'life_coach', 'consultant'];
     const officeRoot=isOfficeRootOrganization({agencyId:parsedAgencyId,organizationId:parsedOrganizationId,organizationType:normalizedOrgType,clientType:client_type});
     if (!officeRoot && !allowedOrgTypes.includes(normalizedOrgType)) {
@@ -1792,7 +1798,11 @@ export const createClient = async (req, res, next) => {
     // Agency staff/admin can still set provider_id explicitly.
     let resolvedProviderId = null;
     const roleNorm2 = String(userRole || '').toLowerCase();
-    if (roleNorm2 === 'provider') {
+    if (recordsImport && resolvedClientType === 'school') {
+      if (provider_id != null && provider_id !== '') {
+        return res.status(400).json({ error: { message: 'Save the school chart before assigning its provider.' } });
+      }
+    } else if (roleNorm2 === 'provider') {
       resolvedProviderId = userId;
     } else if (provider_id !== undefined && provider_id !== null && provider_id !== '') {
       const parsedProviderId = parseInt(provider_id, 10);
@@ -8293,21 +8303,69 @@ export const removeClientAffiliation = async (req, res, next) => {
     const access = await ensureAgencyAccessToClient({ userId, role, clientId });
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
+    const importAgencyId = Number(req.query?.importAgencyId || 0);
+    const replacementSchoolId = Number(req.query?.replacementSchoolId || 0);
+    if (req.query?.importAgencyId != null && (!Number.isSafeInteger(importAgencyId) || importAgencyId < 1
+        || Number(req.get('X-Agency-Id')) !== importAgencyId
+        || Number(access.client.agency_id) !== importAgencyId
+        || !Number.isSafeInteger(replacementSchoolId) || replacementSchoolId < 0 || replacementSchoolId === orgId)) {
+      return res.status(400).json({ error: { message: 'Choose a replacement school in this client’s agency.' } });
+    }
+
     const connection = await pool.getConnection();
     try {
       await connection.beginTransaction();
 
-      // Prevent removing the primary affiliation (must pick a new primary first).
+      const [[chart]] = await connection.execute(
+        `SELECT c.agency_id,c.organization_id,c.provider_id,
+           (SELECT s.status_key FROM client_statuses s WHERE s.id=c.client_status_id) AS status_key
+         FROM clients c WHERE c.id=? FOR UPDATE`, [clientId]
+      );
+      if (importAgencyId && (Number(chart?.agency_id) !== importAgencyId
+        || !await isOrgLinkedToAgency({ connection, agencyId: importAgencyId, organizationId: orgId })
+        || (await Agency.findById(orgId))?.organization_type !== 'school')) {
+        await connection.rollback();
+        return res.status(404).json({ error: { message: 'School affiliation is unavailable for this client.' } });
+      }
+      // The import can replace the school and remove the old affiliation in one transaction.
       const [primaryRows] = await connection.execute(
-        `SELECT is_primary FROM client_organization_assignments WHERE client_id = ? AND organization_id = ? LIMIT 1 FOR UPDATE`,
+        `SELECT is_primary, is_active FROM client_organization_assignments WHERE client_id = ? AND organization_id = ? LIMIT 1 FOR UPDATE`,
         [clientId, orgId]
       );
-      if (primaryRows?.[0]?.is_primary) {
+      const isPrimary = Number(primaryRows?.[0]?.is_primary) === 1 || Number(chart?.organization_id) === orgId;
+      if (!importAgencyId && primaryRows?.[0]?.is_primary) {
         await connection.rollback();
         return res.status(400).json({ error: { message: 'Cannot remove the primary affiliation. Set a different primary first.' } });
       }
 
+      if (importAgencyId && !isPrimary && !Number(primaryRows?.[0]?.is_active)) {
+        await connection.commit();
+        return res.json({ ok: true, organizationId: Number(chart.organization_id) || null });
+      }
+
+      let nextOrganizationId = Number(chart?.organization_id) || null;
+      if (importAgencyId && isPrimary) {
+        if (replacementSchoolId) {
+          const [[replacement]] = await connection.execute(
+            `SELECT a.id FROM client_organization_assignments coa JOIN agencies a ON a.id=coa.organization_id
+             WHERE coa.client_id=? AND coa.organization_id=? AND coa.is_active=1
+               AND a.organization_type='school' AND a.is_active=1 AND COALESCE(a.is_archived,0)=0`,
+            [clientId, replacementSchoolId]
+          );
+          if (!replacement || !await isOrgLinkedToAgency({connection, agencyId: importAgencyId, organizationId: replacementSchoolId})) {
+            await connection.rollback();
+            return res.status(400).json({ error: { message: 'Choose a school already linked to this chart in this agency.' } });
+          }
+        }
+        nextOrganizationId = replacementSchoolId || importAgencyId;
+        await connection.execute(
+          'UPDATE client_organization_assignments SET is_primary=(is_active=1 AND organization_id=?) WHERE client_id=? AND (is_primary=1 OR organization_id=?)',
+          [nextOrganizationId, clientId, nextOrganizationId]
+        );
+      }
+
       // Refund slots for all active provider assignments in this org and deactivate them.
+      let removedCurrentProvider = false;
       try {
         const [assignRows] = await connection.execute(
           `SELECT id, provider_user_id, service_day
@@ -8316,14 +8374,15 @@ export const removeClientAffiliation = async (req, res, next) => {
            FOR UPDATE`,
           [clientId, orgId]
         );
-        for (const a of assignRows || []) {
-          if (a?.provider_user_id && a?.service_day) {
+        removedCurrentProvider = assignRows.some(row => Number(row.provider_user_id) === Number(chart?.provider_id));
+        for (const a of assignRows) {
+          if (a?.provider_user_id && a?.service_day && (!importAgencyId || clientStatusConsumesProviderSlot(chart.status_key))) {
             // eslint-disable-next-line no-await-in-loop
             await adjustProviderSlots(connection, { providerUserId: a.provider_user_id, schoolId: orgId, dayOfWeek: a.service_day, delta: +1 });
           }
           // eslint-disable-next-line no-await-in-loop
           await connection.execute(
-            `UPDATE client_provider_assignments SET is_active = FALSE, updated_by_user_id = ? WHERE id = ?`,
+            `UPDATE client_provider_assignments SET is_active = FALSE, is_primary = FALSE, updated_by_user_id = ? WHERE id = ?`,
             [userId, a.id]
           );
         }
@@ -8336,13 +8395,64 @@ export const removeClientAffiliation = async (req, res, next) => {
       // Deactivate affiliation
       await connection.execute(
         `UPDATE client_organization_assignments
-         SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP
+         SET is_active = FALSE, is_primary = FALSE, updated_at = CURRENT_TIMESTAMP
          WHERE client_id = ? AND organization_id = ?`,
         [clientId, orgId]
       );
 
+      if (importAgencyId && (isPrimary || removedCurrentProvider)) {
+        const [[provider]] = nextOrganizationId && nextOrganizationId !== importAgencyId ? await connection.execute(
+          `SELECT a.provider_user_id,a.service_day FROM client_provider_assignments a
+            JOIN users u ON u.id=a.provider_user_id AND u.is_active=1 AND COALESCE(u.is_archived,0)=0 AND u.terminated_at IS NULL
+            WHERE a.client_id=? AND a.organization_id=? AND a.is_active=1
+            ORDER BY a.is_primary DESC,a.id LIMIT 1`, [clientId, nextOrganizationId]
+        ) : [[]];
+        await connection.execute(
+          'UPDATE clients SET organization_id=?,provider_id=?,service_day=?,updated_by_user_id=? WHERE id=? AND agency_id=?',
+          [nextOrganizationId, provider?.provider_user_id || null, provider?.service_day || null, userId, clientId, importAgencyId]
+        );
+      }
+
+      if (importAgencyId) {
+        // Clear defaults tied to the removed school while preserving explicit office settings.
+        for (const table of ['clients', 'client_agency_assignments']) {
+          const clientColumn = table === 'clients' ? 'id' : 'client_id';
+          await connection.execute(
+            `UPDATE ${table} c LEFT JOIN agency_service_locations l ON l.id=c.default_service_location_id
+             SET c.default_place_of_service=CASE WHEN c.default_place_of_service='03' THEN NULL ELSE c.default_place_of_service END,
+                 c.default_service_location_id=NULL
+             WHERE c.${clientColumn}=? AND c.agency_id=?
+               AND (l.school_organization_id=? OR (? AND c.default_place_of_service='03' AND l.id IS NULL))`,
+            [clientId, importAgencyId, orgId, isPrimary]
+          );
+        }
+        await connection.execute(
+          `UPDATE client_service_enrollments SET is_active=0,service_status='discontinued',ended_at=UTC_TIMESTAMP(),updated_by_user_id=?
+           WHERE client_id=? AND agency_id=? AND organization_id=? AND is_active=1`,
+          [userId, clientId, importAgencyId, orgId]
+        );
+        await connection.execute(
+          "UPDATE school_client_status_email_states SET state_hash='' WHERE client_id=? AND school_organization_id=?",
+          [clientId, orgId]
+        );
+        await connection.execute(
+          "UPDATE school_client_status_emails SET delivery_status='obsolete' WHERE client_id=? AND school_organization_id=? AND delivery_status='pending'",
+          [clientId, orgId]
+        );
+        await connection.execute(
+          `INSERT INTO client_status_history (client_id,changed_by_user_id,field_changed,from_value,to_value,note)
+           VALUES (?,?,'school_affiliation',?,?,?)`,
+          [clientId, userId, String(orgId), isPrimary && replacementSchoolId ? String(replacementSchoolId) : null,
+            'Removed a school affiliation during records import.']
+        );
+      }
+
       await connection.commit();
-      res.json({ ok: true });
+      if (importAgencyId) {
+        await logAuditEvent(req, { actionType: 'client_import_school_affiliation_removed', agencyId: importAgencyId,
+          targetType: 'client', targetId: clientId, metadata: { organizationId: orgId, replacementSchoolId: replacementSchoolId || null } });
+      }
+      res.json(importAgencyId ? { ok: true, organizationId: nextOrganizationId } : { ok: true });
     } catch (e) {
       try { await connection.rollback(); } catch { /* ignore */ }
       throw e;
@@ -8735,6 +8845,8 @@ export const upsertClientProviderAssignment = async (req, res, next) => {
       }
       let slotConsumingClient = clientStatusConsumesProviderSlot(clientStatusKey);
 
+      // Serialize roster assignment changes with affiliation removal.
+      await connection.execute('SELECT id FROM clients WHERE id = ? FOR UPDATE', [clientId]);
       // Ensure client is affiliated to this org
       const [affRows] = await connection.execute(
         `SELECT is_active FROM client_organization_assignments WHERE client_id = ? AND organization_id = ? LIMIT 1`,
@@ -8752,7 +8864,6 @@ export const upsertClientProviderAssignment = async (req, res, next) => {
         req.body?.allow_over_capacity === true || req.body?.allow_over_capacity === 1 || req.body?.allow_over_capacity === '1';
 
       // Serialize retries, and include inactive rows: the unique key survives termination.
-      await connection.execute('SELECT id FROM clients WHERE id = ? FOR UPDATE', [clientId]);
       const [assignmentRows] = await connection.execute(
         `SELECT id, is_active, is_primary, service_day
          FROM client_provider_assignments
@@ -8895,7 +9006,8 @@ export const upsertClientProviderAssignment = async (req, res, next) => {
       await afterScopedProviderAssignmentChanged(connection, {
         clientId,
         userId,
-        forceLegacy: requestedPrimary
+        forceLegacy: requestedPrimary,
+        assignmentSchoolId: orgId
       });
 
       let savedAlertText = '';

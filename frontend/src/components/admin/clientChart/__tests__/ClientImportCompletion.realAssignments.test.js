@@ -94,9 +94,10 @@ it('saves and closes the outer add-client modal with a real unfinished provider 
 });
 
 it('saves the current import and opens a different client without committing the pending office defaults',async()=>{
- const w=renderCreate();await flushPromises();await w.findAll('button').find(b=>b.text()==='Save this import and add a different client').trigger('click');await flushPromises();
+ const confirm=vi.spyOn(window,'confirm').mockReturnValue(true);
+ const w=renderCreate();await flushPromises();await w.findAll('button').find(b=>b.text()==='Save this chart’s import and choose a different client').trigger('click');await flushPromises();
  expect(w.get('textarea[data-section=demographics]').element.value).toBe('');expect(w.text()).toContain('Create chart and import sections');expect(w.text()).not.toContain('Chart #12 is saved');
- expect(JSON.parse(savedAssignment)).toMatchObject({defaults:{officeId:'21'}});expect(m.post.mock.calls.some(([url])=>url==='/clients')).toBe(false);w.unmount();
+ expect(JSON.parse(savedAssignment)).toMatchObject({defaults:{officeId:'21'}});expect(m.post.mock.calls.some(([url])=>url==='/clients')).toBe(false);w.unmount();confirm.mockRestore();
 });
 
 it('shows completion and allows the next client before the completed chart refresh returns',async()=>{

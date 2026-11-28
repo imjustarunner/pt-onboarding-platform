@@ -16,6 +16,7 @@ export function transitionImportOperation(method,path,body={}){
  const clientId=Number(match[1]),suffix=match[2];
  if(method==='GET'&&['','/service-enrollments','/agency-affiliations','/affiliations','/provider-assignments'].includes(suffix))return {clientId};
  if(method==='POST'&&['/service-enrollments','/agency-affiliations','/affiliations','/provider-assignments','/demographics/parse','/demographics/import'].includes(suffix))return {clientId};
+ if(method==='DELETE'&&/^\/affiliations\/\d+$/.test(suffix))return {clientId};
  if(method==='PUT'&&suffix==='/provider')return {clientId};
  if(method==='POST'&&suffix==='/intake-note/import'&&body.recordsImport&&typeof body.recordsImport==='object'&&!body.finalize&&!body.signature)return {clientId};
  const imports={GET:/^\/chart-import\/(?:drafts(?:\/[a-zA-Z_]+)?|records|contacts\/preview|responsible-billing-contact|payer-readiness|medical-history(?:\/\d+\/view)?)$/,
@@ -27,7 +28,7 @@ export async function transitionClientImportAccess(req,res,next){
  try{
   if(['admin','super_admin'].includes(req.user?.role))return next();
   const path=new URL(req.originalUrl,'https://app.invalid').pathname.replace(/\/$/,'');
-  const operation=transitionImportOperation(req.method,path,req.body);if(!operation)return next();
+  const operation=transitionImportOperation(req.method,path,req.body);if(!operation || (req.method==='DELETE' && Number(req.query?.importAgencyId)!==Number(req.get?.('X-Agency-Id'))))return next();
   const raw=[req.get?.('X-Agency-Id'),req.query?.agencyId,req.query?.agency_id,req.body?.agencyId,req.body?.agency_id,...String(req.query?.agencyIds||'').split(',')].filter(v=>v!=null&&String(v).trim());
   const requested=[...new Set(raw.map(Number))];if(requested.some(v=>!Number.isSafeInteger(v)||v<1)||requested.length>1)return next();
   let agencyId=requested[0]||null;

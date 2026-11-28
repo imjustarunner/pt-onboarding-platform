@@ -107,3 +107,12 @@ it('allows the same eligible provider to deliver counseling and a separate enabl
  await saveClientService({clientId:4,agencyId:6,userId:9,input:{serviceKind:'tutoring',label:'Tutoring',providerUserId:20}});
  expect(pool.execute).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO client_service_enrollments'),[4,6,'tutoring',20,0,'Tutoring',9,9]);
 });
+
+it('scopes new school counseling to the school without reusing another school’s placeholder',async()=>{
+ records=[seed];
+ await ensureClientService({clientId:4,agencyId:6,providerUserId:20,serviceKind:'counseling',userId:9,organizationId:33});
+ const writes=pool.execute.mock.calls.filter(([sql])=>/^(UPDATE|INSERT)/.test(sql));
+ expect(writes).toHaveLength(1);
+ expect(writes[0][0]).toContain('INSERT IGNORE INTO client_service_enrollments');
+ expect(writes[0][1]).toEqual([4,6,20,9,9,33]);
+});

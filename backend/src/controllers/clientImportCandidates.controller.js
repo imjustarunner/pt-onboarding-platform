@@ -3,7 +3,7 @@ import pool from '../config/database.js';
 import { assertEnrollmentAgencyMembership } from '../services/enrollmentAgencyAccess.service.js';
 import { hasTerminalClientStatus } from '../services/clientTerminationRoster.service.js';
 import { beginClientChartImport } from '../services/clientChartImportProgress.service.js';
-import { resolveClientImportSchool, syncClientImportSchoolSetup } from '../services/clientImportSchoolSetup.service.js';
+import { syncClientImportSchoolSetup } from '../services/clientImportSchoolSetup.service.js';
 import { requireClientChartImportAccess } from '../services/clientChartImportAccess.service.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
 
@@ -80,7 +80,7 @@ export async function mergeClientRecordsImport(req, res, next) {
   let db;
   try {
     const agencyId = await agencyFor(req), clientId = Number(req.params.id), actorId = Number(req.user.id);
-    const { fullName, dateOfBirth, expectedName, expectedDateOfBirth, schoolOrganizationId } = req.body || {};
+    const { fullName, dateOfBirth, expectedName, expectedDateOfBirth } = req.body || {};
     if (!Number.isSafeInteger(clientId) || clientId < 1 || req.body?.confirmed !== true ||
         typeof fullName !== 'string' || !fullName.trim() || fullName.length > 255 ||
         (dateOfBirth && !/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth))) {
@@ -98,14 +98,6 @@ export async function mergeClientRecordsImport(req, res, next) {
         || !sameClientEvidence(client, fullName, day(dateOfBirth))) {
       throw fail(409,'The chart identity no longer matches the reviewed candidate. Refresh the matches and review this client again.');
     }
-    const school = await resolveClientImportSchool({clientId,agencyId,requestedSchoolId:schoolOrganizationId},db);
-    if (schoolOrganizationId && !school) throw fail(400,'Choose a school linked to this agency.');
-    if (school) {
-      await db.execute(`INSERT INTO client_organization_assignments (client_id,organization_id,is_primary,is_active)
-        VALUES (?,?,1,1) ON DUPLICATE KEY UPDATE is_primary=1,is_active=1`,[clientId,school.id]);
-      await db.execute('UPDATE client_organization_assignments SET is_primary=0 WHERE client_id=? AND organization_id<>? AND is_primary=1',[clientId,school.id]);
-      await db.execute("UPDATE clients SET organization_id=?, client_type='school', updated_by_user_id=? WHERE id=? AND agency_id=?",[school.id,actorId,clientId,agencyId]);
-    }
     if (req.body?.manualIdentity===true) {
       await db.execute(`UPDATE clients SET full_name=?,date_of_birth=COALESCE(?,date_of_birth),updated_by_user_id=?
         WHERE id=? AND agency_id=?`,[fullName.trim(),dateOfBirth||null,actorId,clientId,agencyId]);
@@ -113,9 +105,9 @@ export async function mergeClientRecordsImport(req, res, next) {
     if (!client.records_import_status) await beginClientChartImport({clientId,agencyId},[],actorId,{db});
     await db.commit();
     await logAuditEvent(req,{actionType:'client_records_import_matched_existing',agencyId,targetType:'client',targetId:clientId,
-      metadata:{schoolOrganizationId:school?.id || null}});
-    res.set('Cache-Control','no-store').json({id:clientId,agency_id:agencyId,organization_id:school?.id||client.organization_id,
-      client_type:school?'school':client.client_type});
+      metadata:{organizationId:client.organization_id || null}});
+    res.set('Cache-Control','no-store').json({id:clientId,agency_id:agencyId,organization_id:client.organization_id,
+      client_type:client.client_type});
   } catch(error) {
     if (db) await db.rollback();
     next(error);
